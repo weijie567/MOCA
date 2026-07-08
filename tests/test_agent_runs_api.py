@@ -5,6 +5,7 @@ import contextlib
 import inspect
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -49,6 +50,16 @@ from src.memory.case_working_context_lifecycle import CaseWorkingContextLifecycl
 from src.platform.context_projections import project_to_legacy_agent_state_identity
 from src.platform.trusted_context import TrustedContext
 from src.tools.contracts import BusinessFactRefV1, ToolResultV2
+
+
+LEGACY_CURRENT_NODE_NAMES = {
+    "classify_intent",
+    "session_memory_load",
+    "extract_slots",
+    "long_term_memory_retrieve",
+    "generate_recommendation",
+    "assess_risk_and_approval",
+}
 
 
 class NeverCalledGraph:
@@ -126,7 +137,7 @@ class ThreeTurnMemoryGraph:
             },
             "final_response": f"已基于当前工具和政策证据处理 {active_slots['order_id']}。",
             "trace_steps": [
-                _trace("extract_slots"),
+                _trace("slot_resolution_gate"),
                 _trace("investigate"),
                 _trace("final_response"),
             ],
@@ -146,7 +157,7 @@ class ThreeTurnMemoryGraph:
                 "last_business_context_refs": final_state["last_business_context_refs"],
             }
         )
-        yield ("extract_slots", {"active_slots": active_slots, "active_slot_metadata": active_slot_metadata})
+        yield ("slot_resolution_gate", {"active_slots": active_slots, "active_slot_metadata": active_slot_metadata})
         yield ("investigate", {"retrieved_evidence": final_state["retrieved_evidence"]})
         yield ("final_response", final_state)
 
@@ -307,7 +318,7 @@ class SpoofInterruptInvokeGraph:
         return FakeStateSnapshot(
             {
                 "current_run_id": self.checkpoint_run_id,
-                "trace_steps": [_trace("assess_risk_and_approval")],
+                "trace_steps": [_trace("risk_gate")],
             }
         )
 
@@ -422,7 +433,7 @@ class GatedLifecycleGraph:
 class MissingFinalResponseGraph:
     async def astream(self, input_state, config, stream_mode):
         yield (
-            "assess_risk_and_approval",
+            "risk_gate",
             {
                 "current_intent": "refund_troubleshooting",
                 "recommendation_draft": {
@@ -446,7 +457,7 @@ class MissingFinalResponseGraph:
                 },
                 "trace_steps": [
                     {
-                        "node": "assess_risk_and_approval",
+                        "node": "risk_gate",
                         "status": "completed",
                         "started_at": datetime.now(UTC).isoformat(),
                         "completed_at": datetime.now(UTC).isoformat(),
@@ -565,7 +576,7 @@ class StreamInterruptGraph:
             created_by=UUID(input_state["user_id"]),
         )
         yield (
-            "assess_risk_and_approval",
+            "risk_gate",
             {
                 "risk_assessment": {
                     "risk_level": "high",
@@ -584,7 +595,7 @@ class StreamInterruptGraph:
                 "evidence_refs": [evidence_ref.model_dump(mode="json", exclude_none=True)],
                 "trace_steps": [
                     {
-                        "node": "assess_risk_and_approval",
+                        "node": "risk_gate",
                         "status": "completed",
                         "started_at": datetime.now(UTC).isoformat(),
                         "completed_at": datetime.now(UTC).isoformat(),
@@ -969,7 +980,7 @@ def test_extract_step_payload_counts_v2_evidence_refs():
     assert payload["evidence_count"] == 2
 
 
-def test_sse_event_projects_target_node_name_without_rewriting_legacy_node_name():
+def test_sse_event_does_not_translate_legacy_node_name_as_current_runtime():
     event = _sse_event(
         event_type="step_completed",
         run_id="run-graph-projection",
@@ -983,8 +994,31 @@ def test_sse_event_projects_target_node_name_without_rewriting_legacy_node_name(
     data = json.loads(event["data"])
 
     assert data["node_name"] == "extract_slots"
-    assert data["target_node_name"] == "slot_resolution_gate"
+    assert data["target_node_name"] == "extract_slots"
     assert data["payload"] == {"tool_name": "slot_parser"}
+
+
+def test_agent_run_sse_node_messages_are_canonical_current_vocabulary_only() -> None:
+    for legacy_node in LEGACY_CURRENT_NODE_NAMES:
+        assert legacy_node not in NODE_MESSAGES
+
+    for canonical_node in {
+        "contextual_intent_resolve",
+        "slot_resolution_gate",
+        "memory_context_load",
+        "recommendation_generation",
+        "risk_gate",
+    }:
+        assert NODE_MESSAGES[canonical_node]
+
+
+def test_frontend_timeline_label_map_is_canonical_current_vocabulary_only() -> None:
+    source = Path("frontend/src/components/timeline/TimelineStep.tsx").read_text(encoding="utf-8")
+
+    assert "recommendation_generation:" in source
+    assert "risk_gate:" in source
+    for legacy_node in LEGACY_CURRENT_NODE_NAMES:
+        assert f"{legacy_node}:" not in source
 
 
 def test_sse_event_projects_runtime_slot_resolution_node_identity():
@@ -1030,7 +1064,6 @@ def test_sse_event_projects_runtime_memory_context_load_node_identity_without_me
 
 def test_sse_event_projects_phase56_recommendation_nodes_and_labels_current_runtime() -> None:
     assert NODE_MESSAGES["recommendation_generation"] == "正在生成处理建议"
-    assert NODE_MESSAGES["generate_recommendation"] == "正在生成处理建议"
 
     event = _sse_event(
         event_type="step_completed",
@@ -1050,21 +1083,21 @@ def test_sse_event_projects_phase56_recommendation_nodes_and_labels_current_runt
     assert data["payload"] == {"short_summary": "issue_coupon"}
 
 
-def test_sse_event_projects_historical_generate_recommendation_without_rewriting_node() -> None:
+def test_sse_event_preserves_unexpected_legacy_recommendation_node_without_translation() -> None:
     event = _sse_event(
         event_type="step_completed",
         run_id="run-phase56-historical-recommendation",
         step_index=4,
         node_name="generate_recommendation",
         status="completed",
-        message=NODE_MESSAGES["generate_recommendation"],
+        message="historical stored row display",
         payload={"short_summary": "manual_review"},
     )
 
     data = json.loads(event["data"])
 
     assert data["node_name"] == "generate_recommendation"
-    assert data["target_node_name"] == "recommendation_generation"
+    assert data["target_node_name"] == "generate_recommendation"
     assert data["payload"] == {"short_summary": "manual_review"}
 
 
@@ -1089,28 +1122,27 @@ def test_sse_event_projects_phase57_risk_gate_node_and_label_current_runtime() -
     assert data["payload"] == {"risk_level": "high"}
 
 
-def test_sse_event_projects_historical_assess_risk_without_rewriting_node() -> None:
+def test_sse_event_preserves_unexpected_legacy_risk_node_without_translation() -> None:
     event = _sse_event(
         event_type="step_completed",
         run_id="run-phase57-historical-risk",
         step_index=5,
         node_name="assess_risk_and_approval",
         status="completed",
-        message=NODE_MESSAGES["assess_risk_and_approval"],
+        message="historical stored row display",
         payload={"risk_level": "manual_review"},
     )
 
     data = json.loads(event["data"])
 
     assert data["node_name"] == "assess_risk_and_approval"
-    assert data["target_node_name"] == "risk_gate"
+    assert data["target_node_name"] == "assess_risk_and_approval"
     assert data["payload"] == {"risk_level": "manual_review"}
 
 
-@pytest.mark.parametrize("node_name", ["recommendation_generation", "generate_recommendation"])
-def test_extract_step_payload_reads_recommendation_draft_for_current_and_historical_nodes(node_name: str) -> None:
+def test_extract_step_payload_reads_recommendation_draft_for_current_recommendation_node() -> None:
     payload = _extract_step_payload(
-        node_name,
+        "recommendation_generation",
         {
             "recommendation_draft": {
                 "recommended_action": "manual_review",
@@ -1122,10 +1154,23 @@ def test_extract_step_payload_reads_recommendation_draft_for_current_and_histori
     assert payload == {"short_summary": "manual_review"}
 
 
-@pytest.mark.parametrize("node_name", ["risk_gate", "assess_risk_and_approval"])
-def test_extract_step_payload_reads_risk_level_for_current_and_historical_nodes(node_name: str) -> None:
+def test_extract_step_payload_ignores_legacy_recommendation_node_payload_branch() -> None:
     payload = _extract_step_payload(
-        node_name,
+        "generate_recommendation",
+        {
+            "recommendation_draft": {
+                "recommended_action": "manual_review",
+                "short_summary": "legacy branch should not project",
+            }
+        },
+    )
+
+    assert payload == {}
+
+
+def test_extract_step_payload_reads_risk_level_for_current_risk_node() -> None:
+    payload = _extract_step_payload(
+        "risk_gate",
         {
             "risk_assessment": {
                 "risk_level": "manual_review",
@@ -1136,6 +1181,21 @@ def test_extract_step_payload_reads_risk_level_for_current_and_historical_nodes(
     )
 
     assert payload == {"risk_level": "manual_review"}
+
+
+def test_extract_step_payload_ignores_legacy_risk_node_payload_branch() -> None:
+    payload = _extract_step_payload(
+        "assess_risk_and_approval",
+        {
+            "risk_assessment": {
+                "risk_level": "manual_review",
+                "risk_reason": "Historical row only.",
+                "approval_required": False,
+            }
+        },
+    )
+
+    assert payload == {}
 
 
 @pytest.mark.asyncio

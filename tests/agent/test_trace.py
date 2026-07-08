@@ -106,7 +106,7 @@ def test_trace_summary_counts_v2_evidence_refs():
     assert summary["evidence_count"] == 2
 
 
-def test_trace_summary_projects_target_graph_names_without_rewriting_legacy_nodes():
+def test_trace_summary_projects_historical_stored_graph_names_without_rewriting_rows():
     summary = build_trace_summary(
         "run-graph-projection",
         {
@@ -139,20 +139,20 @@ def test_trace_summary_projects_target_graph_names_without_rewriting_legacy_node
         {
             "implementation_node": "classify_intent",
             "target_node": "contextual_intent_resolve",
-            "target_graph_status": "compatibility_alias",
-            "target_graph_runnable": True,
+            "target_graph_status": "historical_projection",
+            "target_graph_runnable": False,
         },
         {
             "implementation_node": "extract_slots",
             "target_node": "slot_resolution_gate",
-            "target_graph_status": "compatibility_alias",
-            "target_graph_runnable": True,
+            "target_graph_status": "historical_projection",
+            "target_graph_runnable": False,
         },
         {
             "implementation_node": "route_after_slots",
             "target_node": "route_after_slot_resolution",
-            "target_graph_status": "compatibility_alias",
-            "target_graph_runnable": True,
+            "target_graph_status": "historical_projection",
+            "target_graph_runnable": False,
         },
         {
             "implementation_node": "rag_context_build",
@@ -201,7 +201,7 @@ def test_trace_summary_projects_phase54_runtime_slot_resolution_names() -> None:
     ]
 
 
-def test_trace_summary_projects_phase55_memory_runtime_and_compatibility_names() -> None:
+def test_trace_summary_projects_phase55_memory_runtime_and_historical_stored_names() -> None:
     summary = build_trace_summary(
         "run-phase55-memory-projection",
         {
@@ -230,14 +230,14 @@ def test_trace_summary_projects_phase55_memory_runtime_and_compatibility_names()
         {
             "implementation_node": "long_term_memory_retrieve",
             "target_node": "memory_context_load",
-            "target_graph_status": "compatibility_alias",
-            "target_graph_runnable": True,
+            "target_graph_status": "historical_projection",
+            "target_graph_runnable": False,
         },
         {
             "implementation_node": "reviewed_memory_context_retrieve",
             "target_node": "memory_context_load",
-            "target_graph_status": "compatibility_alias",
-            "target_graph_runnable": True,
+            "target_graph_status": "historical_projection",
+            "target_graph_runnable": False,
         },
         {
             "implementation_node": "memory_context_load",
@@ -248,7 +248,7 @@ def test_trace_summary_projects_phase55_memory_runtime_and_compatibility_names()
     ]
 
 
-def test_trace_summary_projects_phase56_recommendation_runtime_and_historical_names() -> None:
+def test_trace_summary_projects_phase56_recommendation_runtime_and_historical_stored_names() -> None:
     summary = build_trace_summary(
         "run-phase56-recommendation-projection",
         {
@@ -274,8 +274,8 @@ def test_trace_summary_projects_phase56_recommendation_runtime_and_historical_na
         {
             "implementation_node": "generate_recommendation",
             "target_node": "recommendation_generation",
-            "target_graph_status": "compatibility_alias",
-            "target_graph_runnable": True,
+            "target_graph_status": "historical_projection",
+            "target_graph_runnable": False,
         },
         {
             "implementation_node": "recommendation_generation",
@@ -286,7 +286,7 @@ def test_trace_summary_projects_phase56_recommendation_runtime_and_historical_na
     ]
 
 
-def test_trace_summary_projects_phase57_risk_runtime_and_historical_names() -> None:
+def test_trace_summary_projects_phase57_risk_runtime_and_historical_stored_names() -> None:
     summary = build_trace_summary(
         "run-phase57-risk-projection",
         {
@@ -312,7 +312,7 @@ def test_trace_summary_projects_phase57_risk_runtime_and_historical_names() -> N
         {
             "implementation_node": "assess_risk_and_approval",
             "target_node": "risk_gate",
-            "target_graph_status": "compatibility_alias",
+            "target_graph_status": "historical_projection",
             "target_graph_runnable": False,
         },
         {
@@ -359,6 +359,16 @@ def test_trace_summary_projects_phase53_contextual_intent_as_runtime():
 
 
 def test_phase53_sse_labels_cover_canonical_runtime_nodes():
+    for legacy_node in {
+        "classify_intent",
+        "session_memory_load",
+        "extract_slots",
+        "long_term_memory_retrieve",
+        "generate_recommendation",
+        "assess_risk_and_approval",
+    }:
+        assert legacy_node not in NODE_MESSAGES
+
     assert "session_context_load" in NODE_MESSAGES
     assert "contextual_intent_resolve" in NODE_MESSAGES
     assert "slot_resolution_gate" in NODE_MESSAGES

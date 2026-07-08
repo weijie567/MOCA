@@ -314,7 +314,7 @@ def test_build_timeline_merges_all_event_types_correctly():
     assert "payload" not in timeline[3]["detail"]
 
 
-def test_build_timeline_projects_router_step_target_node():
+def test_build_timeline_projects_historical_router_step_target_node():
     now = datetime.now(UTC)
     repo = TraceRepository(SimpleNamespace())
 
@@ -370,7 +370,9 @@ def test_build_timeline_projects_runtime_slot_resolution_router_identity():
         ("memory_context_load", "memory_context_load"),
     ],
 )
-def test_build_timeline_projects_phase55_memory_node_identities(node_name: str, target_node: str):
+def test_build_timeline_projects_phase55_memory_runtime_and_historical_node_identities(
+    node_name: str, target_node: str
+):
     now = datetime.now(UTC)
     repo = TraceRepository(SimpleNamespace())
 
@@ -401,7 +403,9 @@ def test_build_timeline_projects_phase55_memory_node_identities(node_name: str, 
         ("recommendation_generation", "recommendation_generation"),
     ],
 )
-def test_build_timeline_projects_phase56_recommendation_node_identities(node_name: str, target_node: str):
+def test_build_timeline_projects_phase56_recommendation_runtime_and_historical_node_identities(
+    node_name: str, target_node: str
+):
     now = datetime.now(UTC)
     repo = TraceRepository(SimpleNamespace())
 
@@ -432,7 +436,9 @@ def test_build_timeline_projects_phase56_recommendation_node_identities(node_nam
         ("risk_gate", "risk_gate"),
     ],
 )
-def test_build_timeline_projects_phase57_risk_node_identities(node_name: str, target_node: str):
+def test_build_timeline_projects_phase57_risk_runtime_and_historical_node_identities(
+    node_name: str, target_node: str
+):
     now = datetime.now(UTC)
     repo = TraceRepository(SimpleNamespace())
 
