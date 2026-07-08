@@ -16,9 +16,26 @@ GRAPH_VOCABULARY_PATH = ROOT / "src" / "agent" / "graph_vocabulary.py"
 ROUTING_PATH = ROOT / "src" / "agent" / "routing.py"
 RAG_NODE_PATH = ROOT / "src" / "agent" / "nodes" / "rag_context_build.py"
 CLAIM_NODE_PATH = ROOT / "src" / "agent" / "nodes" / "claim_verify.py"
-RECOMMENDATION_NODE_PATH = ROOT / "src" / "agent" / "nodes" / "generate_recommendation.py"
+RECOMMENDATION_NODE_PATH = ROOT / "src" / "agent" / "nodes" / "recommendation_generation.py"
 SUMMARY_PROJECTION_PATH = ROOT / "src" / "agent" / "rag_claim_summary.py"
 PHASE33_DIR = ROOT / ".planning" / "phases" / "33-rag-context-build-and-claim-verification"
+DELETED_PHASE58_WRAPPER_PATHS = (
+    ROOT / "src" / "agent" / "nodes" / "generate_recommendation.py",
+    ROOT / "src" / "agent" / "nodes" / "assess_risk_and_approval.py",
+)
+DELETED_PHASE58_DIRECT_TEST_PATHS = (
+    ROOT / "tests" / "agent" / "test_nodes" / "test_generate_recommendation.py",
+    ROOT / "tests" / "agent" / "test_nodes" / "test_assess_risk_and_approval.py",
+)
+DELETED_PHASE58_WRAPPER_MODULES = {
+    "src.agent.nodes.generate_recommendation",
+    "src.agent.nodes.assess_risk_and_approval",
+}
+PHASE58_COMPATIBILITY_MARKERS = (
+    "DELETE_BY_PHASE_58",
+    "PHASE_56_COMPATIBILITY_ALIAS",
+    "PHASE_57_COMPATIBILITY_ALIAS",
+)
 
 RAG_WRITER_KEYS = {
     "rag_context_status",
@@ -164,6 +181,25 @@ def test_writer_ownership_is_limited_to_phase33_target_fields() -> None:
     assert RAG_WRITER_KEYS.isdisjoint(claim_keys)
     assert "material_claims" in recommendation_keys
     assert (RAG_WRITER_KEYS | CLAIM_WRITER_KEYS).isdisjoint(recommendation_keys)
+
+
+def test_phase58_recommendation_risk_wrappers_and_legacy_direct_tests_are_deleted() -> None:
+    assert [path.relative_to(ROOT).as_posix() for path in DELETED_PHASE58_WRAPPER_PATHS if path.exists()] == []
+    assert [path.relative_to(ROOT).as_posix() for path in DELETED_PHASE58_DIRECT_TEST_PATHS if path.exists()] == []
+
+    violations: list[tuple[str, str]] = []
+    for base in (ROOT / "src" / "agent" / "nodes", ROOT / "tests" / "agent" / "test_nodes"):
+        for path in sorted(base.glob("**/*.py")):
+            for module in _import_targets(path):
+                if module in DELETED_PHASE58_WRAPPER_MODULES:
+                    violations.append((path.relative_to(ROOT).as_posix(), module))
+
+            source = _source(path)
+            for marker in PHASE58_COMPATIBILITY_MARKERS:
+                if marker in source:
+                    violations.append((path.relative_to(ROOT).as_posix(), marker))
+
+    assert violations == []
 
 
 def test_rag_claim_nodes_do_not_bypass_repositories_or_raw_database_access() -> None:

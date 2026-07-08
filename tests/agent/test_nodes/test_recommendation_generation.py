@@ -8,7 +8,6 @@ import pytest
 from pydantic import BaseModel
 
 from src.agent.context import PromptAssembly
-from src.agent.nodes import generate_recommendation as legacy_recommendation_module
 from src.agent.nodes import recommendation_generation as recommendation_generation_module
 from src.knowledge.config import MAX_EVIDENCE_TEXT_CHARS, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
@@ -283,21 +282,6 @@ def test_recommendation_generation_module_owns_implementation_without_legacy_imp
     assert hasattr(recommendation_generation_module, "_risk_hints_from_state")
 
 
-def test_legacy_generate_recommendation_wrapper_no_longer_owns_phase58_metadata():
-    source = inspect.getsource(legacy_recommendation_module)
-    for marker in (
-        "PHASE_56_COMPATIBILITY_ALIAS",
-        "HISTORICAL_TRACE_PROJECTION",
-        "IMPORT_TEST_COMPATIBILITY",
-        "DELETE_BY_PHASE_58",
-        "_LEGACY_NODE",
-        "_CANONICAL_NODE",
-        "_generate_recommendation_with_identity",
-    ):
-        assert marker not in source
-    assert "src.agent.nodes.recommendation_generation" in source
-
-
 @pytest.mark.asyncio
 async def test_canonical_recommendation_generation_writes_canonical_identity_only(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
@@ -335,22 +319,6 @@ async def test_canonical_recommendation_generation_insufficient_evidence_identit
     )
 
     assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
-    assert "recommendation_generation" in result["llm_outputs"]
-    assert "generate_recommendation" not in result["llm_outputs"]
-    assert result["trace_steps"][-1]["node"] == "recommendation_generation"
-    _assert_no_verifier_owned_state(result)
-
-
-@pytest.mark.asyncio
-async def test_legacy_generate_recommendation_import_emits_canonical_identity(monkeypatch, base_state):
-    evidence = _evidence(tenant_id=base_state["tenant_id"])
-    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(_draft()))
-
-    result = await legacy_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state(evidence=[evidence])},
-        _config(),
-    )
-
     assert "recommendation_generation" in result["llm_outputs"]
     assert "generate_recommendation" not in result["llm_outputs"]
     assert result["trace_steps"][-1]["node"] == "recommendation_generation"

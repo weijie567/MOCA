@@ -10,7 +10,6 @@ import pytest
 from pydantic import BaseModel
 
 from src.agent.context import PromptAssembly
-from src.agent.nodes import assess_risk_and_approval as legacy_risk_module
 from src.agent.nodes import risk_gate as risk_gate_module
 from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1
 from src.tools.contracts import BusinessFactRefV1
@@ -263,57 +262,6 @@ def test_risk_gate_module_owns_implementation_without_legacy_import():
     assert hasattr(risk_gate_module, "_trace_step")
     assert hasattr(risk_gate_module, "_load_risk_rules")
     assert callable(risk_gate_module.risk_gate)
-
-
-def test_legacy_assess_risk_and_approval_wrapper_no_longer_owns_phase58_metadata():
-    source = inspect.getsource(legacy_risk_module)
-    for marker in (
-        "PHASE_57_COMPATIBILITY_ALIAS",
-        "HISTORICAL_TRACE_PROJECTION",
-        "IMPORT_TEST_COMPATIBILITY",
-        "DELETE_BY_PHASE_58",
-        "_LEGACY_NODE",
-        "_CANONICAL_NODE",
-        "_assess_risk_and_approval_with_identity",
-    ):
-        assert marker not in source
-    assert "src.agent.nodes.risk_gate" in source
-
-
-@pytest.mark.asyncio
-async def test_legacy_assess_risk_and_approval_import_emits_canonical_identity(monkeypatch, base_state):
-    """Legacy callable remains importable but current execution identity is canonical."""
-
-    monkeypatch.setattr(
-        risk_gate_module,
-        "_get_llm",
-        lambda: FakeLLM(
-            {
-                "risk_level": "low",
-                "risk_reason": "Small coupon is auto-allowed.",
-                "approval_required": False,
-                "rule_ref": "LR-01",
-            }
-        ),
-    )
-    tenant_id = base_state["tenant_id"]
-    state = {
-        **base_state,
-        "recommendation_draft": {
-            "recommended_action": "issue_coupon",
-            "reasoning_summary": "Issue a small service recovery coupon.",
-            "compensation_amount": 10,
-        },
-        "claim_verification_bundle": _claim_bundle_with_safe_refs(tenant_id),
-        "business_context": _phase34_business_context(tenant_id),
-    }
-
-    result = await legacy_risk_module.assess_risk_and_approval(state)
-
-    assert _CANONICAL_NODE in result["llm_outputs"]
-    assert _LEGACY_NODE not in result["llm_outputs"]
-    assert result["trace_steps"][-1]["node"] == _CANONICAL_NODE
-    _assert_no_current_run_legacy_identity(result)
 
 
 @pytest.mark.asyncio
