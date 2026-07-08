@@ -460,7 +460,18 @@ async def test_historical_legacy_verifier_fallback_requires_compatibility_trace_
             route="manual_review",
             reason_codes=["level2_partial_overlap_ambiguous"],
         ),
-        "trace_steps": [{"node": "generate_recommendation", "status": "completed"}],
+        "graph_projection": {
+            "steps": [
+                {
+                    "node": "generate_recommendation",
+                    "implementation_node": "generate_recommendation",
+                    "target_node": "recommendation_generation",
+                    "target_graph_status": "historical_projection",
+                    "target_graph_runnable": False,
+                    "status": "completed",
+                }
+            ]
+        },
         "recommendation_draft": {
             "recommended_action": "manual_review",
             "reasoning_summary": "Historical trace used legacy verifier projection.",

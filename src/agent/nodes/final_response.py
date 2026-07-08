@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from src.agent.graph_vocabulary import graph_vocabulary_entry
+from src.agent.graph_vocabulary import project_trace_step_for_contract
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
 
@@ -467,13 +467,16 @@ def _projection_steps_have_compatibility_marker(steps: Any) -> bool:
         return False
     for raw_step in steps:
         step = _mapping(raw_step)
-        target_status = str(step.get("target_graph_status") or "")
-        target_node = str(step.get("target_node") or "")
-        implementation_node = str(step.get("implementation_node") or step.get("node") or "")
-        if target_status == "compatibility_alias" and target_node == "recommendation_generation":
+        raw_status = str(step.get("target_graph_status") or "")
+        raw_target = str(step.get("target_node") or "")
+        if raw_target == "recommendation_generation" and raw_status == "historical_projection":
             return True
-        entry = graph_vocabulary_entry(implementation_node, kind="node")
-        if entry and entry.status == "compatibility_alias" and entry.target_name == "recommendation_generation":
+
+        projected = project_trace_step_for_contract(step)
+        if (
+            projected.get("target_node") == "recommendation_generation"
+            and projected.get("target_graph_status") == "historical_projection"
+        ):
             return True
     return False
 
