@@ -3,14 +3,29 @@ phase: 58
 reviewed_at: 2026-07-08T08:25:00+08:00
 review_source: .planning/phases/58-canonical-graph-cutover-and-no-debt-cleanup/58-REVIEWS.md
 reviewer: codex
-status: repair_required
+status: repaired_pending_recheck
 ---
 
 # Phase 58 Plan Review Decisions
 
+## Checker Repair Addendum
+
+Follow-up repair after GSD plan-checker blocker: the original oversized `58-03-PLAN.md` is split into dependency-ordered smaller plans. Current numbering is:
+
+- `58-03`: recommendation/risk wrapper deletion and direct canonical test cleanup.
+- `58-04`: intent/session wrapper/helper cleanup and direct legacy test migration.
+- `58-05`: slot/memory wrapper/helper cleanup and direct legacy test migration.
+- `58-06`: graph/routing/shared fixture patch seam cleanup.
+- `58-07`: integration/architecture import coverage cleanup.
+- `58-08`: former trace/API/SSE/frontend/eval cleanup plan.
+- `58-09`: former approval retry plan.
+- `58-10`: former closeout plan.
+
+Accepted review repairs below remain binding. Rerun GSD plan-checker and external Claude review before execution.
+
 ## Decision Summary
 
-Claude's review is mostly upheld. The six-plan split is structurally sound and the approval-retry boundary is directionally correct, but the current plans do not yet close the full CAGM-09 no-debt scope. Repair the plans before execution.
+Claude's review is mostly upheld. The original six-plan split was directionally sound, but GSD plan-checker later found `58-03-PLAN.md` too large; the current repaired plan set uses ten plans. The approval-retry boundary remains directionally correct, and the repaired plans must still close the full CAGM-09 no-debt scope before execution.
 
 ## Adjudicated Findings
 

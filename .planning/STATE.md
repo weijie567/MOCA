@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: planning
-stopped_at: Phase 58 planned and GSD plan-checker passed
-last_updated: "2026-07-07T23:47:09.276Z"
+stopped_at: Phase 58 planning repaired after checker blocker
+last_updated: "2026-07-08T08:27:13+08:00"
 last_activity: 2026-07-08
 progress:
   total_phases: 23
   completed_phases: 21
-  total_plans: 75
+  total_plans: 79
   completed_plans: 70
-  percent: 93
+  percent: 89
 ---
 
 # Project State: MOCA
@@ -31,12 +31,12 @@ See: `.planning/PROJECT.md` (updated 2026-07-07)
 ## Current Position
 
 Phase: 58
-Plan: Not started
-Status: Ready to plan
+Plan: 10 plans prepared
+Status: Planning repair complete; pending plan-checker and external review reruns
 Last activity: 2026-07-08
-Next: Start `$gsd-phase-autopilot 58`.
+Next: Rerun GSD plan-checker and external Claude plan review, then execute Phase 58.
 
-Progress: [█████████░] 93%
+Progress: [████████░░] 89%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -78,7 +78,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 55. Memory Context Load Cutover (CAGM-06) | 3/3 | Complete |
 | 56. Recommendation Generation and RAG Claim Status Alignment (CAGM-07) | 4/4 | Complete |
 | 57. Risk Gate and Approval Gate Canonicalization (CAGM-08) | 5/5 | Complete |
-| 58. Canonical Graph Cutover and No-Debt Cleanup (CAGM-09) | 0/TBD | Not planned |
+| 58. Canonical Graph Cutover and No-Debt Cleanup (CAGM-09) | 0/10 | Planned; repair pending review |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
@@ -276,15 +276,15 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 58 planned and GSD plan-checker passed
+Stopped at: Phase 58 planning repaired after checker blocker
 Resume file: --resume-file
-Next: Start `$gsd-phase-autopilot 58`.
+Next: Rerun GSD plan-checker and external Claude plan review, then execute Phase 58.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`); Phase 49 completed investigate bounded read-only ReAct main path with replay parent-operation limitation; Phase 50 completed canonical Agent Graph migration guardrail SPEC; Phase 51 completed canonical graph baseline guardrails and migration matrix verification; Phase 52 completed explicit `safety_pre_route` runtime node extraction with clean review and 8/8 verification; Phase 53 completed `session_context_load -> contextual_intent_resolve` active graph cutover with clean review, security verification, validation, and 20/20 verification; Phase 54 completed `slot_resolution_gate` active graph cutover with clean review, security verification (`threats_open: 0`), Nyquist validation, and 8/8 verification; Phase 55 completed `memory_context_load` active graph cutover with clean review, review fix, verification, validation, and security verification (`threats_open: 0`); Phase 56 completed `recommendation_generation` active graph cutover, RAG/claim fail-closed alignment, action-boundary review fixes, clean code review, UAT, security verification (`threats_open: 0`), and Nyquist validation; Phase 57 completed `risk_gate` active runtime canonicalization, approval resume separation, projection/docs/validation closeout, and static legacy-hit classification for Phase 58 cleanup.
 Next roadmap item: Phase 58 Canonical Graph Cutover and No-Debt Cleanup.
 
 **Completed Phase:** 57 (Risk Gate and Approval Gate Canonicalization) — 5/5 plans — 2026-07-07
 
-**Next Phase:** 58 (canonical-graph-cutover-and-no-debt-cleanup) — not planned
+**Next Phase:** 58 (canonical-graph-cutover-and-no-debt-cleanup) — planned; repair pending review
 
-**Planned Phase:** 58 (canonical-graph-cutover-and-no-debt-cleanup) — 6 plans — 2026-07-07T23:46:36.030Z
+**Planned Phase:** 58 (canonical-graph-cutover-and-no-debt-cleanup) — 10 plans — 2026-07-08T08:27:13+08:00
