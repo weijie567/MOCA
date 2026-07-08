@@ -1,13 +1,9 @@
 ---
 phase: 58-canonical-graph-cutover-and-no-debt-cleanup
-reviewed: 2026-07-08T04:49:53Z
+reviewed: 2026-07-08T07:30:37Z
 depth: deep
-files_reviewed: 49
+files_reviewed: 45
 files_reviewed_list:
-  - README.md
-  - docs/architecture-overview.md
-  - docs/current-langgraph-architecture.md
-  - docs/target-agent-platform-architecture-plan.md
   - eval/replay/dev-contract-manifest.v1.json
   - frontend/src/components/timeline/TimelineStep.tsx
   - scripts/classify_phase58_legacy_hits.py
@@ -55,41 +51,88 @@ files_reviewed_list:
   - tests/test_trace_api.py
 findings:
   critical: 0
-  warning: 0
+  warning: 2
   info: 0
-  total: 0
-status: clean
+  total: 2
+status: issues_found
 ---
 
 # Phase 58: Code Review Report
 
-**Reviewed:** 2026-07-08T04:49:53Z
+**Reviewed:** 2026-07-08T07:30:37Z
 **Depth:** deep
-**Files Reviewed:** 49
-**Status:** clean
+**Files Reviewed:** 45
+**Status:** issues_found
 
 ## Summary
 
-Re-reviewed the Phase 58 canonical graph cutover and no-debt cleanup after code-review fixes. The active graph/vocabulary surface is canonical-only for current runtime use, historical legacy-name handling is bounded to trace/API/read projection or historical artifacts, and current docs/eval/frontend references no longer describe legacy names as active runtime authority.
+Reviewed the listed Phase 58 graph vocabulary, routing, node implementations, API/frontend projections, replay/eval harness, and regression tests. The active graph/router contract is mostly covered, but two Phase 58 no-debt checks still leave current-runtime regressions undetected: the legacy-hit classifier masks active node-file hits, and the current SSE/frontend node label maps are not exact projections of the final 15 canonical nodes.
 
-The previous review warnings are resolved:
+No critical security issues were found.
 
-- WR-01 resolved: the strict legacy classifier now includes `intent_classification` and has a regression test proving active runtime use fails strict mode.
-- WR-02 resolved: `docs/current-langgraph-architecture.md` no longer describes public `route_after_slots()` as a current delegate; only private `_route_after_slots()` is mentioned as non-authoritative implementation detail.
-- WR-03 resolved: `README.md` graph and memory wording now matches the source routing shape and current PostgreSQL-backed same-thread session memory behavior.
+## Warnings
 
-All reviewed files meet quality standards. No critical, warning, or info findings were identified.
+### WR-01: Strict Legacy Classifier Masks Active Node-File Hits
 
-## Verification
+**File:** `scripts/classify_phase58_legacy_hits.py:217`
 
-- `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` passed with `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, and `unclassified_rows=0`.
-- Scoped pytest passed: `1790 passed, 1 skipped, 43 warnings in 270.72s`.
-- Focused ruff check passed for the reviewed Python runtime, scripts, and representative tests.
-- `git diff --check dc22b6a..HEAD -- ...` passed for the reviewed scope.
-- Static graph check confirmed `graph_add_node_names()` has 15 nodes and equals `TARGET_CANONICAL_GRAPH_NODES`; legacy route hits are empty.
+**Issue:** `_classify_row()` classifies every `src/agent/nodes/*` hit as `legacy_wrapper_or_import_test` after only checking `src/agent/graph.py` and `src/agent/routing.py` for active runtime rows. That means strict mode can pass with `active_runtime_legacy: 0` even when an active canonical node file contains a legacy graph/output name. I reproduced this with the project-approved entrypoint:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --roots src/agent/nodes/final_response.py --strict
+```
+
+The command exited 0 and classified `src/agent/nodes/final_response.py:374` containing `intent_classification` as `legacy_wrapper_or_import_test`. This undermines the Phase 58 no-active-legacy gate.
+
+**Fix:** Treat active canonical node implementation files as active runtime paths before the broad wrapper/test bucket. Keep an explicit allowlist for true compatibility wrappers or import tests.
+
+```python
+ACTIVE_NODE_PATHS = {
+    f"src/agent/nodes/{node}.py"
+    for node in (
+        "receive_request",
+        "safety_pre_route",
+        "session_context_load",
+        "contextual_intent_resolve",
+        "slot_resolution_gate",
+        "memory_context_load",
+        "investigate",
+        "rag_context_build",
+        "recommendation_generation",
+        "claim_verify",
+        "risk_gate",
+        "approval_gate",
+        "action_draft",
+        "clarification_gate",
+        "final_response",
+    )
+}
+
+if normalized in ACTIVE_NODE_PATHS:
+    return "active_runtime_legacy"
+```
+
+Add a regression test with a temporary `src/agent/nodes/final_response.py` or other active node file containing `intent_classification` and assert `--strict` fails with `active_runtime_legacy == 1`.
+
+### WR-02: Current Timeline Label Maps Do Not Match Final Canonical Nodes
+
+**Files:** `src/api/routers/agent_runs.py:56`, `frontend/src/components/timeline/TimelineStep.tsx:5`
+
+**Issue:** The backend and frontend `NODE_MESSAGES` maps omit five final canonical nodes: `safety_pre_route`, `rag_context_build`, `claim_verify`, `action_draft`, and `clarification_gate`. Both maps also still include `execute_action`, which is explicitly no longer a registered graph node. The final canonical set in `tests/architecture/test_canonical_graph_baseline.py:69` includes all five missing nodes, and `tests/agent/test_graph.py:1022` asserts `action_draft` is present while `tests/agent/test_graph.py:1023` asserts `execute_action` is absent. Current API/frontend tests only check a subset of label keys in `tests/test_agent_runs_api.py:1005`, so this projection drift is not caught.
+
+**Fix:** Update both label maps to cover the exact current canonical node set and remove `execute_action` from current labels. Then strengthen the tests to compare exact key sets.
+
+```python
+from tests.architecture.graph_baseline import TARGET_CANONICAL_GRAPH_NODES
+
+def test_agent_run_sse_node_messages_cover_exact_canonical_graph_nodes() -> None:
+    assert set(NODE_MESSAGES) == TARGET_CANONICAL_GRAPH_NODES
+```
+
+For the frontend test, parse the literal `NODE_MESSAGES` keys and assert the same exact set, or export the canonical set into a shared frontend fixture so `TimelineStep.tsx` cannot drift from the backend projection contract.
 
 ---
 
-_Reviewed: 2026-07-08T04:49:53Z_
+_Reviewed: 2026-07-08T07:30:37Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
