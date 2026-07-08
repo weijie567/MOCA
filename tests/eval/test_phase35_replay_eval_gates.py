@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import scripts.eval_agent as eval_agent
 from src.replay.phase35_eval_manifest import (
     REQUIRED_DEV_CONTRACT_CATEGORIES,
     REQUIRED_FORBIDDEN_BEHAVIOR_CASE_IDS,
@@ -22,6 +23,19 @@ APPROVED_COMMAND_PREFIXES = (
     ".venv/bin/pytest ",
     ".venv/bin/python -m pytest ",
 )
+LEGACY_CURRENT_GRAPH_NODES = {
+    "classify_intent",
+    "session_memory_load",
+    "extract_slots",
+    "long_term_memory_retrieve",
+    "generate_recommendation",
+    "assess_risk_and_approval",
+    "assess_risk",
+}
+DELETED_LEGACY_TEST_PATHS = {
+    "tests/agent/test_nodes/test_assess_risk_and_approval.py",
+    "tests/agent/test_nodes/test_generate_recommendation.py",
+}
 
 
 def _load_raw(path: Path) -> dict:
@@ -119,6 +133,39 @@ def test_required_commands_reject_chained_bare_pytest_entrypoints():
     errors = validate_dev_contract_manifest(drifted)
 
     assert sum("required_test_commands contains bare pytest entrypoint" in error for error in errors) == 2
+
+
+def test_eval_graph_contract_harness_has_no_current_legacy_node_registry():
+    assert not hasattr(eval_agent, "GRAPH_CONTRACT_LEGACY_NODES")
+
+    case = {
+        "id": "canonical-eval-harness",
+        "category": "approval_required",
+        "query": "订单 ORD-2024-001 需要补偿 600 元。",
+        "thread_id": "canonical-eval-harness",
+        "expected_intent": "compensation_suggestion",
+        "expected_evidence_doc_keys": ["refund_policy"],
+        "expected_approval_required": True,
+        "expected_response_contains": ["补偿"],
+    }
+    fake_llm_keys = set(eval_agent._ci_fake_llm_responses(case))
+
+    assert fake_llm_keys.isdisjoint(LEGACY_CURRENT_GRAPH_NODES)
+    assert {
+        "contextual_intent_resolve",
+        "slot_resolution_gate",
+        "recommendation_generation",
+        "risk_gate",
+        "final_response",
+    } <= fake_llm_keys
+
+
+def test_dev_contract_manifest_references_canonical_node_test_paths_only():
+    manifest_text = MANIFEST.read_text(encoding="utf-8")
+
+    for deleted_path in DELETED_LEGACY_TEST_PATHS:
+        assert deleted_path not in manifest_text
+    assert "tests/agent/test_nodes/test_risk_gate.py" in manifest_text
 
 
 def test_stale_coverage_matrix_hash_fails_validation():
