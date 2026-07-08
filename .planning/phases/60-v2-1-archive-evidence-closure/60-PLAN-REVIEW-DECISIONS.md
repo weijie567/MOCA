@@ -75,3 +75,32 @@ Because accepted Claude findings caused material changes to verification strateg
 ## Loop 2 Repair Gate
 
 Rerun `gsd-plan-checker` after these loop-2 repairs. If it passes and Codex independent plan review finds no new issue, proceed to execution.
+
+## Loop 2 Plan-Checker Decisions
+
+**Checked at:** 2026-07-08T11:57:09Z
+
+| Checker Item | Decision | Evidence | Repair |
+| --- | --- | --- | --- |
+| Unrelated `.planning/` changes can still pass silently. | Accepted. The prior guard only rejected non-`.planning/` paths and did not enforce each plan's declared write surface. | Plan-checker cited `60-01`/`60-02`/`60-03`/`60-04`/`60-05` final `git status --short` guards. | Replaced broad `.planning/` prefix guards with per-plan allowlists derived from `files_modified` plus the plan summary artifact. `60-05` now allowlists only the full Phase 60 evidence/tracking artifact set. |
+| `60-02` Phase 56 environment-debt verify can be fooled by `status: passed` substring matching. | Accepted. `status: passed_with_rerun_environment_debt` contains the substring `status: passed`. | `60-02` automated branch check used substring matching. | Replaced substring status checks with exact `^status:` line regexes and expanded command-component checks to the full focused rerun command. |
+
+These repairs are guard-only changes to the execution plans. They do not change Phase 60 deliverables or requirement coverage.
+
+## Codex Independent Re-Review After Checker Repairs
+
+**Reviewed at:** 2026-07-08T11:59:49Z
+
+### Checks
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Previous broad `.planning/` dirty-path guard removed | Passed | `rg` found no remaining `not line[3:].startswith(".planning/")` checks in Phase 60 plans. |
+| Per-plan dirty-path allowlists present | Passed | `60-01` through `60-04` allow only their declared evidence files plus summary; `60-05` allowlists the complete Phase 60 evidence/tracking artifact set. |
+| Phase 56 status branch cannot substring-pass | Passed | Synthetic regex test confirmed `status: passed_with_rerun_environment_debt` does not satisfy the exact `status: passed` branch. |
+| `blocked_tooling_unavailable` remains incomplete | Passed | `60-05` requires `Phase 60 incomplete` and `next entry point` markers and forbids `5/5 complete` on that branch. |
+| Plan-checker recheck | Passed | Recheck returned `## VERIFICATION PASSED`, with plan granularity and requirement coverage still valid. |
+
+### Result
+
+Codex independent re-review found no additional accepted issues. No third Claude plan-review loop is required because the final repairs are mechanical guard hardening only: they do not change plan scope, wave order, requirement coverage, audit semantics, or deliverables. Proceed to execution.
