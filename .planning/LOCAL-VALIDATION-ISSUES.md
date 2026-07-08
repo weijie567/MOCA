@@ -19370,3 +19370,96 @@ Resume file: --resume-file
 ### 剩余问题和下次继续排查入口
 
 无产品代码问题。后续 Phase 60 autopilot 每次运行 GSD state 更新类命令后，需核对 `.planning/STATE.md` frontmatter、Current Position、Session Continuity 是否再次出现 flag 字面量；入口是触发状态更新的 GSD SDK state 写入逻辑。
+
+## 2026-07-08：Phase 60 execute-phase state.begin-phase flag 参数写坏 STATE 计数与正文
+
+### 问题现象
+
+Phase 60 进入 execute-phase 初始化时，按 workflow 示例运行 `gsd-sdk query state.begin-phase --phase 60 --name v2-1-archive-evidence-closure --plans 5` 后，`.planning/STATE.md` 被写成错误执行状态：`last_activity` 出现 `Phase --phase execution started`，Current Position 出现 `Phase: --phase (60)` / `Plan: 1 of --name`，并且进度被回算为 `completed_phases: 23`、`percent: 95`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase 60 --name v2-1-archive-evidence-closure --plans 5
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+命令返回：
+
+```json
+{"phase":"--phase","name":"60","plan_count":"--name"}
+```
+
+随后用 positional 参数重跑：
+
+```bash
+gsd-sdk query state.begin-phase 60 v2-1-archive-evidence-closure 5
+```
+
+返回：
+
+```json
+{"phase":"60","name":"v2-1-archive-evidence-closure","plan_count":"5"}
+```
+
+但 STATE 正文仍未完整同步 Phase 60 的 5-plan 执行状态。
+
+### 当前判断 / 根因
+
+这是本地 GSD SDK `state.begin-phase` 参数解析与 STATE 正文同步问题：当前实现接受 positional 参数，workflow 示例中的 flag 写法会被当作普通位置值；即使用 positional 参数修正后，正文 Current Roadmap / Session Continuity 仍保留 pending planning 文本。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md`：
+
+- frontmatter 保持 `status: executing`，`stopped_at` 改为 `Phase 60 execution started`
+- 进度恢复为 `completed_phases: 24`、`total_plans: 87`、`completed_plans: 83`、`percent: 96`
+- Current Position 改为 Phase 60 executing、Plan 1 of 5、Next: Execute Phase 60 Plan 60-01
+- Current Roadmap 表 Phase 60 改为 `0/5 | Executing; plan review passed, starting 60-01`
+- Session Continuity 改为 Phase 60 execution in progress，并指向 `.planning/autopilot/phase-60.md`
+
+### 剩余问题和下次继续排查入口
+
+无产品代码问题。后续执行 GSD state 更新类命令时优先使用 positional 参数，并在命令后核对 `.planning/STATE.md` frontmatter、Current Position、Current Roadmap 和 Session Continuity。GSD workflow 文档中的 `state.begin-phase --phase/--name/--plans` 示例可能需要上游修正。
+
+## 2026-07-08：Phase 60 execute-phase 本地 rg 检测 pattern 以 -- 开头未加分隔符
+
+### 问题现象
+
+修复 STATE 后，为检查是否仍有 `--phase` / `--name` 字面量残留，运行 `rg -n "--phase|--name|..." .planning/STATE.md`，`rg` 将以 `--phase` 开头的 pattern 误解析为命令行 flag 并报错。
+
+### 如何检测 / 复现
+
+```bash
+rg -n "--phase|--name|Phase: 60|Plan:|Status:|Phase 60|v2.1 Archive Evidence Closure" .planning/STATE.md
+```
+
+### 关键证据或命令
+
+输出：
+
+```text
+rg: unrecognized flag --phase|--name|Phase: 60|Plan:|Status:|Phase 60|v2.1 Archive Evidence Closure
+```
+
+### 当前判断 / 根因
+
+这是本地命令写法错误，不是仓库状态问题。`rg` pattern 可能以 `-`/`--` 开头时必须使用 `--` 结束选项解析。
+
+### 已做处理
+
+改用：
+
+```bash
+rg -n -- "--phase|--name|Phase: 60|Plan:|Status:|Phase 60|v2.1 Archive Evidence Closure" .planning/STATE.md
+```
+
+命令正常返回 STATE 中的 Phase 60 状态行。
+
+### 剩余问题和下次继续排查入口
+
+无产品代码问题。后续 `rg` 搜索 literal/pattern 可能以 `-` 开头时统一加 `--`。
