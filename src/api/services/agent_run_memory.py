@@ -50,6 +50,17 @@ class TerminalCaseWorkingContextWriteExecution:
     duration_ms: int
 
 
+def build_agent_run_finalizer_input_state(run: AgentRun, user: User) -> dict[str, Any]:
+    return {
+        "user_query": run.input_query,
+        "thread_id": run.thread_id,
+        "tenant_id": str(run.tenant_id),
+        "user_id": str(user.id),
+        "role": user.role,
+        "current_run_id": str(run.id),
+    }
+
+
 async def finalize_completed_agent_run_memory(
     *,
     session: AsyncSession,
@@ -168,6 +179,7 @@ async def _run_terminal_memory_write(
         final_response=final_response,
         trace_steps=trace_steps,
     )
+    memory_state = _terminal_memory_write_state(memory_state)
     try:
         result_state = await run_memory_side_effect_in_isolated_session(
             session,
@@ -274,6 +286,18 @@ def _memory_state(
     if "trace_steps" not in memory_state:
         memory_state["trace_steps"] = list(trace_steps)
     return memory_state
+
+
+def _terminal_memory_write_state(memory_state: dict[str, Any]) -> dict[str, Any]:
+    terminal_state = dict(memory_state)
+    terminal_state.pop("approval_result", None)
+    terminal_state.pop("approval_required", None)
+    risk_assessment = terminal_state.get("risk_assessment")
+    if isinstance(risk_assessment, dict) and risk_assessment.get("approval_required") is True:
+        sanitized_risk = dict(risk_assessment)
+        sanitized_risk.pop("approval_required", None)
+        terminal_state["risk_assessment"] = sanitized_risk
+    return terminal_state
 
 
 def _canonical_memory_write_status(memory_write_result: dict[str, Any]) -> str:
