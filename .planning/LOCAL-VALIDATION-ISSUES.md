@@ -19325,3 +19325,48 @@ zsh:1: no matches found: .planning/phases/60-v2-1-archive-evidence-closure/*-SPE
 ### 剩余问题和下次继续排查入口
 
 无产品代码问题。后续 GSD workflow 中检查可选 phase artifact 时优先用 `find`，不要在 zsh 中直接 `ls "$phase_dir"/*-FILE.md`。
+
+## 2026-07-08：Phase 60 autopilot 状态更新把 CLI flag 写入 STATE 正文
+
+### 问题现象
+
+Phase 60 autopilot 进入 plan 阶段后，`git status --short` 显示 `.planning/STATE.md` 出现未提交修改。diff 中 frontmatter 进度被写成 `completed_phases: 23`、`total_plans: 82`、`percent: 100`，正文 Session Continuity 还出现 `Last session: --stopped-at` 和 `Resume file: --resume-file`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+git diff -- .planning/STATE.md
+sed -n '1,40p' .planning/STATE.md
+sed -n '280,306p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`git diff -- .planning/STATE.md` 显示：
+
+```text
+completed_phases: 23
+total_plans: 82
+percent: 100
+Last session: --stopped-at
+Resume file: --resume-file
+```
+
+### 当前判断 / 根因
+
+这是本地 GSD 状态更新调用把 flag 名当成正文值写入，并错误回算进度；不是 Phase 60 范围或产品代码问题。`gsd-sdk query init.plan-phase 60` 仍能正确识别 Phase 60：`has_context: true`、`has_plans: false`、`phase_dir: .planning/phases/60-v2-1-archive-evidence-closure`。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md`：
+
+- frontmatter 设为 `status: planning`、`stopped_at: Phase 60 planning in progress`
+- 进度恢复为 `completed_phases: 24`、`total_plans: 83`、`completed_plans: 83`、`percent: 96`
+- Current Position 改为 Phase 60 context gathered / planning in progress
+- Session Continuity 改为真实时间与 `.planning/autopilot/phase-60.md` 续接入口
+
+### 剩余问题和下次继续排查入口
+
+无产品代码问题。后续 Phase 60 autopilot 每次运行 GSD state 更新类命令后，需核对 `.planning/STATE.md` frontmatter、Current Position、Session Continuity 是否再次出现 flag 字面量；入口是触发状态更新的 GSD SDK state 写入逻辑。
