@@ -18621,3 +18621,37 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_session_con
 ### 剩余问题和下次继续排查入口
 
 本计划范围内无剩余验证问题。若后续继续收敛 session bundle legacy 字段，应从 `src/agent/nodes/session_context_load.py::_fallback`、`SessionMemoryBundleService` fallback 行为和 `tests/agent/test_nodes/test_session_context_load.py::test_session_context_load_service_error_returns_unavailable` 入手，先判断是否要保留 `empty_adapter` 作为历史 bundle source。
+
+## 2026-07-08：Phase 58-05 memory RED 迁移测试未提供 extracted slot authority
+
+### 问题现象
+
+执行 58-05 Task 2 的 RED gate 时，新迁移的 canonical `tests/agent/test_memory_context_load.py::test_memory_context_load_skips_case_memory_without_query` 除了预期的 legacy wrapper deletion guard 失败外，还出现非预期断言失败：
+
+```text
+assert 'reviewed_memory_skipped' == 'no_reviewed_memory'
+```
+
+### 如何检测 / 复现
+
+在 Task 2 RED commit 前运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_context_load.py -q --tb=short
+```
+
+### 关键证据或命令
+
+第一次 RED 运行结果为 `2 failed, 4 passed`。其中一个失败是预期的 `src/agent/nodes/long_term_memory_retrieve.py` 仍存在；另一个失败来自测试只设置了 `active_slots={"merchant_id": "merchant-a"}`，但 reviewed memory context helper 的 current trusted slot authority 来自 `extracted_slots`。
+
+### 当前判断 / 根因
+
+这是迁移 legacy `long_term_memory_retrieve` no-query 覆盖到 canonical `memory_context_load` 时的测试 setup 问题，不是产品代码回归。canonical path 调用 `reviewed_memory_context_retrieve._current_turn_slots(state)`，该 helper 只读取 `extracted_slots`，因此未提供 `extracted_slots["merchant_id"]` 时会被判定为缺少 authoritative memory scope，并返回 `reviewed_memory_skipped`。
+
+### 已做处理
+
+在测试 state 中同时设置 `extracted_slots={"merchant_id": "merchant-a"}` 和 `active_slots={"merchant_id": "merchant-a"}`。修正后同一 RED 命令只剩预期 deletion guard 失败：`1 failed, 5 passed`；GREEN 删除 wrapper 后通过：`6 passed, 1 warning`。
+
+### 剩余问题和下次继续排查入口
+
+本计划范围内无剩余验证问题。若后续 reviewed memory scope 行为调整，应优先检查 `src/agent/nodes/reviewed_memory_context_retrieve.py::_current_turn_slots`、`src/memory/context_service.py::_reviewed_memory_scopes` 与 `tests/agent/test_memory_context_load.py::test_memory_context_load_skips_case_memory_without_query` 是否仍保持同一 authority 假设。

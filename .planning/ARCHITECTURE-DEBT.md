@@ -94,6 +94,16 @@
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_session_context_load.py tests/agent/test_intent_adapter.py -q --tb=short` → `31 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` → `active_runtime_legacy=0`、`current_docs_legacy_authority=0`、`unclassified_rows=0`；legacy intent/session wrapper 与 legacy direct test deletion checks passed。
 - **剩余风险**：🟡 历史 docs/planning/test guard 中仍有 legacy name 文本，由 strict classifier 分类为 previous-state / cleanup artifact / legacy-wrapper-test，不再是 active runtime authority。本条不处理 slot、long-term-memory、approval retry historical compatibility、frontend/API fallback labels等后续 Phase 58 cleanup surfaces。
 
+## 2026-07-08 — Phase 58-05 slot/memory legacy wrapper 文件与直接测试已删除 ✅
+
+- **子系统**：Agent Graph / Slot Resolution / 记忆上下文
+- **问题现象/根因**：Phase 54/55 已把 active graph 切到 `slot_resolution_gate` 与 `memory_context_load`，但 `extract_slots.py`、`long_term_memory_retrieve.py` 仍作为 import/test compatibility surface 存在；`test_extract_slots.py` 和部分直接测试继续把旧 filename 当成 patch/import seam。这会让 current-run slot/memory 测试继续依赖 legacy node name，阻碍 CAGM-09 no-debt 收敛。
+- **影响**：旧 wrapper 文件可 import 时，后续测试、fixture 或脚本容易重新 patch legacy module path；slot prompt helper 和 memory wrapper metrics 也会让 canonical node owner 与测试 owner 漂移。
+- **处理状态**：✅ 已修复验证。删除 `src/agent/nodes/extract_slots.py`、`src/agent/nodes/long_term_memory_retrieve.py`、`tests/agent/test_nodes/test_extract_slots.py`；把 slot prompt assembly helper 内部化到 `src/agent/nodes/slot_resolution_gate.py`；把 bounded candidate hint、prompt assembly、no-query case-memory skip 等非重复断言迁到 canonical `tests/agent/test_nodes/test_slot_resolution_gate.py` 与 `tests/agent/test_memory_context_load.py`；同步把受删除影响的 `tests/conftest.py`、`tests/agent/test_session_memory_integration.py`、`tests/agent/test_graph.py` retarget 到 canonical modules。
+- **证据**：Phase 58 Plan 58-05；commits `0b24143`（slot RED guard）、`72b2a7d`（slot wrapper deletion）、`d60cef7`（memory RED guard）、`7a19ef3`（memory wrapper deletion）；文件 `src/agent/nodes/slot_resolution_gate.py`、`src/agent/nodes/memory_context_load.py`、`tests/agent/test_nodes/test_slot_resolution_gate.py`、`tests/agent/test_memory_context_load.py`、`tests/agent/test_graph.py`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_memory_context_load.py -q --tb=short` → `16 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` → `active_runtime_legacy=0`、`current_docs_legacy_authority=0`、`unclassified_rows=0`；deleted wrapper/test absence checks passed；touched-file `ruff check` and `git diff --check` passed。
+- **剩余风险**：🟡 历史 docs/planning/API/eval/test guard 中仍有 `extract_slots`、`long_term_memory_retrieve` 文本，由 strict classifier 分类为 historical / previous-state / cleanup artifact / legacy-wrapper-test，不再是 active runtime authority。本条不处理 approval retry historical compatibility、frontend/API fallback labels 或 eval manifest 等后续 Phase 58 surfaces。
+
 ---
 
 # 1. 工具调用（Tool Platform）
