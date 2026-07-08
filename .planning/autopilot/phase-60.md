@@ -1,10 +1,10 @@
 ---
 phase: "60"
 status: running
-current_step: execute_wave_3_ready
+current_step: execute_wave_4_ready
 plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-07-08T12:31:37Z"
+updated_at: "2026-07-08T12:40:41Z"
 next_command: "$gsd-phase-autopilot --resume"
 ---
 
@@ -37,6 +37,7 @@ next_command: "$gsd-phase-autopilot --resume"
 - Stage 5 Wave 2 pre-check completed. `verify.key-links` reported `42-VALIDATION.md` missing, but that file is a current-wave `60-03` output, so the current-wave key-link check is intentionally skipped per execute-phase workflow.
 - Stage 5 Wave 2 completed sequentially: `60-03`.
 - Stage 5 Wave 3 pre-check completed. `verify.key-links` reported missing `49-VALIDATION.md` and `50-VALIDATION.md`, but both files are current-wave `60-04` outputs; the prior-wave Phase 37 validation/verification link passed.
+- Stage 5 Wave 3 completed sequentially: `60-04`.
 - Repaired Phase 60 planning state after local GSD state update wrote invalid Session Continuity values.
 
 ## Evidence
@@ -73,6 +74,9 @@ next_command: "$gsd-phase-autopilot --resume"
 - Wave 2 readiness: `60-03` can create `42-VALIDATION.md`; missing current-wave output is not a blocker.
 - `60-03` commits: `1427343`, `f25ad58`, `d2030fb`, `c196949`; summary `.planning/phases/60-v2-1-archive-evidence-closure/60-03-SUMMARY.md`.
 - Wave 3 readiness: `60-04` can create `49-VALIDATION.md` and `50-VALIDATION.md`; missing current-wave outputs are not blockers. Phase 37 validation-to-verification key-link passed.
+- `60-04` commits: `0bf265e`, `72f3347`, `8e8a72c`, `60ddda0`; summary `.planning/phases/60-v2-1-archive-evidence-closure/60-04-SUMMARY.md`.
+- Phase 37 DB-backed note resolved by exact serial command: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py tests/architecture/test_tool_boundaries.py -q` -> `108 passed, 1 warning in 30.42s`.
+- Wave 4 readiness: `60-05` can reconcile final tracking docs and run the archive gate; no Phase 37 DB debt remains.
 
 ## Last Failure
 
