@@ -18,7 +18,7 @@ progress:
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-07)
+See: `.planning/PROJECT.md` (updated 2026-07-08)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
 **Current focus:** Phase 60 — v2.1 archive evidence closure
