@@ -653,6 +653,19 @@ def test_route_after_approval_rejects_unregistered_edit_resume_route():
     assert route_after_approval(state) == "final_response"
 
 
+def test_route_after_approval_rejects_legacy_risk_resume_route_authority():
+    state = _approval_route_state(
+        approval_overrides={
+            "decision_type": "edit",
+            "status": "superseded",
+            "new_action_payload_hash": "sha256:" + "3" * 64,
+            "resume_route": "assess_" "risk_and_approval",
+        }
+    )
+
+    assert route_after_approval(state) == "final_response"
+
+
 def test_route_after_approval_fails_closed_on_hash_mismatch():
     state = _approval_route_state(approval_overrides={"action_payload_hash": "sha256:" + "9" * 64})
 

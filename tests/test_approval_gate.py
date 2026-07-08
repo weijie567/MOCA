@@ -270,3 +270,10 @@ def test_approval_gate_has_no_runtime_risk_action_or_snapshot_coupling():
             assert not any(alias.name.startswith(module) for alias in node.names for module in forbidden_modules)
         if isinstance(node, ast.Call):
             assert _call_name(node.func) not in forbidden_calls
+
+
+def test_approval_gate_tests_do_not_reference_legacy_risk_node_name():
+    source = Path(__file__).read_text(encoding="utf-8")
+    legacy_node_name = "assess_" "risk_and_approval"
+
+    assert legacy_node_name not in source
