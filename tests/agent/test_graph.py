@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import inspect
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -1018,6 +1019,29 @@ def test_graph_compiles_with_investigate():
     assert "execute_action" not in nodes
     assert "load_business_context" not in nodes
     assert "retrieve_policy_evidence" not in nodes
+
+
+def test_phase58_graph_tests_and_fixtures_use_canonical_patch_seams_only():
+    forbidden_fragments = {
+        Path("tests/conftest.py"): [
+            "import src.agent.nodes.risk_gate as assess_" "node",
+        ],
+        Path("tests/agent/test_graph.py"): [
+            "as generate_" "recommendation_module",
+            "as assess_" "risk_module",
+            'target_graph_name("long_term_' "memory_retrieve\"",
+            'target_graph_name("extract_' "slots\"",
+            '"route_after_' 'slots": "route_after_slot_resolution"',
+        ],
+        Path("tests/agent/test_empty_session_adapter.py"): [
+            "src.agent.nodes.session_" "memory_load",
+        ],
+    }
+
+    for path, fragments in forbidden_fragments.items():
+        source = path.read_text(encoding="utf-8")
+        for fragment in fragments:
+            assert fragment not in source, f"{path} still references {fragment}"
 
 
 def test_memory_context_graph_runtime_names_project_to_target_vocabulary():
