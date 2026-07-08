@@ -3,7 +3,7 @@ phase: 58
 reviewed_at: 2026-07-08T08:25:00+08:00
 review_source: .planning/phases/58-canonical-graph-cutover-and-no-debt-cleanup/58-REVIEWS.md
 reviewer: codex
-status: repaired_pending_recheck
+status: clean_after_recheck
 ---
 
 # Phase 58 Plan Review Decisions
@@ -21,7 +21,7 @@ Follow-up repair after GSD plan-checker blocker: the original oversized `58-03-P
 - `58-09`: former approval retry plan.
 - `58-10`: former closeout plan.
 
-Accepted review repairs below remain binding. Rerun GSD plan-checker and external Claude review before execution.
+Accepted review repairs below remain binding. GSD plan-checker passed after the ten-plan split, Claude found one metadata-proof command blocker, and final Claude re-review passed after commit `ee6b90d`.
 
 ## Decision Summary
 
@@ -141,6 +141,6 @@ Required repair:
 ## Repair Gate
 
 After repair:
-- Rerun GSD plan checker.
-- Rerun external Claude plan review because accepted repairs are structural.
-- Re-adjudicate any new or repeated findings before execution.
+- GSD plan checker: PASSED after ten-plan split.
+- External Claude review: CLEAN after metadata-proof repair in commit `ee6b90d`.
+- No outstanding plan-review blockers remain before execution.

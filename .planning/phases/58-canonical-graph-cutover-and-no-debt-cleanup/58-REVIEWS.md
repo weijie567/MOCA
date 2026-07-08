@@ -159,3 +159,39 @@ Only Claude review was requested by autopilot at this stage.
 ### Divergent Views
 
 None recorded; only one external reviewer ran.
+
+---
+
+## Claude Re-Review After 10-Plan Repair
+
+Reviewed after the original `58-03` cleanup plan was split into ten active plans and GSD plan-checker passed.
+
+Verdict: NOT CLEAN
+
+### Blocker
+
+- `58-VALIDATION.md` and `58-10-PLAN.md` still used a bare `git ls-files ... && ! rg ...` command as the `moca.egg-info/SOURCES.txt` metadata proof. Claude classified this as a phase-gate command that must use an approved MOCA entrypoint. Required repair: wrap the proof in `UV_CACHE_DIR=/tmp/uv-cache uv run python -c ...` or make the strict classifier cover the metadata proof directly.
+
+### Warnings
+
+- `.planning/ROADMAP.md` summary table still said Phase 58 was `0/TBD | Not planned` while detailed Phase 58 planning listed ten plans.
+- `58-10-PLAN.md` said approved entrypoints were required "where applicable", which left the metadata proof ambiguous.
+
+### Clean Areas Confirmed
+
+- The ten-plan split was dependency-ordered and below the plan-size blocker threshold.
+- Legacy cleanup coverage included all reviewed wrapper/helper and route delegate surfaces.
+- Legacy-named test migration, current-runtime versus historical projection split, strict classifier semantics, classifier-based docs guard, metadata handling, and frontend build/test verification were explicitly planned.
+
+## Claude Final Re-Review After Metadata-Proof Repair
+
+Reviewed after commit `ee6b90d` replaced the bare metadata proof with an approved `UV_CACHE_DIR=/tmp/uv-cache uv run python -c ...` command and updated the stale roadmap summary.
+
+Verdict: CLEAN
+
+### Confirmed
+
+- The prior metadata-proof blocker is closed in both `58-VALIDATION.md` and `58-10-PLAN.md`.
+- Python, pytest, ruff, and classifier gates use approved `UV_CACHE_DIR=/tmp/uv-cache uv run ...` entrypoints.
+- Remaining `rg` references are acceptance criteria or source-audit text, not metadata phase-gate commands.
+- No execution-blocking plan repair items remain.
