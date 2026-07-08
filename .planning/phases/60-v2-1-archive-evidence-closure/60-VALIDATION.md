@@ -91,6 +91,28 @@ The remaining `gsd-sdk query init.milestone-op` missing-agent report is a local 
 | Allowed dirty-path check | `UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'import subprocess; ...'` | pass |
 | Whitespace check | `git diff --check` | pass |
 
+## Validation Audit 2026-07-08
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+### Nyquist Coverage Map
+
+| Coverage Area | Evidence | Status |
+|---------------|----------|--------|
+| Formal verification artifacts | 7 target `*-VERIFICATION.md` artifacts exist for Phases 37, 43, 48, 48.1, 49, 50, and 56. | COVERED |
+| Nyquist validation artifacts | 8 target `*-VALIDATION.md` artifacts exist for Phases 37, 38, 40, 41, 42, 44, 49, and 50. | COVERED |
+| Requirement ledger closure | `REQUIREMENTS.md` maps all 7 Phase 60-linked requirements to archive evidence and records `archive_ready`. | COVERED |
+| Milestone archive gate | `v2.1-MILESTONE-AUDIT.md` records `status: passed`, `workflow_status: archive_ready`, `24/24` requirements, and no integration blockers. | COVERED |
+| Conversational UAT | `60-UAT.md` records 6/6 self-check tests passed and 0 issues. | COVERED |
+| Security validation | `60-SECURITY.md` records `threats_open: 0` with 25/25 threats closed or accepted. | COVERED |
+| Stale blocked-state regression | Active ledgers were scanned for stale incomplete/archive-blocker status text. | COVERED |
+
+Manual-only gaps: none.
+
 ## Validation Sign-Off
 
 - [x] All Phase 60 target evidence artifacts exist before tracking doc reconciliation.
@@ -99,5 +121,7 @@ The remaining `gsd-sdk query init.milestone-op` missing-agent report is a local 
 - [x] Final milestone audit result recorded as `archive_ready`.
 - [x] Final artifact command scan passed.
 - [x] `git diff --check` passed.
+- [x] Phase 60 UAT and security signoff artifacts are complete.
+- [x] Validation audit found 0 Nyquist gaps.
 
 **Approval:** complete; Phase 60 archive evidence gate is `archive_ready`.
