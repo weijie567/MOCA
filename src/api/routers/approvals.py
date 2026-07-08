@@ -338,16 +338,27 @@ async def _resume_graph_after_decision(
         final_status = "error"
     run = await session.get(AgentRun, result.run_id)
     total_latency_ms = (run.total_latency_ms if run and run.total_latency_ms else 0) + resume_latency_ms
+    status_update = {
+        "final_status": final_status,
+        "final_response": final_response_text,
+        "completed_at": datetime.now(UTC),
+        "total_latency_ms": total_latency_ms,
+        "trace_id": getattr(request.state, "trace_id", None),
+    }
+    if final_status == "error":
+        status_update.update(
+            reason_code="approval_resume_error",
+            error_code="approval_resume_error",
+        )
+    else:
+        status_update.update(
+            reason_code="approval_resume_completed",
+            error_code=None,
+        )
     await update_agent_run_status(
         session,
         run_id=run_id,
-        final_status=final_status,
-        final_response=final_response_text,
-        completed_at=datetime.now(UTC),
-        total_latency_ms=total_latency_ms,
-        trace_id=getattr(request.state, "trace_id", None),
-        reason_code="approval_resume_completed" if final_status == "completed" else "approval_resume_error",
-        error_code="approval_resume_error" if final_status == "error" else None,
+        **status_update,
     )
 
     trace_steps = final_state.get("trace_steps") or []

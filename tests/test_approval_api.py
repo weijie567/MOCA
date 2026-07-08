@@ -1032,6 +1032,69 @@ async def test_decide_edit_rebinds_replacement_approval_from_resume_interrupt(
     assert manager_list.status_code == 200
     assert str(replacement.id) in manager_ids
     assert str(bundle.approval.id) not in manager_ids
+    run = await session.get(AgentRun, bundle.approval.run_id)
+    assert run is not None
+    assert run.final_status == "interrupted"
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == bundle.approval.run_id,
+            ConversationMessage.role == "assistant",
+        )
+        == 0
+    )
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
+    assert len(await _finalizer_steps(session, run_id=bundle.approval.run_id)) == 0
+
+
+@pytest.mark.asyncio
+async def test_approval_resume_error_skips_terminal_finalizer_surfaces(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-resume-error-finalizer-skip")
+
+    async def fail_if_finalizer_called(**_kwargs):
+        pytest.fail("terminal finalizer must not run for approval resume error paths")
+
+    monkeypatch.setattr(approvals_router, "finalize_completed_agent_run_memory", fail_if_finalizer_called)
+    monkeypatch.setattr(
+        app.state,
+        "agent_graph",
+        FakeResumeGraph(
+            None,
+            extra_state={
+                "node_errors": [{"node": "action_draft", "error": "simulated"}],
+            },
+        ),
+        raising=False,
+    )
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle),
+        headers=await _admin_headers(client),
+    )
+
+    run = await session.get(AgentRun, bundle.approval.run_id)
+    assert response.status_code == 200
+    assert run is not None
+    assert run.final_status == "error"
+    assert run.final_response is None
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == bundle.approval.run_id,
+            ConversationMessage.role == "assistant",
+        )
+        == 0
+    )
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
+    assert len(await _finalizer_steps(session, run_id=bundle.approval.run_id)) == 0
 
 
 @pytest.mark.asyncio
