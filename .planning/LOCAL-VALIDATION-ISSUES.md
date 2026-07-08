@@ -19644,3 +19644,50 @@ AR count 3
 ### 剩余问题和下次继续排查入口
 
 无产品代码剩余问题。后续统计 markdown 表行时避免直接用 substring count，改用行首锚定正则或限定表格区段。
+
+## 2026-07-08：v2.1 milestone close preflight 发现 Phase 38 HUMAN-UAT 使用非模板 status
+
+### 问题现象
+
+运行 `$gsd-complete-milestone` 的 pre-close artifact audit 时，`audit-open` 报告 1 个 open item：
+
+```text
+UAT Gaps (1 phases with incomplete UAT)
+Phase 38: 38-HUMAN-UAT.md [resolved] — 0 pending scenarios
+```
+
+### 如何检测 / 复现
+
+```bash
+node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs audit-open
+node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs audit-open --json
+```
+
+### 关键证据或命令
+
+JSON 输出显示：
+
+```json
+{
+  "phase": "38",
+  "file": "38-HUMAN-UAT.md",
+  "status": "resolved",
+  "open_scenario_count": 0
+}
+```
+
+`38-HUMAN-UAT.md` 正文已经记录 `total: 1`、`passed: 1`、`pending: 0`、`blocked: 0`。
+
+### 当前判断 / 根因
+
+这是 UAT artifact metadata 与 GSD UAT 模板不一致：模板状态应使用 `complete`，但该文件历史上写成 `resolved`，导致 close preflight 将其归为 incomplete UAT。它不是 Phase 38 产品代码问题，也不是真实未完成测试，因为 open scenario count 为 0。
+
+### 已做处理
+
+- 将 `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-HUMAN-UAT.md` frontmatter 从 `status: resolved` 改为 `status: complete`。
+- 将 Current Test 改为 `[testing complete]`。
+- 将 test result 从自由文本 `passed — ...` 规范为 `result: pass` + `evidence: ...`。
+
+### 剩余问题和下次继续排查入口
+
+无产品代码剩余问题。继续 milestone close 前重跑 `audit-open`，确认 open artifact count 为 0。
