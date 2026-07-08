@@ -5278,7 +5278,7 @@ asyncpg.exceptions.DeadlockDetectedError: deadlock detected
 
 ### 当前判断 / 根因
 
-这是验证命令调度错误，不是 Phase 31 生产代码结论。`tests/conftest.py` 固定使用 `postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test`，每个 DB-backed pytest 进程都会 drop/create 全部 metadata；并行进程会互相删除或锁住同一批表。
+这是验证命令调度错误，不是 Phase 31 生产代码结论。`tests/conftest.py` 固定使用 `postgresql+asyncpg://moca:REDACTED_LOCAL_TEST_PASSWORD@localhost:5432/moca_test`，每个 DB-backed pytest 进程都会 drop/create 全部 metadata；并行进程会互相删除或锁住同一批表。
 
 ### 已做处理
 
@@ -9396,7 +9396,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py tests/test
 
 ### 如何检测 / 复现
 
-并发运行两个使用同一个 `TEST_DATABASE_URL = postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test` 的 pytest 命令，尤其一个跑 Alembic migration round-trip，另一个跑 `test_engine` fixture 建表：
+并发运行两个使用同一个 `TEST_DATABASE_URL = postgresql+asyncpg://moca:REDACTED_LOCAL_TEST_PASSWORD@localhost:5432/moca_test` 的 pytest 命令，尤其一个跑 Alembic migration round-trip，另一个跑 `test_engine` fixture 建表：
 
 ```bash
 UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/conversation/test_models.py ...
@@ -9423,7 +9423,7 @@ import asyncio
 import asyncpg
 
 async def main():
-    conn = await asyncpg.connect(user='moca', password='moca_dev', host='localhost', port=5432, database='moca_test')
+    conn = await asyncpg.connect(user='moca', password='REDACTED_LOCAL_TEST_PASSWORD', host='localhost', port=5432, database='moca_test')
     try:
         await conn.execute('DROP SCHEMA IF EXISTS public CASCADE')
         await conn.execute('CREATE SCHEMA public')
@@ -9577,7 +9577,7 @@ import asyncpg
 
 async def main():
     try:
-        conn = await asyncpg.connect(user='moca', password='moca_dev', host='localhost', port=5432, database='moca_test', timeout=2)
+        conn = await asyncpg.connect(user='moca', password='REDACTED_LOCAL_TEST_PASSWORD', host='localhost', port=5432, database='moca_test', timeout=2)
     except Exception as exc:
         print(type(exc).__name__)
         print(exc)
@@ -9690,7 +9690,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_long_term_memory_serv
 
 ### 剩余问题
 
-需要启动或修复本地 PostgreSQL，并确保 `postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test` 可连接后，重跑本轮 focused pytest。
+需要启动或修复本地 PostgreSQL，并确保 `postgresql+asyncpg://moca:REDACTED_LOCAL_TEST_PASSWORD@localhost:5432/moca_test` 可连接后，重跑本轮 focused pytest。
 
 ### 下次继续排查入口
 
@@ -9784,7 +9784,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/repository.py src/memory
 
 ### 剩余问题
 
-需要启动或修复本地 PostgreSQL，并确保 `postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test` 可连接后，重跑本轮 focused pytest。
+需要启动或修复本地 PostgreSQL，并确保 `postgresql+asyncpg://moca:REDACTED_LOCAL_TEST_PASSWORD@localhost:5432/moca_test` 可连接后，重跑本轮 focused pytest。
 
 ### 下次继续排查入口
 
@@ -9841,7 +9841,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_memory_write_service.
 
 ### 剩余问题
 
-需要启动或修复本地 PostgreSQL，并确保 `postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test` 可连接后，重跑真实 DB session memory service 测试。
+需要启动或修复本地 PostgreSQL，并确保 `postgresql+asyncpg://moca:REDACTED_LOCAL_TEST_PASSWORD@localhost:5432/moca_test` 可连接后，重跑真实 DB session memory service 测试。
 
 ### 下次继续排查入口
 
@@ -10003,7 +10003,7 @@ uv run pytest tests/tools/test_tool_platform.py tests/agent/test_tools/test_unif
 
 ### 剩余问题
 
-需要安装/启动本地 PostgreSQL，并确保 `moca:moca_dev@localhost:5432` 可连接后，重跑 37-02 focused suite 和 Phase 37 full relevant suite。
+需要安装/启动本地 PostgreSQL，并确保 `moca:REDACTED_LOCAL_TEST_PASSWORD@localhost:5432` 可连接后，重跑 37-02 focused suite 和 Phase 37 full relevant suite。
 
 ### 下次继续排查入口
 
@@ -10086,7 +10086,7 @@ uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py test
 
 ### 剩余问题
 
-需要安装/启动本地 PostgreSQL，并确保 `moca:moca_dev@localhost:5432` 可连接后重跑 full relevant pytest，才能把 Phase 37 final pytest gate 标记为完整绿色。
+需要安装/启动本地 PostgreSQL，并确保 `moca:REDACTED_LOCAL_TEST_PASSWORD@localhost:5432` 可连接后重跑 full relevant pytest，才能把 Phase 37 final pytest gate 标记为完整绿色。
 
 ### 下次继续排查入口
 
@@ -10239,7 +10239,7 @@ nc -z localhost 5432
 
 - `pg_isready` 输出：`zsh:1: command not found: pg_isready`
 - `nc -z localhost 5432` 退出码为 `1`，无成功输出。
-- `tests/conftest.py` 的 `TEST_DATABASE_URL` 指向 `postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test`，并在 `test_engine` fixture 中创建 DB extension / metadata。
+- `tests/conftest.py` 的 `TEST_DATABASE_URL` 指向 `postgresql+asyncpg://moca:REDACTED_LOCAL_TEST_PASSWORD@localhost:5432/moca_test`，并在 `test_engine` fixture 中创建 DB extension / metadata。
 
 ### 当前判断 / 根因
 
@@ -10252,7 +10252,7 @@ nc -z localhost 5432
 
 ### 剩余问题
 
-本机仍需安装/启动 PostgreSQL，并保证 `moca:moca_dev@localhost:5432` 可连接后，才能完成包含 DB fixture 的 full relevant pytest gate。
+本机仍需安装/启动 PostgreSQL，并保证 `moca:REDACTED_LOCAL_TEST_PASSWORD@localhost:5432` 可连接后，才能完成包含 DB fixture 的 full relevant pytest gate。
 
 ### 下次继续排查入口
 
@@ -10548,7 +10548,7 @@ uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py test
 
 ### 剩余问题
 
-需要安装/启动本地 PostgreSQL，并确保 `moca:moca_dev@localhost:5432` 可连接后，重跑 Phase 38 quick/full relevant pytest，才能把 DB-backed gate 标记为完整绿色。
+需要安装/启动本地 PostgreSQL，并确保 `moca:REDACTED_LOCAL_TEST_PASSWORD@localhost:5432` 可连接后，重跑 Phase 38 quick/full relevant pytest，才能把 DB-backed gate 标记为完整绿色。
 
 ### 下次继续排查入口
 
@@ -10573,7 +10573,7 @@ docker compose ps
 
 ### 关键证据或命令
 
-- `docker-compose.yml` 存在，`postgres` 服务使用 `pgvector/pgvector:pg16`，映射 `5432:5432`，并配置 `POSTGRES_USER=moca`、`POSTGRES_PASSWORD=moca_dev`、`POSTGRES_DB=moca`。
+- `docker-compose.yml` 存在，`postgres` 服务使用 `pgvector/pgvector:pg16`，映射 `5432:5432`，并配置 `POSTGRES_USER=moca`、`POSTGRES_PASSWORD=REDACTED_LOCAL_TEST_PASSWORD`、`POSTGRES_DB=moca`。
 - `command -v docker` 返回 `/usr/local/bin/docker`。
 - `docker compose ps` 输出：`Cannot connect to the Docker daemon at unix:///Users/ming/.docker/run/docker.sock. Is the docker daemon running?`
 
@@ -10588,7 +10588,7 @@ docker compose ps
 
 ### 剩余问题
 
-需要启动 Docker daemon 后运行 `docker compose up -d postgres`，或手动提供 `moca:moca_dev@localhost:5432` PostgreSQL，再重跑 Phase 38 full relevant pytest。
+需要启动 Docker daemon 后运行 `docker compose up -d postgres`，或手动提供 `moca:REDACTED_LOCAL_TEST_PASSWORD@localhost:5432` PostgreSQL，再重跑 Phase 38 full relevant pytest。
 
 ### 下次继续排查入口
 
@@ -11122,7 +11122,7 @@ PY
 在 MOCA 仓库根目录运行：
 
 ```bash
-PGPASSWORD=moca_dev psql -h localhost -U moca -d moca -At -F ' ' -c "SELECT 'memory_write_events', count(*) FROM memory_write_events UNION ALL SELECT 'long_term_memories', count(*) FROM long_term_memories UNION ALL SELECT 'case_memories', count(*) FROM case_memories;"
+PGPASSWORD=REDACTED_LOCAL_TEST_PASSWORD psql -h localhost -U moca -d moca -At -F ' ' -c "SELECT 'memory_write_events', count(*) FROM memory_write_events UNION ALL SELECT 'long_term_memories', count(*) FROM long_term_memories UNION ALL SELECT 'case_memories', count(*) FROM case_memories;"
 ```
 
 ### 关键证据或命令
@@ -11141,7 +11141,7 @@ import asyncio
 import asyncpg
 
 async def count_db(name: str):
-    conn = await asyncpg.connect(user='moca', password='moca_dev', host='localhost', port=5432, database=name)
+    conn = await asyncpg.connect(user='moca', password='REDACTED_LOCAL_TEST_PASSWORD', host='localhost', port=5432, database=name)
     rows = await conn.fetch("""
         SELECT 'memory_write_events' AS table_name, count(*) AS count FROM memory_write_events
         UNION ALL SELECT 'long_term_memories', count(*) FROM long_term_memories
@@ -19184,7 +19184,7 @@ import asyncio
 import asyncpg
 
 async def main():
-    conn = await asyncpg.connect(user='moca', password='moca_dev', host='localhost', port=5432, database='moca_test')
+    conn = await asyncpg.connect(user='moca', password='REDACTED_LOCAL_TEST_PASSWORD', host='localhost', port=5432, database='moca_test')
     try:
         await conn.execute('DROP SCHEMA IF EXISTS public CASCADE')
         await conn.execute('CREATE SCHEMA public')
