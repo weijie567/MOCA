@@ -18438,3 +18438,59 @@ ROADMAP 详细 section 已有 6 个计划清单，STATE 已记录 Planned Phase 
 ### 剩余问题和下次继续排查入口
 
 后续执行/closeout 时需要再次核对 ROADMAP/STATE 的 summary table、frontmatter、详细 phase section 是否一致。若 GSD handler 仍无法更新汇总表，可在 Phase 58 final closeout 中按计划 58-06 做一次受控 metadata reconcile，并保留本记录作为依据。
+
+## 2026-07-08：Phase 58 execution start 时 `state.begin-phase` 参数样式导致 STATE 写入占位符
+
+### 问题现象
+
+开始执行 Phase 58 前，调用 `gsd-sdk query state.begin-phase --phase "58" --name "canonical-graph-cutover-and-no-debt-cleanup" --plans "10"` 后，`.planning/STATE.md` 被写入错误占位符：
+
+- `Current focus: Phase --phase — 58`
+- `Phase: --phase (58) — EXECUTING`
+- `Plan: 1 of --name`
+- `Last activity: 2026-07-08 -- Phase --phase execution started`
+
+### 如何检测 / 复现
+
+运行命令后检查 STATE diff：
+
+```bash
+git diff -- .planning/STATE.md
+```
+
+或定位异常占位符：
+
+```bash
+rg -n "Phase --phase|--name|-- Phase --phase" .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`gsd-sdk query state.begin-phase ...` 的返回值也暴露了参数未按命名 flag 解析：
+
+```json
+{
+  "phase": "--phase",
+  "name": "58",
+  "plan_count": "--name"
+}
+```
+
+### 当前判断 / 根因
+
+`state.begin-phase` 这个 `gsd-sdk query` 子命令当前按位置参数解析，而不是按 `--phase/--name/--plans` 命名参数解析。使用 workflow 文档中的命名参数样式会把 flag 名本身写进 STATE。该问题属于 GSD CLI 参数契约/文档不一致，不是业务代码失败。
+
+### 已做处理
+
+立即手工修复 `.planning/STATE.md` 的受影响字段为 Phase 58 正确信息：
+
+- `Current focus: Phase 58 — canonical-graph-cutover-and-no-debt-cleanup`
+- `Phase: 58 — EXECUTING`
+- `Plan: 0 of 10`
+- `Last activity: 2026-07-08 -- Phase 58 execution started`
+
+后续执行中避免再次用命名 flag 调用 `state.begin-phase`；若需要重跑，先确认该子命令的位置参数格式。
+
+### 剩余问题和下次继续排查入口
+
+后续 Phase 58 closeout 仍需检查 `.planning/STATE.md`、`.planning/ROADMAP.md`、`.planning/REQUIREMENTS.md` 是否被 GSD metadata handler 正确同步。若再次出现 `--phase` / `--name` 占位符，优先检查最近一次 `gsd-sdk query state.*` 调用参数样式。
