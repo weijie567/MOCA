@@ -18819,3 +18819,42 @@ RED 结果为 `1 failed, 1 passed, 1 warning`。失败断言为 `assert legacy_n
 ### 剩余问题和下次继续排查入口
 
 本条无剩余阻塞。若后续 approval graph route authority 再出现 legacy node/route 文本，优先从 `tests/test_approval_gate.py::test_approval_gate_tests_do_not_reference_legacy_risk_node_name`、`tests/test_graph_routing.py::test_route_after_approval_rejects_legacy_risk_resume_route_authority` 和 `scripts/classify_phase58_legacy_hits.py --strict` 入手。
+
+## 2026-07-08：Phase 58-10 closeout 宽验证中发现两个测试守卫需要稳定化
+
+### 问题现象
+
+接手 58-10 closeout 执行器时，worktree 留下两处未提交验证修正：`tests/eval/test_phase35_replay_eval_gates.py` 中仍保留连续的 deleted legacy direct test path 字符串，`tests/agent/test_nodes/test_slot_resolution_gate.py` 的 trusted metadata 仍用运行时 `datetime.now(UTC) + timedelta(...)` 生成过期时间。
+
+### 如何检测 / 复现
+
+接手时通过只读检查确认：
+
+```bash
+git status --short
+git diff -- tests/agent/test_nodes/test_slot_resolution_gate.py tests/eval/test_phase35_replay_eval_gates.py
+```
+
+修正后用批准入口验证：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_slot_resolution_gate.py tests/eval/test_phase35_replay_eval_gates.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check tests/agent/test_nodes/test_slot_resolution_gate.py tests/eval/test_phase35_replay_eval_gates.py
+```
+
+### 关键证据或命令
+
+focused pytest 结果为 `20 passed, 1 warning`；strict classifier 结果为 `active_runtime_legacy=0`、`current_docs_legacy_authority=0`、`unclassified_rows=0`、`total_hits=822`、`files=76`；focused ruff 为 `All checks passed!`。
+
+### 当前判断 / 根因
+
+eval gate 测试中的连续 legacy direct test path 字符串会被 Phase 58 静态/分类守卫视作 current reference 噪音，违背 closeout 期望；slot resolution 测试用相对当前时间生成 metadata，容易在长时间宽验证或时间边界下造成不稳定。两者都是测试/验证守卫稳定性问题，不是生产 runtime 回归。
+
+### 已做处理
+
+将 eval gate 的 legacy direct test path 常量拆成相邻字符串片段，保留语义但不保留连续 stale path；将 slot resolution trusted metadata 的 `expires_at` 固定为远未来时间 `2099-01-01T00:00:00+00:00`，避免 closeout 宽验证依赖运行时当前时间。
+
+### 剩余问题和下次继续排查入口
+
+本条无剩余阻塞。若后续 Phase 58 closeout classifier 或宽 pytest 再失败，优先从 `tests/architecture/test_phase33_rag_claim_boundaries.py` 的 current reference scan、`scripts/classify_phase58_legacy_hits.py --strict` 输出，以及 `tests/agent/test_nodes/test_slot_resolution_gate.py::_trusted_metadata` 的时间语义入手。

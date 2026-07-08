@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
 import pytest
+from pydantic import BaseModel
 
 from src.agent.context import PromptAssembly
 from src.agent.nodes import slot_resolution_gate as slot_resolution_gate_module
@@ -60,7 +59,7 @@ def _trusted_metadata(**overrides: Any) -> dict[str, Any]:
         "user_id": "user-1",
         "thread_id": "thread-1",
         "fresh": True,
-        "expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "expires_at": "2099-01-01T00:00:00+00:00",
         "compatible_intents": ["refund_troubleshooting"],
     }
     metadata.update(overrides)

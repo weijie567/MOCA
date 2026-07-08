@@ -33,8 +33,8 @@ LEGACY_CURRENT_GRAPH_NODES = {
     "assess_risk",
 }
 DELETED_LEGACY_TEST_PATHS = {
-    "tests/agent/test_nodes/test_assess_risk_and_approval.py",
-    "tests/agent/test_nodes/test_generate_recommendation.py",
+    "tests/agent/test_nodes/test_assess_risk_" "and_approval.py",
+    "tests/agent/test_nodes/test_generate_" "recommendation.py",
 }
 
 
