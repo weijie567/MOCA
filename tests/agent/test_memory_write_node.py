@@ -57,13 +57,13 @@ async def test_memory_write_node_skips_when_final_response_missing():
 @pytest.mark.parametrize(
     "approval_marker_state",
     [
-        {"approval_result": {"decision": "approve"}},
+        {"approval_result": {"status": "approved"}},
         {"approval_required": True},
         {"risk_assessment": {"approval_required": True, "risk_level": "manual_review"}},
     ],
     ids=["approval_result", "approval_required", "risk_assessment"],
 )
-async def test_memory_write_node_skips_pending_approval_markers(approval_marker_state):
+async def test_memory_write_node_skips_approval_marked_states(approval_marker_state):
     result = await memory_write(_state(**approval_marker_state), {"configurable": {"session": object()}})
 
     assert result["memory_write_result"]["status"] == "skipped"
