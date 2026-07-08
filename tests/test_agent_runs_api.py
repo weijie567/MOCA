@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import inspect
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -50,6 +51,7 @@ from src.memory.case_working_context_lifecycle import CaseWorkingContextLifecycl
 from src.platform.context_projections import project_to_legacy_agent_state_identity
 from src.platform.trusted_context import TrustedContext
 from src.tools.contracts import BusinessFactRefV1, ToolResultV2
+from tests.architecture.graph_baseline import TARGET_CANONICAL_GRAPH_NODES
 
 
 LEGACY_CURRENT_NODE_NAMES = {
@@ -998,27 +1000,25 @@ def test_sse_event_does_not_translate_legacy_node_name_as_current_runtime():
     assert data["payload"] == {"tool_name": "slot_parser"}
 
 
-def test_agent_run_sse_node_messages_are_canonical_current_vocabulary_only() -> None:
+def test_agent_run_sse_node_messages_cover_exact_canonical_graph_nodes() -> None:
+    assert set(NODE_MESSAGES) == TARGET_CANONICAL_GRAPH_NODES
+    assert all(NODE_MESSAGES[node] for node in TARGET_CANONICAL_GRAPH_NODES)
+
     for legacy_node in LEGACY_CURRENT_NODE_NAMES:
         assert legacy_node not in NODE_MESSAGES
-
-    for canonical_node in {
-        "contextual_intent_resolve",
-        "slot_resolution_gate",
-        "memory_context_load",
-        "recommendation_generation",
-        "risk_gate",
-    }:
-        assert NODE_MESSAGES[canonical_node]
+    assert "execute_action" not in NODE_MESSAGES
 
 
-def test_frontend_timeline_label_map_is_canonical_current_vocabulary_only() -> None:
+def test_frontend_timeline_label_map_covers_exact_canonical_graph_nodes() -> None:
     source = Path("frontend/src/components/timeline/TimelineStep.tsx").read_text(encoding="utf-8")
+    match = re.search(r"const NODE_MESSAGES: Record<string, string> = \{(?P<body>.*?)\n\}", source, re.DOTALL)
 
-    assert "recommendation_generation:" in source
-    assert "risk_gate:" in source
+    assert match is not None
+    keys = set(re.findall(r"^\s+([A-Za-z_][A-Za-z0-9_]*):", match.group("body"), flags=re.MULTILINE))
+    assert keys == TARGET_CANONICAL_GRAPH_NODES
     for legacy_node in LEGACY_CURRENT_NODE_NAMES:
         assert f"{legacy_node}:" not in source
+    assert "execute_action:" not in source
 
 
 def test_sse_event_projects_runtime_slot_resolution_node_identity():

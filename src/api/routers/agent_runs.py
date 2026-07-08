@@ -55,15 +55,19 @@ _TARGET_CONTEXT_KEY = "target" + "_merchant_context"
 
 NODE_MESSAGES: dict[str, str] = {
     "receive_request": "正在接收请求",
+    "safety_pre_route": "正在进行安全预路由",
     "session_context_load": "正在加载会话上下文",
     "contextual_intent_resolve": "正在识别上下文意图",
     "slot_resolution_gate": "正在确认关键信息",
     "memory_context_load": "正在加载记忆上下文",
     "investigate": "正在调查订单和规则",
+    "rag_context_build": "正在构建证据上下文",
     "recommendation_generation": "正在生成处理建议",
+    "claim_verify": "正在校验建议依据",
     "risk_gate": "正在评估风险",
     "approval_gate": "需要审批，等待人工决策",
-    "execute_action": "正在执行操作",
+    "action_draft": "正在生成操作草稿",
+    "clarification_gate": "需要补充信息",
     "final_response": "已完成",
 }
 
