@@ -23,6 +23,13 @@ from tests.agent.conftest import FakeLLM
 from tests.agent.test_graph import _config, _intent, _patch_graph_dependencies, _patch_reviewed_memory_services
 
 
+def test_phase58_memory_evidence_boundary_uses_canonical_claim_source_node() -> None:
+    source = Path(__file__).read_text(encoding="utf-8")
+    legacy_source_node = '"source_node": "' + "generate_" + "recommendation" + '"'
+
+    assert legacy_source_node not in source
+
+
 def _state(user: User, thread_id: str, *, run_id: str) -> dict:
     return {
         "tenant_id": str(user.tenant_id),

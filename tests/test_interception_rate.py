@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,14 @@ from src.agent.state import AgentState
 
 
 pytestmark = pytest.mark.asyncio
+
+
+def test_phase58_interception_rate_patches_canonical_risk_gate_module() -> None:
+    source = Path(__file__).read_text(encoding="utf-8")
+    legacy_alias = "risk_" "node"
+
+    assert legacy_alias not in source
+    assert "from src.agent.nodes import risk_gate as risk_gate_module" in source
 
 
 class _LowRiskStructuredLLM:

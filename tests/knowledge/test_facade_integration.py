@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -25,6 +26,14 @@ from tests.agent.conftest import FakeLLM
 
 
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
+
+
+def test_phase58_facade_integration_patches_canonical_recommendation_module() -> None:
+    source = Path(__file__).read_text(encoding="utf-8")
+    legacy_alias = "recommendation_" "module"
+
+    assert legacy_alias not in source
+    assert "from src.agent.nodes import recommendation_generation as recommendation_generation_module" in source
 
 
 def _base_state() -> dict:

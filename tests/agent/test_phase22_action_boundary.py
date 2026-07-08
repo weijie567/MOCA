@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -15,6 +16,16 @@ from src.knowledge.schemas import EvidenceRefV1
 
 ACTION_HASH = "sha256:" + "1" * 64
 SNAPSHOT_HASH = "sha256:" + "2" * 64
+
+
+def test_phase58_action_boundary_patches_canonical_risk_gate_module() -> None:
+    source = Path(__file__).read_text(encoding="utf-8")
+    legacy_alias = "assess_" "risk_module"
+    legacy_resume_route = "assess_" "risk_and_approval"
+
+    assert legacy_alias not in source
+    assert f'"resume_route": "{legacy_resume_route}"' not in source
+    assert "from src.agent.nodes import risk_gate as risk_gate_module" in source
 
 
 def _evidence_ref(tenant_id: str) -> dict[str, Any]:
