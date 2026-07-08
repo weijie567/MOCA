@@ -1,6 +1,6 @@
 ---
 phase: 58-canonical-graph-cutover-and-no-debt-cleanup
-reviewed: 2026-07-08T04:33:03Z
+reviewed: 2026-07-08T04:49:53Z
 depth: deep
 files_reviewed: 49
 files_reviewed_list:
@@ -55,69 +55,41 @@ files_reviewed_list:
   - tests/test_trace_api.py
 findings:
   critical: 0
-  warning: 3
+  warning: 0
   info: 0
-  total: 3
-status: issues_found
+  total: 0
+status: clean
 ---
 
 # Phase 58: Code Review Report
 
-**Reviewed:** 2026-07-08T04:33:03Z
+**Reviewed:** 2026-07-08T04:49:53Z
 **Depth:** deep
 **Files Reviewed:** 49
-**Status:** issues_found
+**Status:** clean
 
 ## Summary
 
-Reviewed the Phase 58 graph cutover changes across runtime graph vocabulary, routing, canonical node implementations, API trace/approval projection boundaries, replay eval wiring, guard scripts, tests, and current docs. The active runtime code is consistently using canonical graph names, and the remaining old-name handling is bounded to historical projection/retry paths.
+Re-reviewed the Phase 58 canonical graph cutover and no-debt cleanup after code-review fixes. The active graph/vocabulary surface is canonical-only for current runtime use, historical legacy-name handling is bounded to trace/API/read projection or historical artifacts, and current docs/eval/frontend references no longer describe legacy names as active runtime authority.
 
-The issues below are no-debt guardrail and current-documentation drift problems. I treated `58-VALIDATION.md` as evidence that broad verification passed, and independently ran the strict legacy classifier plus a temporary fixture check for the classifier blind spot.
+The previous review warnings are resolved:
 
-## Warnings
+- WR-01 resolved: the strict legacy classifier now includes `intent_classification` and has a regression test proving active runtime use fails strict mode.
+- WR-02 resolved: `docs/current-langgraph-architecture.md` no longer describes public `route_after_slots()` as a current delegate; only private `_route_after_slots()` is mentioned as non-authoritative implementation detail.
+- WR-03 resolved: `README.md` graph and memory wording now matches the source routing shape and current PostgreSQL-backed same-thread session memory behavior.
 
-### WR-01: Strict legacy classifier misses an active legacy node alias
+All reviewed files meet quality standards. No critical, warning, or info findings were identified.
 
-**File:** `scripts/classify_phase58_legacy_hits.py:13`
+## Verification
 
-**Issue:** `LEGACY_TERMS` omits `intent_classification`, even though `src/agent/graph_vocabulary.py` treats it as a historical stored graph name projected to `contextual_intent_resolve`. A future active runtime regression such as `builder.add_node("intent_classification", ...)` would produce `total_hits=0` and pass strict mode because the classifier never searches for that alias. This weakens the Phase 58 no-debt gate.
-
-**Fix:**
-
-```python
-LEGACY_TERMS = (
-    "classify_intent",
-    "intent_classification",
-    "session_memory_load",
-    "extract_slots",
-    "long_term_memory_retrieve",
-    "generate_recommendation",
-    "assess_risk_and_approval",
-    "route_after_intent",
-    "route_after_slots",
-)
-```
-
-Also add a regression test that writes an active runtime fixture containing `builder.add_node("intent_classification", ...)` and asserts strict classification reports `active_runtime_legacy > 0`. Longer term, derive this term set from the canonical graph vocabulary/historical projection definitions so the scanner cannot drift from the contract vocabulary.
-
-### WR-02: Current LangGraph architecture doc still names removed public compatibility router
-
-**File:** `docs/current-langgraph-architecture.md:101`
-
-**Issue:** The current architecture doc says `route_after_slots()` is "only a compatibility delegate." Phase 58 removed the public `def route_after_slots(` surface; the only remaining symbol is the private internal `_route_after_slots()`, and `tests/architecture/test_canonical_graph_baseline.py` explicitly asserts the public function is absent. Because this section is under "关键依据" and says it describes current source facts, the line is current-doc contract drift rather than harmless historical text.
-
-**Fix:** Replace the sentence with the current public router list only. If the internal helper must be mentioned, call it `_route_after_slots()` and state that it is private implementation detail, not a public compatibility delegate or accepted current route authority.
-
-### WR-03: README current runtime snapshot is inconsistent with the compiled graph and memory state
-
-**File:** `README.md:52`
-
-**Issue:** The README says the Mermaid graph is the current runtime snapshot, but it shows `contextual_intent_resolve` routing directly to `memory_context_load` and `slot_resolution_gate` routing `slots ok` to `memory_context_load`. The compiled graph routes `contextual_intent_resolve` only to `clarification_gate`, `final_response`, `investigate`, or `slot_resolution_gate`; `memory_context_load` is only reachable from `slot_resolution_gate` when slot resolution decides reviewed memory is required. The same README section later says session memory adapters are empty (`README.md:174`), which is stale now that session memory loads from PostgreSQL via `MemoryService`.
-
-**Fix:** Update the Mermaid diagram to match `src/agent/graph.py`: route `contextual_intent_resolve` fact/policy paths to `investigate`, route `slot_resolution_gate` `slots ok` to `investigate`, and reserve `slot_resolution_gate -> memory_context_load -> investigate` for reviewed-memory-needed cases. Update the scope bullet to say same-thread session memory is PostgreSQL-backed/current, while cross-session long-term and case memory remain limited or out of scope.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` passed with `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, and `unclassified_rows=0`.
+- Scoped pytest passed: `1790 passed, 1 skipped, 43 warnings in 270.72s`.
+- Focused ruff check passed for the reviewed Python runtime, scripts, and representative tests.
+- `git diff --check dc22b6a..HEAD -- ...` passed for the reviewed scope.
+- Static graph check confirmed `graph_add_node_names()` has 15 nodes and equals `TARGET_CANONICAL_GRAPH_NODES`; legacy route hits are empty.
 
 ---
 
-_Reviewed: 2026-07-08T04:33:03Z_
+_Reviewed: 2026-07-08T04:49:53Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
