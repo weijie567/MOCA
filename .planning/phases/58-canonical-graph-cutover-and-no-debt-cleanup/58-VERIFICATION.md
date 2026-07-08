@@ -56,7 +56,7 @@ Only focused commands were rerun; broad command evidence was taken from `58-VALI
 
 | Command | Result | Status |
 | --- | --- | --- |
-| `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` | `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, `unclassified_rows=0`, `total_hits=877`, `files=83` | PASS |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` | `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, `unclassified_rows=0`, `total_hits=879`, `files=80` | PASS |
 | `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "... graph_add_node_names(); graph_router_route_values() ..."` | `{'node_count': 15, 'matches_target': True, 'legacy_route_hits': []}` | PASS |
 | `find src/agent/nodes tests/agent/test_nodes tests/agent ... deleted wrapper/test names ...` | No output | PASS |
 | `rg ... deleted wrapper imports ... src tests scripts eval` | Only a guard string in `tests/architecture/test_canonical_graph_baseline.py` | PASS |
@@ -68,7 +68,7 @@ Only focused commands were rerun; broad command evidence was taken from `58-VALI
 | --- | --- | --- |
 | `58-VALIDATION.md` | PASS | `status: complete`, `nyquist_compliant: true`, broad backend gate recorded `1812 passed, 1 skipped, 43 warnings`; ruff, frontend build, frontend Vitest, strict classifier, package metadata proof, and `git diff --check` all recorded as passed. |
 | `58-REVIEW.md` | PASS | `status: clean`, 49 files reviewed, 0 critical, 0 warning, 0 info findings after re-review. |
-| `58-REVIEW-FIX.md` | PASS | `status: fixed`; 3 review warnings accepted and fixed: classifier blind spot, current docs public route wording, README runtime graph/memory wording. |
+| `58-REVIEW-FIX.md` | PASS | `status: all_fixed`; 3 post-closeout review warnings fixed across 2 auto iterations: active node classifier masking, timeline message map drift, and final-response historical projection marker drift. |
 | `58-SECURITY.md` | PASS | `status: verified`, `threats_open: 0`; 37 threats closed or accepted, with one accepted historical-read risk only. |
 
 ## Historical Projection Boundaries

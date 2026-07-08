@@ -39,6 +39,9 @@ Phase 58 is closed with synchronized docs, architecture debt, validation evidenc
 5. `d2614b3` - `docs(58): record clean code re-review`
 6. `d97c00d` - `docs(58): add security verification`
 7. Final validation audit - refreshed strict classifier evidence after review/security artifacts
+8. `744394f` - `fix(58): WR-01 harden strict legacy classifier`
+9. `7e6c104` - `fix(58): WR-02 sync timeline node message maps`
+10. `561e59f` - `fix(58): WR-01 recognize historical verifier projections`
 
 ## Files Created/Modified
 
@@ -58,22 +61,22 @@ Phase 58 is closed with synchronized docs, architecture debt, validation evidenc
 | `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent src/api src/approvals src/repositories scripts/classify_phase58_legacy_hits.py scripts/eval_agent.py scripts/diagnose_latency.py tests/architecture tests/agent tests/test_graph_routing.py tests/test_interception_rate.py tests/knowledge tests/test_agent_runs_api.py tests/test_trace_api.py tests/test_approval_api.py tests/test_approval_gate.py tests/eval` | Passed: `All checks passed!` |
 | `npm --prefix frontend run build` | Passed: `1765 modules transformed`; built in `593ms` |
 | `npm --prefix frontend run test` | Passed: `2` test files, `6` tests |
-| `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` | Passed: `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, `unclassified_rows=0`, `total_hits=877`, `files=83` |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` | Passed: `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, `unclassified_rows=0`, `total_hits=879`, `files=80` |
 | Current-doc canonical concept assertion | Passed: `phase58-current-doc-canonical-concepts: pass` |
 | Package metadata proof | Passed: `phase58-metadata-proof: tracked=False stale_hits=0` |
 | `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` | Passed |
 
 ## Classifier Counts
 
-- `classifier_implementation`: 9
+- `classifier_implementation`: 10
 - `historical_data_read_projection`: 22
 - `legacy_wrapper_or_import_test`: 218
-- `phase58_cleanup_artifact`: 327
-- `previous_state_documentation`: 301
+- `phase58_cleanup_artifact`: 325
+- `previous_state_documentation`: 304
 
 Strict mode does not require `total_hits == 0`; it fails on active runtime legacy, current-docs legacy authority, or unclassified rows.
 
-Final validation reran the classifier after review/security/verification artifact edits. The live strict counters remained zero for active runtime, current-doc authority, and unclassified rows; only the planning artifact count shifted.
+Final validation reran the classifier after review/security/verification artifact edits and again after post-closeout code-review-fix commits. The live strict counters remained zero for active runtime, current-doc authority, and unclassified rows; only classified historical/planning/test counts shifted.
 
 ## Contract Spec Check
 
@@ -95,6 +98,7 @@ No tracked package metadata stale path cleanup was required.
 - During closeout, two validation guard stability fixes were needed: splitting contiguous legacy deleted test paths in an eval guard and replacing time-relative slot metadata expiry with a fixed future timestamp. This was recorded in `.planning/LOCAL-VALIDATION-ISSUES.md`.
 - Deep code review found three closeout warnings after the first summary commit. All were accepted and fixed: classifier coverage for `intent_classification`, current LangGraph route wording, and README current runtime/memory drift.
 - Final validation audit found 0 missing behavioral test gaps and refreshed the live strict classifier output after review/security artifacts.
+- Post-closeout `$gsd-code-review 58` / `$gsd-code-review-fix 58 --all --auto` found and fixed three cumulative warnings across two fix iterations: active node classifier masking, timeline message map drift, and final-response historical projection marker drift. Final deep re-review is clean with `1834 passed, 1 skipped, 43 warnings` on the configured pytest scope.
 - No production DB rewrite was performed. Historical graph names remain readable only through bounded historical/projection paths.
 
 ## Planning Metadata

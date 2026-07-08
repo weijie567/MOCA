@@ -1,65 +1,66 @@
 ---
-phase: 58-canonical-graph-cutover-and-no-debt-cleanup
+phase: 58
+fixed_at: 2026-07-08T07:51:10Z
 review_path: .planning/phases/58-canonical-graph-cutover-and-no-debt-cleanup/58-REVIEW.md
-status: fixed
-fixed:
-  critical: 0
-  warning: 3
-  info: 0
-remaining:
-  critical: 0
-  warning: 0
-  info: 0
-completed: 2026-07-08
+iteration: 2
+findings_in_scope: 3
+fixed: 3
+skipped: 0
+status: all_fixed
 ---
 
-# Phase 58 Review Fix Summary
+# Phase 58: Code Review Fix Report
 
-Deep code review found three warnings. All three were accepted and fixed.
+**Fixed at:** 2026-07-08T07:51:10Z
+**Source review:** .planning/phases/58-canonical-graph-cutover-and-no-debt-cleanup/58-REVIEW.md
+**Iteration:** 2
 
-## Fixes
+**Summary:**
+- Current review findings in scope: 1
+- Cumulative findings in scope: 3
+- Fixed this iteration: 1
+- Fixed cumulatively: 3
+- Skipped: 0
 
-### WR-01: Strict classifier blind spot
+## Fixed Issues
 
-Accepted. The Phase 58 legacy-hit classifier now scans `intent_classification` in addition to the other deleted/current-incompatible graph names. A regression test was added to prove an active runtime `builder.add_node("intent_classification", ...)` fixture fails strict mode with `active_runtime_legacy > 0`.
+### WR-01 (iteration 1): Strict Legacy Classifier Masks Active Node-File Hits
 
-Files changed:
+**Status:** fixed and verified by final auto re-review
+**Files modified:** `scripts/classify_phase58_legacy_hits.py`, `src/agent/nodes/final_response.py`, `tests/architecture/test_canonical_graph_baseline.py`, `tests/agent/test_nodes/test_final_response.py`, `.planning/LOCAL-VALIDATION-ISSUES.md`, `.planning/ARCHITECTURE-DEBT.md`
+**Commit:** 744394f
+**Applied fix:** Added explicit final-15 active node path classification, added an active node regression proving `--strict` fails on runtime legacy output names, removed the remaining `final_response` legacy `intent_classification` fallback, and recorded the handled validation/architecture notes.
 
-- `scripts/classify_phase58_legacy_hits.py`
-- `tests/architecture/test_canonical_graph_baseline.py`
+### WR-02 (iteration 1): Current Timeline Label Maps Do Not Match Final Canonical Nodes
 
-Verification:
+**Status:** fixed and verified by final auto re-review
+**Files modified:** `src/api/routers/agent_runs.py`, `frontend/src/components/timeline/TimelineStep.tsx`, `tests/test_agent_runs_api.py`
+**Commit:** 7e6c104
+**Applied fix:** Updated backend and frontend `NODE_MESSAGES` to the exact 15 canonical graph nodes, removed stale `execute_action`, synchronized labels, and strengthened tests to compare exact backend/frontend key sets against `TARGET_CANONICAL_GRAPH_NODES`.
 
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py -q --tb=short` passed: `20 passed, 1 warning`
-- `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` passed
-- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check scripts/classify_phase58_legacy_hits.py tests/architecture/test_canonical_graph_baseline.py` passed
+### WR-01 (iteration 2): Historical Verifier Marker Still Checks Removed `compatibility_alias` Status
 
-### WR-02: Current LangGraph docs named removed public route helper
+**Status:** fixed and verified by final auto re-review
+**Files modified:** `src/agent/nodes/final_response.py`, `tests/agent/test_phase22_final_response.py`
+**Commit:** 561e59f
+**Applied fix:** Replaced the final-response active `graph_vocabulary_entry(...).status == "compatibility_alias"` check with `project_trace_step_for_contract(...)` historical projection semantics, while also accepting already-projected `target_graph_status == "historical_projection"` trace rows. Updated the focused final-response regression to exercise the Phase 58 historical projection marker.
 
-Accepted. `docs/current-langgraph-architecture.md` now states that the public slot-route delegate is deleted, and that the remaining private helper is an implementation detail rather than current public route authority.
+## Skipped Issues
 
-File changed:
+None.
 
-- `docs/current-langgraph-architecture.md`
+## Verification
 
-Verification:
+- Final auto re-review updated `58-REVIEW.md` to `status: clean` with `findings.total: 0`.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_empty_session_adapter.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_intent_adapter.py tests/agent/test_intent_golden_contract.py tests/agent/test_intent_routing.py tests/agent/test_memory_context_load.py tests/agent/test_memory_evidence_boundary.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_final_response.py tests/agent/test_nodes/test_recommendation_generation.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_nodes/test_session_context_load.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_phase22_action_boundary.py tests/agent/test_phase22_final_response.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_required_slots.py tests/agent/test_session_memory_integration.py tests/agent/test_trace.py tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_memory_contract_delta.py tests/architecture/test_phase32_static_contract.py tests/architecture/test_phase33_rag_claim_boundaries.py tests/architecture/test_phase34_approval_action_boundaries.py tests/eval/test_phase35_replay_eval_gates.py tests/knowledge/test_facade_integration.py tests/knowledge/test_phase21_boundaries.py tests/memory/test_phase48_1_memory_compat_alignment.py tests/test_agent_runs_api.py tests/test_approval_api.py tests/test_approval_gate.py tests/test_graph_routing.py tests/test_interception_rate.py tests/test_trace_api.py -q --tb=short` - passed: `1834 passed, 1 skipped, 43 warnings in 268.20s`.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in ['src/agent/nodes/final_response.py', 'tests/agent/test_phase22_final_response.py']]; print('ast-ok')"` - passed.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py::test_final_response_renders_safe_non_allow_verifier_outcomes_without_internal_codes tests/agent/test_phase22_final_response.py::test_historical_legacy_verifier_fallback_requires_compatibility_trace_marker tests/agent/test_phase22_final_response.py::test_policy_qa_partial_overlap_manual_review_renders_cited_policy_answer -q --tb=short` - passed: `12 passed, 1 warning`.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` - passed: `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, `unclassified_rows=0`.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/final_response.py tests/agent/test_phase22_final_response.py` - passed.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` - passed.
 
-- `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` passed with `current_docs_legacy_authority=0`
-- Current-doc canonical concept assertion passed
+---
 
-### WR-03: README runtime graph and memory wording drift
-
-Accepted. The README Mermaid graph now matches the compiled graph routing shape: policy/fact paths go from contextual intent to `investigate`, ordinary completed slots go to `investigate`, and `memory_context_load` is used only when reviewed or long-term memory context is needed. The memory scope wording now reflects PostgreSQL-backed same-thread session memory and bounded contextual long-term/reviewed memory.
-
-File changed:
-
-- `README.md`
-
-Verification:
-
-- `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` passed
-- `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` passed after fixes
-
-## Final Status
-
-All accepted code-review warnings are fixed. A clean re-review is required before Phase 58 is closed.
+_Fixed: 2026-07-08T07:51:10Z_
+_Fixer: Codex (gsd-code-fixer)_
+_Iteration: 2_

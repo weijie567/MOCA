@@ -18887,3 +18887,85 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph
 ### 剩余问题和下次继续排查入口
 
 本条无剩余阻塞。若后续 strict classifier 再出现 active node hit，优先检查 `scripts/classify_phase58_legacy_hits.py::ACTIVE_NODE_PATHS`、`_is_explicit_active_node_compatibility_row(...)` 和命中的 active node source line，区分 current runtime authority 与显式历史兼容清理。
+
+## 2026-07-08：Phase 58 re-review 发现 final_response 历史投影状态名漂移
+
+### 问题现象
+
+Phase 58 code-review-fix 后重审时，WR-01 strict classifier 和 WR-02 backend/frontend timeline map 已通过，但 related fix 文件 `src/agent/nodes/final_response.py` 仍用旧的 `compatibility_alias` 判断历史 verifier trace marker。Phase 58 已把历史 stored-row 投影状态改为 `historical_projection`，导致 legacy verifier fallback 被当成 `missing_canonical_projection`。
+
+### 如何检测 / 复现
+
+使用 MOCA 批准入口运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py::test_final_response_renders_safe_non_allow_verifier_outcomes_without_internal_codes tests/agent/test_phase22_final_response.py::test_historical_legacy_verifier_fallback_requires_compatibility_trace_marker tests/agent/test_phase22_final_response.py::test_policy_qa_partial_overlap_manual_review_renders_cited_policy_answer -q --tb=short
+```
+
+### 关键证据或命令
+
+该命令结果为 `12 failed, 1 warning`。失败集中在 `safe_projection_source` 从期望的 `historical_compatibility_projection` 变成 `missing_canonical_projection`，并且 policy QA partial-overlap 分支从可回答的「政策说明」降级为 generic manual-review 文案。
+
+重审期间还出现几次本地验证命令选择器错误（pytest node id 猜错、临时 AST/regex 脚本未处理 `AnnAssign`），均未作为产品结论；已用精确 node id 和修正后的解析脚本复跑。
+
+### 当前判断 / 根因
+
+Phase 58 去掉 active vocabulary 的 `compatibility_alias` 后，`final_response._projection_steps_have_compatibility_marker(...)` 没有同步改成通过 `project_trace_step_for_contract(...)` 或 `historical_projection` 识别历史 `generate_recommendation` stored rows。结果是历史兼容 verifier projection 被误判为当前 canonical projection 缺失。
+
+### 已做处理
+
+代码 review 未修改源码，仅在 `.planning/phases/58-canonical-graph-cutover-and-no-debt-cleanup/58-REVIEW.md` 记录新的 warning。已确认：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph_vocabulary.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py::test_sse_event_does_not_translate_legacy_node_name_as_current_runtime tests/test_agent_runs_api.py::test_agent_run_sse_node_messages_cover_exact_canonical_graph_nodes tests/test_agent_runs_api.py::test_frontend_timeline_label_map_covers_exact_canonical_graph_nodes tests/test_agent_runs_api.py::test_sse_event_projects_runtime_slot_resolution_node_identity tests/test_agent_runs_api.py::test_sse_event_projects_runtime_memory_context_load_node_identity_without_memory_payload tests/test_agent_runs_api.py::test_sse_event_projects_phase56_recommendation_nodes_and_labels_current_runtime tests/test_agent_runs_api.py::test_sse_event_preserves_unexpected_legacy_recommendation_node_without_translation tests/test_agent_runs_api.py::test_sse_event_projects_phase57_risk_gate_node_and_label_current_runtime tests/test_agent_runs_api.py::test_sse_event_preserves_unexpected_legacy_risk_node_without_translation -q --tb=short
+```
+
+结果分别为 strict classifier 通过、`61 passed, 1 warning`、`9 passed, 1 warning`。
+
+### 剩余问题和下次继续排查入口
+
+需要修复 `src/agent/nodes/final_response.py:473-476`，让历史 marker 识别 Phase 58 的 `historical_projection`，并复跑上面的 `tests/agent/test_phase22_final_response.py` focused command。优先从 `_projection_steps_have_compatibility_marker(...)` 和 `src/agent/graph_vocabulary.py::project_trace_step_for_contract(...)` 入手。
+
+## 2026-07-08：Phase 58 code-review-fix 本地 focused pytest 使用了错误 node id
+
+### 问题现象
+
+第 1 轮 code-review-fix 后，本地 orchestrator 为了复核 WR-01/WR-02 focused tests，先运行了一个包含错误测试 node id 的 pytest 命令。命令没有执行目标测试，pytest collection 报 `ERROR: not found`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行以下错误命令可复现：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py::test_phase58_legacy_hit_classifier_strict_fails_active_node_file_rows tests/test_agent_runs_api.py::test_agent_run_sse_node_messages_are_exact_canonical_current_vocabulary tests/test_agent_runs_api.py::test_frontend_timeline_label_map_matches_backend_canonical_current_vocabulary -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出显示三个 node id 均不存在：
+
+```text
+ERROR: not found: tests/architecture/test_canonical_graph_baseline.py::test_phase58_legacy_hit_classifier_strict_fails_active_node_file_rows
+ERROR: not found: tests/test_agent_runs_api.py::test_agent_run_sse_node_messages_are_exact_canonical_current_vocabulary
+ERROR: not found: tests/test_agent_runs_api.py::test_frontend_timeline_label_map_matches_backend_canonical_current_vocabulary
+```
+
+### 当前判断 / 根因
+
+这是本地验证命令选择错误，不是代码或测试失败。修复 agent 新增/更新的测试名与 orchestrator 预估名称不一致。
+
+### 已做处理
+
+用 `rg` 定位真实测试名后重跑批准入口：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py::test_phase58_legacy_hit_classifier_strict_fails_active_node_runtime_alias tests/architecture/test_canonical_graph_baseline.py::test_phase58_legacy_hit_classifier_exposes_main_and_strict_report_fields tests/test_agent_runs_api.py::test_agent_run_sse_node_messages_cover_exact_canonical_graph_nodes tests/test_agent_runs_api.py::test_frontend_timeline_label_map_covers_exact_canonical_graph_nodes tests/agent/test_nodes/test_final_response.py -q --tb=short
+```
+
+结果：`25 passed, 1 warning`。
+
+### 剩余问题和下次继续排查入口
+
+无代码问题。后续针对 agent 新增测试做 focused pytest 前，先用 `rg -n "关键词" tests/...` 确认真实 node id。

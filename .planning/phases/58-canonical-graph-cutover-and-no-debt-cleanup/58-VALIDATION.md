@@ -73,14 +73,14 @@ Result:
   "active_runtime_legacy": 0,
   "current_docs_legacy_authority": 0,
   "unclassified_rows": 0,
-  "total_hits": 877,
-  "files": 83,
+  "total_hits": 879,
+  "files": 80,
   "category_counts": {
-    "classifier_implementation": 9,
+    "classifier_implementation": 10,
     "historical_data_read_projection": 22,
     "legacy_wrapper_or_import_test": 218,
-    "phase58_cleanup_artifact": 327,
-    "previous_state_documentation": 301
+    "phase58_cleanup_artifact": 325,
+    "previous_state_documentation": 304
   },
   "excluded_paths": [
     ".planning/phases/58-canonical-graph-cutover-and-no-debt-cleanup/58-VALIDATION.md"
@@ -129,6 +129,12 @@ Warnings were known non-blocking LangGraph/LangChain deprecation, graph config t
 ## Code Review Follow-Up
 
 Post-execution deep code review found three no-debt closeout warnings. All were fixed before final closeout: the strict classifier now scans `intent_classification`, `docs/current-langgraph-architecture.md` no longer presents public `route_after_slots()` as current compatibility authority, and `README.md` now matches the current compiled graph/memory state.
+
+## Post-Closeout Code Review Fix Follow-Up
+
+After the closeout checkpoint, a deep `$gsd-code-review 58` pass found two additional warnings: active node implementation files could still be masked by the strict classifier, and backend/frontend timeline message maps were not exact projections of the final 15 canonical nodes. `$gsd-code-review-fix 58 --all --auto` resolved those warnings in `744394f` and `7e6c104`, then the auto re-review found one related final-response historical projection marker drift. That final warning was fixed in `561e59f`.
+
+Final auto re-review is clean: `58-REVIEW.md` has `status: clean`, `findings.total: 0`, and the configured pytest scope passed with `1834 passed, 1 skipped, 43 warnings in 268.20s`. The latest strict classifier output is recorded above.
 
 ## Broad Ruff Gate
 
@@ -223,7 +229,7 @@ The following compatibility/read paths remain intentionally bounded:
 
 Audit result: no missing behavioral test gaps were found across Plans 58-01 through 58-10, CAGM-09, review/security follow-up artifacts, or the existing validation map. No new tests were required.
 
-The code-review follow-up closeout evidence recorded `total_hits=882`, `files=81`, and category counts `classifier_implementation=9`, `historical_data_read_projection=22`, `legacy_wrapper_or_import_test=218`, `phase58_cleanup_artifact=332`, `previous_state_documentation=301`. This audit reran the same approved strict classifier after later review/security/verification artifact edits and recorded the live output above: `total_hits=877`, `files=83`, with the only category-count change in `phase58_cleanup_artifact`. Strict counters remain `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, and `unclassified_rows=0`; strict mode still does not require `total_hits == 0`.
+The code-review follow-up closeout evidence recorded `total_hits=882`, `files=81`, and category counts `classifier_implementation=9`, `historical_data_read_projection=22`, `legacy_wrapper_or_import_test=218`, `phase58_cleanup_artifact=332`, `previous_state_documentation=301`. The first validation audit reran the same approved strict classifier after later review/security/verification artifact edits and recorded `total_hits=877`, `files=83`. After the post-closeout code-review-fix auto loop, this validation was refreshed again to the live output above: `total_hits=879`, `files=80`, `classifier_implementation=10`, `historical_data_read_projection=22`, `legacy_wrapper_or_import_test=218`, `phase58_cleanup_artifact=325`, `previous_state_documentation=304`. Strict counters remain `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, and `unclassified_rows=0`; strict mode still does not require `total_hits == 0`.
 
 ## Validation Sign-Off
 
