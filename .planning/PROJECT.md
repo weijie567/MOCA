@@ -14,7 +14,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 **Goal:** Clean up architecture debt across MOCA's core subsystems so tool contracts, intent routing, memory lifecycle behavior, and the canonical Agent Graph migration are explicit, tested, and aligned with `docs/contract-spec.md`.
 
-**Status:** Phase 37 through Phase 56 complete; Phase 57 Risk Gate and Approval Gate Canonicalization is next.
+**Status:** Phase 37 through Phase 59 complete; Phase 60 v2.1 Archive Evidence Closure is next.
 
 **Delivered:**
 - Land real `output_schema` for all eight tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) and enforce it in the `ToolRuntime` output-validation gate — completed in Phase 38.
@@ -35,6 +35,9 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Add source-verified canonical graph baselines and migration matrix checks — completed in Phase 51.
 - Cut over active graph nodes through `safety_pre_route`, `contextual_intent_resolve`, `slot_resolution_gate`, and `memory_context_load`, with compatibility aliases documented for Phase 58 cleanup — completed in Phases 52-55.
 - Cut over active recommendation generation to `recommendation_generation`, align RAG/claim fail-closed routing, harden action-claim authority through the final action-draft boundary, and keep `generate_recommendation` as explicit Phase 58 compatibility only — completed in Phase 56.
+- Canonicalize `risk_gate` / `approval_gate` runtime behavior, preserve trusted approval resume and action-draft boundaries, and prepare final canonical graph cleanup — completed in Phase 57.
+- Cut over the active runtime graph to the final 15 canonical nodes, remove active legacy node names/routes/aliases, and verify no-debt graph vocabulary cleanup — completed in Phase 58.
+- Repair approval-resume terminal memory finalization so completed approval resumes use the normal assistant-message/thread-summary/session-memory/CWC finalizer lifecycle with requester identity, finalizer evidence fail-closed behavior, retry idempotency, and canonical graph guard coverage — completed in Phase 59.
 
 **Guardrails (binding on all downstream agents):**
 - `ToolCallContext` identity fields (`tenant_id/user_id/role/permissions/merchant_scope/session_id/thread_id/run_id/trace_id`) are locked by spec §8.0 as `TrustedContext` projections — MUST NOT redefine, widen, or rename. Off-limits.
@@ -376,4 +379,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-07 — completed Phase 56 Recommendation Generation and RAG Claim Status Alignment; next phase is Phase 57 Risk Gate and Approval Gate Canonicalization*
+*Last updated: 2026-07-08 — completed Phase 59 Approval Resume Terminal Memory Finalization; next phase is Phase 60 v2.1 Archive Evidence Closure*
