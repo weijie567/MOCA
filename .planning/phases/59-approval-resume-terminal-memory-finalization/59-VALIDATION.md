@@ -5,6 +5,7 @@ status: complete
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-07-08
+audited: 2026-07-08T10:52:52Z
 ---
 
 # Phase 59 - Validation Strategy
@@ -18,7 +19,7 @@ Per-phase validation contract for approval-resume terminal memory finalization.
 | Framework | pytest with pytest-asyncio (`asyncio_mode = "auto"`) |
 | Config file | `pyproject.toml` |
 | Quick run command | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py -q` |
-| Full suite command | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_agent_runs_api.py tests/agent/test_memory_write_node.py tests/agent/test_case_working_context_lifecycle.py tests/memory/test_thread_summary.py tests/architecture/test_canonical_graph_baseline.py -q` |
+| Full suite command | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_agent_runs_api.py tests/agent/test_memory_write_node.py tests/agent/test_case_working_context_lifecycle.py tests/memory/test_thread_summary.py tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase34_approval_action_boundaries.py -q` |
 | Estimated runtime | Focused commands 2s-88s; full combined suite 239s; use focused commands per task first |
 
 ## Sampling Rate
@@ -45,7 +46,7 @@ Per-phase validation contract for approval-resume terminal memory finalization.
 |------|---------|
 | 1 | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_write_node.py tests/test_agent_runs_api.py::test_duplicate_sse_stream_does_not_duplicate_memory_surfaces -q` |
 | 2 | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py -q` |
-| 3 | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_agent_runs_api.py tests/agent/test_memory_write_node.py tests/agent/test_case_working_context_lifecycle.py tests/memory/test_thread_summary.py tests/architecture/test_canonical_graph_baseline.py -q` |
+| 3 | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_agent_runs_api.py tests/agent/test_memory_write_node.py tests/agent/test_case_working_context_lifecycle.py tests/memory/test_thread_summary.py tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase34_approval_action_boundaries.py -q` |
 
 ## Wave 0 Requirements
 
@@ -92,3 +93,19 @@ Recorded after `59-REVIEW.md` found WR-01/WR-02 and the fixes were applied:
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_write_node.py tests/agent/test_case_working_context_lifecycle.py tests/memory/test_thread_summary.py tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase34_approval_action_boundaries.py -q` -> `88 passed, 1 warning in 31.05s`
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_agent_runs_api.py tests/agent/test_memory_write_node.py tests/agent/test_case_working_context_lifecycle.py tests/memory/test_thread_summary.py tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase34_approval_action_boundaries.py -q` -> `196 passed, 1 warning in 248.48s`
 - `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/api/services/agent_run_memory.py src/api/routers/agent_runs.py src/api/routers/approvals.py tests/test_agent_runs_api.py tests/test_approval_api.py tests/agent/test_memory_write_node.py` -> `All checks passed!`
+
+## Validation Audit 2026-07-08
+
+| Metric | Count |
+|--------|-------|
+| Nyquist coverage gaps found | 0 |
+| Documentation consistency gaps found | 1 |
+| Resolved | 1 |
+| Escalated | 0 |
+
+Audit result: Phase 59 remains Nyquist-compliant. All requirements from Plans 59-01, 59-02, and 59-03 map to automated pytest or architecture tests, and no manual-only requirement remains. The only update was aligning the Test Infrastructure full suite command and Wave 3 command with the final evidence by including `tests/architecture/test_phase34_approval_action_boundaries.py`.
+
+Audit evidence:
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py::test_approval_resume_completed_runs_terminal_memory_finalizer tests/test_approval_api.py::test_decide_edit_rebinds_replacement_approval_from_resume_interrupt tests/test_approval_api.py::test_approval_resume_error_skips_terminal_finalizer_surfaces tests/test_approval_api.py::test_decide_records_recoverable_resume_failure_and_retries_terminal_approval tests/test_approval_api.py::test_approval_resume_trace_persistence_failure_fails_closed_after_terminal_surfaces tests/test_approval_api.py::test_completed_resume_reconciliation_rechecks_status_under_lock tests/test_approval_api.py::test_phase58_retry_route_compatibility_is_historical_persisted_data_read_only tests/test_agent_runs_api.py::test_build_agent_run_finalizer_input_state_uses_requester_identity tests/test_agent_runs_api.py::test_terminal_memory_write_state_strips_only_terminal_approval_markers tests/test_agent_runs_api.py::test_persist_agent_run_memory_finalize_trace_steps_is_idempotent tests/agent/test_memory_write_node.py::test_memory_write_node_skips_approval_marked_states tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase34_approval_action_boundaries.py -q` -> `44 passed, 1 warning in 23.43s`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/api/services/agent_run_memory.py src/api/routers/agent_runs.py src/api/routers/approvals.py tests/test_agent_runs_api.py tests/test_approval_api.py tests/agent/test_memory_write_node.py tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase34_approval_action_boundaries.py` -> `All checks passed!`
