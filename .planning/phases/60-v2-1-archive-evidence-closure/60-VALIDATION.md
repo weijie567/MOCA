@@ -1,8 +1,8 @@
 ---
 phase: 60
 slug: v2-1-archive-evidence-closure
-status: blocked_tooling_unavailable
-nyquist_compliant: false
+status: complete
+nyquist_compliant: true
 wave_0_complete: true
 created: 2026-07-08
 updated: 2026-07-08
@@ -10,9 +10,9 @@ updated: 2026-07-08
 
 # Phase 60 - Archive Evidence Closure Validation
 
-This artifact records the final Phase 60 archive-evidence inventory and the blocked follow-up `$gsd-audit-milestone v2.1` archive gate.
+This artifact records the final Phase 60 archive-evidence inventory and the passed follow-up v2.1 archive gate.
 
-Current status is `blocked_tooling_unavailable`: the target evidence artifacts exist, but Phase 60 is incomplete because the required milestone audit workflow cannot run without `gsd-integration-checker` agent tooling or an explicit workflow-supported fallback.
+Current status is `complete`: the target evidence artifacts exist, the main Codex orchestrator ran the required `gsd-integration-checker` path after a subagent-level tooling visibility gap, and the final archive gate is `archive_ready`.
 
 ## Artifact Inventory
 
@@ -36,8 +36,8 @@ Current status is `blocked_tooling_unavailable`: the target evidence artifacts e
 
 ## Requirement Coverage
 
-| Requirement | Archive Evidence State Before Final Audit |
-|-------------|--------------------------------------------|
+| Requirement | Archive Evidence State |
+|-------------|------------------------|
 | TPH-03 | Formal verification and Nyquist validation artifacts exist through Phase 60 archive evidence closure. |
 | TPH-04 | Formal verification and Nyquist validation artifacts exist; Phase 60 Plan 04 resolved the DB-backed evidence note with `108 passed, 1 warning`. |
 | IDR-02 | Formal verification exists through Phase 60 archive evidence closure; prior validation remains compliant. |
@@ -68,36 +68,36 @@ test -f .planning/phases/49-investigate-bounded-react-loop-migration/49-VALIDATI
 test -f .planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-VALIDATION.md
 ```
 
-## Blocked Final Audit Work
+## Final Audit Work
 
-- Attempted `$gsd-audit-milestone v2.1` semantics by reading `/Users/ming/.codex/skills/gsd-audit-milestone/SKILL.md` and `/Users/ming/.codex/get-shit-done/workflows/audit-milestone.md`.
+- `$gsd-audit-milestone v2.1` semantics were checked by reading `/Users/ming/.codex/skills/gsd-audit-milestone/SKILL.md` and `/Users/ming/.codex/get-shit-done/workflows/audit-milestone.md`.
 - The workflow requires spawning `Task(subagent_type="gsd-integration-checker", ...)`.
-- `gsd-sdk query init.milestone-op` reports `agents_installed: false` and missing `gsd-integration-checker`.
-- This Codex executor has no spawn-agent tool exposed, `gsd-sdk query audit-milestone v2.1` is not a registered query, and `command -v gsd-audit-milestone` finds no executable.
-- No workflow-supported fallback was accepted by the orchestrator in this execution context.
+- A Plan 60-05 subagent initially recorded a tooling visibility blocker because its context could not see spawn-agent support and `gsd-sdk query init.milestone-op` reported missing legacy audit agents.
+- The main Codex orchestrator verified the actual available runtime tooling and spawned `gsd-integration-checker` directly.
+- `gsd-integration-checker` returned `status: passed`, `24/24` v2.1 requirements complete, no integration blockers, and no archive artifact blockers.
+- Local deterministic artifact and requirement-status checks also passed.
 
-Phase 60 incomplete: do not mark `5/5 complete`, do not archive v2.1, and do not treat this as accepted post-v2.1 debt.
-
-Next entry point: rerun Plan 60-05 Task 3 after installing/exposing the GSD audit agent tooling required by `audit-milestone.md`, especially `gsd-integration-checker`, or provide an explicit workflow-supported fallback decision.
+The remaining `gsd-sdk query init.milestone-op` missing-agent report is a local tooling/reporting issue and is recorded in `.planning/LOCAL-VALIDATION-ISSUES.md`; it is not a product debt item or an archive blocker.
 
 ## Final Command Results
 
 | Check | Command | Result |
 |-------|---------|--------|
-| Audit workflow initialization | `gsd-sdk query init.milestone-op` | blocked: `agents_installed: false`, missing `gsd-integration-checker` |
-| Audit query fallback | `gsd-sdk query audit-milestone v2.1` | blocked: unknown registered query |
-| Audit CLI fallback | `command -v gsd-audit-milestone` | blocked: no executable on PATH |
+| Audit workflow initialization | `gsd-sdk query init.milestone-op` | diagnostic only: legacy report still says `agents_installed: false`, but main orchestrator had spawn-agent support |
+| Integration audit | main orchestrator spawn of `gsd-integration-checker` | pass: `24/24` requirements complete, no blockers |
+| Audit query fallback | `gsd-sdk query audit-milestone v2.1` | diagnostic only: unknown registered query |
+| Audit CLI fallback | `command -v gsd-audit-milestone` | diagnostic only: no executable on PATH |
 | Artifact command scan | `UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from pathlib import Path; ...'` | pass |
 | Allowed dirty-path check | `UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'import subprocess; ...'` | pass |
-| Whitespace check | `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` | pass |
+| Whitespace check | `git diff --check` | pass |
 
 ## Validation Sign-Off
 
 - [x] All Phase 60 target evidence artifacts exist before tracking doc reconciliation.
 - [x] TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, and CAGM-07 have explicit pre-audit coverage rows.
 - [x] Newly recorded command evidence avoids bare `pytest` and bare `python -m pytest`.
-- [x] Final milestone audit result recorded as `blocked_tooling_unavailable`.
+- [x] Final milestone audit result recorded as `archive_ready`.
 - [x] Final artifact command scan passed.
-- [x] `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` passed.
+- [x] `git diff --check` passed.
 
-**Approval:** blocked_tooling_unavailable; Phase 60 incomplete.
+**Approval:** complete; Phase 60 archive evidence gate is `archive_ready`.

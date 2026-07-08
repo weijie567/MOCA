@@ -47,7 +47,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Plan progress: 5/5 complete; verified 2026-07-07.
 - [x] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Plan progress: 10/10 complete; verified 2026-07-08.
 - [x] **Phase 59: Approval Resume Terminal Memory Finalization** - Wire approval-resume completed runs through the same terminal assistant-message/thread-summary/memory/CWC finalizer as ordinary agent-run completion (MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09). Gap closure phase; plan progress: 3/3 complete; verified 2026-07-08.
-- [ ] **Phase 60: v2.1 Archive Evidence Closure** - Create or refresh the missing formal verification and Nyquist validation artifacts identified by the v2.1 milestone audit, then re-run the archive gate (TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07). Gap closure phase; 4/5 plans complete, blocked_tooling_unavailable at final archive audit.
+- [x] **Phase 60: v2.1 Archive Evidence Closure** - Create or refresh the missing formal verification and Nyquist validation artifacts identified by the v2.1 milestone audit, then re-run the archive gate (TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07). Gap closure phase; 5/5 plans complete, archive-ready evidence gate passed.
 
 ## Phase Details
 
@@ -125,7 +125,7 @@ Plans:
 | 57. Risk Gate and Approval Gate Canonicalization | 5/5 | Complete    | 2026-07-07 |
 | 58. Canonical Graph Cutover and No-Debt Cleanup | 10/10 | Complete    | 2026-07-08 |
 | 59. Approval Resume Terminal Memory Finalization | 3/3 | Complete    | 2026-07-08 |
-| 60. v2.1 Archive Evidence Closure | 4/5 | Blocked: audit tooling unavailable; Phase 60 incomplete | - |
+| 60. v2.1 Archive Evidence Closure | 5/5 | Complete; archive evidence gate passed | 2026-07-08 |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -538,13 +538,13 @@ Plans:
 **Requirements:** TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07
 **Depends on:** Phase 59
 **Gap Closure:** Closes the requirement/formal-verification and validation evidence gaps recorded in `.planning/v2.1-MILESTONE-AUDIT.md`.
-**Plans:** 5 plans (4/5 complete; Plan 60-05 blocked by audit tooling unavailable).
+**Plans:** 5 plans (5/5 complete; final archive gate passed).
 Plans:
 - [x] 60-01-PLAN.md — create Phase 37 / Phase 43 formal verification artifacts and normalize early archive evidence.
 - [x] 60-02-PLAN.md — create Phase 48 / 48.1 / 49 / 50 / 56 formal verification artifacts.
 - [x] 60-03-PLAN.md — refresh or create Nyquist validation artifacts for Phases 37, 38, 40, 41, 42, and 44.
 - [x] 60-04-PLAN.md — create Phase 49 / 50 validation artifacts and resolve the Phase 37 DB-backed evidence note.
-- [ ] 60-05-PLAN.md — reconciled ledgers, then blocked at the final `$gsd-audit-milestone v2.1` gate because required `gsd-integration-checker` workflow tooling is unavailable.
+- [x] 60-05-PLAN.md — reconciled ledgers, then completed the final archive gate through the main orchestrator `gsd-integration-checker` path.
 **Success Criteria** (what must be TRUE):
   1. Formal verification artifacts exist for Phases 37, 43, 48, 48.1, 49, 50, and 56, and each artifact is based on real code/docs/tests rather than ledger restatement.
   2. Nyquist validation artifacts are created, refreshed, or explicitly exempted with rationale for Phases 37, 38, 40, 41, 42, 44, 49, and 50.

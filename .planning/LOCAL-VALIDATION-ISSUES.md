@@ -19510,3 +19510,47 @@ command -v gsd-audit-milestone
 ### 剩余问题和下次继续排查入口
 
 next entry point：安装或暴露 `/Users/ming/.codex/get-shit-done/workflows/audit-milestone.md` 要求的 GSD audit agent tooling，尤其是 `gsd-integration-checker`，然后从 Phase 60-05 Task 3 重新运行 `$gsd-audit-milestone v2.1` 语义；或者由 orchestrator 明确给出 workflow-supported fallback 决策。
+
+## 2026-07-08：Phase 60-05 blocked_tooling_unavailable 结论由主 orchestrator 复核解除
+
+### 问题现象
+
+Phase 60-05 子代理把最终 archive gate 记录为 `blocked_tooling_unavailable`，并同步写入 `.planning/v2.1-MILESTONE-AUDIT.md`、`60-VALIDATION.md`、`ROADMAP.md`、`STATE.md` 和 `REQUIREMENTS.md`。主流程复核时发现该结论来自子代理执行上下文看不到 spawn-agent 工具，而不是实际仓库 evidence 或产品代码失败。
+
+### 如何检测 / 复现
+
+```bash
+gsd-sdk query init.milestone-op
+gsd-sdk query agent-skills gsd-integration-checker
+```
+
+同时在主 orchestrator 工具列表中确认存在 `multi_agent_v1.spawn_agent`，并实际 spawn `gsd-integration-checker` 对 v2.1 Phase 37-60（排除 backlog 999.1）执行 milestone integration audit。
+
+### 关键证据或命令
+
+`gsd-sdk query init.milestone-op` 仍报告 legacy audit agents missing，但 `gsd-sdk query agent-skills gsd-integration-checker` 能返回该 agent skill 可用。主 orchestrator 实际运行 `gsd-integration-checker` 后结果为：
+
+```text
+status: passed
+requirement coverage: 24/24 v2.1 requirements complete
+integration blockers: none
+archive artifact blockers: none
+```
+
+随后用 MOCA 项目入口运行本地确定性核对脚本，确认 Phase 60 target artifacts 存在、7 个 Phase 60-linked requirement 已完成、Phase 37/43/48/48.1/49/50/56 verification 与 Phase 37/38/40/41/42/44/49/50 validation 状态符合 archive closure 预期。
+
+### 当前判断 / 根因
+
+这是 GSD tooling/reporting 与子代理上下文可见性问题：`init.milestone-op` 的 legacy installed-agent 检查报告缺失，但主 Codex orchestrator 实际可通过 multi-agent 工具 spawn `gsd-integration-checker`。因此先前 `blocked_tooling_unavailable` 是子代理上下文下的保守误判，不是 MOCA 产品代码问题，也不是 Phase 60 artifact 内容失败。
+
+### 已做处理
+
+- 接受主 orchestrator 的 `gsd-integration-checker` 结果：v2.1 archive gate 通过。
+- 将 `.planning/v2.1-MILESTONE-AUDIT.md` 改为 `status: passed`、`workflow_status: archive_ready`。
+- 将 `.planning/phases/60-v2-1-archive-evidence-closure/60-VALIDATION.md` 改为 `status: complete`、`nyquist_compliant: true`。
+- 将 `.planning/ROADMAP.md`、`.planning/STATE.md`、`.planning/REQUIREMENTS.md` 从 active blocked 状态同步为 Phase 60 5/5 complete / archive-ready evidence gate passed。
+- 保留上一条事故记录作为子代理本地 tooling failure 事实，不删除历史。
+
+### 剩余问题和下次继续排查入口
+
+无 MOCA 产品代码剩余问题。GSD `gsd-sdk query init.milestone-op` 仍可能继续报告 legacy audit agents missing，属于本地 GSD tooling/reporting debt；若后续 milestone audit 再出现同类矛盾，入口是对比 `init.milestone-op`、`agent-skills gsd-integration-checker` 和主 orchestrator 可用工具列表，并以实际 `gsd-integration-checker` 运行结果为准。

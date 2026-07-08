@@ -1,10 +1,10 @@
 ---
 phase: "60"
 status: running
-current_step: execute_wave_4_ready
+current_step: execute_complete_audit_resolved
 plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-07-08T12:40:41Z"
+updated_at: "2026-07-08T13:01:28Z"
 next_command: "$gsd-phase-autopilot --resume"
 ---
 
@@ -39,6 +39,9 @@ next_command: "$gsd-phase-autopilot --resume"
 - Stage 5 Wave 3 pre-check completed. `verify.key-links` reported missing `49-VALIDATION.md` and `50-VALIDATION.md`, but both files are current-wave `60-04` outputs; the prior-wave Phase 37 validation/verification link passed.
 - Stage 5 Wave 3 completed sequentially: `60-04`.
 - Repaired Phase 60 planning state after local GSD state update wrote invalid Session Continuity values.
+- Stage 5 Wave 4 completed sequentially: `60-05`.
+- Stage 5 final audit gate resolved by the main orchestrator running `gsd-integration-checker` after the `60-05` subagent recorded a tooling visibility blocker.
+- Stage 5 execution complete for all five Phase 60 plans; post-execution code review and verification stages remain.
 
 ## Evidence
 
@@ -63,7 +66,7 @@ next_command: "$gsd-phase-autopilot --resume"
 - Accepted repair themes: source anchors, `.planning/` diff guard, Phase 56 focused rerun, Phase 42 regex hardening, Phase 37 DB-note verify hardening, and Phase 60 final status timing.
 - Repaired-plan checker result: `## VERIFICATION PASSED`; no blockers or warnings.
 - Codex independent review result: no additional accepted issues.
-- Claude loop 2 accepted repairs: `60-05` explicit `blocked_tooling_unavailable` incomplete branch, and `60-02` Phase 56 rerun environment-failure branch.
+- Claude loop 2 accepted repairs: `60-05` explicit audit-tooling incomplete branch, and `60-02` Phase 56 rerun environment-failure branch.
 - Loop-2 plan-checker repair: broad `.planning/` dirty-path guards were replaced with per-plan allowlists; `60-02` Phase 56 status detection now uses exact `status:` line matching.
 - Loop-2 plan-checker final result: `## VERIFICATION PASSED`.
 - Codex final plan-review decision: no third Claude loop needed because final changes are guard-only and do not alter scope, dependencies, deliverables, or audit semantics.
@@ -77,7 +80,12 @@ next_command: "$gsd-phase-autopilot --resume"
 - `60-04` commits: `0bf265e`, `72f3347`, `8e8a72c`, `60ddda0`; summary `.planning/phases/60-v2-1-archive-evidence-closure/60-04-SUMMARY.md`.
 - Phase 37 DB-backed note resolved by exact serial command: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py tests/architecture/test_tool_boundaries.py -q` -> `108 passed, 1 warning in 30.42s`.
 - Wave 4 readiness: `60-05` can reconcile final tracking docs and run the archive gate; no Phase 37 DB debt remains.
+- `60-05` commits: `4ff6c35`, `a1b7bf0`, `3135b10`, `d987366`; summary `.planning/phases/60-v2-1-archive-evidence-closure/60-05-SUMMARY.md`.
+- Initial `60-05` subagent result: local audit-tooling visibility blocker because that executor context could not see spawn-agent support and `gsd-sdk query init.milestone-op` reported legacy audit agents missing.
+- Main orchestrator audit repair: spawned `gsd-integration-checker`; result `status: passed`, `24/24` v2.1 requirements complete, no integration blockers, and no archive artifact blockers.
+- Local deterministic artifact/status scan passed for all Phase 60 target verification/validation artifacts and requirement links.
+- Final archive status after repair: `.planning/v2.1-MILESTONE-AUDIT.md` is `status: passed`, `workflow_status: archive_ready`; `60-VALIDATION.md` is `status: complete`, `nyquist_compliant: true`.
 
 ## Last Failure
 
-None. Local state-update issue was repaired and recorded in `.planning/LOCAL-VALIDATION-ISSUES.md`.
+None active. Local state-update and audit-tooling visibility issues were repaired or superseded and recorded in `.planning/LOCAL-VALIDATION-ISSUES.md`.
