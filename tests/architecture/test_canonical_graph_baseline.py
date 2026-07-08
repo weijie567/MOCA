@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import importlib
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import scripts.diagnose_latency as diagnose_latency
 import scripts.eval_agent as eval_agent
