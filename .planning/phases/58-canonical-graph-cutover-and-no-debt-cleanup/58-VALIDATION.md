@@ -1,180 +1,221 @@
 ---
 phase: 58
 slug: canonical-graph-cutover-and-no-debt-cleanup
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-08
+completed: 2026-07-08
 ---
 
-# Phase 58 — Validation Strategy
+# Phase 58 — Final Validation
 
-> Per-phase validation contract for feedback sampling during execution.
+Phase 58 closes CAGM-09: the active runtime graph is now the final 15-node canonical graph, active legacy node names and public legacy route delegates are removed or internalized, and remaining legacy-name references are bounded to historical/projection/test/classifier/planning categories.
 
----
+## Final Verdict
 
-## Test Infrastructure
+| Gate | Result |
+|------|--------|
+| Plan execution | 10/10 complete |
+| Nyquist validation | compliant |
+| Wave 0 final no-debt requirements | complete |
+| Broad backend pytest | passed |
+| Broad ruff | passed |
+| Frontend build | passed |
+| Frontend Vitest | passed |
+| Strict legacy-hit classifier | passed |
+| Package metadata proof | passed |
+| `git diff --check` | passed |
 
-| Property | Value |
-|----------|-------|
-| **Framework** | pytest 9.0.3 with pytest-asyncio 1.3.0; frontend build/test via npm/Vite/Vitest |
-| **Config file** | `pyproject.toml`; frontend scripts in `frontend/package.json` |
-| **Quick run command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph_vocabulary.py -q --tb=short` |
-| **Full suite command** | See "Phase Gate Commands" below |
-| **Estimated runtime** | ~6-9 minutes for broad backend suite plus frontend build/test, based on Phase 57 closeout timing |
+## Final Canonical Graph
 
----
+The active graph is documented and verified as the final 15 canonical nodes:
 
-## Sampling Rate
+`receive_request`, `safety_pre_route`, `session_context_load`, `contextual_intent_resolve`, `slot_resolution_gate`, `memory_context_load`, `investigate`, `rag_context_build`, `recommendation_generation`, `claim_verify`, `risk_gate`, `approval_gate`, `action_draft`, `clarification_gate`, `final_response`.
 
-- **After every task commit:** Run the focused command for the changed ownership boundary.
-- **After every plan wave:** Run graph baseline, graph vocabulary, and impacted API/node suites.
-- **Before `$gsd-verify-work`:** Broad phase gate, static classifier, ruff, frontend build, frontend test, tracked metadata proof, and `git diff --check` must be green.
-- **Max feedback latency:** focused suites should stay under 180 seconds where possible; broad closeout may exceed this.
+Canonical current routers include `route_after_contextual_intent` and `route_after_slot_resolution`; public current `route_after_intent` and `route_after_slots` delegates were removed.
 
----
+## Plan Wave Map
 
-## Per-Task Verification Map
-
-| Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
-|---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 58-01-01 | 01 | 1 | CAGM-09 | T-58-01 / T-58-05 | Active graph nodes/routes stay canonical, legacy route delegates stop being public current route authority, and main graph vocabulary stops advertising active runtime compatibility aliases. | architecture/static/unit/routing | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph_vocabulary.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/agent/test_intent_golden_contract.py tests/agent/test_required_slots.py tests/agent/test_session_memory_integration.py -q --tb=short` | yes | pending |
-| 58-02-01 | 02 | 2 | CAGM-09 | T-58-05 | Recommendation and risk implementation ownership moves into canonical modules with current-run canonical identity and direct test filenames migrate to canonical names. | unit/import/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_recommendation_generation.py tests/agent/test_nodes/test_risk_gate.py -q --tb=short` | after 58-02 | pending |
-| 58-03-01 | 03 | 3 | CAGM-09 | T-58-05 | Recommendation/risk legacy wrappers are deleted, direct tests use canonical filenames/imports, and static guards block wrapper resurrection. | unit/import/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_recommendation_generation.py tests/agent/test_nodes/test_risk_gate.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short` | after 58-03 | pending |
-| 58-04-01 | 04 | 4 | CAGM-09 | T-58-05 | Intent/session legacy wrappers/helpers are deleted or internalized, and direct legacy-named tests are migrated to canonical suites. | unit/import/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_session_context_load.py tests/agent/test_intent_adapter.py -q --tb=short` | after 58-04 | pending |
-| 58-05-01 | 05 | 5 | CAGM-09 | T-58-05 | Slot/memory legacy wrappers/helpers are deleted or internalized, and direct legacy-named tests are migrated to canonical suites. | unit/import/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_memory_context_load.py -q --tb=short` | after 58-05 | pending |
-| 58-06-01 | 06 | 6 | CAGM-09 | T-58-05 | Graph/routing/shared fixture patch seams use canonical modules and public canonical route helpers only. | graph/routing/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/agent/test_intent_golden_contract.py tests/agent/test_required_slots.py tests/agent/test_session_memory_integration.py tests/agent/test_empty_session_adapter.py -q --tb=short` | yes | pending |
-| 58-07-01 | 07 | 7 | CAGM-09 | T-58-05 | Integration and architecture import coverage uses canonical modules and static guards reject deleted wrapper/test paths. | integration/architecture/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_recommendation_integration.py tests/agent/test_phase22_action_boundary.py tests/test_interception_rate.py tests/knowledge/test_facade_integration.py tests/agent/test_memory_evidence_boundary.py tests/architecture/test_phase32_static_contract.py tests/architecture/test_memory_contract_delta.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short` | yes | pending |
-| 58-08-01 | 08 | 8 | CAGM-09 | T-58-02 / T-58-03 | Current-run trace/API/SSE/frontend/eval surfaces use canonical names; historical rows remain readable only through bounded historical projection. | API/integration/frontend/eval | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py tests/eval/test_phase35_replay_eval_gates.py tests/eval/test_phase35_release_monitoring_manifests.py tests/architecture/test_canonical_graph_baseline.py -q --tb=short`, `npm --prefix frontend run build`, and `npm --prefix frontend run test` | yes | pending |
-| 58-09-01 | 09 | 8 | CAGM-09 | T-58-01 / T-58-04 | Historical approval retry metadata never authorizes a legacy graph resume; graph/API output emits canonical `risk_gate` only. | API/security/routing | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_approval_gate.py tests/test_graph_routing.py tests/approvals/test_needs_info_resume.py tests/approvals/test_service_transitions.py -q --tb=short` | yes | pending |
-| 58-10-01 | 10 | 9 | CAGM-09 | T-58-02 / T-58-06 | Docs, architecture debt, final classifier, and tracked metadata proof show zero active-runtime legacy debt, zero current-docs legacy authority, and zero unclassified rows. | docs/static/metadata | `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict`, tracked `moca.egg-info/SOURCES.txt` proof command, and `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` | after 58-01 | pending |
-
-*Status: pending · green · red · flaky*
-
----
+| Plan | Wave | Status | Summary | Verification result |
+|------|------|--------|---------|---------------------|
+| 58-01 | 1 | complete | Active graph/vocabulary final gate, route delegate removal, projection API split, classifier foundation | focused pytest, strict classifier, ruff, `git diff --check` passed |
+| 58-02 | 2 | complete | Canonical recommendation/risk implementation ownership and direct test filename migration | focused node pytest, strict classifier, ruff, `git diff --check` passed |
+| 58-03 | 3 | complete | Recommendation/risk legacy wrapper deletion and direct canonical test cleanup | focused node/architecture pytest, deletion guards, strict classifier, ruff, `git diff --check` passed |
+| 58-04 | 4 | complete | Intent/session legacy wrapper/helper cleanup and direct legacy test migration | focused pytest, deletion guards, strict classifier, ruff, `git diff --check` passed |
+| 58-05 | 5 | complete | Slot/memory legacy wrapper/helper cleanup and direct legacy test migration | `16 passed, 1 warning`; deletion guards, strict classifier, ruff, `git diff --check` passed |
+| 58-06 | 6 | complete | Graph/routing/shared fixture patch seam cleanup | `1340 passed, 36 warnings`; strict classifier, ruff, `git diff --check` passed |
+| 58-07 | 7 | complete | Integration and architecture import coverage cleanup | `79 passed, 1 skipped, 8 warnings`; no-hit current reference scans, strict classifier, ruff, `git diff --check` passed |
+| 58-08 | 8 | complete | Trace/API/SSE/frontend/eval/historical projection cleanup | `152 passed, 1 warning`; frontend build/test, strict classifier, ruff, `git diff --check` passed |
+| 58-09 | 8 | complete | Approval retry data-read compatibility and route authority hardening | `160 passed, 1 warning`; strict classifier, ruff, `git diff --check` passed |
+| 58-10 | 9 | complete | Docs, debt, validation, metadata proof, planning metadata closeout | broad gate evidence below passed |
 
 ## Wave 0 Requirements
 
-- [ ] Activate `tests/architecture/test_canonical_graph_baseline.py::test_final_no_debt_gate_is_marked_phase58_scope` as a real final no-debt assertion.
-- [ ] Remove or internalize public `route_after_intent` and `route_after_slots` route delegates and prove canonical route helpers still behave the same.
-- [ ] Add or update a Phase 58 static legacy-hit classifier that reports total hits, file count, category counts, zero active-runtime legacy hits, zero current-docs legacy authority hits if tracked separately, zero unclassified rows, and explicit generated-artifact exclusions.
-- [ ] Preserve the strict-mode rule that `--strict` fails on active/current/unclassified rows but does not require `total_hits == 0`.
-- [ ] Rename or rewrite test files whose filenames encode deleted legacy node names when wrapper modules are removed across Plans 58-03 through 58-05.
+- [x] Activate `tests/architecture/test_canonical_graph_baseline.py::test_final_no_debt_gate_is_marked_phase58_scope` as a real final no-debt assertion.
+- [x] Remove or internalize public `route_after_intent` and `route_after_slots` route delegates and prove canonical route helpers still behave the same.
+- [x] Add/update Phase 58 static legacy-hit classifier with total hits, file count, category counts, zero active-runtime legacy hits, zero current-docs legacy authority hits, zero unclassified rows, and generated-artifact exclusions.
+- [x] Preserve strict-mode semantics: `--strict` fails on active/current/unclassified rows but does not require `total_hits == 0`.
+- [x] Rename/rewrite direct tests whose filenames encoded deleted legacy node names across Plans 58-03 through 58-05.
 
----
+## Strict Classifier Evidence
 
-## Phase Gate Commands
+Command:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest \
-  tests/architecture/test_canonical_graph_baseline.py \
-  tests/architecture/test_phase32_static_contract.py \
-  tests/architecture/test_memory_contract_delta.py \
-  tests/architecture/test_phase33_rag_claim_boundaries.py \
-  tests/architecture/test_phase34_approval_action_boundaries.py \
-  tests/architecture/test_approval_boundaries.py \
-  tests/agent/test_graph.py \
-  tests/test_graph_routing.py \
-  tests/agent/test_intent_routing.py \
-  tests/agent/test_intent_golden_contract.py \
-  tests/agent/test_required_slots.py \
-  tests/agent/test_session_memory_integration.py \
-  tests/agent/test_graph_vocabulary.py \
-  tests/agent/test_trace.py \
-  tests/test_trace_api.py \
-  tests/test_agent_runs_api.py \
-  tests/test_approval_api.py \
-  tests/test_approval_gate.py \
-  tests/approvals/test_needs_info_resume.py \
-  tests/approvals/test_service_transitions.py \
-  tests/agent/test_nodes/test_contextual_intent_resolve.py \
-  tests/agent/test_nodes/test_session_context_load.py \
-  tests/agent/test_nodes/test_slot_resolution_gate.py \
-  tests/agent/test_memory_context_load.py \
-  tests/agent/test_nodes/test_recommendation_generation.py \
-  tests/agent/test_nodes/test_risk_gate.py \
-  tests/agent/test_phase22_recommendation_integration.py \
-  tests/agent/test_phase22_action_boundary.py \
-  tests/test_interception_rate.py \
-  tests/knowledge/test_facade_integration.py \
-  tests/agent/test_memory_evidence_boundary.py \
-  tests/actions/test_phase34_action_draft_bindings.py \
-  tests/eval/test_phase35_replay_eval_gates.py \
-  tests/eval/test_phase35_release_monitoring_manifests.py \
-  -q --tb=short
-
-UV_CACHE_DIR=/tmp/uv-cache uv run ruff check \
-  src/agent src/api src/approvals src/repositories \
-  scripts/classify_phase58_legacy_hits.py scripts/eval_agent.py scripts/diagnose_latency.py \
-  tests/architecture tests/agent tests/test_graph_routing.py \
-  tests/test_interception_rate.py tests/knowledge \
-  tests/test_agent_runs_api.py tests/test_trace_api.py tests/test_approval_api.py tests/test_approval_gate.py tests/eval
-
-npm --prefix frontend run build
-npm --prefix frontend run test
 UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict
+```
+
+Result:
+
+```json
+{
+  "active_runtime_legacy": 0,
+  "current_docs_legacy_authority": 0,
+  "unclassified_rows": 0,
+  "total_hits": 822,
+  "files": 76,
+  "category_counts": {
+    "classifier_implementation": 8,
+    "historical_data_read_projection": 20,
+    "legacy_wrapper_or_import_test": 211,
+    "phase58_cleanup_artifact": 316,
+    "previous_state_documentation": 267
+  },
+  "excluded_paths": [
+    ".planning/phases/58-canonical-graph-cutover-and-no-debt-cleanup/58-VALIDATION.md"
+  ]
+}
+```
+
+Strict mode does **not** require `total_hits == 0`. It fails only when `active_runtime_legacy > 0`, `current_docs_legacy_authority > 0`, or `unclassified_rows > 0`. Remaining hits are classified historical/projection/test/classifier/planning references.
+
+## Current Docs Evidence
+
+Command:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "from pathlib import Path; current=Path('docs/current-langgraph-architecture.md').read_text(encoding='utf-8'); required=['receive_request','safety_pre_route','session_context_load','contextual_intent_resolve','slot_resolution_gate','memory_context_load','investigate','rag_context_build','recommendation_generation','claim_verify','risk_gate','approval_gate','action_draft','clarification_gate','final_response']; missing=[node for node in required if node not in current]; assert not missing, missing; assert 'final 15' in current.lower() or '15' in current; print('phase58-current-doc-canonical-concepts: pass')"
+```
+
+Result:
+
+```text
+phase58-current-doc-canonical-concepts: pass
+```
+
+`docs/current-langgraph-architecture.md`, `docs/architecture-overview.md`, `docs/target-agent-platform-architecture-plan.md`, and `README.md` were synchronized to describe the implemented current graph as the final 15-node canonical graph. Legacy names may remain only as historical/reference wording classified by `scripts/classify_phase58_legacy_hits.py --strict`.
+
+## Contract Spec Check
+
+`docs/contract-spec.md` §9 required no edit in Phase 58. The normative current target runtime node/router lists already match the implemented final canonical graph, including `recommendation_generation`, `risk_gate`, `route_after_contextual_intent`, and `route_after_slot_resolution`. Remaining §9 legacy-alias wording is historical/target-migration context, not current implementation authority, and the strict classifier reports `current_docs_legacy_authority=0`.
+
+## Broad Backend Gate
+
+Command:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase32_static_contract.py tests/architecture/test_memory_contract_delta.py tests/architecture/test_phase33_rag_claim_boundaries.py tests/architecture/test_phase34_approval_action_boundaries.py tests/architecture/test_approval_boundaries.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/agent/test_intent_golden_contract.py tests/agent/test_required_slots.py tests/agent/test_session_memory_integration.py tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py tests/test_approval_api.py tests/test_approval_gate.py tests/approvals/test_needs_info_resume.py tests/approvals/test_service_transitions.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_session_context_load.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_memory_context_load.py tests/agent/test_nodes/test_recommendation_generation.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_phase22_action_boundary.py tests/test_interception_rate.py tests/knowledge/test_facade_integration.py tests/agent/test_memory_evidence_boundary.py tests/actions/test_phase34_action_draft_bindings.py tests/eval/test_phase35_replay_eval_gates.py tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short
+```
+
+Result:
+
+```text
+1812 passed, 1 skipped, 43 warnings in 367.32s (0:06:07)
+```
+
+Warnings were known non-blocking LangGraph/LangChain deprecation, graph config typing, and existing async mock warnings; no Phase 58 failure remained.
+
+## Broad Ruff Gate
+
+Command:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent src/api src/approvals src/repositories scripts/classify_phase58_legacy_hits.py scripts/eval_agent.py scripts/diagnose_latency.py tests/architecture tests/agent tests/test_graph_routing.py tests/test_interception_rate.py tests/knowledge tests/test_agent_runs_api.py tests/test_trace_api.py tests/test_approval_api.py tests/test_approval_gate.py tests/eval
+```
+
+Result:
+
+```text
+All checks passed!
+```
+
+## Frontend Gates
+
+Build command:
+
+```bash
+npm --prefix frontend run build
+```
+
+Result:
+
+```text
+✓ 1765 modules transformed.
+✓ built in 593ms
+```
+
+Test command:
+
+```bash
+npm --prefix frontend run test
+```
+
+Result:
+
+```text
+Test Files  2 passed (2)
+Tests       6 passed (6)
+```
+
+Plan 58-08 documented the remaining frontend coverage boundary: no dedicated `TimelineStep` node-name rendering unit test exists; timeline behavior is covered by backend payload/source guards plus frontend build/test sanity.
+
+## Package Metadata Proof
+
+Command:
+
+```bash
 UV_CACHE_DIR=/tmp/uv-cache uv run python -c "from pathlib import Path; import re, subprocess; tracked=subprocess.run(['git','ls-files','--error-unmatch','moca.egg-info/SOURCES.txt'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0; path=Path('moca.egg-info/SOURCES.txt'); forbidden=re.compile(r'src/agent/nodes/(generate_recommendation|assess_risk_and_approval|classify_intent|session_memory_load|extract_slots|long_term_memory_retrieve)\\.py|tests/agent/test_nodes/test_(generate_recommendation|assess_risk_and_approval|classify_intent|extract_slots)\\.py|tests/agent/test_session_memory_load\\.py'); hits=[] if not tracked or not path.exists() else [(line_no, line) for line_no, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1) if forbidden.search(line)]; assert not hits, hits; print(f'phase58-metadata-proof: tracked={tracked} stale_hits={len(hits)}')"
+```
+
+Result:
+
+```text
+phase58-metadata-proof: tracked=False stale_hits=0
+```
+
+`moca.egg-info/SOURCES.txt` is untracked in this checkout and is not used as tracked source-contract evidence.
+
+## Diff Check
+
+Command:
+
+```bash
 UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check
 ```
 
-The closeout suite intentionally uses canonical replacement paths such as `tests/agent/test_nodes/test_recommendation_generation.py`, `tests/agent/test_nodes/test_session_context_load.py`, and `tests/agent/test_nodes/test_memory_context_load.py`. Legacy-named direct tests should be gone by Plans 58-03 through 58-05 unless a plan summary records an explicit internal/historical-only classifier category.
+Result: passed with no output.
 
----
+## Historical Read Boundaries
 
-## Static Legacy-Hit Classifier Contract
+The following compatibility/read paths remain intentionally bounded:
 
-The final classifier must scan at least:
+- Trace/API/repository projection can read historical stored node names and expose raw implementation identity only in explicit historical projection fields.
+- Approval retry metadata can read persisted historical `assess_risk_and_approval` retry rows only after binding/version/hash checks and emits canonical `risk_gate`.
+- Strict classifier may count historical/reference/test/classifier/planning mentions; this is not active runtime debt.
+- No production DB rewrite was performed. Historical rows remain readable as historical data rather than being promoted to current graph authority.
 
-- `classify_intent`
-- `session_memory_load`
-- `extract_slots`
-- `long_term_memory_retrieve`
-- `generate_recommendation`
-- `assess_risk_and_approval`
-- `route_after_intent`
-- `route_after_slots`
+## Generated / Recursive Artifact Exclusions
 
-Required outputs:
-
-- total hits and files scanned
-- category counts by ownership boundary
-- zero active-runtime legacy hits
-- zero current-docs legacy authority hits when tracked as a separate strict-failing category
-- zero unclassified rows
-- explicit exclusions for generated Phase 58 validation/research artifacts to avoid recursive self-counting
-- `--strict` does not require `total_hits == 0`; legitimate historical/reference/classifier rows may remain when classified
-- tracked metadata rows, including `moca.egg-info/SOURCES.txt`, are removed or categorized so stale deleted module/test paths cannot survive as active/current references
-
----
-
-## Manual-Only Verifications
-
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| Production historical DB row counts for old graph node names | CAGM-09 | Research did not connect to production or sample DB state. The phase decision forbids bulk rewrite, so source tests can prove behavior without requiring DB mutation. | Optional release checklist item only: if production observability is available, query counts for historical node names and confirm they are read-only historical rows, not current-run writes. |
-
----
-
-## Threat References
-
-| Threat Ref | STRIDE | Required Mitigation |
-|------------|--------|---------------------|
-| T-58-01 | Spoofing / Elevation of privilege | Legacy route values such as `assess_risk_and_approval` must not be accepted as graph resume authority; canonical `risk_gate` only. |
-| T-58-02 | Repudiation / Tampering | Historical trace/replay readability must not be presented as current runtime graph behavior. |
-| T-58-03 | Tampering | Current-run API/SSE/frontend/eval projections must not reintroduce legacy graph names as current labels. |
-| T-58-04 | Elevation of privilege | Approval retry canonicalization must preserve tenant/run/hash/snapshot/version validation. |
-| T-58-05 | Tampering / Maintainability | Deleted legacy wrappers must not be resurrected through tests, eval patch paths, or import convenience aliases. |
-| T-58-06 | Repudiation | Docs and architecture debt must distinguish target contract, implemented current state, and historical references. |
-
----
+`58-VALIDATION.md` is excluded from classifier scanning to avoid recursively counting the validation report's own required evidence strings. Other Phase 58 planning and summary artifacts are classified as `phase58_cleanup_artifact`, not active runtime authority.
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies.
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify.
-- [ ] Wave 0 covers all missing references.
-- [ ] No watch-mode flags.
-- [ ] Feedback latency < 180s for focused suites.
-- [ ] `nyquist_compliant: true` set in frontmatter after approved command evidence is recorded.
+- [x] All tasks had automated verification or Wave 0 dependency coverage.
+- [x] Sampling continuity held: no three consecutive tasks lacked automated verification.
+- [x] Wave 0 covered missing no-debt references.
+- [x] No watch-mode flags used.
+- [x] Focused feedback loops were used per plan; broad closeout exceeded 180s by design.
+- [x] `nyquist_compliant: true` set only after approved command evidence was recorded.
 
-**Approval:** pending
+**Approval:** complete

@@ -43,7 +43,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 55: Memory Context Load Cutover** - Replace active `long_term_memory_retrieve` graph naming with canonical `memory_context_load` and contextual-only memory authority labels (CAGM-06). Plan progress: 3/3 complete; verified 2026-07-07.
 - [x] **Phase 56: Recommendation Generation and RAG Claim Status Alignment** - Canonicalize `recommendation_generation` and align RAG/claim fail-closed status semantics (CAGM-07). Plan progress: 4/4 complete; verified 2026-07-07.
 - [x] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Plan progress: 5/5 complete; verified 2026-07-07.
-- [ ] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Planned: 10 plans.
+- [x] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Plan progress: 10/10 complete; verified 2026-07-08.
 
 ## Phase Details
 
@@ -119,7 +119,7 @@ Plans:
 | 55. Memory Context Load Cutover | 3/3 | Complete    | 2026-07-07 |
 | 56. Recommendation Generation and RAG Claim Status Alignment | 4/4 | Complete    | 2026-07-07 |
 | 57. Risk Gate and Approval Gate Canonicalization | 5/5 | Complete    | 2026-07-07 |
-| 58. Canonical Graph Cutover and No-Debt Cleanup | 0/10 | Planned | 2026-07-08 |
+| 58. Canonical Graph Cutover and No-Debt Cleanup | 10/10 | Complete | 2026-07-08 |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -488,7 +488,7 @@ Plans:
 **Requirements**: CAGM-09
 **Depends on:** Phase 57
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 10 plans
+**Plans:** 10/10 plans complete
 **Success Criteria** (what must be TRUE):
   1. Active `StateGraph.add_node(...)` registrations equal the 15 canonical node names from Phase 50 exactly.
   2. Active route values no longer point to `classify_intent`, `session_memory_load`, `extract_slots`, `long_term_memory_retrieve`, `generate_recommendation`, or `assess_risk_and_approval`.
@@ -496,13 +496,13 @@ Plans:
   4. Docs, tests, trace/replay/eval projection, and architecture debt are synchronized so no final migration debt remains.
 
 Plans:
-- [ ] 58-01-PLAN.md — active graph/vocabulary final gate, route delegate removal, projection API split, and static legacy-hit classifier foundation.
-- [ ] 58-02-PLAN.md — canonical recommendation/risk implementation ownership and direct test filename migration.
-- [ ] 58-03-PLAN.md — recommendation/risk legacy wrapper deletion and direct canonical test cleanup.
-- [ ] 58-04-PLAN.md — intent/session legacy wrapper/helper cleanup and direct legacy test migration.
-- [ ] 58-05-PLAN.md — slot/memory legacy wrapper/helper cleanup and direct legacy test migration.
-- [ ] 58-06-PLAN.md — graph/routing/shared fixture patch seam cleanup.
-- [ ] 58-07-PLAN.md — integration and architecture import coverage cleanup.
-- [ ] 58-08-PLAN.md — trace/API/SSE/frontend/eval/historical projection cleanup with frontend build/test verification.
-- [ ] 58-09-PLAN.md — approval retry data-read compatibility and route authority hardening.
-- [ ] 58-10-PLAN.md — docs, architecture debt, validation artifact, metadata proof, roadmap/state/requirements closeout, and broad verification.
+- [x] 58-01-PLAN.md — active graph/vocabulary final gate, route delegate removal, projection API split, and static legacy-hit classifier foundation.
+- [x] 58-02-PLAN.md — canonical recommendation/risk implementation ownership and direct test filename migration.
+- [x] 58-03-PLAN.md — recommendation/risk legacy wrapper deletion and direct canonical test cleanup.
+- [x] 58-04-PLAN.md — intent/session legacy wrapper/helper cleanup and direct legacy test migration.
+- [x] 58-05-PLAN.md — slot/memory legacy wrapper/helper cleanup and direct legacy test migration.
+- [x] 58-06-PLAN.md — graph/routing/shared fixture patch seam cleanup.
+- [x] 58-07-PLAN.md — integration and architecture import coverage cleanup.
+- [x] 58-08-PLAN.md — trace/API/SSE/frontend/eval/historical projection cleanup with frontend build/test verification.
+- [x] 58-09-PLAN.md — approval retry data-read compatibility and route authority hardening.
+- [x] 58-10-PLAN.md — docs, architecture debt, validation artifact, metadata proof, roadmap/state/requirements closeout, and broad verification.

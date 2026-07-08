@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: executing
-stopped_at: Phase 58 planning and external review clean
-last_updated: "2026-07-08T08:50:25+08:00"
-last_activity: 2026-07-08 -- Phase 58 execution started
+status: phase_complete
+stopped_at: Phase 58 complete after final validation
+last_updated: "2026-07-08T12:20:54+08:00"
+last_activity: 2026-07-08 -- Phase 58 completed with 10/10 plans and broad closeout validation
 progress:
   total_phases: 23
-  completed_phases: 21
-  total_plans: 79
-  completed_plans: 70
-  percent: 89
+  completed_phases: 22
+  total_plans: 80
+  completed_plans: 80
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-07)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 58 — canonical-graph-cutover-and-no-debt-cleanup
+**Current focus:** Phase 58 complete — canonical-graph-cutover-and-no-debt-cleanup
 
 ## Rescope note (2026-07-02)
 
@@ -30,13 +30,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-07)
 
 ## Current Position
 
-Phase: 58 — EXECUTING
-Plan: 0 of 10
-Status: Executing Phase 58
-Last activity: 2026-07-08 -- Phase 58 execution started
-Next: Execute Phase 58 plans 58-01 through 58-10.
+Phase: 58 — COMPLETE
+Plan: 10 of 10
+Status: Phase 58 complete; CAGM-09 validation passed
+Last activity: 2026-07-08 -- Phase 58 completed with 10/10 plans and broad closeout validation
+Next: Run final Phase 58 review/verification workflow if needed, then decide milestone closeout or next registered phase.
 
-Progress: [████████░░] 89%
+Progress: [██████████] 100%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -78,7 +78,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 55. Memory Context Load Cutover (CAGM-06) | 3/3 | Complete |
 | 56. Recommendation Generation and RAG Claim Status Alignment (CAGM-07) | 4/4 | Complete |
 | 57. Risk Gate and Approval Gate Canonicalization (CAGM-08) | 5/5 | Complete |
-| 58. Canonical Graph Cutover and No-Debt Cleanup (CAGM-09) | 0/10 | Planned; checker and external review clean |
+| 58. Canonical Graph Cutover and No-Debt Cleanup (CAGM-09) | 10/10 | Complete; broad validation, classifier, frontend build/test, metadata proof passed |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
@@ -276,15 +276,15 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 58 planning and external review clean
+Stopped at: Phase 58 complete after final validation
 Resume file: --resume-file
-Next: Execute Phase 58 plans 58-01 through 58-10.
+Next: Run final Phase 58 review/verification workflow if needed, then decide milestone closeout or next registered phase.
 
-Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`); Phase 49 completed investigate bounded read-only ReAct main path with replay parent-operation limitation; Phase 50 completed canonical Agent Graph migration guardrail SPEC; Phase 51 completed canonical graph baseline guardrails and migration matrix verification; Phase 52 completed explicit `safety_pre_route` runtime node extraction with clean review and 8/8 verification; Phase 53 completed `session_context_load -> contextual_intent_resolve` active graph cutover with clean review, security verification, validation, and 20/20 verification; Phase 54 completed `slot_resolution_gate` active graph cutover with clean review, security verification (`threats_open: 0`), Nyquist validation, and 8/8 verification; Phase 55 completed `memory_context_load` active graph cutover with clean review, review fix, verification, validation, and security verification (`threats_open: 0`); Phase 56 completed `recommendation_generation` active graph cutover, RAG/claim fail-closed alignment, action-boundary review fixes, clean code review, UAT, security verification (`threats_open: 0`), and Nyquist validation; Phase 57 completed `risk_gate` active runtime canonicalization, approval resume separation, projection/docs/validation closeout, and static legacy-hit classification for Phase 58 cleanup.
-Next roadmap item: Phase 58 Canonical Graph Cutover and No-Debt Cleanup.
+Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`); Phase 49 completed investigate bounded read-only ReAct main path with replay parent-operation limitation; Phase 50 completed canonical Agent Graph migration guardrail SPEC; Phase 51 completed canonical graph baseline guardrails and migration matrix verification; Phase 52 completed explicit `safety_pre_route` runtime node extraction with clean review and 8/8 verification; Phase 53 completed `session_context_load -> contextual_intent_resolve` active graph cutover with clean review, security verification, validation, and 20/20 verification; Phase 54 completed `slot_resolution_gate` active graph cutover with clean review, security verification (`threats_open: 0`), Nyquist validation, and 8/8 verification; Phase 55 completed `memory_context_load` active graph cutover with clean review, review fix, verification, validation, and security verification (`threats_open: 0`); Phase 56 completed `recommendation_generation` active graph cutover, RAG/claim fail-closed alignment, action-boundary review fixes, clean code review, UAT, security verification (`threats_open: 0`), and Nyquist validation; Phase 57 completed `risk_gate` active runtime canonicalization, approval resume separation, projection/docs/validation closeout, and static legacy-hit classification for Phase 58 cleanup; Phase 58 completed final 15-node canonical graph cutover/no-debt cleanup with 10/10 plans, strict classifier `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, `unclassified_rows=0`, broad backend pytest `1812 passed, 1 skipped`, frontend build/test, metadata proof, and CAGM-09 closeout.
+Next roadmap item: Final Phase 58 review/verification workflow or milestone closeout decision.
 
-**Completed Phase:** 57 (Risk Gate and Approval Gate Canonicalization) — 5/5 plans — 2026-07-07
+**Completed Phase:** 58 (canonical-graph-cutover-and-no-debt-cleanup) — 10/10 plans — 2026-07-08
 
-**Next Phase:** 58 (canonical-graph-cutover-and-no-debt-cleanup) — planned; ready to execute
+**Next Phase:** TBD after final review / milestone closeout decision
 
-**Planned Phase:** 58 (canonical-graph-cutover-and-no-debt-cleanup) — 10 plans — 2026-07-08T00:48:26.527Z
+**Completed Requirement:** CAGM-09 — Phase 58 — 2026-07-08

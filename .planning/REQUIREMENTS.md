@@ -58,7 +58,7 @@
 - [x] **CAGM-06**: `memory_context_load` replaces active `long_term_memory_retrieve` graph naming and keeps all loaded memory contextual-only, after slot resolution and before `investigate`.
 - [x] **CAGM-07**: `recommendation_generation` replaces active `generate_recommendation` graph naming, and RAG/claim fail-closed statuses are aligned so unsafe evidence or unsupported material/action claims cannot enter action paths.
 - [x] **CAGM-08**: `risk_gate` replaces active `assess_risk_and_approval` graph naming and preserves the separation between deterministic risk/action policy decisions and `approval_gate` pending/trusted-resume state machine.
-- [ ] **CAGM-09**: The active runtime graph is cut over to the final 15 canonical registered nodes, with active legacy node names, dual routes, and runtime compatibility aliases removed or internalized so no migration debt remains.
+- [x] **CAGM-09**: The active runtime graph is cut over to the final 15 canonical registered nodes, with active legacy node names, dual routes, and runtime compatibility aliases removed or internalized so no migration debt remains.
 
 ## Future Requirements
 
@@ -101,6 +101,6 @@ _None beyond registered canonical Agent Graph migration phases 51-58._
 | CAGM-06 | Phase 55 | Complete |
 | CAGM-07 | Phase 56 | Complete |
 | CAGM-08 | Phase 57 | Complete |
-| CAGM-09 | Phase 58 | Pending |
+| CAGM-09 | Phase 58 | Complete |
 
-**Coverage:** 24/24 v2.1 requirements mapped. 23 complete, 1 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48, MEM-COMPAT-01 / Phase 48.1. Graph/ReAct: GAD-01-IMPL / Phase 49. Canonical Agent Graph migration charter: CAGM-01 / Phase 50. Runtime canonical graph migration: CAGM-02..CAGM-08 complete / Phase 51-57; CAGM-09 pending / Phase 58.)
+**Coverage:** 24/24 v2.1 requirements mapped. 24 complete, 0 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48, MEM-COMPAT-01 / Phase 48.1. Graph/ReAct: GAD-01-IMPL / Phase 49. Canonical Agent Graph migration charter: CAGM-01 / Phase 50. Runtime canonical graph migration: CAGM-02..CAGM-09 complete / Phase 51-58.)
