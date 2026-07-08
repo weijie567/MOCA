@@ -59,3 +59,19 @@ Rerun `gsd-plan-checker` after these repairs. If it passes, proceed to Codex ind
 Codex independent plan review found no additional accepted issues.
 
 Because accepted Claude findings caused material changes to verification strategy and acceptance criteria, the autopilot loop must rerun Claude plan review once more before execution.
+
+## Claude Review Loop 2 Decisions
+
+**Reviewed at:** 2026-07-08T11:48:05Z
+
+| Review Item | Decision | Evidence | Repair |
+| --- | --- | --- | --- |
+| `60-05` still cannot express honest audit-tooling unavailability in acceptance/verify checks. | Accepted with guardrails. `blocked_tooling_unavailable` is allowed only as an explicitly incomplete status with next entry point; it must not mark Phase 60 complete. | `60-05` already says tooling unavailability is a hard stop; acceptance regex previously only accepted terminal completion/debt statuses. | `60-05` now allows `blocked_tooling_unavailable` in status checks and requires incomplete/next-entry markers in audit, validation, and summary artifacts if that branch occurs. |
+| `60-02` Phase 56 focused rerun lacks an environment-failure branch. | Accepted. | The fresh CAGM-07 rerun command includes DB-backed/API suites, unlike the original paper-only evidence path. | `60-02` now supports pass / environment-failure named debt `CAGM-07-RERUN-EVIDENCE-POST-V2.1` / real-defect stop handling, with `.planning/LOCAL-VALIDATION-ISSUES.md` evidence for environment failures. |
+| `git status --short` guard is fragile on renames. | Disagree for Phase 60. | Phase 60 plans only create/edit `.planning/` files and do not plan renames. | No repair. |
+| `60-04` prose mentions scanning `LOCAL-VALIDATION-ISSUES.md`, automation omits it. | Disagree. | Omitting historical local issue log from bare-command scan avoids false positives; Task 2 already requires exact named-debt markers there if environment branch occurs. | No repair. |
+| Evidence-anchor grep is one-anchor-satisfiable. | Accepted as residual risk, not further repaired. | Stronger per-row parsing would be disproportionate for planning artifacts; executor still must produce source-backed evidence under D-02/D-09. | Existing `Evidence Anchors` checks remain the mitigation. |
+
+## Loop 2 Repair Gate
+
+Rerun `gsd-plan-checker` after these loop-2 repairs. If it passes and Codex independent plan review finds no new issue, proceed to execution.

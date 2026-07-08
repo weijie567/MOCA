@@ -170,3 +170,34 @@ Only the external Claude reviewer was requested and run for this autopilot stage
 ### Divergent Views
 
 No divergent reviewer views; only one external reviewer was run.
+
+---
+
+## Claude Review - Loop 2
+
+### Summary
+
+The revised five-plan set is materially improved. Source-anchor requirements, `.planning/`-only diff guards, Phase 56 mandated rerun, Phase 42 regex hardening, Phase 37 DB-note component matching, and deferred `5/5 complete` write are present and correct. The decomposition, wave ordering, and honesty conventions remain sound.
+
+### Remaining Concerns
+
+- **HIGH-if-tooling-absent / MEDIUM-if-present:** `60-05` prose says audit-tooling unavailability is a hard stop, but the acceptance regex still required a passing terminal status. Suggested fix: allow `blocked_tooling_unavailable` as an explicitly incomplete status with a concrete next entry point.
+- **MEDIUM:** `60-02` Phase 56 focused rerun lacks an environment-failure branch. Suggested fix: mirror `60-04` with pass / environment-failure named debt / real-defect stop handling.
+- **LOW:** `git status --short` guard is fragile on renames, but Phase 60 does not plan renames.
+- **LOW:** `60-04` prose says `.planning/LOCAL-VALIDATION-ISSUES.md` scan handles newly appended invalid commands, but automation intentionally omits that file to avoid historical false positives.
+- **LOW:** evidence-anchor grep raises the floor but remains one-anchor-satisfiable.
+
+### Already Resolved
+
+- Source-backed `path:line` anchors.
+- `.planning/`-only change guard.
+- Phase 56 focused rerun mandate.
+- Phase 42 negation check hardening.
+- Phase 37 DB-note component-token matching.
+- DB rerun serial note.
+- `5/5 complete` moved post-audit.
+- `44-REVIEW-ADJUDICATION.md` verified as present.
+
+### Risk Assessment
+
+Medium. Residual risk is concentrated in the audit-tooling unavailable branch and Phase 56 rerun environment handling. Both are small targeted repairs.
