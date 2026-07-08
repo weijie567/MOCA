@@ -46,7 +46,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 56: Recommendation Generation and RAG Claim Status Alignment** - Canonicalize `recommendation_generation` and align RAG/claim fail-closed status semantics (CAGM-07). Plan progress: 4/4 complete; verified 2026-07-07.
 - [x] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Plan progress: 5/5 complete; verified 2026-07-07.
 - [x] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Plan progress: 10/10 complete; verified 2026-07-08.
-- [ ] **Phase 59: Approval Resume Terminal Memory Finalization** - Wire approval-resume completed runs through the same terminal assistant-message/thread-summary/memory/CWC finalizer as ordinary agent-run completion (MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09). Gap closure phase; 3 plans created and plan-checker verified.
+- [ ] **Phase 59: Approval Resume Terminal Memory Finalization** - Wire approval-resume completed runs through the same terminal assistant-message/thread-summary/memory/CWC finalizer as ordinary agent-run completion (MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09). Gap closure phase; plan progress: 1/3 complete.
 - [ ] **Phase 60: v2.1 Archive Evidence Closure** - Create or refresh the missing formal verification and Nyquist validation artifacts identified by the v2.1 milestone audit, then re-run the archive gate (TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07). Gap closure phase; pending planning.
 
 ## Phase Details
@@ -124,7 +124,7 @@ Plans:
 | 56. Recommendation Generation and RAG Claim Status Alignment | 4/4 | Complete    | 2026-07-07 |
 | 57. Risk Gate and Approval Gate Canonicalization | 5/5 | Complete    | 2026-07-07 |
 | 58. Canonical Graph Cutover and No-Debt Cleanup | 10/10 | Complete    | 2026-07-08 |
-| 59. Approval Resume Terminal Memory Finalization | 0/3 | Planned; ready to execute | - |
+| 59. Approval Resume Terminal Memory Finalization | 1/3 | Executing; 59-01 complete | 2026-07-08 |
 | 60. v2.1 Archive Evidence Closure | 0/0 | Pending planning | - |
 
 ### Phase 40: Tool Contract Validation Hardening
@@ -521,7 +521,7 @@ Plans:
 **Gap Closure:** Closes the integration gap recorded in `.planning/v2.1-MILESTONE-AUDIT.md`.
 **Plans:** 3 plans
 Plans:
-- [ ] 59-01-PLAN.md — shared terminal finalizer utilities, terminal memory eligibility, and idempotent finalizer trace persistence.
+- [x] 59-01-PLAN.md — shared terminal finalizer utilities, terminal memory eligibility, and idempotent finalizer trace persistence.
 - [ ] 59-02-PLAN.md — approval-resume completed-path finalizer wiring, completed-run retry reconciliation, and interrupted/error skip boundaries.
 - [ ] 59-03-PLAN.md — approval/memory regressions, mandatory architecture-debt ledger entry, validation sign-off, and final verification.
 **Success Criteria** (what must be TRUE):

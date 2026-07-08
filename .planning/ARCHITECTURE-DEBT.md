@@ -376,6 +376,15 @@
 **已 ship**：v1.1 Memory Foundation V2、v1.7 短期记忆统一。
 **在册探索**：Phase 999.1「评估 mem0 作为 MemoryContextService 背后可选 backend」。
 
+## Phase 59 Plan 01 — approval-resume terminal finalizer 共享基础已落地 ✅
+
+- **问题现象/根因**：milestone audit 发现 approval resume completed path 没有复用普通 `agent-runs` terminal memory finalizer；同时普通 finalizer 的 trace append helper 位于 `agent_runs.py` 私有函数且不幂等，retry 可能重复追加 `agent_run_memory_finalize` 行。另一个细节是 approval-resume final state 往往带 `approval_result` / `approval_required` / `risk_assessment.approval_required=True`，若直接进入 `memory_write(...)` 会被普通 pending/interrupted approval skip predicate 当作 `not_completed_path` 跳过。
+- **影响**：approval-resume run 可以显示 completed，但 assistant message / thread summary / session memory / Case Working Context finalization surface 与普通 run 生命周期不一致；retry 还可能造成 finalizer trace 行重复，影响 replay/trace 可解释性。
+- **处理状态**：✅ Phase 59-01 已修复验证。新增 `build_agent_run_finalizer_input_state(...)` 从 persisted `AgentRun` 与原 requester `User` 构造 finalizer input identity；新增 `_terminal_memory_write_state(...)` 只在 completed terminal finalizer 调用 `memory_write(...)` 前移除审批 gating marker，不修改 `src/agent/nodes/memory_write.py` 的全局 pending/interrupted skip 行为，CWC 仍收到原始 `final_state`。新增 `persist_agent_run_memory_finalize_trace_steps(...)` 作为 shared helper，先查 `AgentStep.run_id + FINALIZER_NODE`，已存在则返回；普通 `agent_runs` 两个 completion call site 已迁移到 shared helper。
+- **证据**：Phase 59 Plan 59-01；commits `98a2482`（RED terminal finalizer memory-state tests）、`d2edef0`（terminal input-state/sanitizer）、`4e034ba`（RED idempotent trace tests）、`b22dd5e`（shared trace helper + router migration）；文件 `src/api/services/agent_run_memory.py`、`src/api/routers/agent_runs.py`、`tests/test_agent_runs_api.py`、`tests/agent/test_memory_write_node.py`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py::test_completed_agent_run_persists_exactly_one_assistant_message tests/test_agent_runs_api.py::test_completed_agent_run_finalizer_writes_case_working_context tests/agent/test_memory_write_node.py::test_memory_write_node_skips_when_final_response_missing -q` → `3 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py::test_duplicate_sse_stream_does_not_duplicate_memory_surfaces tests/test_agent_runs_api.py::test_completed_agent_run_persists_exactly_one_assistant_message tests/test_agent_runs_api.py::test_completed_agent_run_finalizer_writes_case_working_context -q` → `3 passed, 1 warning`；focused new tests → `8 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/api/services/agent_run_memory.py src/api/routers/agent_runs.py` → pass。
+- **剩余风险**：⚠️ 59-01 只建立 shared finalizer seam 与普通 run helper migration；approval resume route 尚未在 completed branch 调用 finalizer，需由 Phase 59-02 接线，并由 Phase 59-03 做 approval-resume completed / interrupted-again / retry-dedupe regression 和 broader canonical graph verification。
+
 ## Phase 48 Plan 02 — long-term 自动来源过宽与 semantic episode 投影过宽 ✅已修复验证
 
 **问题 / 根因**
