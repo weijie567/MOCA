@@ -5,12 +5,14 @@ from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes.memory_write import memory_write
+from src.agent.trace import append_agent_steps
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
-from src.db.models import AgentRun, User
+from src.db.models import AgentRun, AgentStep, User
 from src.memory.case_working_context_lifecycle import (
     CaseWorkingContextLifecycleAdapter,
     CaseWorkingContextLifecycleResult,
@@ -59,6 +61,41 @@ def build_agent_run_finalizer_input_state(run: AgentRun, user: User) -> dict[str
         "role": user.role,
         "current_run_id": str(run.id),
     }
+
+
+async def persist_agent_run_memory_finalize_trace_steps(
+    *,
+    session: AsyncSession,
+    run: AgentRun,
+    prior_trace_steps: list[dict[str, Any]],
+    finalizer_trace_steps: list[dict[str, Any]],
+) -> None:
+    if not finalizer_trace_steps:
+        return
+
+    existing_finalizer_step_id = (
+        await session.execute(
+            select(AgentStep.id)
+            .where(
+                AgentStep.run_id == run.id,
+                AgentStep.node_name == FINALIZER_NODE,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing_finalizer_step_id is not None:
+        return
+
+    try:
+        await append_agent_steps(
+            session,
+            run_id=str(run.id),
+            trace_steps=[*prior_trace_steps, *finalizer_trace_steps],
+            start_index=len(prior_trace_steps),
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
 
 
 async def finalize_completed_agent_run_memory(

@@ -1017,6 +1017,7 @@ async def test_persist_agent_run_memory_finalize_trace_steps_is_idempotent(
 ) -> None:
     user = seeded_session["users"]["cs_zhang"]
     run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="completed")
+    run_id = run.id
     await session.commit()
     prior_trace_steps = [_trace("receive_request"), _trace("final_response")]
     finalizer_trace_steps = [
@@ -1046,7 +1047,7 @@ async def test_persist_agent_run_memory_finalize_trace_steps_is_idempotent(
     finalizer_steps = (
         await session.execute(
             select(AgentStep).where(
-                AgentStep.run_id == run.id,
+                AgentStep.run_id == run_id,
                 AgentStep.node_name == agent_run_memory_service.FINALIZER_NODE,
             )
         )
@@ -1064,6 +1065,7 @@ async def test_persist_agent_run_memory_finalize_trace_steps_rolls_back_and_supp
 ) -> None:
     user = seeded_session["users"]["cs_zhang"]
     run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="completed")
+    run_id = run.id
     await session.commit()
 
     async def fail_append_agent_steps(*args, **kwargs):
@@ -1086,12 +1088,12 @@ async def test_persist_agent_run_memory_finalize_trace_steps_rolls_back_and_supp
         ],
     )
 
-    assert await _count_rows(session, AgentRun, AgentRun.id == run.id) == 1
+    assert await _count_rows(session, AgentRun, AgentRun.id == run_id) == 1
     assert (
         await _count_rows(
             session,
             AgentStep,
-            AgentStep.run_id == run.id,
+            AgentStep.run_id == run_id,
             AgentStep.node_name == agent_run_memory_service.FINALIZER_NODE,
         )
         == 0

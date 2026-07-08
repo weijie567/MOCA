@@ -19021,3 +19021,36 @@ git diff -- .planning/STATE.md
 ### 剩余问题和下次继续排查入口
 
 后续在 milestone closeout 前，如果再次运行 `gsd-sdk query phase.complete "58"`，必须检查 `.planning/STATE.md` 是否又被改成 `24/23` 或 `Plan: Not started`。根因入口是 GSD `phase.complete` handler 的 milestone-complete state reconciliation。
+
+## 2026-07-08：Phase 59-01 Task 2 rollback 测试在 rollback 后读取 expired ORM 属性触发 MissingGreenlet
+
+### 问题现象
+
+实现 `persist_agent_run_memory_finalize_trace_steps(...)` 后运行 Task 2 新增测试，`test_persist_agent_run_memory_finalize_trace_steps_rolls_back_and_suppresses_append_failure` 失败。失败点不是 helper 行为，而是测试在 helper rollback 后继续读取 `run.id`，触发 SQLAlchemy async ORM 对 expired 属性的隐式 IO，报 `sqlalchemy.exc.MissingGreenlet`。
+
+### 如何检测 / 复现
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py::test_persist_agent_run_memory_finalize_trace_steps_is_idempotent tests/test_agent_runs_api.py::test_persist_agent_run_memory_finalize_trace_steps_rolls_back_and_suppresses_append_failure -q
+```
+
+### 关键证据或命令
+
+pytest 输出显示第二个测试失败在断言行：
+
+```text
+assert await _count_rows(session, AgentRun, AgentRun.id == run.id) == 1
+sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here.
+```
+
+### 当前判断 / 根因
+
+测试缺陷。helper 按预期 rollback 后，SQLAlchemy 会使 ORM 实例属性过期；测试在同步表达式里读取 `run.id` 触发隐式 async DB IO，超出 greenlet 上下文。
+
+### 已做处理
+
+在测试里于 `await session.commit()` 前缓存 `run_id = run.id`，后续断言使用缓存值。重跑同一命令结果为 `2 passed, 1 warning`。
+
+### 剩余问题和下次继续排查入口
+
+无代码行为问题。后续编写 rollback/commit 行为测试时，先缓存主键或显式 `await session.refresh(...)`，避免在 rollback 后同步读取 expired ORM 属性。
