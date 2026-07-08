@@ -1,10 +1,10 @@
 ---
 phase: "60"
 status: running
-current_step: plan_check
+current_step: plan_check_revision
 plan_review_loop: 0
 quota_waits: 0
-updated_at: "2026-07-08T11:23:13Z"
+updated_at: "2026-07-08T11:28:44Z"
 next_command: "$gsd-phase-autopilot --resume"
 ---
 
@@ -21,6 +21,7 @@ next_command: "$gsd-phase-autopilot --resume"
 - Stage 2 research substep completed via `gsd-phase-researcher`.
 - Stage 2 pattern mapping substep completed via `gsd-pattern-mapper`.
 - Stage 2 planner substep completed via `gsd-planner`.
+- Stage 2 plan-checker pass 1 found 3 blockers; all were accepted and repaired in plan verify guards.
 - Repaired Phase 60 planning state after local GSD state update wrote invalid Session Continuity values.
 
 ## Evidence
@@ -38,6 +39,8 @@ next_command: "$gsd-phase-autopilot --resume"
 - Plan artifact set: `60-01-PLAN.md` through `60-05-PLAN.md`.
 - Plan commit: `ef03136` (`docs(phase-60): plan archive evidence closure`).
 - Plan structure: 5 plans in 4 waves; `60-01` and `60-02` wave 1, `60-03` wave 2, `60-04` wave 3, `60-05` wave 4.
+- Plan-checker pass 1 result: 3 blockers in `60-04` Task 2 verify, `60-05` Task 1 inventory verify, and `60-05` Task 3 audit verify.
+- Repair result: `60-04` DB-note verify is branch-aware; `60-05` verifies all validation targets and final audit/summary markers.
 
 ## Last Failure
 
