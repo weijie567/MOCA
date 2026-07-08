@@ -47,7 +47,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Plan progress: 5/5 complete; verified 2026-07-07.
 - [x] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Plan progress: 10/10 complete; verified 2026-07-08.
 - [x] **Phase 59: Approval Resume Terminal Memory Finalization** - Wire approval-resume completed runs through the same terminal assistant-message/thread-summary/memory/CWC finalizer as ordinary agent-run completion (MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09). Gap closure phase; plan progress: 3/3 complete; verified 2026-07-08.
-- [ ] **Phase 60: v2.1 Archive Evidence Closure** - Create or refresh the missing formal verification and Nyquist validation artifacts identified by the v2.1 milestone audit, then re-run the archive gate (TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07). Gap closure phase; pending planning.
+- [ ] **Phase 60: v2.1 Archive Evidence Closure** - Create or refresh the missing formal verification and Nyquist validation artifacts identified by the v2.1 milestone audit, then re-run the archive gate (TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07). Gap closure phase; 4/5 plans complete, final archive audit pending.
 
 ## Phase Details
 
@@ -101,7 +101,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 37. Tool Declaration + Runtime/Policy Internal Consolidation | 3/3 | Complete; DB pytest pending | 2026-07-02 |
+| 37. Tool Declaration + Runtime/Policy Internal Consolidation | 3/3 | Complete; DB evidence resolved by Phase 60 Plan 04 | 2026-07-02 |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete | 2026-07-02 |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 1/1 | Complete | 2026-07-02 |
 | 40. Tool Contract Validation Hardening | 3/3 | Complete | 2026-07-02 |
@@ -125,7 +125,7 @@ Plans:
 | 57. Risk Gate and Approval Gate Canonicalization | 5/5 | Complete    | 2026-07-07 |
 | 58. Canonical Graph Cutover and No-Debt Cleanup | 10/10 | Complete    | 2026-07-08 |
 | 59. Approval Resume Terminal Memory Finalization | 3/3 | Complete    | 2026-07-08 |
-| 60. v2.1 Archive Evidence Closure | 0/0 | Pending planning | - |
+| 60. v2.1 Archive Evidence Closure | 4/5 | Evidence reconciliation pending final audit | - |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -538,7 +538,13 @@ Plans:
 **Requirements:** TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07
 **Depends on:** Phase 59
 **Gap Closure:** Closes the requirement/formal-verification and validation evidence gaps recorded in `.planning/v2.1-MILESTONE-AUDIT.md`.
-**Plans:** Pending; run `$gsd-plan-phase 60`.
+**Plans:** 5 plans (4/5 complete; Plan 60-05 evidence reconciliation and archive audit in progress).
+Plans:
+- [x] 60-01-PLAN.md — create Phase 37 / Phase 43 formal verification artifacts and normalize early archive evidence.
+- [x] 60-02-PLAN.md — create Phase 48 / 48.1 / 49 / 50 / 56 formal verification artifacts.
+- [x] 60-03-PLAN.md — refresh or create Nyquist validation artifacts for Phases 37, 38, 40, 41, 42, and 44.
+- [x] 60-04-PLAN.md — create Phase 49 / 50 validation artifacts and resolve the Phase 37 DB-backed evidence note.
+- [ ] 60-05-PLAN.md — reconcile `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, and `.planning/v2.1-MILESTONE-AUDIT.md`, then run the final archive audit gate.
 **Success Criteria** (what must be TRUE):
   1. Formal verification artifacts exist for Phases 37, 43, 48, 48.1, 49, 50, and 56, and each artifact is based on real code/docs/tests rather than ledger restatement.
   2. Nyquist validation artifacts are created, refreshed, or explicitly exempted with rationale for Phases 37, 38, 40, 41, 42, 44, 49, and 50.

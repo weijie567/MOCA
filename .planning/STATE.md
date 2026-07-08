@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: executing
-stopped_at: Phase 60 execution started
-last_updated: "2026-07-08T20:01:54+08:00"
-last_activity: 2026-07-08 -- Phase 60 execution started
+stopped_at: Phase 60 pending final archive audit
+last_updated: "2026-07-08T20:44:34+08:00"
+last_activity: 2026-07-08 -- Phase 60 evidence reconciliation pending final archive audit
 progress:
   total_phases: 25
   completed_phases: 24
   total_plans: 87
-  completed_plans: 83
-  percent: 96
+  completed_plans: 86
+  percent: 99
 ---
 
 # Project State: MOCA
@@ -31,12 +31,12 @@ See: `.planning/PROJECT.md` (updated 2026-07-08)
 ## Current Position
 
 Phase: 60 (v2-1-archive-evidence-closure) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 60
-Last activity: 2026-07-08 -- Phase 60 execution started
-Next: Execute Phase 60 Plan 60-01.
+Plan: 5 of 5
+Status: Phase 60 evidence reconciliation pending final archive audit
+Last activity: 2026-07-08 -- Phase 60 evidence artifacts created/refreshed; final archive audit pending
+Next: Complete Phase 60 Plan 60-05 by running the follow-up `$gsd-audit-milestone v2.1` workflow.
 
-Progress: [█████████░] 96%
+Progress: [██████████] 99%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -56,7 +56,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 3/3 | Complete; DB-backed pytest pending |
+| 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 3/3 | Complete; DB-backed evidence resolved by Phase 60 Plan 04 |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 3/3 | Complete; DB-backed pytest passed |
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 1/1 | Complete |
 | 40. Tool Contract Validation Hardening (TPH-05) | 3/3 | Complete |
@@ -80,7 +80,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 57. Risk Gate and Approval Gate Canonicalization (CAGM-08) | 5/5 | Complete |
 | 58. Canonical Graph Cutover and No-Debt Cleanup (CAGM-09) | 10/10 | Complete; broad validation, classifier, frontend build/test, metadata proof passed |
 | 59. Approval Resume Terminal Memory Finalization (MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09) | 3/3 | Complete; verification passed, review warnings fixed |
-| 60. v2.1 Archive Evidence Closure (TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07) | 0/5 | Executing; plan review passed, starting 60-01 |
+| 60. v2.1 Archive Evidence Closure (TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07) | 4/5 | Evidence reconciliation pending final audit; target verification and Nyquist artifacts exist |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
@@ -118,6 +118,7 @@ Phases 59-60 are registered from `.planning/v2.1-MILESTONE-AUDIT.md` as mileston
 **Phase 41 plan 41-02:** production legacy manager unwrapping removed and focused tests migrated to platform-native fakes; focused pytest and ruff passed.
 **Phase 41 plan 41-03:** `UnifiedToolManager` adapter/public export deleted, compatibility tests removed after ToolPlatform coverage migration, and architecture guard tests passed.
 **Phase 41 plan 41-04:** implementation review, final verification, and Claude light closure handoff complete; final tests and no-legacy grep passed.
+**Phase 60 plans 60-01 through 60-04:** archive evidence artifacts created/refreshed for target verification and Nyquist validation gaps; Phase 37 DB-backed note resolved with `108 passed, 1 warning`.
 **Phase 44:** 4/4 plans complete; migrations 021/022, CWC repository/service, thread-case M:N lifecycle, contract alignment, clean code review, and verification passed. Final Phase 44 surface: `51 passed, 5 warnings`; `alembic heads` = `022_case_working_context (head)`.
 **Phase 45 plan 45-01:** 5 min, 2 tasks, 6 files modified; contextual CWC lifecycle refs and graph/API-neutral adapter foundation complete.
 
@@ -163,7 +164,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - `ToolCallContext` §8.0 identity fields are off-limits across all phases; domain ownership/scope enforcement in BusinessFactService is not rebuilt.
 - Phase 37 plan 37-01 completed TPH-03 by making `_IDENTIFIER_SCHEMAS` and `INVESTIGATE_TOOL_NAMES` derived from catalog declarations/descriptors while preserving external contract shapes.
 - Phase 37 plan 37-02 completed the runtime-helper portion of TPH-04 by routing all current `ToolRuntime.invoke` failure exits through `_fail(...)`; 37-03 completed policy gate sequencing and the final contract sweep.
-- Phase 37 plan 37-03 completed the policy-gate portion of TPH-04 with ordered `RuntimeAuthGate` declarations and preserved external contract field sets. Full DB-backed pytest awaits local PostgreSQL.
+- Phase 37 plan 37-03 completed the policy-gate portion of TPH-04 with ordered `RuntimeAuthGate` declarations and preserved external contract field sets. Phase 60 Plan 04 later resolved the DB-backed evidence note with `108 passed, 1 warning`.
 - Phase 38 planning split TPH-01 into three dependency-ordered plans: validator support, catalog `output_schema` declarations, and runtime invalid-response enforcement/sweep. Strict no-data schemas are resolved for no-data tools, while action-tool output remains generic and out of scope until later action-output hardening.
 - Phase 38 plan 38-01 keeps nullable/type-list schema validation in the existing local `validate_json_value` helper instead of adding a new JSON Schema dependency.
 - Phase 38 plan 38-01 locks TPH-01 scope to the eight read/retrieval planner-visible tools and keeps `create_coupon_grant_draft` outside this plan.
@@ -269,7 +270,8 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ### Blockers / Concerns
 
-- Phase 37 final full relevant pytest currently needs local PostgreSQL on `localhost:5432`; without it, DB-backed tests fail during fixture setup. Non-DB focused pytest, contract-shape checks, generic output schema check, spec/contracts empty diff, and ruff passed.
+- Phase 60 final archive status is pending the follow-up `$gsd-audit-milestone v2.1` workflow. Do not archive v2.1 or mark Phase 60 final-complete until that result is recorded.
+- Phase 37 DB-backed evidence is no longer a blocker: Phase 60 Plan 04 reran the current-equivalent DB-backed command with `108 passed, 1 warning`.
 - Phase 38 final DB-backed sweep passed under compose PostgreSQL: `184 passed, 1 warning`.
 
 ## Deferred Items
@@ -290,18 +292,18 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-08T20:01:54+08:00
-Stopped at: Phase 60 execution started
+Last session: 2026-07-08T20:44:34+08:00
+Stopped at: Phase 60 pending final archive audit
 Resume file: `.planning/autopilot/phase-60.md`
-Next: Execute Phase 60 Plan 60-01.
+Next: Complete Phase 60 Plan 60-05 by running the follow-up `$gsd-audit-milestone v2.1` workflow.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`); Phase 49 completed investigate bounded read-only ReAct main path with replay parent-operation limitation; Phase 50 completed canonical Agent Graph migration guardrail SPEC; Phase 51 completed canonical graph baseline guardrails and migration matrix verification; Phase 52 completed explicit `safety_pre_route` runtime node extraction with clean review and 8/8 verification; Phase 53 completed `session_context_load -> contextual_intent_resolve` active graph cutover with clean review, security verification, validation, and 20/20 verification; Phase 54 completed `slot_resolution_gate` active graph cutover with clean review, security verification (`threats_open: 0`), Nyquist validation, and 8/8 verification; Phase 55 completed `memory_context_load` active graph cutover with clean review, review fix, verification, validation, and security verification (`threats_open: 0`); Phase 56 completed `recommendation_generation` active graph cutover, RAG/claim fail-closed alignment, action-boundary review fixes, clean code review, UAT, security verification (`threats_open: 0`), and Nyquist validation; Phase 57 completed `risk_gate` active runtime canonicalization, approval resume separation, projection/docs/validation closeout, and static legacy-hit classification for Phase 58 cleanup; Phase 58 completed final 15-node canonical graph cutover/no-debt cleanup with 10/10 plans, strict classifier `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, `unclassified_rows=0`, broad backend pytest `1812 passed, 1 skipped`, frontend build/test, metadata proof, and CAGM-09 closeout; Phase 59 completed approval-resume terminal memory finalization with 3/3 plans, code review warnings fixed, verification passed 18/18, final selected pytest `196 passed, 1 warning`, ruff clean, validation sign-off, and MEM-01/MEM-02/MEM-03/CAGM-08/CAGM-09 traceability closure.
-Next roadmap item: Execute Phase 60 (`v2.1 Archive Evidence Closure`) Plan 60-01.
+Next roadmap item: Complete Phase 60 (`v2.1 Archive Evidence Closure`) Plan 60-05 archive gate.
 
 **Completed Phase:** 59 (approval-resume-terminal-memory-finalization) — 3/3 plans — 2026-07-08
 
-**Next Phase:** 60 (`v2.1 Archive Evidence Closure`) — executing
+**Next Phase:** 60 (`v2.1 Archive Evidence Closure`) — executing; final archive audit pending
 
 **Completed Requirements:** MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09 — Phase 59 final validation — 2026-07-08
 
-**Planned Phase:** 60 (`v2.1 Archive Evidence Closure`) — plan review passed; execution in progress
+**Planned Phase:** 60 (`v2.1 Archive Evidence Closure`) — Plans 60-01 through 60-04 complete; Plan 60-05 evidence reconciliation and archive audit in progress
