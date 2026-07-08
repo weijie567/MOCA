@@ -68,12 +68,12 @@ PHASE22_ALLOWED_SURFACE_PATH_PREFIXES = {
 }
 PHASE22_ALLOWED_SURFACE_FILES = {
     Path("src/agent/state.py"),
-    Path("src/agent/nodes/generate_recommendation.py"),
+    Path("src/agent/nodes/recommendation_generation.py"),
     Path("src/knowledge/schemas.py"),
     Path("src/knowledge/service.py"),
     Path("tests/agent/test_graph.py"),
     Path("tests/agent/test_nodes/test_claim_verify.py"),
-    Path("tests/agent/test_nodes/test_generate_recommendation.py"),
+    Path("tests/agent/test_nodes/test_recommendation_generation.py"),
     Path("tests/knowledge/test_phase22_evidence_validation.py"),
     Path("tests/agent/test_phase22_recommendation_integration.py"),
     Path("tests/agent/test_phase22_action_boundary.py"),

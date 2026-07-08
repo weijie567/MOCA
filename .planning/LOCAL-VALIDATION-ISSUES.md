@@ -18733,3 +18733,33 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_recommendation
 ### 剩余问题和下次继续排查入口
 
 本计划范围内无剩余阻塞。若后续要消除 warnings，可分别从本机 `LC_ALL` / `LC_CTYPE` 设置、`src/memory/session_bundle.py:77` 的 AsyncMock fixture 使用方式、以及 `src/agent/graph.py` 的 LangGraph node config typing 入手。
+
+## 2026-07-08：Phase 58-07 Task 2 architecture RED 暴露已删除 wrapper 路径仍被当前测试引用
+
+### 问题现象
+
+执行 Task 2 RED focused architecture pytest 时，除了新增静态 guard 的预期失败外，`tests/architecture/test_phase32_static_contract.py::test_phase32_consumers_do_not_reference_direct_policy_constants` 还非预期读取已删除的 `src/agent/nodes/classify_intent.py` 并抛出 `FileNotFoundError`。
+
+### 如何检测 / 复现
+
+运行命令：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase32_static_contract.py tests/architecture/test_memory_contract_delta.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short
+```
+
+### 关键证据或命令
+
+RED 结果为 `3 failed, 19 passed, 1 skipped, 1 warning`。失败包括：Phase 32 static contract 读取 deleted `classify_intent.py`；新增 Phase 58 guard 检出 current `src/tests/scripts/eval` 中遗留 direct test path / wrapper import path；Phase 33 architecture test 仍保留 `PHASE_56_COMPATIBILITY_ALIAS` / `PHASE_57_COMPATIBILITY_ALIAS` marker。
+
+### 当前判断 / 根因
+
+这是 Phase 58 wrapper 删除后，architecture/static 覆盖尚未完全改到 canonical module/path 的测试债务，不是 runtime 回归。旧测试仍把 deleted wrapper 文件、legacy direct test 文件名和 Phase 56/57 compatibility marker 当成当前 guard 输入，导致 CAGM-09 的 no-debt final scan 无法通过。
+
+### 已做处理
+
+将 Phase 32 static contract 的当前消费者检查改为 canonical `contextual_intent_resolve.py`；将 Phase 33 guard 改为通过 path parts 构造 deleted wrapper/direct test 路径，并新增 current reference scan；同步 retarget `eval/replay/dev-contract-manifest.v1.json` 与相关 wrapper deletion tests 的 current path references。GREEN 后 focused architecture pytest 为 `23 passed, 1 skipped, 1 warning`，focused ruff 通过。
+
+### 剩余问题和下次继续排查入口
+
+本计划范围内无剩余阻塞。若后续 Phase 58 继续收敛 legacy graph-name 文档/测试分类，可从 `tests/architecture/test_phase33_rag_claim_boundaries.py::test_phase58_deleted_wrapper_imports_and_legacy_direct_test_paths_are_absent_from_current_refs` 和 `scripts/classify_phase58_legacy_hits.py --strict` 入手。

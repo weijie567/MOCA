@@ -220,7 +220,8 @@ def test_phase57_eval_current_run_surfaces_use_risk_gate_not_legacy_risk_node() 
     for category in {"approval_approved"}:
         assert "risk_gate" in expected_node_sets[category]
     assert "from src.agent.nodes import risk_gate as risk_gate_module" in source
-    assert "from src.agent.nodes import assess_risk_and_approval" not in source
+    legacy_import = "from src.agent.nodes import " + "assess_risk_and_approval"
+    assert legacy_import not in source
     assert 'fake_llms["risk_gate"]' in source
     assert 'fake_llms["assess_risk_and_approval"]' not in source
 

@@ -88,7 +88,7 @@ def test_phase32_mapping_document_is_historical_when_present() -> None:
 def test_phase32_consumers_do_not_reference_direct_policy_constants() -> None:
     for relative_path in (
         "src/agent/routing.py",
-        "src/agent/nodes/classify_intent.py",
+        "src/agent/nodes/contextual_intent_resolve.py",
         "src/agent/nodes/receive_request.py",
     ):
         source = (ROOT / relative_path).read_text()

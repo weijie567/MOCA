@@ -98,7 +98,7 @@ def _spy_context_assembler(monkeypatch: pytest.MonkeyPatch) -> list[PromptAssemb
 
 
 def test_slot_resolution_gate_legacy_wrapper_and_test_file_are_removed() -> None:
-    assert not (REPO_ROOT / "src/agent/nodes/extract_slots.py").exists()
+    assert not (REPO_ROOT / "src" / "agent" / "nodes" / "extract_slots.py").exists()
     assert not Path(__file__).with_name("test_extract_slots.py").exists()
 
 

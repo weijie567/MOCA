@@ -144,7 +144,7 @@
       "expected_guard": "Claim verification and risk tests fail closed on unsupported action-bound claims.",
       "test_paths": [
         "tests/agent/test_nodes/test_claim_verify.py",
-        "tests/agent/test_nodes/test_assess_risk_and_approval.py"
+        "tests/agent/test_nodes/test_risk_gate.py"
       ]
     },
     {
@@ -161,7 +161,7 @@
       "test_paths": [
         "tests/agent/test_nodes/test_rag_context_build.py",
         "tests/agent/test_nodes/test_claim_verify.py",
-        "tests/agent/test_nodes/test_assess_risk_and_approval.py"
+        "tests/agent/test_nodes/test_risk_gate.py"
       ]
     },
     {
@@ -176,7 +176,7 @@
       "description": "Unsafe, unbound, or insufficiently authorized action paths must not reach approval or action draft creation.",
       "expected_guard": "Risk/action draft tests require claim, evidence, business fact, target merchant, payload hash, and safety snapshot bindings.",
       "test_paths": [
-        "tests/agent/test_nodes/test_assess_risk_and_approval.py",
+        "tests/agent/test_nodes/test_risk_gate.py",
         "tests/actions/test_phase34_action_draft_bindings.py"
       ]
     },
@@ -192,7 +192,7 @@
       "description": "Stale BusinessFactRefV1 values must not enter action-bound risk, approval, or draft paths.",
       "expected_guard": "Business fact and risk/action tests fail closed when current business fact authority is unavailable or stale.",
       "test_paths": [
-        "tests/agent/test_nodes/test_assess_risk_and_approval.py",
+        "tests/agent/test_nodes/test_risk_gate.py",
         "tests/actions/test_phase34_action_draft_bindings.py"
       ]
     },
@@ -208,7 +208,7 @@
       "description": "Wrong-scope BusinessFactRefV1 values must not satisfy action safety or target merchant binding.",
       "expected_guard": "Approval/action binding tests reject merchant or scope mismatches before draft creation.",
       "test_paths": [
-        "tests/agent/test_nodes/test_assess_risk_and_approval.py",
+        "tests/agent/test_nodes/test_risk_gate.py",
         "tests/actions/test_phase34_action_draft_bindings.py"
       ]
     },
@@ -248,7 +248,7 @@
     "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_replay_eval_gates.py -q --tb=short",
     "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase35_replay_eval_boundaries.py -q --tb=short",
     "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_coverage_matrix.py tests/replay/test_phase35_trace_replay_permissions.py tests/replay/test_phase35_terminal_timelines.py tests/replay/test_phase35_redaction_negatives.py -q --tb=short",
-    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_rag_context_build.py tests/agent/test_nodes/test_claim_verify.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/actions/test_phase34_action_draft_bindings.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_rag_context_build.py tests/agent/test_nodes/test_claim_verify.py tests/agent/test_nodes/test_risk_gate.py tests/actions/test_phase34_action_draft_bindings.py -q --tb=short",
     "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short"
   ],
   "non_blocking_gate_refs": [

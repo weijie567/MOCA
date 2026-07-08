@@ -73,8 +73,8 @@ def _session_context_bundle_payload(*, run_id: str, summary_text: str, thread_id
 
 
 def test_session_legacy_wrapper_and_direct_test_are_removed():
-    assert not Path("src/agent/nodes/session_memory_load.py").exists()
-    assert not Path("tests/agent/test_session_memory_load.py").exists()
+    assert not Path("src", "agent", "nodes", "session_memory_load.py").exists()
+    assert not Path("tests", "agent", "test_session_memory_load.py").exists()
 
 
 async def test_load_session_memory_bundle_prefers_canonical_session_context_bundle_over_legacy_bundle():

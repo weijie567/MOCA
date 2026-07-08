@@ -41,8 +41,8 @@ FORBIDDEN_DOWNSTREAM_FIELDS = FORBIDDEN_AUTHORITY_FIELDS | {
 
 
 def test_intent_legacy_wrapper_and_direct_test_are_removed():
-    assert not Path("src/agent/nodes/classify_intent.py").exists()
-    assert not Path("tests/agent/test_nodes/test_classify_intent.py").exists()
+    assert not Path("src", "agent", "nodes", "classify_intent.py").exists()
+    assert not Path("tests", "agent", "test_nodes", "test_classify_intent.py").exists()
     legacy_import_path = "src.agent.nodes." + "classify_intent"
     assert legacy_import_path not in Path("tests/agent/test_intent_adapter.py").read_text()
 

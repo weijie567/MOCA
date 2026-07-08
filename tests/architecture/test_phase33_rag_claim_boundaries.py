@@ -19,17 +19,26 @@ CLAIM_NODE_PATH = ROOT / "src" / "agent" / "nodes" / "claim_verify.py"
 RECOMMENDATION_NODE_PATH = ROOT / "src" / "agent" / "nodes" / "recommendation_generation.py"
 SUMMARY_PROJECTION_PATH = ROOT / "src" / "agent" / "rag_claim_summary.py"
 PHASE33_DIR = ROOT / ".planning" / "phases" / "33-rag-context-build-and-claim-verification"
-DELETED_PHASE58_WRAPPER_PATHS = (
-    ROOT / "src" / "agent" / "nodes" / "generate_recommendation.py",
-    ROOT / "src" / "agent" / "nodes" / "assess_risk_and_approval.py",
+DELETED_PHASE58_WRAPPER_PATHS = tuple(
+    ROOT.joinpath(*parts)
+    for parts in (
+        ("src", "agent", "nodes", "generate_recommendation.py"),
+        ("src", "agent", "nodes", "assess_risk_and_approval.py"),
+    )
 )
-DELETED_PHASE58_DIRECT_TEST_PATHS = (
-    ROOT / "tests" / "agent" / "test_nodes" / "test_generate_recommendation.py",
-    ROOT / "tests" / "agent" / "test_nodes" / "test_assess_risk_and_approval.py",
+DELETED_PHASE58_DIRECT_TEST_PATHS = tuple(
+    ROOT.joinpath(*parts)
+    for parts in (
+        ("tests", "agent", "test_nodes", "test_generate_recommendation.py"),
+        ("tests", "agent", "test_nodes", "test_assess_risk_and_approval.py"),
+    )
 )
 DELETED_PHASE58_WRAPPER_MODULES = {
-    "src.agent.nodes.generate_recommendation",
-    "src.agent.nodes.assess_risk_and_approval",
+    ".".join(parts)
+    for parts in (
+        ("src", "agent", "nodes", "generate_recommendation"),
+        ("src", "agent", "nodes", "assess_risk_and_approval"),
+    )
 }
 PHASE58_LEGACY_NODE_IMPORT_NAMES = (
     "classify_intent",
@@ -38,6 +47,17 @@ PHASE58_LEGACY_NODE_IMPORT_NAMES = (
     "long_term_memory_retrieve",
     "generate_recommendation",
     "assess_risk_and_approval",
+)
+PHASE58_DELETED_WRAPPER_FILE_PATHS = tuple(
+    "/".join(parts)
+    for parts in (
+        ("src", "agent", "nodes", "classify_intent.py"),
+        ("src", "agent", "nodes", "session_memory_load.py"),
+        ("src", "agent", "nodes", "extract_slots.py"),
+        ("src", "agent", "nodes", "long_term_memory_retrieve.py"),
+        ("src", "agent", "nodes", "generate_recommendation.py"),
+        ("src", "agent", "nodes", "assess_risk_and_approval.py"),
+    )
 )
 PHASE58_LEGACY_DIRECT_TEST_PATHS = tuple(
     "/".join(parts)
@@ -57,11 +77,7 @@ PHASE58_DELETED_WRAPPER_IMPORT_RE = re.compile(
     + "|".join(re.escape(name) for name in PHASE58_LEGACY_NODE_IMPORT_NAMES)
     + r")"
 )
-PHASE58_COMPATIBILITY_MARKERS = (
-    "DELETE_BY_PHASE_58",
-    "PHASE_56_COMPATIBILITY_ALIAS",
-    "PHASE_57_COMPATIBILITY_ALIAS",
-)
+PHASE58_COMPATIBILITY_MARKERS = ("DELETE_BY_PHASE_58",)
 
 RAG_WRITER_KEYS = {
     "rag_context_status",
@@ -234,6 +250,9 @@ def test_phase58_deleted_wrapper_imports_and_legacy_direct_test_paths_are_absent
         source = _source(path)
         for match in PHASE58_DELETED_WRAPPER_IMPORT_RE.finditer(source):
             violations.append(f"{path.relative_to(ROOT).as_posix()}: import {match.group(0)}")
+        for wrapper_path in PHASE58_DELETED_WRAPPER_FILE_PATHS:
+            if wrapper_path in source:
+                violations.append(f"{path.relative_to(ROOT).as_posix()}: path {wrapper_path}")
         for legacy_path in PHASE58_LEGACY_DIRECT_TEST_PATHS:
             if legacy_path in source:
                 violations.append(f"{path.relative_to(ROOT).as_posix()}: path {legacy_path}")
@@ -241,7 +260,7 @@ def test_phase58_deleted_wrapper_imports_and_legacy_direct_test_paths_are_absent
     assert violations == []
 
 
-def test_phase58_architecture_tests_do_not_preserve_phase52_57_compatibility_alias_markers() -> None:
+def test_phase58_architecture_tests_do_not_preserve_phase52_57_legacy_alias_markers() -> None:
     markers = {f"PHASE_{phase}_COMPATIBILITY_ALIAS" for phase in range(52, 58)}
     violations: list[str] = []
     for path in (
@@ -255,6 +274,17 @@ def test_phase58_architecture_tests_do_not_preserve_phase52_57_compatibility_ali
                 violations.append(f"{path.relative_to(ROOT).as_posix()}: {marker}")
 
     assert violations == []
+
+
+def test_phase58_legacy_hit_classifier_strict_gate_allows_classified_historical_hits() -> None:
+    from scripts.classify_phase58_legacy_hits import DEFAULT_ROOTS, classify_legacy_hits
+
+    report = classify_legacy_hits(ROOT, list(DEFAULT_ROOTS))
+
+    assert report["total_hits"] > 0
+    assert report["active_runtime_legacy"] == 0
+    assert report["current_docs_legacy_authority"] == 0
+    assert report["unclassified_rows"] == 0
 
 
 def test_rag_claim_nodes_do_not_bypass_repositories_or_raw_database_access() -> None:

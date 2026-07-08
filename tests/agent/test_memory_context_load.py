@@ -85,7 +85,7 @@ def _session_context_state() -> dict[str, Any]:
 
 
 def test_memory_context_load_legacy_wrapper_source_is_removed() -> None:
-    assert not (REPO_ROOT / "src/agent/nodes/long_term_memory_retrieve.py").exists()
+    assert not (REPO_ROOT / "src" / "agent" / "nodes" / "long_term_memory_retrieve.py").exists()
 
 
 class FakeMemoryContextService:

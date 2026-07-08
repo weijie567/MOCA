@@ -158,7 +158,6 @@ def test_memory_graph_legacy_names_are_historical_projection_only() -> None:
         assert projected["implementation_node"] == legacy_name
         assert projected["target_node"] == target_name
         assert projected["target_graph_status"] == "historical_projection"
-        assert projected["target_graph_status"] != "compatibility_alias"
         assert projected["target_graph_runnable"] is False
 
     for name in ("session_context_load", "memory_context_load"):

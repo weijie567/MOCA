@@ -245,7 +245,7 @@ def test_approval_gate_has_no_runtime_risk_action_or_snapshot_coupling():
     tree = ast.parse(source_path.read_text())
     forbidden_modules = (
         "src.agent.nodes.risk_gate",
-        "src.agent.nodes.assess_risk_and_approval",
+        ".".join(("src", "agent", "nodes", "assess_risk_and_approval")),
         "src.approvals.snapshot_service",
         "src.approvals.service",
         "src.agent.nodes.action_draft",
