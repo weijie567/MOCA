@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -17,6 +18,7 @@ ALLOWED_USAGE_LABELS = {
     "reviewed_memory_skipped",
     "reviewed_memory_unavailable",
 }
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _trusted_context(*, merchant_ids: list[str]) -> TrustedContext:
@@ -80,6 +82,10 @@ def _session_context_state() -> dict[str, Any]:
             "run_id": "run-1",
         },
     }
+
+
+def test_memory_context_load_legacy_wrapper_source_is_removed() -> None:
+    assert not (REPO_ROOT / "src/agent/nodes/long_term_memory_retrieve.py").exists()
 
 
 class FakeMemoryContextService:
@@ -255,44 +261,43 @@ async def test_memory_context_load_service_error_is_unavailable_and_maps_node_er
     }
 
 
-async def test_long_term_memory_retrieve_delegates_to_canonical_node_and_keeps_legacy_metrics(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from src.agent.nodes import long_term_memory_retrieve as module
+async def test_memory_context_load_skips_case_memory_without_query() -> None:
+    from src.agent.nodes.memory_context_load import memory_context_load
 
-    calls: list[dict[str, Any]] = []
+    case_called = False
 
-    async def fake_memory_context_load(state: dict[str, Any], config: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
-        calls.append({"state": state, "config": config, "kwargs": kwargs})
-        return {
-            "long_term_memory": [{"memory_id": "ltm-1"}],
-            "case_memory": [{"case_memory_id": "case-1"}],
-            "reviewed_memory_context_retrieve_status": {"fallback_reason": None},
-            "llm_outputs": {
-                "memory_context_load": {
-                    "source": "reviewed_memory",
-                    "authority_class": "contextual_only",
-                    "usage_labels": ["explicit_preference_memory", "reviewed_case_precedent"],
-                    "long_term_count": 1,
-                    "case_count": 1,
-                    "fallback_reason": None,
-                    "filter_reasons": [],
-                }
-            },
-            "trace_steps": [],
-        }
+    class FakeLongTermMemoryService:
+        async def retrieve_profile_memory(self, **kwargs: Any) -> list[Any]:
+            return []
 
-    monkeypatch.setattr(module, "memory_context_load", fake_memory_context_load)
+    class FakeCaseMemoryService:
+        async def retrieve_reviewed(self, request: Any) -> Any:
+            nonlocal case_called
+            case_called = True
+            return type("CaseResult", (), {"status": "success", "items": [{"case_memory_id": "case-1"}]})()
 
-    result = await module.long_term_memory_retrieve(_state(), {"configurable": {}})
+    trusted_context = _trusted_context(merchant_ids=["merchant-a"])
+    result = await memory_context_load(
+        _state(
+            tenant_id=trusted_context.tenant_id,
+            user_id=trusted_context.user_id,
+            user_query="",
+            normalized_query="",
+            extracted_slots={"merchant_id": "merchant-a"},
+            active_slots={"merchant_id": "merchant-a"},
+        ),
+        {
+            "configurable": {
+                "trusted_context": trusted_context,
+                "long_term_memory_service": FakeLongTermMemoryService(),
+                "case_memory_service": FakeCaseMemoryService(),
+            }
+        },
+    )
 
-    assert calls
-    assert result["llm_outputs"]["memory_context_load"]["authority_class"] == "contextual_only"
-    assert result["llm_outputs"]["long_term_memory_retrieve"] == {
-        "source": "reviewed_memory",
-        "continuity_claimed": True,
-        "retrieved": 2,
-        "profile_count": 1,
-        "case_count": 1,
-        "fallback_reason": None,
-    }
+    assert case_called is False
+    assert result["case_memory"] == []
+    metrics = result["llm_outputs"]["memory_context_load"]
+    assert metrics["source"] == "no_reviewed_memory"
+    assert metrics["authority_class"] == "contextual_only"
+    assert "long_term_memory_retrieve" not in result["llm_outputs"]
