@@ -63,14 +63,6 @@ GRAPH_CONTRACT_PATCHED_NODES = {
     "recommendation_generation",
     "risk_gate",
 }
-GRAPH_CONTRACT_LEGACY_NODES = {
-    "classify_intent",
-    "session_memory_load",
-    "extract_slots",
-    "long_term_memory_retrieve",
-    "generate_recommendation",
-    "execute_action",
-}
 
 
 class FakeLLM:
@@ -170,11 +162,6 @@ def _ci_fake_llm_responses(case: dict[str, Any]) -> dict[str, FakeLLM]:
         "recommendation_generation": FakeLLM(recommendation_response),
         "risk_gate": FakeLLM(risk_response),
         "final_response": FakeLLM(final_response),
-        # Compatibility keys keep the synthetic summary path stable while the
-        # compiled graph harness patches the active Phase 56 node modules.
-        "classify_intent": FakeLLM(intent_response),
-        "extract_slots": FakeLLM(slot_response),
-        "assess_risk": FakeLLM(risk_response),
     }
 
 
@@ -763,14 +750,6 @@ def _assert_graph_contract_harness_current(cases: list[dict[str, Any]]) -> None:
     missing_patch_targets = GRAPH_CONTRACT_PATCHED_NODES - registered_nodes
     if missing_patch_targets:
         raise AssertionError(f"graph-contract patch targets are not active nodes: {sorted(missing_patch_targets)}")
-    expected_legacy_nodes = {
-        node
-        for case in cases
-        for node in _expected_nodes_for_case(case)
-        if node in GRAPH_CONTRACT_LEGACY_NODES
-    }
-    if expected_legacy_nodes:
-        raise AssertionError(f"graph-contract expected legacy nodes: {sorted(expected_legacy_nodes)}")
 
 
 async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
