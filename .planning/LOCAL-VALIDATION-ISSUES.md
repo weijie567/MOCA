@@ -19292,3 +19292,36 @@ rg -n "Phase 59|193 passed|2/3" .planning/STATE.md
 ### 剩余问题和下次继续排查入口
 
 无产品代码问题。后续运行 GSD state/phase completion 命令后，仍需核对 `.planning/STATE.md` frontmatter、Current Position、Current Roadmap 表和 Session Continuity 是否同步；若复发，入口是 GSD `phase.complete` 对 STATE 正文缓存段落的更新逻辑。
+## 2026-07-08：Phase 60 autopilot preflight 用 zsh 裸 glob 检查 SPEC 触发 no matches found
+
+### 问题现象
+
+执行 Phase 60 autopilot 的 discuss/preflight 阶段时，用未防护的 zsh glob 同时检查 `.continue-here.md`、`*-SPEC.md`、`*-DISCUSS-CHECKPOINT.json`。Phase 60 当前没有 `*-SPEC.md`，zsh 在 `nomatch` 行为下直接报错。
+
+### 如何检测 / 复现
+
+在仓库根目录运行类似命令：
+
+```bash
+ls .planning/phases/60-v2-1-archive-evidence-closure/.continue-here.md .planning/phases/60-v2-1-archive-evidence-closure/*-SPEC.md .planning/phases/60-v2-1-archive-evidence-closure/*-DISCUSS-CHECKPOINT.json 2>/dev/null || true
+```
+
+### 关键证据或命令
+
+命令输出：
+
+```text
+zsh:1: no matches found: .planning/phases/60-v2-1-archive-evidence-closure/*-SPEC.md
+```
+
+### 当前判断 / 根因
+
+这是本地命令写法错误，不是 Phase 60 仓库状态问题。zsh 会在没有匹配项时先展开失败，导致 `2>/dev/null || true` 无法按预期兜底。
+
+### 已做处理
+
+改用 `find .planning/phases/60-v2-1-archive-evidence-closure -maxdepth 1 \( -name '.continue-here.md' -o -name '*-SPEC.md' -o -name '*-DISCUSS-CHECKPOINT.json' -o -name '*-CONTEXT.md' -o -name '*-PLAN.md' \) -type f | sort` 重查。结果只看到 `.gitkeep` 以外没有 Phase 60 context/spec/plan/checkpoint 文件，符合预期；随后继续创建 `60-CONTEXT.md`。
+
+### 剩余问题和下次继续排查入口
+
+无产品代码问题。后续 GSD workflow 中检查可选 phase artifact 时优先用 `find`，不要在 zsh 中直接 `ls "$phase_dir"/*-FILE.md`。
