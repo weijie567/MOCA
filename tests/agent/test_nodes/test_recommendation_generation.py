@@ -8,7 +8,7 @@ import pytest
 from pydantic import BaseModel
 
 from src.agent.context import PromptAssembly
-from src.agent.nodes import generate_recommendation as generate_recommendation_module
+from src.agent.nodes import generate_recommendation as legacy_recommendation_module
 from src.agent.nodes import recommendation_generation as recommendation_generation_module
 from src.knowledge.config import MAX_EVIDENCE_TEXT_CHARS, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
@@ -151,7 +151,7 @@ def test_risk_hints_merge_state_and_evidence_labels():
     retrieval_state = _retrieval_state(evidence=[evidence])
     retrieval_state["retrieved_evidence"]["evidence_refs"][0]["risk_labels"] = ["ocr_low_confidence"]
 
-    hints = generate_recommendation_module._risk_hints_from_state(
+    hints = recommendation_generation_module._risk_hints_from_state(
         {
             **retrieval_state,
             "risk_hints": [{"evidence_id": evidence.evidence_id, "labels": ["manual_review_sensitive"]}],
@@ -233,14 +233,14 @@ class FakeConversationService:
 
 def _spy_context_assembler(monkeypatch):
     assemblies: list[PromptAssembly] = []
-    original = generate_recommendation_module.ContextAssembler.assemble
+    original = recommendation_generation_module.ContextAssembler.assemble
 
     def spy(self, **kwargs):
         assembly = original(self, **kwargs)
         assemblies.append(assembly)
         return assembly
 
-    monkeypatch.setattr(generate_recommendation_module.ContextAssembler, "assemble", spy)
+    monkeypatch.setattr(recommendation_generation_module.ContextAssembler, "assemble", spy)
     return assemblies
 
 
@@ -274,30 +274,34 @@ def test_recommendation_generation_canonical_import_is_callable():
     assert callable(recommendation_generation_module.recommendation_generation)
 
 
-def test_generate_recommendation_compatibility_metadata_is_phase58_scoped():
-    source = inspect.getsource(generate_recommendation_module)
+def test_recommendation_generation_module_owns_implementation_without_legacy_import():
+    source = inspect.getsource(recommendation_generation_module)
+    assert "src.agent.nodes.generate_recommendation" not in source
+    assert hasattr(recommendation_generation_module, "_get_llm")
+    assert hasattr(recommendation_generation_module, "_assemble_recommendation_prompt")
+    assert hasattr(recommendation_generation_module, "_trace_step")
+    assert hasattr(recommendation_generation_module, "_risk_hints_from_state")
+
+
+def test_legacy_generate_recommendation_wrapper_no_longer_owns_phase58_metadata():
+    source = inspect.getsource(legacy_recommendation_module)
     for marker in (
         "PHASE_56_COMPATIBILITY_ALIAS",
         "HISTORICAL_TRACE_PROJECTION",
         "IMPORT_TEST_COMPATIBILITY",
         "DELETE_BY_PHASE_58",
+        "_LEGACY_NODE",
+        "_CANONICAL_NODE",
+        "_generate_recommendation_with_identity",
     ):
-        assert marker in source
-
-    metadata = generate_recommendation_module.PHASE_56_COMPATIBILITY_ALIAS
-    assert metadata["legacy_surface"] == "generate_recommendation"
-    assert metadata["canonical_owner"] == "recommendation_generation"
-    assert metadata["reason"] == generate_recommendation_module.IMPORT_TEST_COMPATIBILITY
-    assert metadata["trace_projection"] == generate_recommendation_module.HISTORICAL_TRACE_PROJECTION
-    assert metadata["delete_phase"] == generate_recommendation_module.DELETE_BY_PHASE_58
-    assert "tests/agent/test_nodes/test_generate_recommendation.py" in metadata["validation_tests"]
-    assert "tests/agent/test_phase22_recommendation_integration.py" in metadata["validation_tests"]
+        assert marker not in source
+    assert "src.agent.nodes.recommendation_generation" in source
 
 
 @pytest.mark.asyncio
 async def test_canonical_recommendation_generation_writes_canonical_identity_only(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft()))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(_draft()))
 
     result = await recommendation_generation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
@@ -319,7 +323,7 @@ async def test_canonical_recommendation_generation_insufficient_evidence_identit
             raise AssertionError("LLM should not run without a usable verified evidence package")
 
     evidence = _evidence(tenant_id=base_state["tenant_id"])
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: ExplodingLLM())
 
     result = await recommendation_generation_module.recommendation_generation(
         {
@@ -338,18 +342,18 @@ async def test_canonical_recommendation_generation_insufficient_evidence_identit
 
 
 @pytest.mark.asyncio
-async def test_legacy_generate_recommendation_keeps_import_compatibility_identity(monkeypatch, base_state):
+async def test_legacy_generate_recommendation_import_emits_canonical_identity(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft()))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(_draft()))
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await legacy_recommendation_module.generate_recommendation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
         _config(),
     )
 
-    assert "generate_recommendation" in result["llm_outputs"]
-    assert "recommendation_generation" not in result["llm_outputs"]
-    assert result["trace_steps"][-1]["node"] == "generate_recommendation"
+    assert "recommendation_generation" in result["llm_outputs"]
+    assert "generate_recommendation" not in result["llm_outputs"]
+    assert result["trace_steps"][-1]["node"] == "recommendation_generation"
     _assert_no_verifier_owned_state(result)
 
 
@@ -360,10 +364,10 @@ async def test_skips_llm_for_retrieval_safety_drafts(monkeypatch, base_state, re
         def with_structured_output(self, schema):
             raise AssertionError("LLM should not be called")
 
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: ExplodingLLM())
     state = {**base_state, "recommendation_draft": {"recommended_action": recommended_action}}
 
-    result = await generate_recommendation_module.generate_recommendation(state)
+    result = await recommendation_generation_module.recommendation_generation(state)
 
     assert "recommendation_draft" not in result
     assert result["trace_steps"][-1]["status"] == "skipped"
@@ -372,12 +376,12 @@ async def test_skips_llm_for_retrieval_safety_drafts(monkeypatch, base_state, re
 @pytest.mark.asyncio
 async def test_membership_pass_keeps_canonical_evidence_ref(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft()))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(_draft()))
     _with_knowledge_service(
         monkeypatch, {(evidence.doc_key, evidence.chunk_id): "退款超时时，客服应核实支付通道和退款状态。"}
     )
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
         _config(),
     )
@@ -396,12 +400,12 @@ async def test_membership_pass_does_not_carry_stale_state_evidence_refs(monkeypa
         "evidence_id": "stale-policy/stale-chunk@v1",
         "policy_version": "v1",
     }
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft()))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(_draft()))
     _with_knowledge_service(
         monkeypatch, {(evidence.doc_key, evidence.chunk_id): "退款超时时，客服应核实支付通道和退款状态。"}
     )
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {
             **base_state,
             **_retrieval_state(evidence=[evidence]),
@@ -417,12 +421,12 @@ async def test_membership_pass_does_not_carry_stale_state_evidence_refs(monkeypa
 @pytest.mark.asyncio
 async def test_membership_fail_drops_ref_and_marks_citation_invalid(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft(chunk_id="missing")))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(_draft(chunk_id="missing")))
     _with_knowledge_service(
         monkeypatch, {(evidence.doc_key, evidence.chunk_id): "退款超时时，客服应核实支付通道和退款状态。"}
     )
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
         _config(),
     )
@@ -439,12 +443,12 @@ async def test_membership_fail_drops_ref_and_marks_citation_invalid(monkeypatch,
 async def test_prompt_lists_evidence_ids_in_allowed_citation_objects(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
     fake_llm = CapturingLLM(_draft())
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: fake_llm)
     _with_knowledge_service(
         monkeypatch, {(evidence.doc_key, evidence.chunk_id): "退款超时时，客服应核实支付通道和退款状态。"}
     )
 
-    await generate_recommendation_module.generate_recommendation(
+    await recommendation_generation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
         _config(),
     )
@@ -460,9 +464,9 @@ async def test_prompt_excludes_invalid_candidate_from_allowed_citation_objects(m
     invalid_text = "invalid candidate body must not be offered as an allowed citation"
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=invalid_text)
     fake_llm = CapturingLLM(_draft())
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: fake_llm)
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {
             **base_state,
             **_retrieval_state(evidence=[evidence]),
@@ -485,10 +489,10 @@ async def test_prompt_includes_bounded_policy_text(monkeypatch, base_state):
     full_text = "A" * MAX_EVIDENCE_TEXT_CHARS + "NOT_IN_PROMPT"
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=full_text)
     fake_llm = CapturingLLM(_draft())
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: fake_llm)
     calls = _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): full_text})
 
-    await generate_recommendation_module.generate_recommendation(
+    await recommendation_generation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence=[evidence]), **_verified_package_state(evidence=evidence, snippet=full_text)},
         _config(),
     )
@@ -505,10 +509,10 @@ async def test_hash_mismatch_content_is_not_grounded(monkeypatch, base_state):
     distinctive_rule = "RULE-ONLY-IN-DB: refund must be reviewed within 17 minutes"
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=distinctive_rule)
     fake_llm = CapturingLLM(_draft())
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: fake_llm)
     _with_knowledge_service(monkeypatch, {})
 
-    await generate_recommendation_module.generate_recommendation(
+    await recommendation_generation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
         _config(),
     )
@@ -524,7 +528,7 @@ async def test_canonical_latest_invalid_reason_routes_refuse_not_generic_insuffi
         def with_structured_output(self, schema):
             raise AssertionError("LLM should not run for stale verified evidence packages")
 
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: ExplodingLLM())
     _with_canonical_knowledge_service(
         monkeypatch,
         {
@@ -536,7 +540,7 @@ async def test_canonical_latest_invalid_reason_routes_refuse_not_generic_insuffi
         },
     )
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {
             **base_state,
             **_verified_package_state(evidence=evidence, status="stale"),
@@ -558,9 +562,9 @@ async def test_evidence_ocr_low_confidence_label_routes_manual_review(monkeypatc
         def with_structured_output(self, schema):
             raise AssertionError("LLM should not run for high-risk partial evidence packages")
 
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: ExplodingLLM())
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {
             **base_state,
             **_verified_package_state(evidence=evidence, snippet=text, status="partial"),
@@ -598,7 +602,7 @@ async def test_partial_package_direct_generation_uses_router_blockers(
         def with_structured_output(self, schema):
             raise AssertionError("LLM should not run for router-blocked partial evidence packages")
 
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: ExplodingLLM())
     state = {
         **base_state,
         **_verified_package_state(evidence=evidence, status="partial"),
@@ -626,7 +630,7 @@ async def test_partial_package_direct_generation_uses_router_blockers(
         package["rejected_candidate_refs"] = [evidence_payload]
         package["reason_codes"] = ["invalid_hash"]
 
-    result = await generate_recommendation_module.generate_recommendation(state, _config())
+    result = await recommendation_generation_module.recommendation_generation(state, _config())
 
     assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
     assert result["material_claims"] == []
@@ -640,13 +644,13 @@ async def test_policy_text_never_persisted(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=policy_text)
     retrieval_state = _retrieval_state(evidence=[evidence])
     monkeypatch.setattr(
-        generate_recommendation_module,
+        recommendation_generation_module,
         "_get_llm",
         lambda: FakeLLM(_draft(reasoning_summary=safe_claim_text)),
     )
     _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): policy_text})
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {**base_state, **retrieval_state},
         _config(),
     )
@@ -662,10 +666,10 @@ async def test_text_hash_uses_full_content_not_truncated(monkeypatch, base_state
     full_text = "B" * (MAX_EVIDENCE_TEXT_CHARS + 200)
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=full_text)
     fake_llm = CapturingLLM(_draft(reasoning_summary="B" * MAX_EVIDENCE_TEXT_CHARS))
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: fake_llm)
     _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): full_text})
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence=[evidence]), **_verified_package_state(evidence=evidence, snippet=full_text)},
         _config(),
     )
@@ -684,9 +688,9 @@ async def test_missing_session_completes_without_grounded_text(monkeypatch, base
         def with_structured_output(self, schema):
             raise AssertionError("LLM should not run without a required verified evidence package")
 
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: ExplodingLLM())
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {
             **base_state,
             "retrieved_evidence": {
@@ -707,10 +711,10 @@ async def test_cross_tenant_ref_is_not_grounded(monkeypatch, base_state):
     policy_text = "cross tenant policy body"
     evidence = _evidence(text=policy_text)
     fake_llm = CapturingLLM(_draft())
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: fake_llm)
     _with_knowledge_service(monkeypatch, {})
 
-    await generate_recommendation_module.generate_recommendation(
+    await recommendation_generation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
         _config(),
     )
@@ -718,12 +722,12 @@ async def test_cross_tenant_ref_is_not_grounded(monkeypatch, base_state):
     assert policy_text not in fake_llm.messages[-1]["content"]
 
 
-def test_generate_recommendation_does_not_import_policy_chunk_repository():
-    assert not hasattr(generate_recommendation_module, "PolicyChunkRepository")
+def test_recommendation_generation_does_not_import_policy_chunk_repository():
+    assert not hasattr(recommendation_generation_module, "PolicyChunkRepository")
 
 
-def test_generate_recommendation_static_boundary_does_not_own_verification():
-    source = inspect.getsource(generate_recommendation_module)
+def test_recommendation_generation_static_boundary_does_not_own_verification():
+    source = inspect.getsource(recommendation_generation_module)
 
     forbidden_generation_owners = (
         "ContextBuilder",
@@ -746,9 +750,9 @@ async def test_generation_consumes_verified_package_prompt_projection_and_emits_
     evidence = _evidence(tenant_id=base_state["tenant_id"])
     package_text = "VERIFIED_PACKAGE_POLICY_TEXT: refund timeout requires verified package context."
     fake_llm = CapturingLLM(_draft(reasoning_summary=package_text))
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: fake_llm)
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {
             **base_state,
             **_verified_package_state(evidence=evidence, snippet=package_text),
@@ -788,9 +792,9 @@ async def test_generation_fails_closed_when_required_verified_package_is_not_usa
             raise AssertionError("LLM should not run without a usable verified evidence package")
 
     evidence = _evidence(tenant_id=base_state["tenant_id"])
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: ExplodingLLM())
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {
             **base_state,
             **_verified_package_state(evidence=evidence, status="no_evidence"),
@@ -811,9 +815,9 @@ async def test_policy_hints_in_memory_context_do_not_satisfy_policy_gate(monkeyp
         def with_structured_output(self, schema):
             raise AssertionError("LLM should not run when only memory hints exist")
 
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: ExplodingLLM())
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {
             **base_state,
             "routing_hints": {"policy_evidence_required": True},
@@ -867,12 +871,12 @@ async def test_mixed_citations_revalidated_to_valid(monkeypatch, base_state):
             "section": "missing",
         }
     )
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(mixed_draft))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(mixed_draft))
     _with_knowledge_service(
         monkeypatch, {(evidence.doc_key, evidence.chunk_id): "退款超时时，客服应核实支付通道和退款状态。"}
     )
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await recommendation_generation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
         _config(),
     )
@@ -899,32 +903,32 @@ class RaisingLLM:
 
 @pytest.mark.asyncio
 async def test_programming_error_propagates(monkeypatch, base_state):
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: RaisingLLM(KeyError("bug")))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: RaisingLLM(KeyError("bug")))
 
     with pytest.raises(KeyError, match="bug"):
-        await generate_recommendation_module.generate_recommendation({**base_state, **_retrieval_state()})
+        await recommendation_generation_module.recommendation_generation({**base_state, **_retrieval_state()})
 
 
 @pytest.mark.asyncio
 async def test_expected_error_retries_then_falls_back(monkeypatch, base_state):
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: RaisingLLM(ValueError("invalid")))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: RaisingLLM(ValueError("invalid")))
 
-    result = await generate_recommendation_module.generate_recommendation({**base_state, **_retrieval_state()})
+    result = await recommendation_generation_module.recommendation_generation({**base_state, **_retrieval_state()})
 
     assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
     assert result["node_errors"][0]["retry_count"] == 2
 
 
 @pytest.mark.asyncio
-async def test_generate_recommendation_prompt_uses_context_assembly_and_excludes_raw_payloads(monkeypatch, base_state):
+async def test_recommendation_generation_prompt_uses_context_assembly_and_excludes_raw_payloads(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
     fake_llm = CapturingLLM(_draft())
     fake_conversation = FakeConversationService()
     assemblies = _spy_context_assembler(monkeypatch)
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: fake_llm)
     _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): "Allowed verified policy text."})
 
-    await generate_recommendation_module.generate_recommendation(
+    await recommendation_generation_module.recommendation_generation(
         {
             **base_state,
             "current_run_id": str(uuid4()),
@@ -971,19 +975,19 @@ async def test_generate_recommendation_prompt_uses_context_assembly_and_excludes
 
 
 @pytest.mark.asyncio
-async def test_generate_recommendation_prompt_uses_existing_session_memory_bundle_first(monkeypatch, base_state):
+async def test_recommendation_generation_prompt_uses_existing_session_memory_bundle_first(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
     run_id = str(uuid4())
     fake_llm = CapturingLLM(_draft())
     assemblies = _spy_context_assembler(monkeypatch)
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: fake_llm)
     _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): "Allowed verified policy text."})
 
     class ExplodingConversationService:
         async def load_prompt_context(self, **kwargs):
             raise AssertionError("existing session_memory_bundle should be used before conversation service")
 
-    await generate_recommendation_module.generate_recommendation(
+    await recommendation_generation_module.recommendation_generation(
         {
             **base_state,
             "current_run_id": run_id,
@@ -1044,14 +1048,14 @@ async def test_generate_recommendation_prompt_uses_existing_session_memory_bundl
 
 
 @pytest.mark.asyncio
-async def test_generate_recommendation_prompt_ignores_mismatched_session_memory_bundle(monkeypatch, base_state):
+async def test_recommendation_generation_prompt_ignores_mismatched_session_memory_bundle(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
     run_id = str(uuid4())
     fake_llm = CapturingLLM(_draft())
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: fake_llm)
     _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): "Allowed verified policy text."})
 
-    await generate_recommendation_module.generate_recommendation(
+    await recommendation_generation_module.recommendation_generation(
         {
             **base_state,
             "current_run_id": run_id,
