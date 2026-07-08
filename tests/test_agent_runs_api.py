@@ -7,6 +7,7 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -18,6 +19,7 @@ from src.api.main import app
 from src.agent.merchant_context import project_target_merchant_context
 from src.agent.run_scope import BUSINESS_MERCHANT
 from src.agent.trace import write_agent_run
+from src.api.services import agent_run_memory as agent_run_memory_service
 from src.api.routers.agent_runs import (
     ADMIN_RUN_VISIBILITY_ROLES,
     APPROVAL_NOT_EXECUTABLE,
@@ -888,6 +890,124 @@ def _patch_completed_memory_write(monkeypatch: pytest.MonkeyPatch) -> None:
         }
 
     monkeypatch.setattr("src.api.services.agent_run_memory.memory_write", fake_memory_write)
+
+
+def test_build_agent_run_finalizer_input_state_uses_requester_identity() -> None:
+    run_id = uuid4()
+    tenant_id = uuid4()
+    requester_id = uuid4()
+    run = SimpleNamespace(
+        id=run_id,
+        tenant_id=tenant_id,
+        user_id=requester_id,
+        thread_id="thread-finalizer-input",
+        input_query="请继续处理这个审批后的退款问题",
+    )
+    requester = SimpleNamespace(
+        id=requester_id,
+        tenant_id=tenant_id,
+        role="support",
+    )
+
+    assert hasattr(agent_run_memory_service, "build_agent_run_finalizer_input_state")
+    input_state = agent_run_memory_service.build_agent_run_finalizer_input_state(run, requester)
+
+    assert input_state == {
+        "user_query": "请继续处理这个审批后的退款问题",
+        "thread_id": "thread-finalizer-input",
+        "tenant_id": str(tenant_id),
+        "user_id": str(requester_id),
+        "role": "support",
+        "current_run_id": str(run_id),
+    }
+
+
+def test_terminal_memory_write_state_strips_only_terminal_approval_markers() -> None:
+    assert hasattr(agent_run_memory_service, "_terminal_memory_write_state")
+    source_state = {
+        "final_response": "审批后已完成。",
+        "approval_result": {"decision": "approve"},
+        "approval_required": True,
+        "risk_assessment": {
+            "approval_required": True,
+            "risk_level": "manual_review",
+            "risk_reason": "high value refund",
+        },
+        "active_slots": {"refund_case_id": "RF-1001"},
+    }
+
+    sanitized = agent_run_memory_service._terminal_memory_write_state(source_state)
+
+    assert sanitized is not source_state
+    assert "approval_result" not in sanitized
+    assert "approval_required" not in sanitized
+    assert sanitized["risk_assessment"] == {
+        "risk_level": "manual_review",
+        "risk_reason": "high value refund",
+    }
+    assert source_state["risk_assessment"]["approval_required"] is True
+    assert sanitized["active_slots"] == {"refund_case_id": "RF-1001"}
+
+
+@pytest.mark.asyncio
+async def test_terminal_memory_write_applies_approval_marker_sanitizer(monkeypatch) -> None:
+    run_id = uuid4()
+    tenant_id = uuid4()
+    requester_id = uuid4()
+    run = SimpleNamespace(
+        id=run_id,
+        tenant_id=tenant_id,
+        user_id=requester_id,
+        thread_id="thread-terminal-memory",
+    )
+    requester = SimpleNamespace(id=requester_id, tenant_id=tenant_id, role="support")
+    captured_state: dict[str, object] = {}
+
+    async def fake_isolated_side_effect(session, callback):
+        return await callback(object())
+
+    async def fake_memory_write(state, config):
+        captured_state.update(state)
+        return {
+            **state,
+            "memory_write_result": {
+                "status": "completed",
+                "reason_code": "memory_persisted",
+            },
+        }
+
+    monkeypatch.setattr(agent_run_memory_service, "run_memory_side_effect_in_isolated_session", fake_isolated_side_effect)
+    monkeypatch.setattr(agent_run_memory_service, "memory_write", fake_memory_write)
+
+    result = await agent_run_memory_service._run_terminal_memory_write(
+        session=object(),
+        run=run,
+        user=requester,
+        input_state={
+            "user_query": "审批后继续",
+            "thread_id": run.thread_id,
+            "tenant_id": str(tenant_id),
+            "user_id": str(requester_id),
+            "role": requester.role,
+            "current_run_id": str(run_id),
+        },
+        final_state={
+            "approval_result": {"decision": "approve"},
+            "approval_required": True,
+            "risk_assessment": {"approval_required": True, "risk_level": "manual_review"},
+            "final_status": "completed",
+        },
+        final_response="审批后已完成。",
+        trace_steps=[],
+        trace_id="trace-terminal-memory",
+    )
+
+    assert result.result["status"] == "completed"
+    assert "approval_result" not in captured_state
+    assert "approval_required" not in captured_state
+    assert captured_state["risk_assessment"] == {"risk_level": "manual_review"}
+    assert captured_state["final_status"] == "completed"
+    assert captured_state["final_response"] == "审批后已完成。"
 
 
 async def _create_run(

@@ -54,6 +54,25 @@ async def test_memory_write_node_skips_when_final_response_missing():
     assert result["trace_steps"][-1]["node"] == "memory_write"
 
 
+@pytest.mark.parametrize(
+    "approval_marker_state",
+    [
+        {"approval_result": {"decision": "approve"}},
+        {"approval_required": True},
+        {"risk_assessment": {"approval_required": True, "risk_level": "manual_review"}},
+    ],
+    ids=["approval_result", "approval_required", "risk_assessment"],
+)
+async def test_memory_write_node_skips_pending_approval_markers(approval_marker_state):
+    result = await memory_write(_state(**approval_marker_state), {"configurable": {"session": object()}})
+
+    assert result["memory_write_result"]["status"] == "skipped"
+    assert result["memory_write_result"]["reason_code"] == "not_completed_path"
+    assert result["memory_write_decision"]["status"] == "skipped"
+    assert result["memory_write_decision"]["decision"] == "skip"
+    assert result["trace_steps"][-1]["node"] == "memory_write"
+
+
 async def test_memory_write_node_writes_explicit_slots_and_unresolved_questions(monkeypatch):
     candidates = []
 
