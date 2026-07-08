@@ -4,13 +4,13 @@ import { cn } from '@/lib/utils'
 
 const NODE_MESSAGES: Record<string, string> = {
   receive_request: '正在接收请求',
-  classify_intent: '正在识别意图',
-  extract_slots: '正在提取关键信息',
+  session_context_load: '正在加载会话上下文',
+  contextual_intent_resolve: '正在识别上下文意图',
+  slot_resolution_gate: '正在确认关键信息',
+  memory_context_load: '正在加载记忆上下文',
   investigate: '正在调查订单和规则',
   recommendation_generation: '正在生成处理建议',
-  generate_recommendation: '正在生成处理建议',
   risk_gate: '正在判断风险等级',
-  assess_risk_and_approval: '正在判断风险等级', // historical trace display only; DELETE_BY_PHASE_58
   approval_gate: '需要审批，等待人工决策',
   execute_action: '正在执行操作',
   final_response: '已完成',
