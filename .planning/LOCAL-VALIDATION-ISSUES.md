@@ -19245,3 +19245,50 @@ find .planning/phases/59-approval-resume-terminal-memory-finalization -maxdepth 
 ### 剩余问题和下次继续排查入口
 
 无产品代码问题。后续在 zsh 下检查可选 glob 文件，优先用 `find` 或显式关闭 `nomatch`，不要依赖 `ls ... || true` 捕获 glob 展开错误。
+
+## 2026-07-08：Phase 59 phase.complete 后 STATE 正文 roadmap 表残留执行中状态
+
+### 问题现象
+
+运行 `gsd-sdk query phase.complete 59` 后，命令 JSON 返回正常，frontmatter 和 Current Position 已切到 Phase 60 ready-to-plan；但 `.planning/STATE.md` 正文的 Current Roadmap 表仍显示 Phase 59 为 `2/3 | Executing; 59-02 complete`，Session Continuity 的最近完成摘要也仍写 Phase 59 final suite 为旧的 `193 passed`，没有包含 code-review fix 后的 `196 passed`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+gsd-sdk query phase.complete 59
+git diff -- .planning/ROADMAP.md .planning/STATE.md
+rg -n "Phase 59|193 passed|2/3" .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`phase.complete` 返回：
+
+```json
+{"completed_phase":"59","next_phase":"60","roadmap_updated":true,"state_updated":true,"requirements_updated":true,"warnings":[]}
+```
+
+但 `rg` 仍能在 `.planning/STATE.md` 正文表中看到：
+
+```text
+| 59. Approval Resume Terminal Memory Finalization ... | 2/3 | Executing; 59-02 complete |
+```
+
+### 当前判断 / 根因
+
+这是 GSD `phase.complete` state body reconciliation 不完整，不是 Phase 59 完成失败。权威 JSON、ROADMAP、REQUIREMENTS、VERIFICATION 均确认 Phase 59 已完成；问题只在 STATE 正文缓存文本。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md`：
+
+- Phase 59 正文表改为 `3/3 | Complete; verification passed, review warnings fixed`
+- progress 文本改为 96%，匹配 24/25 phases complete
+- Session Continuity 改为 Phase 59 complete / ready to plan Phase 60
+- 最近完成摘要改为 final selected pytest `196 passed, 1 warning`，并注明 code review warnings fixed 与 verification 18/18 passed
+
+### 剩余问题和下次继续排查入口
+
+无产品代码问题。后续运行 GSD state/phase completion 命令后，仍需核对 `.planning/STATE.md` frontmatter、Current Position、Current Roadmap 表和 Session Continuity 是否同步；若复发，入口是 GSD `phase.complete` 对 STATE 正文缓存段落的更新逻辑。

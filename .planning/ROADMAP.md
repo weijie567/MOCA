@@ -124,7 +124,7 @@ Plans:
 | 56. Recommendation Generation and RAG Claim Status Alignment | 4/4 | Complete    | 2026-07-07 |
 | 57. Risk Gate and Approval Gate Canonicalization | 5/5 | Complete    | 2026-07-07 |
 | 58. Canonical Graph Cutover and No-Debt Cleanup | 10/10 | Complete    | 2026-07-08 |
-| 59. Approval Resume Terminal Memory Finalization | 3/3 | Complete | 2026-07-08 |
+| 59. Approval Resume Terminal Memory Finalization | 3/3 | Complete    | 2026-07-08 |
 | 60. v2.1 Archive Evidence Closure | 0/0 | Pending planning | - |
 
 ### Phase 40: Tool Contract Validation Hardening
@@ -519,7 +519,7 @@ Plans:
 **Requirements:** MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09
 **Depends on:** Phase 58
 **Gap Closure:** Closes the integration gap recorded in `.planning/v2.1-MILESTONE-AUDIT.md`.
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 Plans:
 - [x] 59-01-PLAN.md — shared terminal finalizer utilities, terminal memory eligibility, and idempotent finalizer trace persistence.
 - [x] 59-02-PLAN.md — approval-resume completed-path finalizer wiring, completed-run retry reconciliation, and interrupted/error skip boundaries.
