@@ -539,7 +539,7 @@ async def test_decide_commits_approval_decision_before_graph_resume(
 
     assert response.status_code == 200
     assert graph_commit_counts == [2]
-    assert commit_count == 3
+    assert commit_count == 5
 
 
 @pytest.mark.asyncio

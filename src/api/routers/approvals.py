@@ -17,6 +17,11 @@ from src.api.routers.agent_runs import (
     _create_approval_wait_payload_from_interrupt,
     _extract_interrupt_data,
 )
+from src.api.services.agent_run_memory import (
+    build_agent_run_finalizer_input_state,
+    finalize_completed_agent_run_memory,
+    persist_agent_run_memory_finalize_trace_steps,
+)
 from src.api.schemas.approvals import ApprovalInfoRequest, ApprovalListResponse, ApprovalResponse, DecideRequest
 from src.api.schemas.common import ApiResponse
 from src.approvals.events import emit_approval_resumed
@@ -31,6 +36,7 @@ from src.auth.permissions import get_current_user
 from src.db.models import (
     ActionDraft,
     AgentRun,
+    AgentStep,
     ApprovalAssignment,
     ApprovalDecision,
     ApprovalEvent,
@@ -240,6 +246,16 @@ async def _run_resume_lifecycle(
     *, request: Request, session: AsyncSession, result: ApprovalDecisionResult, actor_id: UUID, actor_user: User
 ) -> None:
     try:
+        if await _completed_resume_finalizer_reconciliation_ready(session=session, result=result):
+            await _record_resume_event(
+                session=session,
+                result=result,
+                actor_id=actor_id,
+                resume_status="completed",
+            )
+            await session.commit()
+            return
+
         await _record_resume_event(
             session=session,
             result=result,
@@ -345,6 +361,31 @@ async def _resume_graph_after_decision(
             run_id=run_id,
             trace_steps=trace_steps,
             start_index=pre_interrupt_count,
+        )
+
+    if final_status == "completed" and final_response_text:
+        if run is None:
+            raise RuntimeError("approval resume run missing for terminal finalization")
+        requester = await session.get(User, run.user_id)
+        if requester is None:
+            raise RuntimeError("approval resume requester missing for terminal finalization")
+        input_state = build_agent_run_finalizer_input_state(run, requester)
+        finalizer_result = await finalize_completed_agent_run_memory(
+            session=session,
+            run=run,
+            user=requester,
+            input_state=input_state,
+            final_state=final_state,
+            final_status=final_status,
+            final_response=str(final_response_text),
+            trace_steps=trace_steps,
+            trace_id=getattr(request.state, "trace_id", None),
+        )
+        await persist_agent_run_memory_finalize_trace_steps(
+            session=session,
+            run=run,
+            prior_trace_steps=trace_steps,
+            finalizer_trace_steps=finalizer_result.trace_steps,
         )
 
 
@@ -461,8 +502,12 @@ async def _recoverable_resume_retry_result(
         return None
 
     run = await session.get(AgentRun, approval.run_id)
-    if run is not None and run.final_status not in {"interrupted", "running", "pending"}:
-        return None
+    if run is not None:
+        if run.final_status == "completed":
+            if not run.final_response:
+                return None
+        elif run.final_status not in {"interrupted", "running", "pending"}:
+            return None
 
     if (
         approval.decision != body.decision_type
@@ -473,6 +518,31 @@ async def _recoverable_resume_retry_result(
         raise ApprovalTransitionError("approval_conflict")
 
     return await _terminal_decision_result_for_retry(session, approval, body)
+
+
+async def _completed_resume_finalizer_reconciliation_ready(
+    *, session: AsyncSession, result: ApprovalDecisionResult
+) -> bool:
+    run = await session.get(AgentRun, result.run_id)
+    if run is None or run.final_status != "completed":
+        return False
+    if not run.final_response:
+        return False
+    finalizer_step = (
+        await session.execute(
+            select(AgentStep)
+            .where(
+                AgentStep.run_id == result.run_id,
+                AgentStep.node_name == "agent_run_memory_finalize",
+            )
+            .order_by(AgentStep.completed_at.desc(), AgentStep.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    metrics = finalizer_step.metrics_json if finalizer_step is not None else None
+    if not isinstance(metrics, dict) or metrics.get("memory_write_status") != "completed":
+        raise RuntimeError("approval resume completed run missing terminal finalizer evidence")
+    return True
 
 
 async def _latest_resume_status(session: AsyncSession, approval: ApprovalRequest) -> str | None:
