@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: milestone_complete
-stopped_at: Phase 58 complete after final validation
-last_updated: "2026-07-08T13:10:05+08:00"
-last_activity: 2026-07-08 -- Phase 58 completed with 10/10 plans, clean review, security verification, Nyquist validation, and verifier sign-off
+status: active
+stopped_at: Phase 59 gap closure planning pending
+last_updated: "2026-07-08T16:23:15+08:00"
+last_activity: 2026-07-08 -- v2.1 milestone audit found archive gaps; Phase 59 and Phase 60 registered for gap closure
 progress:
-  total_phases: 23
+  total_phases: 25
   completed_phases: 23
   total_plans: 80
   completed_plans: 80
-  percent: 100
+  percent: 92
 ---
 
 # Project State: MOCA
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-07)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 58 complete — canonical-graph-cutover-and-no-debt-cleanup
+**Current focus:** Phase 59 pending planning — approval-resume-terminal-memory-finalization
 
 ## Rescope note (2026-07-02)
 
@@ -30,13 +30,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-07)
 
 ## Current Position
 
-Phase: 58 — COMPLETE
-Plan: 10 of 10
-Status: Milestone complete; Phase 58 / CAGM-09 verification passed
-Last activity: 2026-07-08 -- Phase 58 completed with clean review, security verification, Nyquist validation, and 37/37 verifier sign-off
-Next: Run `$gsd-audit-milestone` before milestone archival.
+Phase: 59 — PENDING PLANNING
+Plan: 0 of 0
+Status: Gap closure phases registered from `.planning/v2.1-MILESTONE-AUDIT.md`; Phase 59 should be planned next
+Last activity: 2026-07-08 -- v2.1 milestone audit found formal verification, validation, and approval-resume terminal memory finalization gaps
+Next: Run `$gsd-plan-phase 59`.
 
-Progress: [██████████] 100%
+Progress: [█████████░] 92%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -79,6 +79,8 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 56. Recommendation Generation and RAG Claim Status Alignment (CAGM-07) | 4/4 | Complete |
 | 57. Risk Gate and Approval Gate Canonicalization (CAGM-08) | 5/5 | Complete |
 | 58. Canonical Graph Cutover and No-Debt Cleanup (CAGM-09) | 10/10 | Complete; broad validation, classifier, frontend build/test, metadata proof passed |
+| 59. Approval Resume Terminal Memory Finalization (MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09) | 0/0 | Pending planning |
+| 60. v2.1 Archive Evidence Closure (TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07) | 0/0 | Pending planning |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
@@ -91,6 +93,8 @@ Phase 49 moved the `investigate` node internals from deterministic main planning
 Phase 50 completed the remaining canonical Agent Graph migration charter by locking a migration SPEC and guardrails before runtime rewiring. It treats `docs/contract-spec.md` §9 as the primary accepted contract reference, `docs/target-agent-platform-architecture-plan.md` §6.1 as the readable target graph view, and `50-SPEC.md` as the execution charter for future migration phases.
 
 Phases 51-58 are registered as macro implementation phases for the canonical Agent Graph migration. They must each read Phase 50 SPEC before planning, and each detailed PLAN must be generated against the then-current source state rather than prewritten now.
+
+Phases 59-60 are registered from `.planning/v2.1-MILESTONE-AUDIT.md` as milestone gap-closure work. Phase 59 closes the runtime approval-resume terminal memory finalization gap before Phase 60 refreshes formal verification and validation evidence for the archive gate.
 
 ## Last Milestone Context
 

@@ -14,6 +14,8 @@ v2.1 is a long-lived umbrella for cleaning up architecture debt across MOCA's fo
 
 **Graph/ReAct and Canonical Agent Graph Migration (Phase 49+)** clears the accepted GAD-01 implementation debt and then migrates the outer LangGraph runtime to the canonical 15-node target architecture. Phase 49 completed the `investigate` bounded read-only ReAct main path with deterministic fallback while preserving outer graph routers and downstream gates. Phase 50 locks the no-debt migration charter for the remaining canonical graph work. Phases 51-58 are registered as macro implementation phases for baseline guardrails, `safety_pre_route`, `contextual_intent_resolve`, `slot_resolution_gate`, `memory_context_load`, `recommendation_generation`, `risk_gate`/`approval_gate`, and final no-debt cleanup.
 
+**Milestone audit closure (Phase 59+)** closes the v2.1 archive gaps found by `.planning/v2.1-MILESTONE-AUDIT.md`: first repair the approval-resume terminal memory finalization path, then refresh formal verification / Nyquist validation evidence so the milestone can pass strict archive gates.
+
 Code implementation is delegated to Codex per the project workflow; Claude is plan designer and adjudicator.
 
 ## Phases
@@ -44,6 +46,8 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 56: Recommendation Generation and RAG Claim Status Alignment** - Canonicalize `recommendation_generation` and align RAG/claim fail-closed status semantics (CAGM-07). Plan progress: 4/4 complete; verified 2026-07-07.
 - [x] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Plan progress: 5/5 complete; verified 2026-07-07.
 - [x] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Plan progress: 10/10 complete; verified 2026-07-08.
+- [ ] **Phase 59: Approval Resume Terminal Memory Finalization** - Wire approval-resume completed runs through the same terminal assistant-message/thread-summary/memory/CWC finalizer as ordinary agent-run completion (MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09). Gap closure phase; pending planning.
+- [ ] **Phase 60: v2.1 Archive Evidence Closure** - Create or refresh the missing formal verification and Nyquist validation artifacts identified by the v2.1 milestone audit, then re-run the archive gate (TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07). Gap closure phase; pending planning.
 
 ## Phase Details
 
@@ -120,6 +124,8 @@ Plans:
 | 56. Recommendation Generation and RAG Claim Status Alignment | 4/4 | Complete    | 2026-07-07 |
 | 57. Risk Gate and Approval Gate Canonicalization | 5/5 | Complete    | 2026-07-07 |
 | 58. Canonical Graph Cutover and No-Debt Cleanup | 10/10 | Complete    | 2026-07-08 |
+| 59. Approval Resume Terminal Memory Finalization | 0/0 | Pending planning | - |
+| 60. v2.1 Archive Evidence Closure | 0/0 | Pending planning | - |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -506,3 +512,33 @@ Plans:
 - [x] 58-08-PLAN.md — trace/API/SSE/frontend/eval/historical projection cleanup with frontend build/test verification.
 - [x] 58-09-PLAN.md — approval retry data-read compatibility and route authority hardening.
 - [x] 58-10-PLAN.md — docs, architecture debt, validation artifact, metadata proof, roadmap/state/requirements closeout, and broad verification.
+
+### Phase 59: Approval Resume Terminal Memory Finalization
+
+**Goal:** Close the v2.1 milestone-audit integration gap where approval-resume completed runs update `AgentRun` status and trace steps but skip the terminal memory finalizer used by ordinary `agent-runs` completion. The approval-resume completed path must persist the assistant message, thread summary, terminal memory write, and Case Working Context finalizer trace steps through the same idempotent lifecycle boundary as normal completion.
+**Requirements:** MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09
+**Depends on:** Phase 58
+**Gap Closure:** Closes the integration gap recorded in `.planning/v2.1-MILESTONE-AUDIT.md`.
+**Plans:** Pending; run `$gsd-plan-phase 59`.
+**Success Criteria** (what must be TRUE):
+  1. Approval-resume completed runs call `finalize_completed_agent_run_memory(...)` or an equivalent shared terminal finalization service with idempotency-compatible behavior.
+  2. The approval-resume completed path persists or reuses the assistant message, persists the thread summary, runs terminal memory write, and appends finalizer trace steps including Case Working Context writeback status.
+  3. Approval-resume interrupted-again or failed paths explicitly skip terminal finalization with a reason, rather than silently looking completed.
+  4. Regression tests cover approved completion and interrupted-again resume behavior through the MOCA-approved test entrypoint (`UV_CACHE_DIR=/tmp/uv-cache uv run ...` or `.venv/bin/...`; no bare `pytest`).
+  5. The fix preserves approval trusted-resume semantics, risk/approval separation, final canonical graph node names, and existing action-draft reconciliation behavior.
+  6. Any architecture-debt or local-validation findings discovered while changing memory / approval lifecycle code are recorded in the required planning ledgers.
+
+### Phase 60: v2.1 Archive Evidence Closure
+
+**Goal:** Close the formal archive evidence gaps found by `.planning/v2.1-MILESTONE-AUDIT.md` after the runtime integration gap is fixed: create the missing `*-VERIFICATION.md` artifacts, refresh missing/draft Nyquist validation artifacts, normalize nonstandard verification metadata where needed, and re-run the milestone audit until v2.1 is either ready to archive or has explicitly accepted remaining debt.
+**Requirements:** TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07
+**Depends on:** Phase 59
+**Gap Closure:** Closes the requirement/formal-verification and validation evidence gaps recorded in `.planning/v2.1-MILESTONE-AUDIT.md`.
+**Plans:** Pending; run `$gsd-plan-phase 60`.
+**Success Criteria** (what must be TRUE):
+  1. Formal verification artifacts exist for Phases 37, 43, 48, 48.1, 49, 50, and 56, and each artifact is based on real code/docs/tests rather than ledger restatement.
+  2. Nyquist validation artifacts are created, refreshed, or explicitly exempted with rationale for Phases 37, 38, 40, 41, 42, 44, 49, and 50.
+  3. Nonstandard existing verification metadata for Phases 40 and 42 is either normalized or explicitly documented as accepted retroactive evidence.
+  4. TPH-04's DB-backed pytest note is resolved or carried forward as named debt with evidence from the MOCA-approved test entrypoint.
+  5. `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, and the milestone audit status are reconciled after evidence closure.
+  6. A follow-up `$gsd-audit-milestone` run reaches `passed` / archive-ready status, or any remaining gap is deliberately recorded as accepted post-v2.1 debt with owner and target phase.
