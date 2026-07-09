@@ -20935,3 +20935,23 @@ Phase 63 pattern mapper 子代理在生成 `63-PATTERNS.md` 过程中报告：�
 
 **剩余问题和下次继续排查入口**
 无产品实现遗留。Phase 63 plan 和 execute 阶段继续显式要求所有测试命令使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`，并在 review 中检查是否出现裸测试入口。
+
+## 2026-07-10 — Phase 63 plan-review sanity check rg 引号错误
+
+**问题现象**
+Phase 63 外部 plan review 修订后，执行一条用于 sanity check 的 `rg` 命令时，正则参数里混用了双引号和反引号，zsh 返回 `unmatched "`，该次检查结果无效。
+
+**如何检测/复现**
+运行包含 `manual review -> \`risk_level=\"medium\"` 等片段的单条 `rg -n "...|..."` 命令会触发 shell 引号解析错误。
+
+**关键证据或命令**
+命令输出为 `zsh:1: unmatched "`，退出码为 1。随后已用单引号包裹正则并拆分复杂模式重新运行，sanity check 成功返回预期 plan 修订点。
+
+**当前判断/根因**
+这是本地验证命令的 shell quoting 问题，不是产品代码、planning artifact 或测试环境问题。
+
+**已做处理**
+未采信失败命令结果；改用更简单的 `rg` 模式重跑，并继续用 `git diff --check` 做 whitespace 校验。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。后续包含反引号/双引号的 `rg` 检查优先用单引号包裹正则，或拆成多条命令。
