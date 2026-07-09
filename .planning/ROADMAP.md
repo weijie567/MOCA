@@ -10,7 +10,40 @@
 
 ## Current Planning State
 
-No active milestone is defined. Start the next milestone with `$gsd-new-milestone`, which will create fresh requirements and a new current roadmap section.
+**Active milestone:** v2.2 Product Experience Fixes
+**Status:** Phase 61 complete
+**Scope:** Fix concrete Agent Console and agent-response UX pain points without weakening the v2.1 safety, evidence, tool, memory, or approval contracts.
+
+## Current Milestone: v2.2 Product Experience Fixes
+
+**Goal:** Fix concrete user-facing experience problems in the Agent Console while preserving the v2.1 subsystem boundaries.
+
+**Requirements:** `.planning/REQUIREMENTS.md` — 18 requirements, all mapped.
+
+### Phase 61: Product Experience Fixes
+
+**Goal:** Fix the concrete Agent Console UX pain points currently known: misleading direct responses, unsupported/clarification wording, scoped business metric questions, timeline presentation, and regression coverage.
+**Requirements**: UX-01, UX-02, UX-03, UX-04, MET-01, MET-02, MET-03, MET-04, SCOPE-01, SCOPE-02, SCOPE-03, SCOPE-04, CONSOLE-01, CONSOLE-02, CONSOLE-03, EVAL-01, EVAL-02, EVAL-03
+**Depends on:** Phase 60
+**Plans:** 5 plans
+
+**Success criteria:**
+1. Existing small-talk fix remains covered by regression tests and still never claims policy/RAG evidence or enters business investigation.
+2. Unsupported and clarification responses explain the capability boundary, required input, and accepted filters without misleading the user.
+3. `business_metric_query` is modeled as one generic metric intent with metric/resource/filter slots, not one intent per metric.
+4. Supported MVP metrics include order count, refund count, pending ticket count, coupon issuance count, and merchant refund rate.
+5. Metric tools are read-only ToolPlatform declarations backed by trusted tenant and merchant-scope filters, never LLM-generated SQL.
+6. Support, manager, and admin metric visibility is enforced from trusted role and merchant scope only.
+7. Metric final responses include the number/rate plus scope, filters, and freshness.
+8. Agent Console timeline and response surfaces distinguish direct-response, clarification, unsupported, metric, RAG, and tool-call outcomes.
+9. Known bad prompts and role/scope metric cases are captured in repeatable UX regression coverage and local validation docs.
+
+Plans:
+- [x] 61-01 Agent Response UX Baseline — deterministic small talk, unsupported/clarification wording, and no-false-evidence response baseline.
+- [x] 61-02 Metric Contract, Intent, Slots, And Clarification — one generic `business_metric_query` contract with time/metric/scope slots.
+- [x] 61-03 Scoped Metric Runtime — read-only `query_business_metric` ToolPlatform integration backed by BusinessFactService and trusted scope.
+- [x] 61-04 Agent Graph Metric Integration — route complete metric queries through investigate/tool/final_response and project safe SSE metadata.
+- [x] 61-05 Console UX And Regression Validation — timeline polish, Phase 61 golden set, Playwright E2E, and local validation records.
 
 ## Last Completed Milestone: v2.1 Core Subsystem Hardening
 
@@ -38,4 +71,4 @@ No active milestone is defined. Start the next milestone with `$gsd-new-mileston
 
 ## Next
 
-Run `$gsd-new-milestone` to define the next version. Phase numbering should continue after Phase 60 unless the new milestone explicitly inserts decimal or backlog work.
+Phase 61 is complete. Next step is milestone closeout or the next v2.2 follow-up phase if new scope is added.

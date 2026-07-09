@@ -1,37 +1,38 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-milestone_name: No active milestone
-status: archived
-stopped_at: v2.1 Core Subsystem Hardening archived; next milestone not defined
-last_updated: "2026-07-08T13:32:18.013Z"
-last_activity: 2026-07-08
+milestone: v2.2
+milestone_name: Product Experience Fixes
+status: complete
+last_updated: "2026-07-09T14:05:24+08:00"
+last_activity: 2026-07-09 — Phase 61 completed
 progress:
-  total_phases: 0
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 1
+  completed_phases: 1
+  total_plans: 5
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State: MOCA
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-08)
+See: `.planning/PROJECT.md` (updated 2026-07-09)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** No active milestone. Start the next milestone with `$gsd-new-milestone`.
+**Current focus:** Phase 61 — Product Experience Fixes
 
 ## Current Position
 
-Phase: none
-Plan: none
-Status: v2.1 Core Subsystem Hardening shipped and archived on 2026-07-08
-Last activity: 2026-07-08
-Next: Run `$gsd-new-milestone` to define fresh requirements and the next roadmap section.
+Phase: 61 — Product Experience Fixes
+Plan: 5 of 5 — 61-05 Console UX And Regression Validation
+Status: Phase 61 complete
+Last activity: 2026-07-09 — Phase 61 completed
+Next: Run milestone closeout or add the next v2.2 follow-up phase if needed.
 
-Progress: [----------] 0%
+Resume file: `.planning/phases/61-product-experience-fixes/61-05-SUMMARY.md`
+
+Progress: [██████████] 100%
 
 ## Last Completed Milestone
 
@@ -47,7 +48,17 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 
 ## Next Milestone Setup
 
-- Start with `$gsd-new-milestone`.
-- Phase numbering should continue after Phase 60 unless the next milestone explicitly inserts decimal or backlog work.
+- v2.2 is active.
+- Phase numbering continues after Phase 60.
 - Preserve accepted contracts from `docs/contract-spec.md` unless a future phase records a reviewed spec delta, MVP scope note, or owner-named deferral.
 - Keep memory contextual-only, ToolPlatform as the canonical tool boundary, and the canonical Agent Graph node vocabulary as the active runtime vocabulary unless the next milestone intentionally changes those contracts.
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 61 added: Product Experience Fixes.
+- Phase 61 context gathered: `.planning/phases/61-product-experience-fixes/61-CONTEXT.md`.
+- Phase 61 planned as five execution plans: UX baseline, metric contract/scope, metric runtime, agent graph integration, and console/regression validation.
+
+**Planned Phase:** 61 (Product Experience Fixes) — 5 plans — 2026-07-09T02:57:41.178Z

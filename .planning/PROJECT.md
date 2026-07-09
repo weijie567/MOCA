@@ -13,9 +13,20 @@ When a merchant or support agent asks about a refund issue, the system must retr
 ## Current State
 
 **Last shipped milestone:** v2.1 Core Subsystem Hardening (shipped 2026-07-08)
-**Current focus:** No active milestone. Start the next milestone with `$gsd-new-milestone`.
+**Current focus:** v2.2 Product Experience Fixes is complete; ready for milestone closeout or a follow-up phase if new scope is added.
 
 MOCA now has hardened core subsystem boundaries across ToolPlatform, intent recognition, memory, RAG/claim routing, approval, and canonical Agent Graph runtime. v2.1 closed all 24 tracked requirements and passed the milestone audit with no integration blockers.
+
+## Current Milestone: v2.2 Product Experience Fixes
+
+**Goal:** Fix concrete user-facing experience problems in the Agent Console while preserving the v2.1 safety, evidence, tool, memory, and approval boundaries.
+
+**Target features:**
+- Accurate direct-response and clarification behavior for greetings, unsupported requests, missing-slot prompts, and other user-visible edge cases.
+- Scope-aware `business_metric_query` support for common operational metrics such as order count, refund count, pending ticket count, coupon issuance count, and merchant refund rate.
+- Role- and merchant-scope enforcement for metric answers: support/manager see only authorized merchant scope, and admin sees only their management scope.
+- Frontend timeline and final-response polish so users can understand what the agent did, why it needs more information, and what capability boundary was hit.
+- A repeatable UX regression suite covering the specific prompts and flows that previously felt wrong in local demos.
 
 ## Last Shipped Milestone: v2.1 Core Subsystem Hardening
 
@@ -229,7 +240,14 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 
 ### Active
 
-_No active v2.1 requirements remain._
+_No active v2.2 requirements remain after Phase 61 completion._
+
+### Validated In Phase 61
+
+- [x] v2.2 fixes misleading agent responses for known direct-response and unsupported-capability prompts.
+- [x] v2.2 adds safe, scoped business metric query support for common operational count/rate questions.
+- [x] v2.2 improves Agent Console timeline, clarification, unsupported, and metric-result presentation.
+- [x] v2.2 adds repeatable UX regression coverage for the concrete local-demo pain points discovered during validation.
 
 ### Out of Scope
 
@@ -252,6 +270,9 @@ _No active v2.1 requirements remain._
 - Multi-tenant SaaS deployment — single-tenant demo with role separation
 - Same-merchant manager run/trace/replay visibility expansion — future Phase 37 after Phase 36 readiness is proven.
 - PostgreSQL RLS enforcement — future hardening phase; v2.0 prepares schema constraints and migration gates only.
+- General-purpose analytics dashboarding — v2.2 only supports bounded agent-answered operational metrics needed for demo UX.
+- Arbitrary SQL, natural-language database exploration, or cross-tenant analytics — violates ToolPlatform and trusted-scope boundaries.
+- Production-grade BI exports, chart builders, or scheduled reporting — outside this UX-focused milestone.
 
 ## Context
 
@@ -308,11 +329,12 @@ _No active v2.1 requirements remain._
 - v1.7 Short-term Memory Unification is complete on 2026-06-20. Phase 24 owns Agent Console `/agent-runs + SSE` conversation persistence, rolling summaries, prompt-safe tool summaries, PostgreSQL-backed session slot continuity, failure/idempotency safeguards, authority-boundary regressions, and three-turn smoke verification.
 - v1.9 Agent Platform Foundation is shipped and archived on 2026-06-30. It completes Phases 26-35.1: architecture contract baseline, TrustedContextFactory/projections, decision events, tool platform, merchant scope alignment, BusinessFactService, memory platform, intent graph migration, deterministic RAG context build, claim verification, approval/action draft hardening, replay/eval hardening, and audit readiness closure. Full milestone history lives in `.planning/milestones/v1.9-ROADMAP.md`, `.planning/milestones/v1.9-REQUIREMENTS.md`, and `.planning/milestones/v1.9-MILESTONE-AUDIT.md`.
 - v2.1 Core Subsystem Hardening is shipped and archived on 2026-07-08. It completes Phases 37-60 plus inserted Phase 48.1: ToolPlatform contract hardening, intent decoupling, memory layering, bounded investigate ReAct migration, canonical Agent Graph cutover, approval-resume memory finalization, and archive evidence closure. Full milestone history lives in `.planning/milestones/v2.1-ROADMAP.md`, `.planning/milestones/v2.1-REQUIREMENTS.md`, and `.planning/milestones/v2.1-MILESTONE-AUDIT.md`.
+- v2.2 Product Experience Fixes starts on 2026-07-09. Its scope is not another broad subsystem rewrite; it is a user-facing correction milestone focused on concrete bad experiences found during local demo and Agent Console validation.
 
 ## Next Milestone Setup
 
-- The next milestone is not defined yet. Start with `$gsd-new-milestone` to create fresh requirements before adding new phases.
-- Phase numbering should continue after Phase 60; do not restart at Phase 1 or use old v1.x phase numbers.
+- v2.2 is the active milestone.
+- Phase numbering continues after Phase 60; do not restart at Phase 1 or use old v1.x phase numbers.
 - Preserve v2.1 subsystem contracts from `docs/contract-spec.md` unless a future phase explicitly records a spec delta.
 - Keep owner-named deferrals explicit: Phase 49 replay parent-operation identity limitation, legacy `/api/v1/agent/chat` background memory-write compatibility, same-merchant trace/replay authorization expansion, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
 - Preserve safety boundaries: policy evidence remains `EvidenceRefV1`; current business facts remain `BusinessFactResultV1` / `BusinessFactRefV1`; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through maintainer lookup; verifier failures and timeouts fail closed; replay/eval artifacts do not authorize new access by themselves.
@@ -353,6 +375,7 @@ _No active v2.1 requirements remain._
 | Keep Phase 36+ for future hardening, not audit closure | Phase 35.1 closed v1.9 readiness gaps while preserving Phase 36+ as database hardening / role cleanup / same-merchant trace-replay expansion scope | Adopted 2026-06-30 |
 | Close MER-01 as v1.9 runtime scope only | Runtime merchant boundaries are verified, but database/RLS/role cleanup and trace/replay authorization expansion remain named future scope | Adopted 2026-06-30 |
 | Archive v1.9 after formal audit closure | Phase 35.1 added missing formal verification artifacts, refreshed validation metadata, and produced a ready-to-archive milestone audit | Adopted 2026-06-30 |
+| Scope v2.2 to concrete Product Experience Fixes | v2.1 hardened internals but local demo validation exposed user-facing confusion: misleading direct responses, unsupported capability wording, missing metric answers, and timeline clarity gaps | Adopted 2026-07-09 |
 
 ## Evolution
 
@@ -372,4 +395,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-08 — shipped and archived v2.1 Core Subsystem Hardening; next milestone is not defined*
+*Last updated: 2026-07-09 — completed Phase 61 Product Experience Fixes*
