@@ -21,6 +21,12 @@ FORBIDDEN_DEMO_SUCCESS_PHRASES = (
     "已关闭工单",
     "执行成功",
 )
+FALSE_EVIDENCE_CLAIM_PHRASES = (
+    "建议按已检索到的政策依据处理",
+    "根据已检索到的政策依据",
+    "已根据当前知识库证据",
+    "依据：",
+)
 
 
 def _draft_outcome(draft_id: str, *, external_side_effect: bool = False) -> dict:
@@ -41,6 +47,10 @@ def _assert_draft_created_not_executed(text: str, draft_id: str) -> None:
     assert "工单" in text
     assert "外部动作" in text
     assert not any(phrase in text for phrase in FORBIDDEN_DEMO_SUCCESS_PHRASES)
+
+
+def _assert_no_false_evidence_claim(text: str) -> None:
+    assert not any(phrase in text for phrase in FALSE_EVIDENCE_CLAIM_PHRASES)
 
 
 def _state_with_deferred(state: dict) -> dict:
@@ -430,7 +440,8 @@ async def test_final_response_renders_order_status_business_fact_response_withou
     assert "蓝牙降噪耳机 Pro" in result["final_response"]
     assert "存在关联退款" in result["final_response"]
     assert "存在未关闭工单" in result["final_response"]
-    assert "建议按已检索到的政策依据处理" not in result["final_response"]
+    _assert_no_false_evidence_claim(result["final_response"])
+    assert result["llm_outputs"]["final_response"]["evidence_citations"] == []
     assert result["llm_outputs"]["final_response"]["final_status"] == "completed"
 
 
@@ -672,8 +683,7 @@ async def test_final_response_handles_small_talk_without_default_policy_template
 
     assert "你好" in result["final_response"]
     assert "订单号、退款单号或工单号" in result["final_response"]
-    assert "建议按已检索到的政策依据处理" not in result["final_response"]
-    assert "根据已检索到的政策依据" not in result["final_response"]
+    _assert_no_false_evidence_claim(result["final_response"])
     assert "政策证据" not in result["final_response"]
     assert result["llm_outputs"]["final_response"]["evidence_citations"] == []
     assert result["llm_outputs"]["final_response"]["direct_response_intent"] == "small_talk"
@@ -693,8 +703,7 @@ async def test_final_response_handles_unsupported_aggregate_order_query(base_sta
 
     assert "不支持统计订单总数" in result["final_response"]
     assert "具体订单号" in result["final_response"]
-    assert "建议按已检索到的政策依据处理" not in result["final_response"]
-    assert "根据已检索到的政策依据" not in result["final_response"]
+    _assert_no_false_evidence_claim(result["final_response"])
     assert result["llm_outputs"]["final_response"]["evidence_citations"] == []
     assert result["llm_outputs"]["final_response"]["direct_response_intent"] == "unsupported"
 
@@ -715,6 +724,57 @@ async def test_final_response_handles_generic_unsupported_without_irrelevant_ide
     assert "订单/退款/工单查询" in result["final_response"]
     assert "补偿建议" in result["final_response"]
     assert "请提供订单号" not in result["final_response"]
-    assert "建议按已检索到的政策依据处理" not in result["final_response"]
+    _assert_no_false_evidence_claim(result["final_response"])
     assert result["llm_outputs"]["final_response"]["evidence_citations"] == []
     assert result["llm_outputs"]["final_response"]["direct_response_intent"] == "unsupported"
+
+
+@pytest.mark.asyncio
+async def test_clarification_and_business_fact_only_paths_do_not_claim_policy_evidence(base_state):
+    states = [
+        {
+            **base_state,
+            "clarification_request": {
+                "reason": "missing_required_slots",
+                "questions": ["我需要订单号、退款单号或工单号来定位具体售后对象；请提供其中至少一个。"],
+            },
+        },
+        {
+            **base_state,
+            "primary_intent": "order_status_inquiry",
+            "requested_operation": "read_status",
+            "business_context": {
+                "facts": {
+                    "order": {
+                        "order_no": "ORD-2024-001",
+                        "status": "pending",
+                    }
+                }
+            },
+            "recommendation_draft": None,
+        },
+    ]
+
+    for state in states:
+        result = await final_response(state)
+
+        _assert_no_false_evidence_claim(result["final_response"])
+        assert result["llm_outputs"]["final_response"]["evidence_citations"] == []
+
+
+@pytest.mark.asyncio
+async def test_completed_response_without_evidence_refs_uses_neutral_reasoning(base_state):
+    result = await final_response(
+        {
+            **base_state,
+            "recommendation_draft": {
+                "recommended_action": "先核对退款诉求和订单状态",
+                "evidence_refs": [],
+            },
+            "risk_assessment": {"approval_required": False},
+        }
+    )
+
+    assert "建议：先核对退款诉求和订单状态" in result["final_response"]
+    _assert_no_false_evidence_claim(result["final_response"])
+    assert result["llm_outputs"]["final_response"]["evidence_citations"] == []
