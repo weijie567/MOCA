@@ -1,6 +1,6 @@
 ---
-phase: "62-business-query-and-drilldown-foundation"
-reviewed: "2026-07-09T17:10:44Z"
+phase: 62-business-query-and-drilldown-foundation
+reviewed: 2026-07-09T23:23:35Z
 depth: standard
 files_reviewed: 54
 files_reviewed_list:
@@ -60,36 +60,39 @@ files_reviewed_list:
   - tests/tools/test_tool_platform.py
 findings:
   critical: 0
-  warning: 0
+  warning: 1
   info: 0
-  total: 0
-status: clean
+  total: 1
+status: issues_found
 ---
 
 # Phase 62: Code Review Report
 
-**Reviewed:** 2026-07-09T17:10:44Z
+**Reviewed:** 2026-07-09T23:23:35Z
 **Depth:** standard
 **Files Reviewed:** 54
-**Status:** clean
+**Status:** issues_found
 
 ## Summary
 
-Re-reviewed the Phase 62 file scope at standard depth after fixes `07419cb`, `161a01a`, and `e79f40f`, with focus on the prior WR-01/WR-02 findings and denied `business_query` envelope/payload handling.
+Reviewed the Phase 62 business-query foundation source, tests, frontend event/rendering changes, contract/eval artifacts, and phase summaries at standard depth. The registry/schema/compiler/service/tool/frontend paths are generally aligned with the safe business-query contract: query specs are strict, backend execution remains scoped through trusted tool context, permission-denied payloads avoid fact refs, and public projections use safe allowlists.
 
-WR-01 is resolved. Denied `business_query` results now keep the inner typed safe payload while the outer `BusinessFactResultV1` reports `status="permission_denied"`, `scope_check_result="denied"`, and `business_fact_refs=[]`. The `BusinessToolService` wrapper now returns `ToolResultV2.status == "permission_denied"` and only exposes denied `business_query` data after validating the no-leak payload shape and stripped identifiers, so denied results are not counted as authoritative fact-bearing tool results.
+One warning remains in the cross-turn drilldown foundation. The code stores and later trusts a drilldown context binding that is intended to include session and merchant scope, but the agent-runs graph path does not put those trusted values into the AgentState used by the binding helper. Tool execution still uses trusted config scope, so this is not a direct authorization bypass, but stale safe drilldown context can survive a scope/session change and influence the next business-query follow-up.
 
-WR-02 remains resolved. Backend projection/API sanitization and the Console details tab strip unsafe business-query label values and raw cursor-like values from display surfaces.
+Tests were not rerun for this review artifact.
 
-All reviewed files meet quality standards for this re-review. No issues found.
+## Warnings
 
-## Verification
+### WR-01: Drilldown context binding does not include trusted scope/session on the agent-runs state path
 
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py tests/tools/test_tool_platform.py tests/tools/test_projection.py tests/test_agent_runs_api.py tests/eval/test_phase62_business_query_golden.py -q --tb=short` -> `152 passed, 1 warning`
-- `npm test -- --run src/components/details/BusinessQueryResultTab.test.tsx` from `frontend/` -> `3 files passed, 13 tests passed`
+**File:** `src/api/routers/agent_runs.py:129`
+
+**Issue:** `business_query_context_binding()` hashes `session_id` and `merchant_scope` from AgentState (`src/agent/state.py:197-205`), and both `receive_request` and `contextual_intent_resolve` accept a saved drilldown context when that hash matches (`src/agent/nodes/receive_request.py:68-76`, `src/agent/nodes/contextual_intent_resolve.py:883-894`). However, the agent-runs SSE path filters initial state to only `tenant_id`, `user_id`, `role`, `thread_id`, and `current_run_id` (`src/api/routers/agent_runs.py:129-132`, `src/api/routers/agent_runs.py:252-264`), while `merchant_scope` and `session_id` live only in config. The same state-derived helper is used when storing the expected context after a business-query result (`src/agent/nodes/investigate.py:1044-1048`, `src/agent/nodes/investigate.py:1077-1081`), so two turns with the same tenant/user/role/thread but different trusted merchant scope or session can still hash the absent state values as matching. The current tests cover user mismatch clearing but not scope/session mismatch (`tests/agent/test_nodes/test_receive_request.py:294-323`), and graph tests keep scope in config only (`tests/agent/test_graph.py:82-89`, `tests/agent/test_graph.py:116-128`).
+
+**Fix:** Derive a non-raw business-query context binding from canonical `TrustedContext` for each run, including tenant/user/role/thread/session and merchant scope, and pass only that hash into AgentState. Store that trusted hash in `expected_slot_context` after business-query execution, and compare against the incoming trusted hash in `receive_request` and `contextual_intent_resolve` instead of recomputing from state fields that omit scope. Add regression tests that reuse the same checkpoint thread with a different `merchant_scope` and with a different non-null `session_id`, asserting `last_query_spec`, `last_answer_context`, `result_cursor`, and `expected_slot_context` are cleared.
 
 ---
 
-_Reviewed: 2026-07-09T17:10:44Z_
+_Reviewed: 2026-07-09T23:23:35Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
