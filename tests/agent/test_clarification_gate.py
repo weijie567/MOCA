@@ -23,9 +23,12 @@ async def test_missing_required_slots_builds_minimal_clarification(base_state):
     request = result["clarification_request"]
     assert request["reason"] == "missing_required_slots"
     assert request["clarification_request_id"] == "clarify_run-1"
-    assert request["questions"] == ["请提供退款单号或订单号。"]
+    assert request["questions"] == ["我需要退款单号或订单号来定位具体售后对象；请提供退款单号或订单号中的至少一个。"]
     assert {"investigate", "action_draft"} <= set(request["blocked_nodes"])
     assert request["resume_policy"] == "same_thread_only"
+    assert "routing_hints" not in result["final_response"]
+    assert "blocked_nodes" not in result["final_response"]
+    assert "investigate" not in result["final_response"]
 
 
 @pytest.mark.asyncio
@@ -43,7 +46,30 @@ async def test_missing_required_slots_are_recomputed_from_policy_when_router_is_
     )
 
     assert result["clarification_request"]["reason"] == "missing_required_slots"
-    assert result["clarification_request"]["questions"] == ["请提供订单号或退款单号。"]
+    assert result["clarification_request"]["questions"] == [
+        "我需要订单号或退款单号来定位具体售后对象；请提供订单号或退款单号中的至少一个。"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_order_identifier_clarification_lists_all_accepted_identifier_types(base_state):
+    result = await clarification_gate(
+        {
+            **base_state,
+            "primary_intent": "order_status_inquiry",
+            "current_intent": "order_status_inquiry",
+            "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id", "ticket_id"]], "optional": []},
+            "extracted_slots": {},
+            "session_memory": {"continuity_claimed": False, "active_slots": {}},
+        },
+        {},
+    )
+
+    question = result["clarification_request"]["questions"][0]
+    assert "我需要" in question
+    assert "定位具体售后对象" in question
+    assert "订单号、退款单号或工单号" in question
+    assert result["final_response"] == question
 
 
 @pytest.mark.asyncio

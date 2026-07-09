@@ -475,6 +475,34 @@ async def test_final_response_builds_safe_clarification_from_request(base_state)
 
 
 @pytest.mark.asyncio
+async def test_final_response_preserves_clarification_text_without_internal_debug_fields(base_state):
+    question = "我需要订单号、退款单号或工单号来定位具体售后对象；请提供其中至少一个。"
+    result = await final_response(
+        {
+            **base_state,
+            "clarification_request": {
+                "reason": "missing_required_slots",
+                "questions": [question],
+                "blocked_nodes": ["investigate", "slot_resolution_gate", "approval_gate"],
+                "resume_policy": "same_thread_only",
+            },
+            "routing_hints": {
+                "clarification_reason": "missing_required_slots",
+                "blocked_nodes": ["investigate", "debug_trace"],
+            },
+            "node_errors": [{"node": "slot_resolution_gate", "error": "permission_denied debug_trace"}],
+        }
+    )
+
+    assert result["final_response"] == question
+    assert "investigate" not in result["final_response"]
+    assert "slot_resolution_gate" not in result["final_response"]
+    assert "routing_hints" not in result["final_response"]
+    assert "debug_trace" not in result["final_response"]
+    assert "permission_denied" not in result["final_response"]
+
+
+@pytest.mark.asyncio
 async def test_final_response_decorates_clarification_branch(base_state):
     result = await final_response(
         _state_with_deferred(
