@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from src.agent.intent_policy import (
     INTENT_POLICY_REGISTRY,
@@ -33,6 +34,33 @@ SLOT_RESOLUTION_ROUTES = {"clarification_gate", "investigate", "memory_context_l
 SLOT_ROUTES = SLOT_RESOLUTION_ROUTES
 BUSINESS_ID_SLOTS = ("order_id", "refund_case_id", "ticket_id")
 SLOT_RESOLUTION_TRACE_SCHEMA = "slot_resolution_trace.phase54"
+BUSINESS_DEMO_TIMEZONE = ZoneInfo("Asia/Shanghai")
+SUPPORTED_METRIC_IDS = frozenset(
+    {
+        "order_count",
+        "refund_case_count",
+        "pending_ticket_count",
+        "coupon_record_count",
+        "merchant_refund_rate",
+    }
+)
+METRIC_RESOURCE_TYPES: Mapping[str, str] = {
+    "order_count": "order",
+    "refund_case_count": "refund_case",
+    "pending_ticket_count": "ticket",
+    "coupon_record_count": "action_draft",
+    "merchant_refund_rate": "merchant_metric",
+}
+METRIC_STATUS_ALLOWLISTS: Mapping[str, frozenset[str]] = {
+    "order_count": frozenset({"pending", "paid", "shipped", "delivered", "completed"}),
+    "refund_case_count": frozenset({"submitted", "reviewing", "approved", "rejected", "closed"}),
+    "pending_ticket_count": frozenset({"open", "in_progress"}),
+    "coupon_record_count": frozenset(),
+    "merchant_refund_rate": frozenset(),
+}
+METRIC_EVENT_OR_RATE_IDS = frozenset(
+    {"order_count", "refund_case_count", "coupon_record_count", "merchant_refund_rate"}
+)
 _SLOT_INVALIDATION_TERMS = {
     "order_id": ("订单", "order"),
     "refund_case_id": ("退款单", "退款", "refund"),
@@ -477,9 +505,232 @@ def _slot_resolution_route_decision(
     missing = missing_required_slots(policy, resolved_slots)
     if missing:
         return missing, "clarification_gate", ["missing_required_slots"]
+    if intent == "business_metric_query":
+        metric_missing, metric_reason_codes = _apply_metric_slot_policy(state, resolved_slots)
+        if metric_missing:
+            return metric_missing, "clarification_gate", metric_reason_codes
+        if _needs_reviewed_memory_context(state):
+            return [], "memory_context_load", metric_reason_codes
+        return [], "investigate", metric_reason_codes
     if _needs_reviewed_memory_context(state):
         return [], "memory_context_load", []
     return [], "investigate", []
+
+
+def _apply_metric_slot_policy(
+    state: AgentState,
+    resolved_slots: dict[str, Any],
+) -> tuple[list[dict[str, list[str]]], list[str]]:
+    reason_codes: list[str] = []
+    for non_metric_slot in ("order_id", "refund_case_id", "ticket_id", "customer_id", "issue_type", "action_type"):
+        resolved_slots.pop(non_metric_slot, None)
+    routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
+    if routing_hints.get("metric_slot_parser") == "deterministic":
+        reason_codes.append("deterministic_metric_slot_parser")
+
+    metric_id = _string_slot(resolved_slots.get("metric_id"))
+    if metric_id not in SUPPORTED_METRIC_IDS:
+        _clear_metric_slots(resolved_slots)
+        return [{"all_of": ["metric_id"]}], [*reason_codes, "unsupported_metric_id"]
+
+    resolved_slots["metric_id"] = metric_id
+    resolved_slots["resource_type"] = METRIC_RESOURCE_TYPES[metric_id]
+
+    status_missing = _apply_metric_status_filter(metric_id, resolved_slots)
+    missing: list[dict[str, list[str]]] = []
+    if status_missing:
+        missing.append({"all_of": ["metric_status_filter"]})
+        reason_codes.append("unsupported_metric_status_filter")
+
+    if metric_id == "merchant_refund_rate" and not _string_slot(resolved_slots.get("merchant_id")):
+        missing.append({"all_of": ["merchant_filter"]})
+        reason_codes.append("merchant_filter_required")
+
+    time_missing, time_reason = _apply_metric_time_policy(state, metric_id, resolved_slots)
+    if time_missing:
+        missing.append({"all_of": ["metric_time_range"]})
+        reason_codes.append(time_reason)
+
+    return missing, reason_codes
+
+
+def _clear_metric_slots(resolved_slots: dict[str, Any]) -> None:
+    for slot in (
+        "metric_id",
+        "resource_type",
+        "metric_time_preset",
+        "metric_time_range_start",
+        "metric_time_range_end",
+        "status_filter",
+    ):
+        resolved_slots.pop(slot, None)
+
+
+def _apply_metric_status_filter(metric_id: str, resolved_slots: dict[str, Any]) -> bool:
+    raw_status = resolved_slots.get("status_filter")
+    allowlist = METRIC_STATUS_ALLOWLISTS[metric_id]
+    if metric_id == "pending_ticket_count":
+        if raw_status not in (None, "", []):
+            requested = _status_filter_values(raw_status)
+            if not requested <= allowlist:
+                resolved_slots.pop("status_filter", None)
+                return True
+        resolved_slots["status_filter"] = ["open", "in_progress"]
+        return False
+
+    if raw_status in (None, "", []):
+        resolved_slots.pop("status_filter", None)
+        return False
+    requested = _status_filter_values(raw_status)
+    if not allowlist or not requested or not requested <= allowlist:
+        resolved_slots.pop("status_filter", None)
+        return True
+    resolved_slots["status_filter"] = raw_status if isinstance(raw_status, str) else sorted(requested)
+    return False
+
+
+def _status_filter_values(value: Any) -> frozenset[str]:
+    if isinstance(value, str):
+        return frozenset({value.strip().lower()}) if value.strip() else frozenset()
+    if isinstance(value, list):
+        return frozenset(str(item).strip().lower() for item in value if str(item).strip())
+    return frozenset()
+
+
+def _apply_metric_time_policy(
+    state: AgentState,
+    metric_id: str,
+    resolved_slots: dict[str, Any],
+) -> tuple[bool, str]:
+    preset = _string_slot(resolved_slots.get("metric_time_preset"))
+    if metric_id == "pending_ticket_count":
+        if preset in (None, "current_snapshot"):
+            resolved_slots["metric_time_preset"] = "current_snapshot"
+            resolved_slots.pop("metric_time_range_start", None)
+            resolved_slots.pop("metric_time_range_end", None)
+            return False, ""
+        if preset in {"today", "this_week", "this_month", "this_quarter", "this_year"}:
+            _apply_metric_time_preset(state, preset, resolved_slots)
+            return False, ""
+        resolved_slots.pop("metric_time_preset", None)
+        return True, "current_snapshot_only_for_snapshot_metrics"
+
+    if preset == "current_snapshot":
+        resolved_slots.pop("metric_time_preset", None)
+        return True, "metric_time_range_required"
+    if preset in {"today", "this_week", "this_month", "this_quarter", "this_year"}:
+        _apply_metric_time_preset(state, preset, resolved_slots)
+        return False, ""
+    if _has_explicit_metric_time_range(resolved_slots):
+        return _apply_explicit_metric_time_range(state, resolved_slots)
+    if metric_id in METRIC_EVENT_OR_RATE_IDS:
+        return True, "metric_time_range_required"
+    return False, ""
+
+
+def _apply_metric_time_preset(state: AgentState, preset: str, resolved_slots: dict[str, Any]) -> None:
+    start, end = _metric_time_window_for_preset(preset, _state_now_local(state))
+    resolved_slots["metric_time_preset"] = preset
+    resolved_slots["metric_time_range_start"] = _metric_iso(start)
+    resolved_slots["metric_time_range_end"] = _metric_iso(end)
+
+
+def _has_explicit_metric_time_range(resolved_slots: dict[str, Any]) -> bool:
+    return bool(resolved_slots.get("metric_time_range_start") or resolved_slots.get("metric_time_range_end"))
+
+
+def _apply_explicit_metric_time_range(
+    state: AgentState,
+    resolved_slots: dict[str, Any],
+) -> tuple[bool, str]:
+    start = _parse_metric_time_boundary(resolved_slots.get("metric_time_range_start"))
+    end = _parse_metric_time_boundary(resolved_slots.get("metric_time_range_end"))
+    if start is None or end is None or start >= end:
+        resolved_slots.pop("metric_time_range_start", None)
+        resolved_slots.pop("metric_time_range_end", None)
+        return True, "invalid_metric_time_range"
+    if start >= _state_now_local(state):
+        resolved_slots.pop("metric_time_range_start", None)
+        resolved_slots.pop("metric_time_range_end", None)
+        return True, "future_metric_time_range"
+    resolved_slots["metric_time_range_start"] = _metric_iso(start)
+    resolved_slots["metric_time_range_end"] = _metric_iso(end)
+    resolved_slots.pop("metric_time_preset", None)
+    return False, ""
+
+
+def _metric_time_window_for_preset(preset: str, now_local: datetime) -> tuple[datetime, datetime]:
+    today = now_local.date()
+    if preset == "today":
+        start_date = today
+        end_date = today + timedelta(days=1)
+    elif preset == "this_week":
+        start_date = today - timedelta(days=today.weekday())
+        end_date = start_date + timedelta(days=7)
+    elif preset == "this_month":
+        start_date = today.replace(day=1)
+        end_date = _add_months(start_date, 1)
+    elif preset == "this_quarter":
+        quarter_month = ((today.month - 1) // 3) * 3 + 1
+        start_date = date(today.year, quarter_month, 1)
+        end_date = _add_months(start_date, 3)
+    elif preset == "this_year":
+        start_date = date(today.year, 1, 1)
+        end_date = date(today.year + 1, 1, 1)
+    else:
+        raise ValueError(f"unknown metric time preset: {preset}")
+    return _local_midnight(start_date), _local_midnight(end_date)
+
+
+def _add_months(value: date, months: int) -> date:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    return date(year, month, 1)
+
+
+def _local_midnight(value: date) -> datetime:
+    return datetime.combine(value, time.min, tzinfo=BUSINESS_DEMO_TIMEZONE)
+
+
+def _parse_metric_time_boundary(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    try:
+        if len(raw) == 10:
+            return _local_midnight(date.fromisoformat(raw))
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=BUSINESS_DEMO_TIMEZONE)
+    return parsed.astimezone(BUSINESS_DEMO_TIMEZONE)
+
+
+def _state_now_local(state: AgentState) -> datetime:
+    value = state.get("run_started_at")
+    if isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(BUSINESS_DEMO_TIMEZONE)
+    return datetime.now(BUSINESS_DEMO_TIMEZONE)
+
+
+def _metric_iso(value: datetime) -> str:
+    return value.astimezone(BUSINESS_DEMO_TIMEZONE).replace(microsecond=0).isoformat()
+
+
+def _string_slot(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 def _needs_reviewed_memory_context(state: AgentState) -> bool:

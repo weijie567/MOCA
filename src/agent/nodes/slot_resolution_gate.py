@@ -77,10 +77,11 @@ async def slot_resolution_gate(state: AgentState, config: RunnableConfig | None 
             t0 = time.perf_counter()
             result = await structured_llm.ainvoke(messages)
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
-            extracted = result.model_dump()
-            resolution = resolve_slots_with_provenance({**state, "extracted_slots": extracted})
+            extracted = _merge_deterministic_metric_slots(result.model_dump(), state)
+            resolution_state = _state_with_metric_parser_hint(state, extracted)
+            resolution = resolve_slots_with_provenance(resolution_state)
             return _node_update(
-                state,
+                resolution_state,
                 extracted=extracted,
                 resolution=resolution,
                 trace_status="completed",
@@ -100,6 +101,22 @@ async def slot_resolution_gate(state: AgentState, config: RunnableConfig | None 
                     }
                 )
 
+    deterministic_extracted = _deterministic_metric_slots(state)
+    if deterministic_extracted:
+        extracted = _merge_deterministic_metric_slots({}, state)
+        resolution_state = _state_with_metric_parser_hint(state, extracted)
+        resolution = resolve_slots_with_provenance(resolution_state)
+        return _node_update(
+            resolution_state,
+            extracted=extracted,
+            resolution=resolution,
+            trace_status="completed",
+            started_at=started_at,
+            provider_latency_ms=provider_latency_ms,
+            retry_count=retry_count,
+            context_chars=_messages_chars(messages),
+        )
+
     resolution = _llm_error_resolution(state)
     update = _node_update(
         state,
@@ -115,6 +132,60 @@ async def slot_resolution_gate(state: AgentState, config: RunnableConfig | None 
         {"node": "slot_resolution_gate", "error": last_error, "retry_count": 2}
     ]
     return update
+
+
+def _merge_deterministic_metric_slots(extracted: dict[str, Any], state: AgentState) -> dict[str, Any]:
+    deterministic = _deterministic_metric_slots(state)
+    if not deterministic:
+        return dict(extracted)
+    merged = dict(extracted)
+    for slot, value in deterministic.items():
+        if value not in (None, "", []):
+            merged[slot] = value
+    return merged
+
+
+def _state_with_metric_parser_hint(state: AgentState, extracted: dict[str, Any]) -> AgentState:
+    if not _deterministic_metric_slots(state):
+        return {**state, "extracted_slots": extracted}
+    routing_hints = dict(state.get("routing_hints") or {}) if isinstance(state.get("routing_hints"), dict) else {}
+    routing_hints["metric_slot_parser"] = "deterministic"
+    return {**state, "extracted_slots": extracted, "routing_hints": routing_hints}
+
+
+def _deterministic_metric_slots(state: AgentState) -> dict[str, Any]:
+    if state.get("primary_intent") != "business_metric_query":
+        return {}
+    text = str(state.get("normalized_query") or state.get("user_query") or "")
+    lowered = text.lower()
+    slots: dict[str, Any] = {}
+
+    if "退款率" in text or "refund rate" in lowered:
+        slots["metric_id"] = "merchant_refund_rate"
+    elif "待处理" in text and "工单" in text:
+        slots["metric_id"] = "pending_ticket_count"
+        slots["metric_time_preset"] = "current_snapshot"
+    elif "补偿券" in text or ("coupon" in lowered and any(token in lowered for token in ("count", "issued"))):
+        slots["metric_id"] = "coupon_record_count"
+    elif "退款单" in text or ("refund" in lowered and any(token in lowered for token in ("count", "how many"))):
+        slots["metric_id"] = "refund_case_count"
+    elif "订单" in text or ("order" in lowered and any(token in lowered for token in ("count", "how many"))):
+        slots["metric_id"] = "order_count"
+
+    if "今天" in text or "today" in lowered:
+        slots["metric_time_preset"] = "today"
+    elif "本周" in text or "这周" in text or "this week" in lowered:
+        slots["metric_time_preset"] = "this_week"
+    elif "本月" in text or "这个月" in text or "this month" in lowered:
+        slots["metric_time_preset"] = "this_month"
+    elif "本季度" in text or "这个季度" in text or "this quarter" in lowered:
+        slots["metric_time_preset"] = "this_quarter"
+    elif "今年" in text or "this year" in lowered:
+        slots["metric_time_preset"] = "this_year"
+    elif "当前" in text or "现在" in text or "current" in lowered:
+        slots["metric_time_preset"] = "current_snapshot"
+
+    return slots
 
 
 def _node_update(

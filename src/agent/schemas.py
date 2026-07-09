@@ -19,6 +19,31 @@ IntentLiteral = Literal[
     "unsupported",
 ]
 
+MetricIdLiteral = Literal[
+    "order_count",
+    "refund_case_count",
+    "pending_ticket_count",
+    "coupon_record_count",
+    "merchant_refund_rate",
+]
+
+MetricResourceTypeLiteral = Literal[
+    "order",
+    "refund_case",
+    "ticket",
+    "action_draft",
+    "merchant_metric",
+]
+
+MetricTimePresetLiteral = Literal[
+    "today",
+    "this_week",
+    "this_month",
+    "this_quarter",
+    "this_year",
+    "current_snapshot",
+]
+
 RequestedOperationLiteral = Literal[
     "read_status",
     "advise",
@@ -93,6 +118,12 @@ class SlotExtractionResult(BaseModel):
     customer_id: str | None = None
     issue_type: str | None = None
     action_type: str | None = None
+    metric_id: MetricIdLiteral | str | None = None
+    resource_type: MetricResourceTypeLiteral | str | None = None
+    metric_time_preset: MetricTimePresetLiteral | str | None = None
+    metric_time_range_start: str | None = None
+    metric_time_range_end: str | None = None
+    status_filter: str | list[str] | None = None
 
 
 class EvidenceRefSchema(BaseModel):

@@ -19,6 +19,12 @@ class ActiveSlots(TypedDict, total=False):
     merchant_id: str | None
     customer_id: str | None
     issue_type: str | None
+    metric_id: str | None
+    resource_type: str | None
+    metric_time_preset: str | None
+    metric_time_range_start: str | None
+    metric_time_range_end: str | None
+    status_filter: str | list[str] | None
 
 
 class LastRecommendationSummary(TypedDict, total=False):
