@@ -637,6 +637,86 @@ def test_final_response_payload_projects_safe_business_query_allowlist():
         assert forbidden not in serialized
 
 
+def test_phase62_business_query_api_payload_supports_no_leak_breakdown_and_compare():
+    cases = [
+        {
+            "operation": "list",
+            "safe_reason": "scope_denied_no_existence_leak",
+            "rows": [],
+            "result_label": "订单列表",
+            "extra": {"denied_id": "MERCHANT-SECRET", "raw_rows": [{"merchant_id": "MERCHANT-SECRET"}]},
+        },
+        {
+            "operation": "detail",
+            "safe_reason": "scope_denied_no_existence_leak",
+            "rows": [],
+            "result_label": "订单详情",
+            "extra": {"resource_id": "ORD-SECRET-DENIED", "raw_args": {"order_no": "ORD-SECRET-DENIED"}},
+        },
+        {
+            "operation": "breakdown",
+            "safe_reason": "ok",
+            "rows": [{"status": "delivered", "display_value": "3", "value": 3}],
+            "result_label": "按状态分组",
+            "group_by_label": "状态",
+            "extra": {"raw_rows": [{"tenant_id": "TENANT-SHOULD-NOT-LEAK"}]},
+        },
+        {
+            "operation": "compare",
+            "safe_reason": "ok",
+            "rows": [{"metric_id": "order_count", "current_value": 5, "previous_value": 2, "delta": 3}],
+            "result_label": "订单数对比",
+            "compare_label": "与上一周期对比",
+            "extra": {"raw_cursor": "cursor-raw-should-not-leak"},
+        },
+    ]
+
+    for case in cases:
+        final_state = {
+            "llm_outputs": {
+                "final_response": {
+                    "response_kind": "business_query_answer",
+                    "business_query": {
+                        "operation": case["operation"],
+                        "resource_label": "订单",
+                        "result_label": case["result_label"],
+                        "scope_label": "当前权限范围",
+                        "time_label": "本周",
+                        "filters_label": "status=paid",
+                        "freshness_label": "当前可用业务数据",
+                        "fields_label": "订单号、状态",
+                        "safe_reason": case["safe_reason"],
+                        "rows": case["rows"],
+                        "row_count": len(case["rows"]),
+                        "limit": 20,
+                        "cursor_label": "",
+                        "allowed_drilldowns": [],
+                        "group_by_label": case.get("group_by_label", ""),
+                        "compare_label": case.get("compare_label", ""),
+                        **case["extra"],
+                    },
+                }
+            }
+        }
+
+        payload = _final_response_payload("业务查询结果", final_state)
+
+        assert payload["response_kind"] == "business_query_answer"
+        assert payload["business_query"]["operation"] == case["operation"]
+        assert payload["business_query"]["rows"] == case["rows"]
+        serialized = json.dumps(payload, ensure_ascii=False)
+        for forbidden in (
+            "MERCHANT-SECRET",
+            "ORD-SECRET-DENIED",
+            "TENANT-SHOULD-NOT-LEAK",
+            "raw_rows",
+            "raw_args",
+            "raw_cursor",
+            "cursor-raw-should-not-leak",
+        ):
+            assert forbidden not in serialized
+
+
 class MetricFinalResponseGraph:
     async def astream(self, input_state, config, stream_mode):
         del input_state, config, stream_mode
