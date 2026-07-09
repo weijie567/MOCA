@@ -18,7 +18,7 @@ from src.business.service import (
     _merchant_scope_allows,
 )
 from src.integrations.demo_business.authz import merchant_can_access
-from src.db.models import ActionDraft, AgentRun, Order, RefundCase, Ticket
+from src.db.models import ActionDraft, AgentRun, Order
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 from src.tools.executors.business import BusinessToolExecutor
 

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ValidationError
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.business.adapters import (
@@ -19,7 +21,17 @@ from src.business.adapters import (
     get_refund_case_adapter,
     get_ticket_adapter,
 )
-from src.business.schemas import BusinessContextV1, BusinessFactResultV1, BusinessMetricQueryInput, BusinessMetricResultV1
+from src.business.schemas import (
+    BusinessContextV1,
+    BusinessFactResultV1,
+    BusinessMetricFiltersV1,
+    BusinessMetricFreshnessV1,
+    BusinessMetricQueryInput,
+    BusinessMetricResultV1,
+    BusinessMetricScopeV1,
+    BusinessMetricTimeRangeV1,
+)
+from src.db.models import ActionDraft, Order, RefundCase, Ticket
 from src.platform.trusted_context import MerchantScopeV1
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 
@@ -30,6 +42,15 @@ BusinessFactAdapter = Callable[[BaseModel, ToolCallContext, AsyncSession], Await
 
 NO_LEAK_BUSINESS_RESOURCE_MESSAGE = "Business resource unavailable for this request"
 FACT_BEARING_TOOL_STATUSES = {"success", "partial_success"}
+BUSINESS_METRIC_TIMEZONE_NAME = "Asia/Shanghai"
+BUSINESS_METRIC_TIMEZONE = ZoneInfo(BUSINESS_METRIC_TIMEZONE_NAME)
+COUNT_METRIC_STATUS_ALLOWLISTS = {
+    "order_count": {"pending", "paid", "shipped", "delivered", "completed"},
+    "refund_case_count": {"submitted", "reviewing", "approved", "rejected", "closed"},
+    "pending_ticket_count": {"open", "in_progress"},
+}
+PENDING_TICKET_DEFAULT_STATUSES = ["open", "in_progress"]
+NO_STATUS_FILTER_METRICS = {"coupon_record_count", "merchant_refund_rate"}
 
 
 @dataclass(frozen=True)
@@ -275,8 +296,426 @@ class BusinessFactService:
         ctx: ToolCallContext,
         merchant_ids: list[str],
     ) -> BusinessMetricResultV1:
-        del query, ctx, merchant_ids
-        raise NotImplementedError("metric calculation is implemented by metric-specific runtime methods")
+        time_range = self._resolve_metric_time_range(query, ctx)
+        if time_range is None:
+            return self._invalid_metric_result(query, ctx, merchant_ids)
+
+        status_filter = self._resolve_metric_status_filter(query)
+        if status_filter is None:
+            return self._invalid_metric_result(query, ctx, merchant_ids, time_range=time_range)
+
+        tenant_id = self._safe_uuid(ctx.tenant_id)
+        if tenant_id is None:
+            return self._invalid_metric_result(query, ctx, merchant_ids, time_range=time_range)
+
+        merchant_uuid_ids = self._safe_merchant_uuid_ids(merchant_ids)
+        if merchant_uuid_ids == []:
+            return self._invalid_metric_result(query, ctx, merchant_ids, time_range=time_range)
+
+        if query.metric_id == "order_count":
+            value = await self._count_orders(
+                tenant_id=tenant_id,
+                merchant_uuid_ids=merchant_uuid_ids,
+                time_range=time_range,
+                status_filter=status_filter,
+            )
+            return self._metric_result(
+                query,
+                ctx,
+                merchant_ids,
+                time_range=time_range,
+                status_filter=status_filter,
+                value=value,
+                unit="count",
+                display_value=str(value),
+                formula="count orders by created_at in authorized merchant scope",
+            )
+
+        if query.metric_id == "refund_case_count":
+            value = await self._count_refund_cases(
+                tenant_id=tenant_id,
+                merchant_uuid_ids=merchant_uuid_ids,
+                time_range=time_range,
+                status_filter=status_filter,
+            )
+            return self._metric_result(
+                query,
+                ctx,
+                merchant_ids,
+                time_range=time_range,
+                status_filter=status_filter,
+                value=value,
+                unit="count",
+                display_value=str(value),
+                formula="count refund cases by created_at joined through scoped orders",
+            )
+
+        if query.metric_id == "pending_ticket_count":
+            value = await self._count_pending_tickets(
+                tenant_id=tenant_id,
+                merchant_uuid_ids=merchant_uuid_ids,
+                time_range=time_range,
+                status_filter=status_filter,
+            )
+            return self._metric_result(
+                query,
+                ctx,
+                merchant_ids,
+                time_range=time_range,
+                status_filter=status_filter,
+                value=value,
+                unit="count",
+                display_value=str(value),
+                formula="count open or in-progress tickets joined through scoped orders",
+            )
+
+        if query.metric_id == "coupon_record_count":
+            value = await self._count_coupon_records(
+                tenant_id=tenant_id,
+                merchant_ids=merchant_ids,
+                time_range=time_range,
+            )
+            return self._metric_result(
+                query,
+                ctx,
+                merchant_ids,
+                time_range=time_range,
+                status_filter=status_filter,
+                value=value,
+                unit="count",
+                display_value=str(value),
+                formula="count MOCA issue_coupon ActionDraft records by created_at",
+                caveats=[
+                    "MOCA demo only: coupon_record_count counts issue_coupon ActionDraft records/drafts, "
+                    "not external coupon delivery success."
+                ],
+            )
+
+        numerator, denominator = await self._merchant_refund_rate_counts(
+            tenant_id=tenant_id,
+            merchant_uuid_ids=merchant_uuid_ids,
+            time_range=time_range,
+        )
+        if denominator == 0:
+            return self._metric_result(
+                query,
+                ctx,
+                merchant_ids,
+                time_range=time_range,
+                status_filter=status_filter,
+                status="non_computable",
+                value=None,
+                rate=None,
+                numerator=numerator,
+                denominator=denominator,
+                unit="ratio",
+                display_value="暂无可计算退款率",
+                formula="distinct refunded orders / total scoped orders",
+                caveats=["当前范围内没有订单，无法计算退款率。"],
+            )
+
+        rate = numerator / denominator
+        return self._metric_result(
+            query,
+            ctx,
+            merchant_ids,
+            time_range=time_range,
+            status_filter=status_filter,
+            value=rate,
+            rate=rate,
+            numerator=numerator,
+            denominator=denominator,
+            unit="ratio",
+            display_value=f"{rate * 100:.2f}%",
+            formula="distinct refunded orders / total scoped orders",
+        )
+
+    @staticmethod
+    def _safe_uuid(value: str) -> UUID | None:
+        try:
+            return UUID(str(value))
+        except (TypeError, ValueError):
+            return None
+
+    def _safe_merchant_uuid_ids(self, merchant_ids: list[str]) -> list[UUID] | None:
+        if "*" in merchant_ids:
+            return None
+        parsed = [self._safe_uuid(merchant_id) for merchant_id in merchant_ids]
+        if any(merchant_id is None for merchant_id in parsed):
+            return []
+        return [merchant_id for merchant_id in parsed if merchant_id is not None]
+
+    @staticmethod
+    def _parse_effective_at(ctx: ToolCallContext) -> datetime:
+        if ctx.effective_at is None:
+            return datetime.now(BUSINESS_METRIC_TIMEZONE)
+        try:
+            parsed = datetime.fromisoformat(ctx.effective_at.replace("Z", "+00:00"))
+        except ValueError:
+            return datetime.now(BUSINESS_METRIC_TIMEZONE)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(BUSINESS_METRIC_TIMEZONE)
+
+    def _resolve_metric_time_range(
+        self,
+        query: BusinessMetricQueryInput,
+        ctx: ToolCallContext,
+    ) -> BusinessMetricTimeRangeV1 | None:
+        if query.start_at is not None or query.end_at is not None:
+            if query.start_at is None or query.end_at is None:
+                return None
+            return BusinessMetricTimeRangeV1(
+                start_at=self._to_utc(query.start_at),
+                end_at=self._to_utc(query.end_at),
+                preset=query.time_preset,
+                timezone=BUSINESS_METRIC_TIMEZONE_NAME,
+            )
+
+        if query.time_preset in {None, "current_snapshot"}:
+            if query.metric_id != "pending_ticket_count" and query.time_preset is None:
+                return None
+            return BusinessMetricTimeRangeV1(
+                start_at=None,
+                end_at=None,
+                preset=query.time_preset,
+                timezone=BUSINESS_METRIC_TIMEZONE_NAME,
+            )
+
+        effective_at = self._parse_effective_at(ctx)
+        start_local = self._preset_start_at(query.time_preset, effective_at)
+        if start_local is None:
+            return None
+        return BusinessMetricTimeRangeV1(
+            start_at=start_local.astimezone(UTC),
+            end_at=effective_at.astimezone(UTC),
+            preset=query.time_preset,
+            timezone=BUSINESS_METRIC_TIMEZONE_NAME,
+        )
+
+    @staticmethod
+    def _to_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    @staticmethod
+    def _preset_start_at(preset: str | None, effective_at: datetime) -> datetime | None:
+        local = effective_at.astimezone(BUSINESS_METRIC_TIMEZONE)
+        if preset == "today":
+            return local.replace(hour=0, minute=0, second=0, microsecond=0)
+        if preset == "this_week":
+            start = local - timedelta(days=local.weekday())
+            return start.replace(hour=0, minute=0, second=0, microsecond=0)
+        if preset == "this_month":
+            return local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if preset == "this_quarter":
+            quarter_month = ((local.month - 1) // 3) * 3 + 1
+            return local.replace(month=quarter_month, day=1, hour=0, minute=0, second=0, microsecond=0)
+        if preset == "this_year":
+            return local.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        return None
+
+    @staticmethod
+    def _resolve_metric_status_filter(query: BusinessMetricQueryInput) -> list[str] | None:
+        if query.metric_id in NO_STATUS_FILTER_METRICS:
+            return [] if not query.status_filter else None
+        allowed = COUNT_METRIC_STATUS_ALLOWLISTS[query.metric_id]
+        if query.status_filter:
+            if not set(query.status_filter).issubset(allowed):
+                return None
+            return list(query.status_filter)
+        if query.metric_id == "pending_ticket_count":
+            return list(PENDING_TICKET_DEFAULT_STATUSES)
+        return []
+
+    @staticmethod
+    def _time_conditions(column: Any, time_range: BusinessMetricTimeRangeV1) -> list[Any]:
+        conditions = []
+        if time_range.start_at is not None:
+            conditions.append(column >= time_range.start_at)
+        if time_range.end_at is not None:
+            conditions.append(column < time_range.end_at)
+        return conditions
+
+    @staticmethod
+    def _order_scope_conditions(
+        *,
+        tenant_id: UUID,
+        merchant_uuid_ids: list[UUID] | None,
+    ) -> list[Any]:
+        conditions = [Order.tenant_id == tenant_id]
+        if merchant_uuid_ids is not None:
+            conditions.append(Order.merchant_id.in_(merchant_uuid_ids))
+        return conditions
+
+    async def _count_orders(
+        self,
+        *,
+        tenant_id: UUID,
+        merchant_uuid_ids: list[UUID] | None,
+        time_range: BusinessMetricTimeRangeV1,
+        status_filter: list[str],
+    ) -> int:
+        conditions = self._order_scope_conditions(tenant_id=tenant_id, merchant_uuid_ids=merchant_uuid_ids)
+        conditions.extend(self._time_conditions(Order.created_at, time_range))
+        if status_filter:
+            conditions.append(Order.status.in_(status_filter))
+        value = await self.session.scalar(select(func.count(Order.id)).where(*conditions))
+        return int(value or 0)
+
+    async def _count_refund_cases(
+        self,
+        *,
+        tenant_id: UUID,
+        merchant_uuid_ids: list[UUID] | None,
+        time_range: BusinessMetricTimeRangeV1,
+        status_filter: list[str],
+    ) -> int:
+        conditions = [
+            RefundCase.tenant_id == tenant_id,
+            Order.tenant_id == tenant_id,
+            RefundCase.order_id == Order.id,
+        ]
+        if merchant_uuid_ids is not None:
+            conditions.append(Order.merchant_id.in_(merchant_uuid_ids))
+        conditions.extend(self._time_conditions(RefundCase.created_at, time_range))
+        if status_filter:
+            conditions.append(RefundCase.status.in_(status_filter))
+        value = await self.session.scalar(select(func.count(RefundCase.id)).select_from(RefundCase, Order).where(*conditions))
+        return int(value or 0)
+
+    async def _count_pending_tickets(
+        self,
+        *,
+        tenant_id: UUID,
+        merchant_uuid_ids: list[UUID] | None,
+        time_range: BusinessMetricTimeRangeV1,
+        status_filter: list[str],
+    ) -> int:
+        conditions = [
+            Ticket.tenant_id == tenant_id,
+            Order.tenant_id == tenant_id,
+            Ticket.order_id == Order.id,
+            Ticket.status.in_(status_filter),
+        ]
+        if merchant_uuid_ids is not None:
+            conditions.append(Order.merchant_id.in_(merchant_uuid_ids))
+        conditions.extend(self._time_conditions(Ticket.created_at, time_range))
+        value = await self.session.scalar(select(func.count(Ticket.id)).select_from(Ticket, Order).where(*conditions))
+        return int(value or 0)
+
+    async def _count_coupon_records(
+        self,
+        *,
+        tenant_id: UUID,
+        merchant_ids: list[str],
+        time_range: BusinessMetricTimeRangeV1,
+    ) -> int:
+        conditions = [
+            ActionDraft.tenant_id == tenant_id,
+            ActionDraft.action_type == "issue_coupon",
+        ]
+        if "*" not in merchant_ids:
+            conditions.append(ActionDraft.target_merchant_id.in_(merchant_ids))
+        conditions.extend(self._time_conditions(ActionDraft.created_at, time_range))
+        value = await self.session.scalar(select(func.count(ActionDraft.id)).where(*conditions))
+        return int(value or 0)
+
+    async def _merchant_refund_rate_counts(
+        self,
+        *,
+        tenant_id: UUID,
+        merchant_uuid_ids: list[UUID] | None,
+        time_range: BusinessMetricTimeRangeV1,
+    ) -> tuple[int, int]:
+        order_conditions = self._order_scope_conditions(tenant_id=tenant_id, merchant_uuid_ids=merchant_uuid_ids)
+        order_conditions.extend(self._time_conditions(Order.created_at, time_range))
+
+        denominator = await self.session.scalar(select(func.count(distinct(Order.id))).where(*order_conditions))
+
+        refund_conditions = [
+            RefundCase.tenant_id == tenant_id,
+            Order.tenant_id == tenant_id,
+            RefundCase.order_id == Order.id,
+            *order_conditions,
+        ]
+        numerator = await self.session.scalar(
+            select(func.count(distinct(RefundCase.order_id))).select_from(RefundCase, Order).where(*refund_conditions)
+        )
+        return int(numerator or 0), int(denominator or 0)
+
+    def _invalid_metric_result(
+        self,
+        query: BusinessMetricQueryInput,
+        ctx: ToolCallContext,
+        merchant_ids: list[str],
+        *,
+        time_range: BusinessMetricTimeRangeV1 | None = None,
+    ) -> BusinessMetricResultV1:
+        return self._metric_result(
+            query,
+            ctx,
+            merchant_ids,
+            time_range=time_range
+            or BusinessMetricTimeRangeV1(
+                start_at=None,
+                end_at=None,
+                preset=query.time_preset,
+                timezone=BUSINESS_METRIC_TIMEZONE_NAME,
+            ),
+            status_filter=[],
+            status="invalid_request",
+            value=None,
+            unit="unknown",
+            display_value="invalid_request",
+            formula="invalid business metric request",
+        )
+
+    def _metric_result(
+        self,
+        query: BusinessMetricQueryInput,
+        ctx: ToolCallContext,
+        merchant_ids: list[str],
+        *,
+        time_range: BusinessMetricTimeRangeV1,
+        status_filter: list[str],
+        status: Literal["ok", "invalid_request", "non_computable"] = "ok",
+        value: float | int | None,
+        rate: float | None = None,
+        numerator: int | None = None,
+        denominator: int | None = None,
+        unit: str,
+        display_value: str,
+        formula: str,
+        caveats: list[str] | None = None,
+    ) -> BusinessMetricResultV1:
+        computed_at = datetime.now(UTC)
+        return BusinessMetricResultV1(
+            metric_id=query.metric_id,
+            status=status,
+            value=float(value) if value is not None else None,
+            rate=rate,
+            numerator=numerator,
+            denominator=denominator,
+            unit=unit,
+            display_value=display_value,
+            scope=BusinessMetricScopeV1(
+                tenant_id=ctx.tenant_id,
+                merchant_ids=list(merchant_ids),
+                scope_label="all_authorized_merchants" if "*" in merchant_ids else "authorized_merchants",
+            ),
+            time_range=time_range,
+            filters=BusinessMetricFiltersV1(merchant_id=query.merchant_id, status_filter=status_filter),
+            freshness=BusinessMetricFreshnessV1(
+                data_freshness_at=computed_at,
+                computed_at=computed_at,
+                source_system="business_fact_service",
+            ),
+            formula=formula,
+            caveats=caveats or [],
+            no_leak_status="not_applicable",
+        )
 
     def _metric_to_business_fact_result(
         self,
