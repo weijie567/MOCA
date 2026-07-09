@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-09)
 
 Phase: 64 (rag-risk-label-unification) — READY FOR AUTOPILOT
 Plan: 0/0 — planning not started
-Status: Phase 63 completed with code review clean after one fixed warning, UAT 5/5 passed, `threats_open: 0`, and `nyquist_compliant: true`.
+Status: Phase 64 context captured in auto mode; planning is next.
 Last activity: 2026-07-10
-Next: Continue the user-requested chain with `$gsd-phase-autopilot 64`.
+Next: Run Phase 64 planning with `$gsd-plan-phase 64 --skip-ui`.
 
-Resume file: .planning/autopilot/phase-63.md
+Resume file: .planning/autopilot/phase-64.md
 
 Progress: [█████░░░░░] 50%
 
@@ -67,12 +67,13 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 - Phase 63 planned as five execution plans and passed GSD plan-checker plus two-round Claude/Codex plan review.
 - Phase 63 completed with canonical safety taxonomy, risk severity/disposition split, action-draft executable boundary, registry-derived routing, drift guards, post-review recommendation_generation registry fix, UAT, security, and validation closeout.
 - Phase 64 added: RAG Risk Label Unification.
+- Phase 64 context captured in auto mode: RAG-specific risk label registry, existing label compatibility, `manual_review_sensitive` builder propagation, and no Phase 65/66/67 scope creep.
 - Phase 65 added: Trace Event And Console Label Consistency.
 - Phase 66 added: Dev Test And Config Hygiene.
 
 **Planned Phase:** 61 (Product Experience Fixes) — 5 plans — 2026-07-09T02:57:41.178Z
 **Planned Phase:** 62 (Business Query And Drilldown Foundation) — 7 plans — 2026-07-09T12:11:17Z
 **Completed Phase:** 63 (Safety Taxonomy And Risk Vocabulary) — 5/5 plans complete, review/UAT/security/validation clean
-**Registered Phase:** 64 (RAG Risk Label Unification) — pending `$gsd-plan-phase 64`
+**Planning Phase:** 64 (RAG Risk Label Unification) — context captured, pending `$gsd-plan-phase 64`
 **Registered Phase:** 65 (Trace Event And Console Label Consistency) — pending `$gsd-plan-phase 65`
 **Registered Phase:** 66 (Dev Test And Config Hygiene) — pending `$gsd-plan-phase 66`
