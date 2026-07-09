@@ -54,6 +54,24 @@ _RELATION_HINT_KEYS: set[str] = {
     "merchant_id",
 }
 
+_METRIC_RESULT_KEYS: set[str] = {
+    "metric_id",
+    "status",
+    "value",
+    "rate",
+    "numerator",
+    "denominator",
+    "unit",
+    "display_value",
+    "scope",
+    "time_range",
+    "filters",
+    "freshness",
+    "formula",
+    "caveats",
+    "no_leak_status",
+}
+
 _MAX_TEXT_FOR_PROMPT = 500
 
 
@@ -134,6 +152,10 @@ class ToolResultProjector:
         relation_hints = self._extract_relation_hints(data)
         if relation_hints:
             normalized["relation_hints"] = relation_hints
+
+        metric_result = self._extract_metric_result(data)
+        if metric_result:
+            normalized.update(metric_result)
 
         # Refs from the ToolResultV2 envelope (not from data).
         if result.business_fact_refs:
@@ -254,11 +276,13 @@ class ToolResultProjector:
             }
 
         redaction_applied = _has_raw_sentinels_in_dict(result.data or {})
+        metric_summary = self._metric_prompt_summary(normalized)
+        summary = metric_summary["text"] if metric_summary else normalized.get("summary", result.summary[:500])
 
-        return {
+        prompt_projection = {
             "tool_name": tool_name,
             "status": result.status,
-            "summary": normalized.get("summary", result.summary[:500]),
+            "summary": summary,
             "business_fact_refs": normalized.get("business_fact_refs", []),
             "policy_candidate_refs": normalized.get("policy_evidence_refs", []),
             "resource_refs": normalized.get("business_fact_refs", []),
@@ -267,6 +291,88 @@ class ToolResultProjector:
             "safe_error": safe_error,
             "redaction_applied": redaction_applied,
             "text_for_prompt": "",  # filled by _build_text_for_prompt
+        }
+        if metric_summary:
+            prompt_projection["metric_summary"] = metric_summary
+        return prompt_projection
+
+    def _extract_metric_result(self, data: dict[str, Any]) -> dict[str, Any]:
+        if not _looks_like_metric_result(data):
+            return {}
+
+        metric: dict[str, Any] = {
+            "metric_id": data["metric_id"],
+            "metric_status": data["status"],
+            "unit": data["unit"],
+            "display_value": data["display_value"],
+        }
+        for key in ("value", "rate", "numerator", "denominator"):
+            value = data.get(key)
+            if value is None or isinstance(value, (int, float)):
+                metric[key] = value
+
+        scope = data.get("scope")
+        if isinstance(scope, dict):
+            merchant_ids = scope.get("merchant_ids")
+            merchant_count = len(merchant_ids) if isinstance(merchant_ids, list) and "*" not in merchant_ids else None
+            metric["scope"] = {
+                "scope_label": scope.get("scope_label") if isinstance(scope.get("scope_label"), str) else None,
+                "merchant_count": merchant_count,
+                "is_wildcard": isinstance(merchant_ids, list) and "*" in merchant_ids,
+            }
+
+        time_range = data.get("time_range")
+        if isinstance(time_range, dict):
+            metric["time_range"] = {
+                key: value
+                for key, value in time_range.items()
+                if key in {"start_at", "end_at", "preset", "timezone"} and (value is None or isinstance(value, str))
+            }
+
+        filters = data.get("filters")
+        if isinstance(filters, dict):
+            status_filter = filters.get("status_filter")
+            metric["filters"] = {
+                "status_filter": [
+                    item for item in status_filter if isinstance(item, str)
+                ] if isinstance(status_filter, list) else [],
+                "merchant_filter_applied": isinstance(filters.get("merchant_id"), str),
+            }
+
+        caveats = data.get("caveats")
+        if isinstance(caveats, list):
+            metric["caveats"] = [item for item in caveats if isinstance(item, str)][:5]
+
+        formula = data.get("formula")
+        if isinstance(formula, str) and not _contains_sqlish_token(formula):
+            metric["formula"] = formula[:240]
+
+        return metric
+
+    @staticmethod
+    def _metric_prompt_summary(normalized: dict[str, Any]) -> dict[str, Any] | None:
+        metric_id = normalized.get("metric_id")
+        display_value = normalized.get("display_value")
+        if not isinstance(metric_id, str) or not isinstance(display_value, str):
+            return None
+        metric_status = normalized.get("metric_status")
+        unit = normalized.get("unit")
+        time_range = normalized.get("time_range")
+        time_preset = time_range.get("preset") if isinstance(time_range, dict) else None
+        text = f"{metric_id}: {display_value}"
+        if isinstance(unit, str) and unit and unit != "count":
+            text = f"{text} {unit}"
+        if isinstance(metric_status, str):
+            text = f"{text} ({metric_status})"
+        if isinstance(time_preset, str) and time_preset:
+            text = f"{text}; preset={time_preset}"
+        return {
+            "metric_id": metric_id,
+            "display_value": display_value,
+            "metric_status": metric_status,
+            "unit": unit,
+            "time_preset": time_preset,
+            "text": text,
         }
 
     def _build_text_for_prompt(self, prompt_projection: dict[str, Any]) -> str:
@@ -327,3 +433,19 @@ def _has_raw_sentinels_in_dict(data: dict[str, Any]) -> bool:
         if isinstance(value, dict) and _has_raw_sentinels_in_dict(value):
             return True
     return False
+
+
+def _looks_like_metric_result(data: dict[str, Any]) -> bool:
+    if not _METRIC_RESULT_KEYS.issubset(data):
+        return False
+    return (
+        isinstance(data.get("metric_id"), str)
+        and isinstance(data.get("status"), str)
+        and isinstance(data.get("unit"), str)
+        and isinstance(data.get("display_value"), str)
+    )
+
+
+def _contains_sqlish_token(value: str) -> bool:
+    upper = value.upper()
+    return any(token in upper for token in ("SELECT ", " FROM ", " JOIN ", " WHERE ", "INSERT ", "UPDATE ", "DELETE "))
