@@ -21115,3 +21115,63 @@ Phase 63 第二轮 Claude plan review 追加到 `63-REVIEWS.md` 后运行 `git d
 
 **剩余问题和下次继续排查入口**
 无产品实现遗留。后续 `rg` 多路径扫描先用 `rg --files` 或已读 plan 的文件名校验路径。
+
+## 2026-07-10 — Phase 64 plan 模板路径探测命中不存在文件
+
+**问题现象**
+Phase 64 plan 阶段恢复上下文时尝试读取 `/Users/ming/.codex/get-shit-done/templates/plan.md`，命令返回文件不存在。
+
+**如何检测/复现**
+运行 `sed -n '1,220p' /Users/ming/.codex/get-shit-done/templates/plan.md`。
+
+**关键证据或命令**
+命令输出为 `sed: /Users/ming/.codex/get-shit-done/templates/plan.md: No such file or directory`。随后检查模板目录，实际存在的是 `/Users/ming/.codex/get-shit-done/templates/phase-prompt.md`，不是 `plan.md`。
+
+**当前判断/根因**
+这是 GSD 模板文件名记忆/路径探测问题，不是 MOCA 产品代码或 Phase 64 scope 问题。Phase plan 的真实格式模板由 `templates/phase-prompt.md` 提供。
+
+**已做处理**
+未采信不存在路径；改为读取 `templates/phase-prompt.md`、`workflows/plan-phase.md` 及其引用的 gate/revision/agent-contract 文档继续 planning。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。后续恢复 GSD plan 阶段时优先用 `find /Users/ming/.codex/get-shit-done/templates -maxdepth 1 -type f` 校验模板文件名。
+
+## 2026-07-10 — Phase 64 rg 扫描包含不存在的 `src/agent/safety.py`
+
+**问题现象**
+Phase 64 planning 本地核对 registry/guard 模式时，一条 `rg` 扫描命令同时传入了 `src/agent/safety.py` 和 `src/agent/safety/`。仓库中只有 `src/agent/safety/` 目录，没有 `src/agent/safety.py` 文件，导致该次 `rg` 退出码为 2。
+
+**如何检测/复现**
+运行包含 `src/agent/safety.py src/agent/safety src/business/query tests/architecture ...` 参数的 `rg -n ...` 命令。
+
+**关键证据或命令**
+命令输出包含 `rg: src/agent/safety.py: No such file or directory (os error 2)`；后续 `find src/agent/safety ...` 确认真实文件是 `src/agent/safety/__init__.py` 和 `src/agent/safety/taxonomy.py`。
+
+**当前判断/根因**
+这是本地探索命令路径写错，不是产品实现或 Phase 64 scope 问题。该次失败扫描未作为结论依据。
+
+**已做处理**
+未采信失败扫描的退出状态；随后直接读取 `src/agent/safety/taxonomy.py`、`tests/architecture/test_safety_taxonomy_boundaries.py` 和 `src/business/query/registry.py` 核对 registry/architecture guard 模式。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。后续多路径扫描前优先用 `rg --files` 或 `find` 校验文件路径。
+
+## 2026-07-10 — Phase 64 gsd-phase-researcher 子代理无响应且未写出 artifact
+
+**问题现象**
+Phase 64 plan 阶段按 GSD workflow 启动 `gsd-phase-researcher` 子代理生成 `64-RESEARCH.md`。等待两轮总计约 8 分钟后，子代理仍未返回完成状态，phase 目录也没有出现 `64-RESEARCH.md`。
+
+**如何检测/复现**
+启动 `gsd-phase-researcher` 后调用 `wait_agent` 两次，分别等待 300000ms 和 180000ms；随后运行 `find .planning/phases/64-rag-risk-label-unification -maxdepth 1 -type f -print | sort`。
+
+**关键证据或命令**
+两次 `wait_agent` 均返回 timed out，`close_agent` 返回 `previous_status: running`。phase 目录只有 `.gitkeep`、`64-CONTEXT.md`、`64-DISCUSSION-LOG.md`。
+
+**当前判断/根因**
+这是 GSD 子代理编排/回传问题，不是 MOCA 产品代码或 RAG risk label 设计问题。为避免 autopilot 卡住，主进程接管 research/pattern/plan 文档生成。
+
+**已做处理**
+关闭无响应子代理；继续由主进程按 GSD plan-phase 模板和已核实源码证据生成 `64-RESEARCH.md`、`64-PATTERNS.md`、`64-VALIDATION.md` 和拆分 PLAN 文件。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。后续如继续调用 GSD 子代理，需在超时后检查 phase 目录和 git 状态，避免留下半成品未跟踪文件。

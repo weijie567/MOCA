@@ -71,7 +71,7 @@ Plans:
 
 ## Next
 
-Phase 63 is complete. Next step is Phase 64 autopilot / planning.
+Phase 64 is planned. Next step is Phase 64 execution.
 
 ### Phase 62: Business Query And Drilldown Foundation
 
@@ -122,7 +122,7 @@ Plans:
 **Goal:** Unify RAG risk labels across context builder, metrics, verifier, semantic routing, and tests so labels such as `manual_review_sensitive`, `conflict`, and `stale_evidence` keep the same meaning across the RAG pipeline.
 **Requirements**: TBD during Phase 64 planning.
 **Depends on:** Phase 63
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 **Success criteria:**
 1. RAG risk labels have a single source of truth consumed by builder, metrics, verifier, and routing.
@@ -130,7 +130,10 @@ Plans:
 3. Parity tests prevent future label-set drift.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 64 to break down)
+- [ ] 64-01-PLAN.md — RAG risk label registry foundation.
+- [ ] 64-02-PLAN.md — ContextBuilder and recommendation-generation migration.
+- [ ] 64-03-PLAN.md — Verifier, routing, and metrics migration.
+- [ ] 64-04-PLAN.md — Drift guards, architecture-debt updates, and focused validation.
 
 ### Phase 65: Trace Event And Console Label Consistency
 
