@@ -423,6 +423,28 @@ class BusinessContextV1(BaseModel):
 
 `route_after_investigate` 必须联合判定 `BusinessContextV1.status`、`missing_required_facts`、tool errors、`retrieval_status`、`termination_reason`、`best_score` 和 intent。Business status 只表达业务事实调查结果；`retrieval_status` 只表达政策证据强度；tool errors 和 `termination_reason` 分别表达调用错误与 bounded-loop 终止原因，不得互相覆盖或混写。
 
+### 8.4.1 Business Query target contract (Phase 62)
+
+本节记录 Phase 62 接受的 `business_query` 目标契约语义；它不是 runtime 已完成证明。Phase 62 的当前实现范围按计划逐步落地：Plan 62-01 已提供 registry source of truth，Plan 62-02 提供 strict `BusinessQuerySpec` schema 与 `business_metric_query` compatibility mapping；ToolPlatform 注册、runtime executor、drilldown state、projection/API/eval 和 Console UI 由后续 Phase 62 plans 继续实现。
+
+`business_query` 是长期 primary business read contract。`business_metric_query` / `query_business_metric` 保留为 Phase 61 compatibility entry，只能映射为 `BusinessQuerySpec(operation="aggregate", ...)` 后进入同一 schema/service path；不得成为永久并行 runtime branch。
+
+目标 `BusinessQuerySpec` 只允许以下 read operation taxonomy：`aggregate`、`list`、`detail`、`breakdown`、`compare`。`draft` 与 `execute` 属于 action path，不得混入 business read query。初始 resource taxonomy 为 `order`、`refund_case`、`ticket`、`coupon_record`、`merchant_metric`。operation/resource/time/status/field/sort/limit compatibility 由 `BUSINESS_QUERY_REGISTRY` / `BusinessQueryRegistry` descriptor 拥有；schema、ToolCatalog、parser、service、projection 和 eval 应从该 registry 派生或以 parity tests 防漂移。
+
+`BusinessFactService` owns the `business_query` compiler/executor. Agent nodes、ToolCatalog、ToolPlatform、final response、API、frontend 不得生成 raw SQL、ad hoc where clause、generic repository list-all 调用或任意 database exploration。Repositories 只暴露 controlled query methods；BusinessFactService 负责把 `BusinessQuerySpec` 编译为 scope-safe aggregate/list/detail/breakdown/compare execution。
+
+No-existence-leak rule：permission and merchant-scope checks happen before existence disclosure. Out-of-scope merchant/resource/id/list/detail inputs must return the same safe denied or empty-safe shape without confirming whether the underlying object exists. User/LLM/tool args must not supply `tenant_id`、`merchant_scope`、trusted permission、draft/execute authority、raw cursor string、raw SQL、arbitrary filters or wildcard merchant filters. Cursor values are typed `BusinessQueryCursor` / `BusinessQueryResultCursor` envelopes, not free-form strings.
+
+Descriptor compatibility gates include `current_snapshot`: only descriptors that accept snapshot time, such as the Phase 62 `pending_ticket_count` example, may validate `current_snapshot`; event-count/rate metrics such as order count, refund count, coupon count, and merchant refund rate must reject it unless a future descriptor explicitly changes that policy. `breakdown` requires descriptor-approved `group_by`; `compare` requires descriptor-approved `compare_to` such as `previous_period`; field, sort, status, and limit values are checked against resource descriptors.
+
+Answer context constraints：`last_query_spec`、`last_answer_context` 和 `result_cursor` may store replayable query spec, safe projection metadata, result ids/refs, allowed drilldowns, fields shown, cursor, scope/time/filter summary, and freshness. They must not store raw rows, tenant internals, unauthorized scope details, policy evidence, memory authority, or frontend-only labels. Follow-up drilldown derives a new `BusinessQuerySpec` from prior safe context and re-enters ToolPlatform + BusinessFactService with fresh permission/scope/field/cursor validation.
+
+Safe projection responsibilities：backend projection owns prompt-safe and UI-safe payloads for aggregate/list/detail/breakdown/compare. Each resource defines displayable field allowlists, PII/redaction rules, prompt payload bounds, UI payload bounds, and resource refs. Frontend Timeline/Details render typed `business_query_answer` payloads; they do not parse localized final text, synthesize authority, show raw rows, expose merchant-scope internals, or convert business facts into policy evidence.
+
+Business facts versus RAG authority separation remains unchanged：`business_query` returns current business facts and `BusinessFactRefV1`; RAG/KnowledgeService returns policy evidence through `EvidenceRefV1`. RAG evidence or memory cannot prove current order/refund/ticket/coupon/metric facts, and `business_query` cannot satisfy policy evidence requirements.
+
+Named deferrals remain out of Phase 62 implementation scope unless a later plan explicitly changes this file：Phase 63 owns risk/action taxonomy and canonical action-type vocabulary; Phase 64 owns RAG risk label unification; Phase 65 owns global event/response-kind/node/tool/console label registry and parity; Phase 66 owns demo/config/test hygiene; Phase 67 remains a registration-only recommendation for state-machine registry and DB constraint hardening per D-62-17 through D-62-20.
+
 完整的 `ToolCallContext` / `ToolRequest` / `ToolResultV2` / `ToolError` 类型见本文件 §12.5 Tool contract。
 
 ## 9. LangGraph workflow 设计
