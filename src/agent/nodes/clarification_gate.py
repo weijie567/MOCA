@@ -87,7 +87,9 @@ def _missing_entries(state: AgentState) -> list[dict[str, list[str]]]:
 
 def _questions_for_reason(reason: str, missing: list[dict[str, list[str]]]) -> list[str]:
     if reason == "missing_required_slots":
-        return _missing_slot_questions(missing) or ["请提供订单号、退款单号或工单号中的至少一个。"]
+        return _missing_slot_questions(missing) or [
+            "我需要订单号、退款单号或工单号来定位具体售后对象；请提供其中至少一个。"
+        ]
     if reason == "low_confidence":
         return ["请再补充一下业务背景或要处理的对象，我需要确认后再继续。"]
     if reason == "multi_target_request":
@@ -106,8 +108,19 @@ def _missing_slot_questions(missing: list[dict[str, list[str]]]) -> list[str]:
         if "any_of" in entry:
             labels = [_slot_label(slot) for slot in entry.get("any_of") or []]
             if labels:
-                questions.append(f"请提供{'或'.join(labels)}。")
+                label_text = _join_labels(labels)
+                questions.append(f"我需要{label_text}来定位具体售后对象；请提供{label_text}中的至少一个。")
     return questions
+
+
+def _join_labels(labels: list[str]) -> str:
+    if not labels:
+        return ""
+    if len(labels) == 1:
+        return labels[0]
+    if len(labels) == 2:
+        return "或".join(labels)
+    return f"{'、'.join(labels[:-1])}或{labels[-1]}"
 
 
 def _slot_label(slot: str) -> str:
