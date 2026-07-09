@@ -9,6 +9,7 @@ import pytest
 from src.agent.nodes import action_draft as action_draft_module
 from src.agent.nodes import execute_action as execute_action_module
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
+from src.tools.catalog import ToolCatalog
 from src.tools.contracts import ToolCallContext, ToolResultV2
 from src.tools.platform import ToolPlatform
 
@@ -290,6 +291,21 @@ class _RecordingActionExecutor:
             latency_ms=0,
             audit_ref=None,
         )
+
+
+def _assert_non_executable_action_error(result: dict[str, Any]) -> None:
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["data"] == {}
+    error = result["action_result"]["error"]
+    assert error["error_code"] == "NON_EXECUTABLE_ACTION_DISPOSITION"
+    assert error["retryable"] is False
+    assert "manual_review" not in error["message"]
+    assert "blocked" not in error["message"]
+    assert "action_draft" not in result
+    assert "draft_outcome" not in result
+    assert result["trace_steps"][-1]["node"] == "action_draft"
+    assert result["trace_steps"][-1]["status"] == "error"
+    assert result["trace_steps"][-1].get("tool_name") in {None, ""}
 
 
 @pytest.mark.asyncio
@@ -613,11 +629,39 @@ async def test_execute_action_canonicalizes_legacy_freeform_action_type(monkeypa
         "拒绝600元补偿请求。根据补偿规则，订单实付金额599元对应的最高体验补偿标准为50元。"
     )
 
+    result = await action_draft_module.action_draft(state, _trusted_config(state))
+
+    _assert_non_executable_action_error(result)
+    create_draft.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action_type", ["manual_review", "blocked"])
+async def test_execute_action_rejects_non_executable_dispositions_before_tool(monkeypatch, action_type: str):
+    create_draft = AsyncMock(return_value=_success_result())
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    state["proposed_action"]["action_type"] = action_type
+
+    result = await action_draft_module.action_draft(state, _trusted_config(state))
+
+    _assert_non_executable_action_error(result)
+    create_draft.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_canonicalizes_compensation_alias_without_new_tool(monkeypatch):
+    create_draft = AsyncMock(return_value=_success_result())
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    state["proposed_action"]["action_type"] = "compensation"
+
     await action_draft_module.action_draft(state, _trusted_config(state))
 
     _, kwargs = create_draft.await_args
-    assert kwargs["action_type"] == "manual_review"
-    assert "manual_review" not in kwargs["idempotency_key"]
+    assert kwargs["action_type"] == "issue_coupon"
+    assert kwargs["payload"]["action_type"] == "issue_coupon"
+    assert "compensation" not in {descriptor.name for descriptor in ToolCatalog().descriptors()}
     assert len(kwargs["action_type"]) <= 64
 
 
