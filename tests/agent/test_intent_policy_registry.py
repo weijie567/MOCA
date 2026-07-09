@@ -66,6 +66,19 @@ def test_module_level_policy_registries_expose_effective_policy_api() -> None:
     assert INTENT_POLICY_REGISTRY.is_critical_route_intent("policy_qa") is False
 
 
+def test_intent_policy_registry_derives_action_bound_intents() -> None:
+    registry = IntentPolicyRegistry()
+
+    assert INTENT_DEFINITIONS["action_request"].action_bound is True
+    assert INTENT_DEFINITIONS["compensation_suggestion"].action_bound is True
+    assert INTENT_DEFINITIONS["complaint_escalation"].action_bound is True
+    assert registry.action_bound_intents() == frozenset(
+        {"action_request", "compensation_suggestion", "complaint_escalation"}
+    )
+    assert registry.is_action_bound_intent("action_request") is True
+    assert registry.is_action_bound_intent("policy_qa") is False
+
+
 def test_business_metric_query_is_single_read_only_slot_resolution_intent() -> None:
     definition = INTENT_DEFINITIONS["business_metric_query"]
 

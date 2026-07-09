@@ -79,6 +79,86 @@ def test_detect_pre_route_approval_chat_and_hard_negatives():
     assert detect_pre_route("accept language preference").disposition == "none"
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "补偿规则是什么",
+        "什么情况下可以发券",
+        "coupon policy for late delivery",
+        "should we compensate under policy",
+        "how much compensation is allowed by rule",
+    ],
+)
+def test_detect_pre_route_policy_compensation_questions_are_not_action_requests(text):
+    assert detect_pre_route(text).disposition == "none"
+
+
+@pytest.mark.parametrize("text", ["请对 ORD-1 直接退款", "refund now", "发券给商家"])
+def test_detect_pre_route_uses_taxonomy_action_aliases_for_positive_action_requests(text):
+    decision = detect_pre_route(text)
+
+    assert decision.disposition == "safety_sensitive"
+    assert decision.requested_operation == "execute_action"
+    assert "critical_write" in decision.reason_codes
+
+
+def test_pre_route_and_routing_sources_are_registry_derived() -> None:
+    pre_route_source = inspect.getsource(detect_pre_route)
+    routing_source = inspect.getsource(routing_module)
+
+    assert "detect_pre_route_action_request" in pre_route_source
+    assert "english_action_terms" not in pre_route_source
+    assert "chinese_action_terms" not in pre_route_source
+    assert "_ACTION_BOUND_INTENTS" not in routing_source
+
+
+def test_policy_evidence_required_derives_from_intent_policy_registry(monkeypatch):
+    calls: list[str] = []
+
+    class FakeIntentRegistry:
+        def requires_evidence(self, intent: str) -> bool:
+            calls.append(intent)
+            return intent == "needs_evidence"
+
+    monkeypatch.setattr(routing_module, "INTENT_POLICY_REGISTRY", FakeIntentRegistry(), raising=False)
+
+    assert routing_module._policy_evidence_required({"primary_intent": "needs_evidence"}) is True
+    assert routing_module._policy_evidence_required({"primary_intent": "no_evidence"}) is False
+    assert calls == ["needs_evidence", "no_evidence"]
+
+
+def test_action_bound_or_high_risk_derives_from_intent_policy_registry(monkeypatch):
+    class FakeIntentRegistry:
+        def is_action_bound_intent(self, intent: str) -> bool:
+            return intent == "actionful"
+
+        def is_high_risk_intent(self, intent: str) -> bool:
+            return intent == "risky"
+
+    monkeypatch.setattr(routing_module, "INTENT_POLICY_REGISTRY", FakeIntentRegistry(), raising=False)
+
+    assert routing_module._action_bound_or_high_risk({"primary_intent": "actionful"}) is True
+    assert routing_module._action_bound_or_high_risk({"primary_intent": "risky"}) is True
+    assert routing_module._action_bound_or_high_risk({"primary_intent": "safe"}) is False
+
+
+def test_registry_exceptions_fail_closed_for_evidence_and_action_bound(monkeypatch):
+    class RaisingIntentRegistry:
+        def requires_evidence(self, intent: str) -> bool:
+            raise RuntimeError(f"registry unavailable for {intent}")
+
+        def is_action_bound_intent(self, intent: str) -> bool:
+            raise RuntimeError(f"registry unavailable for {intent}")
+
+        def is_high_risk_intent(self, intent: str) -> bool:
+            raise RuntimeError(f"registry unavailable for {intent}")
+
+    monkeypatch.setattr(routing_module, "INTENT_POLICY_REGISTRY", RaisingIntentRegistry(), raising=False)
+
+    assert routing_module._policy_evidence_required({"primary_intent": "policy_qa"}) is True
+    assert routing_module._action_bound_or_high_risk({"primary_intent": "action_request"}) is True
+
+
 def test_derive_keyword_signals_only_emits_candidates_without_selecting_winner():
     signals = derive_keyword_signals("这个订单投诉升级，补偿方案给多少？")
 
