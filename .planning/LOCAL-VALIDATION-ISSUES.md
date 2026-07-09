@@ -20556,3 +20556,23 @@ pytest 报错显示 `outcome.tool_result.status == "invalid_response"`。排查 
 
 **剩余问题和下次继续排查入口**  
 Task 2 focused suite 与 catalog 相关测试已通过：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_tool_platform.py tests/agent/test_nodes/test_investigate.py tests/tools/test_catalog.py -q --tb=short` → `155 passed, 1 warning`。后续计划级总体验证仍需覆盖。若 final/API/frontend 改消费 `fact["business_query"]`，应继续保持 ToolResultV2.data 与 BusinessFactResultV1.fact 的 envelope 契约一致。
+
+## 2026-07-09 — Phase 62-04 architecture backstop 首次运行参数类型错误
+
+**问题现象**  
+Task 3 新增 `tests/architecture/test_business_query_boundaries.py` 后首次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_business_query_boundaries.py -q --tb=short`，`test_business_query_tool_is_consistent_between_catalog_and_investigate_planner` 失败，报错 `TypeError: 'ToolCatalog' object is not iterable`。
+
+**如何检测/复现**  
+运行上述 architecture focused suite 即可复现。
+
+**关键证据或命令**  
+`src/tools/catalog.py` 中 `investigate_tool_names(descriptors: Iterable[ToolDescriptor] | None = None)` 接收 descriptor iterable；新测试误传 `ToolCatalog()` 实例。
+
+**当前判断/根因**  
+这是新增静态测试的调用方式错误，不是业务实现或环境入口问题。
+
+**已做处理**  
+将测试改为 `investigate_tool_names(ToolCatalog().descriptors())`，随后重跑 `tests/architecture/test_business_query_boundaries.py` 通过：`4 passed, 1 warning`。
+
+**剩余问题和下次继续排查入口**  
+无产品遗留。后续若 `investigate_tool_names` API 改为接收 catalog 对象，应同步调整此 architecture backstop。
