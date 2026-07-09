@@ -66,6 +66,61 @@ def _raw_payload_result(tenant_id: uuid.UUID) -> ToolResultV2:
     )
 
 
+def _metric_result(tenant_id: uuid.UUID) -> ToolResultV2:
+    business_ref = BusinessFactRefV1(
+        tenant_id=str(tenant_id),
+        source_system="business_fact_service",
+        resource_type="business_metric",
+        resource_id="order_count",
+        resource_version=None,
+        data_freshness_at=datetime.now(UTC),
+        retrieved_at=datetime.now(UTC),
+    )
+    return ToolResultV2(
+        status="success",
+        data={
+            "metric_id": "order_count",
+            "status": "ok",
+            "value": 7,
+            "rate": None,
+            "numerator": None,
+            "denominator": None,
+            "unit": "count",
+            "display_value": "7",
+            "scope": {
+                "tenant_id": str(tenant_id),
+                "merchant_ids": ["MERCHANT-ID-SHOULD-NOT-BE-IN-PROMPT"],
+                "scope_label": "authorized_merchants",
+            },
+            "time_range": {
+                "start_at": "2026-07-08T16:00:00Z",
+                "end_at": "2026-07-09T04:00:00Z",
+                "preset": "today",
+                "timezone": "Asia/Shanghai",
+            },
+            "filters": {"merchant_id": None, "status_filter": []},
+            "freshness": {
+                "data_freshness_at": datetime.now(UTC).isoformat(),
+                "computed_at": datetime.now(UTC).isoformat(),
+                "source_system": "business_fact_service",
+            },
+            "formula": "count orders by created_at in authorized merchant scope",
+            "caveats": [],
+            "no_leak_status": "not_applicable",
+        },
+        summary="Business fact read succeeded",
+        source_system="business_fact_service",
+        data_freshness_at=datetime.now(UTC),
+        policy_evidence_refs=[],
+        business_fact_refs=[business_ref],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=17,
+        audit_ref=None,
+    )
+
+
 @pytest.mark.asyncio
 async def test_tool_result_storage_keeps_four_layers_separate(session: AsyncSession, seeded_session: dict) -> None:
     repository = ConversationRepository(session)
@@ -186,6 +241,57 @@ async def test_prompt_summary_excludes_large_nested_data(session: AsyncSession, 
     # Phase 29: prompt_summary uses projection format [tool_name] status — summary
     assert "get_order" in dumped["prompt_summary"]
     assert "success" in dumped["prompt_summary"]
+
+
+@pytest.mark.asyncio
+async def test_metric_prompt_summary_is_concise_and_scope_safe(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    repository = ConversationRepository(session)
+    service = ConversationService(repository)
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    thread_id = "thread-tool-metric-summary"
+    run_id = await _insert_run(session, seeded_session, thread_id)
+    operation_id = uuid.uuid4()
+
+    tool_call = await service.append_tool_call(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        trace_id="trace-tool-metric-summary",
+        tool_call_id=str(operation_id),
+        tool_name="query_business_metric",
+        caller_node="investigate",
+        operation_id=operation_id,
+        attempt=1,
+        arguments={"metric_id": "order_count", "time_preset": "today"},
+        argument_summary_json={"metric_id": "order_count", "time_preset": "today"},
+        redaction_policy_version="conversation_redaction.v1",
+    )
+    prompt_summary = await service.append_tool_result(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        trace_id="trace-tool-metric-summary",
+        operation_id=operation_id,
+        tool_call_id=str(operation_id),
+        tool_call_record_id=tool_call.id,
+        tool_result_id="tool-result-metric-1",
+        tool_name="query_business_metric",
+        result=_metric_result(tenant_id),
+    )
+
+    dumped = prompt_summary.model_dump(mode="json")
+
+    assert "order_count" in dumped["prompt_summary"]
+    assert "7" in dumped["prompt_summary"]
+    assert "MERCHANT-ID-SHOULD-NOT-BE-IN-PROMPT" not in dumped["prompt_summary"]
+    assert str(tenant_id) not in dumped["prompt_summary"]
+    assert "SELECT" not in dumped["prompt_summary"]
 
 
 @pytest.mark.asyncio

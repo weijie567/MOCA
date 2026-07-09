@@ -16,6 +16,7 @@ symbols), never syntax errors or unrelated environment failures.
 from __future__ import annotations
 
 import inspect
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -955,6 +956,41 @@ async def test_tool_platform_unsupported_business_reads_are_safe_unavailable(
     assert outcome.tool_result.policy_evidence_refs == []
     assert outcome.tool_result.error is not None
     assert outcome.tool_result.error.code == "BUSINESS_FACT_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_tool_platform_query_business_metric_projects_concise_metric_summary(
+    session,
+    seeded_session: dict,
+) -> None:
+    from src.tools.platform import ToolPlatform
+
+    now = datetime.now(UTC)
+    platform = ToolPlatform.with_defaults(session)
+
+    outcome = await platform.invoke(
+        "query_business_metric",
+        {
+            "metric_id": "order_count",
+            "start_at": (now - timedelta(days=10)).isoformat(),
+            "end_at": (now + timedelta(days=1)).isoformat(),
+        },
+        _seeded_ctx(seeded_session),
+        session=None,
+    )
+
+    assert outcome.policy_decision.decision == "allowed"
+    assert outcome.tool_result.status == "success"
+    assert outcome.tool_result.data is not None
+    assert outcome.tool_result.data["metric_id"] == "order_count"
+    assert outcome.tool_result.business_fact_refs[0].resource_type == "business_metric"
+    assert outcome.projection.normalized_result["metric_id"] == "order_count"
+    assert outcome.projection.normalized_result["display_value"] == "1"
+    assert outcome.projection.prompt_projection["metric_summary"]["display_value"] == "1"
+    assert "order_count" in outcome.projection.text_for_prompt
+    assert "1" in outcome.projection.text_for_prompt
+    assert str(seeded_session["merchant"].id) not in outcome.projection.text_for_prompt
+    assert "SELECT" not in outcome.projection.model_dump_json()
 
 
 def test_tool_result_projector_blocks_raw_data_from_prompt_and_graph_surfaces() -> None:

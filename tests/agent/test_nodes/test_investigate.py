@@ -289,6 +289,61 @@ def _business_success_with_raw_payload(resource_type: str = "order", resource_id
     )
 
 
+def _metric_success() -> ToolResultV2:
+    ref = BusinessFactRefV1(
+        tenant_id=str(uuid4()),
+        source_system="business_fact_service",
+        resource_type="business_metric",
+        resource_id="order_count",
+        resource_version=None,
+        data_freshness_at=datetime.now(UTC),
+        retrieved_at=datetime.now(UTC),
+    )
+    return ToolResultV2(
+        status="success",
+        data={
+            "metric_id": "order_count",
+            "status": "ok",
+            "value": 1,
+            "rate": None,
+            "numerator": None,
+            "denominator": None,
+            "unit": "count",
+            "display_value": "1",
+            "scope": {
+                "tenant_id": "TENANT-ID-SHOULD-NOT-BE-IN-PROMPT",
+                "merchant_ids": ["MERCHANT-ID-SHOULD-NOT-BE-IN-PROMPT"],
+                "scope_label": "authorized_merchants",
+            },
+            "time_range": {
+                "start_at": "2026-07-08T16:00:00Z",
+                "end_at": "2026-07-09T04:00:00Z",
+                "preset": "today",
+                "timezone": "Asia/Shanghai",
+            },
+            "filters": {"merchant_id": None, "status_filter": []},
+            "freshness": {
+                "data_freshness_at": datetime.now(UTC).isoformat(),
+                "computed_at": datetime.now(UTC).isoformat(),
+                "source_system": "business_fact_service",
+            },
+            "formula": "count orders by created_at in authorized merchant scope",
+            "caveats": [],
+            "no_leak_status": "not_applicable",
+        },
+        summary="Business fact read succeeded",
+        source_system="business_fact_service",
+        data_freshness_at=datetime.now(UTC),
+        policy_evidence_refs=[],
+        business_fact_refs=[ref],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=2,
+        audit_ref=None,
+    )
+
+
 def _order_success_with_relation_hints(
     *,
     order_no: str = "ORD-CHAIN-001",
@@ -830,6 +885,32 @@ async def test_every_execution_uses_tool_platform():
 
     assert [call[0] for call in manager.calls] == ["get_order"]
     assert result["business_context"]["facts"]["order"]["id"] == "ORD-001"
+
+
+@pytest.mark.asyncio
+async def test_metric_result_accumulates_under_business_metric_fact():
+    events: list[dict[str, Any]] = []
+    manager = FakePlatform({"query_business_metric": _metric_success()})
+    plan = [
+        {
+            "next_tool": "query_business_metric",
+            "args": {"metric_id": "order_count", "time_preset": "today"},
+            "reason": "answer metric question",
+        }
+    ]
+
+    result = await investigate(_state(plan), _config(manager, events))
+
+    assert [call[0] for call in manager.calls] == ["query_business_metric"]
+    metric_fact = result["business_context"]["facts"]["business_metric"]
+    assert metric_fact["metric_id"] == "order_count"
+    assert metric_fact["display_value"] == "1"
+    assert result["business_context"]["business_fact_refs"][0]["resource_type"] == "business_metric"
+    assert result["claim_dependency_map"][0]["depends_on_refs"] == [
+        {"resource_type": "business_metric", "resource_id": "order_count"}
+    ]
+    assert "MERCHANT-ID-SHOULD-NOT-BE-IN-PROMPT" not in result["tool_results"][0]["prompt_summary"]
+    assert "TENANT-ID-SHOULD-NOT-BE-IN-PROMPT" not in result["tool_results"][0]["prompt_summary"]
 
 
 @pytest.mark.asyncio
