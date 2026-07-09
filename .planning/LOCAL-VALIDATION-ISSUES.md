@@ -20895,3 +20895,23 @@ GSD roadmap analyzer / phase.complete handler 只读取当前 milestone 的标�
 
 **剩余问题和下次继续排查入口**
 无产品实现遗留。后续 Phase 63/64 closeout 后仍需核对 `phase.complete` 是否识别后续注册 phase；若仍误判，继续手动修正 planning metadata 并考虑修复 GSD roadmap analyzer 对 `## Next` 注册 phase 的识别。
+
+## 2026-07-10 — Phase 63 `state.record-session` 错写 STATE frontmatter 和 resume file
+
+**问题现象**
+Phase 63 auto discuss 生成并提交 `63-CONTEXT.md` 后运行 `gsd-sdk query state.record-session --stopped-at "Phase 63 context gathered" --resume-file ".planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-CONTEXT.md"`。命令返回 `recorded:true`，但 `.planning/STATE.md` frontmatter 被改回 `status: completed`、`total_phases: 1`、`total_plans: 5`、`percent: 100`，正文 `Resume file` 被写成字面量 `--resume-file`。
+
+**如何检测/复现**
+运行上述 `state.record-session` 命令后查看 `git diff -- .planning/STATE.md`。
+
+**关键证据或命令**
+`git diff -- .planning/STATE.md` 显示 frontmatter 从 Phase 63 handoff 的 `status: executing` / `total_phases: 5` / `percent: 20` 回退为 completed 100%，且 `Resume file: --resume-file`。
+
+**当前判断/根因**
+GSD `state.record-session` handler 对 MOCA 当前 compact STATE frontmatter 仍按旧 milestone/phase 结构重算，同时 CLI 参数解析没有正确消费 `--resume-file` 的值。
+
+**已做处理**
+手工修正 `.planning/STATE.md` 为 Phase 63 继续执行状态，并将 `Resume file` 改为 `.planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-CONTEXT.md`。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。后续调用 `state.record-session` 后必须检查 STATE diff；必要时避免依赖该 handler 写 resume file，改由手工同步并记录。

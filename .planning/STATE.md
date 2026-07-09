@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: executing
-last_updated: "2026-07-09T17:23:55.000Z"
+last_updated: "2026-07-09T17:28:35.501Z"
 last_activity: 2026-07-10
 progress:
   total_phases: 5
@@ -30,7 +30,7 @@ Status: Phase 62 complete; Phase 63 is next in the user-requested autopilot chai
 Last activity: 2026-07-10
 Next: Run `$gsd-phase-autopilot 63`, then `$gsd-phase-autopilot 64` only after Phase 63 completes.
 
-Resume file: None
+Resume file: .planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-CONTEXT.md
 
 Progress: [██░░░░░░░░] 20%
 
