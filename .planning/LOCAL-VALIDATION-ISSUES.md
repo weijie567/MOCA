@@ -20536,3 +20536,23 @@ Task 2 GREEN 第一次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/too
 
 **剩余问题和下次继续排查入口**  
 无产品遗留。若后续 schema helper 再扩展字段，应优先用 registry descriptor dataclass 字段名或新增小型 schema-helper 单元测试避免 import-time 失败。
+
+## 2026-07-09 — Phase 62-04 business_query runtime 接入后 ToolPlatform 输出校验失败
+
+**问题现象**  
+Task 2 GREEN 第一次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_tool_platform.py tests/agent/test_nodes/test_investigate.py -q --tb=short` 时，新增的 `test_tool_platform_business_query_dispatches_to_service_runtime` 失败：期望 `success`，实际 `invalid_response`。
+
+**如何检测/复现**  
+在 62-04 Task 2 移除 `BusinessToolExecutor` deferred 分支后运行上述 focused suite。
+
+**关键证据或命令**  
+pytest 报错显示 `outcome.tool_result.status == "invalid_response"`。排查 `src/tools/runtime.py` 可知失败发生在 ToolRuntime output schema validation；`src/tools/catalog.py` 的 `business_query` output schema 仍要求直接的 `BusinessQueryResultV1`，但 62-04 service runtime 按计划返回 `ToolResultV2.data == {"business_query": BusinessQueryResultV1}` fact envelope。
+
+**当前判断/根因**  
+这是 62-03 descriptor 输出契约与 62-04 `BusinessFactService` runtime fact envelope 之间的接缝错误。runtime 接通前 safe deferred 路径不会触发成功响应 schema validation，因此该问题直到 Task 2 GREEN 才暴露。
+
+**已做处理**  
+将 `business_query` ToolCatalog output schema 改为验证 `{"business_query": BusinessQueryResultV1}` envelope，并更新 `tests/tools/test_catalog.py` 的输出契约断言。
+
+**剩余问题和下次继续排查入口**  
+Task 2 focused suite 与 catalog 相关测试已通过：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_tool_platform.py tests/agent/test_nodes/test_investigate.py tests/tools/test_catalog.py -q --tb=short` → `155 passed, 1 warning`。后续计划级总体验证仍需覆盖。若 final/API/frontend 改消费 `fact["business_query"]`，应继续保持 ToolResultV2.data 与 BusinessFactResultV1.fact 的 envelope 契约一致。

@@ -341,7 +341,7 @@ _BUSINESS_QUERY_INPUT_SCHEMA: dict[str, Any] = {
     "required": ["operation", "resource"],
     "additionalProperties": False,
 }
-_BUSINESS_QUERY_OUTPUT_SCHEMA: dict[str, Any] = {
+_BUSINESS_QUERY_RESULT_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "schema_version": {"type": "string", "enum": ["business_query_result.v1"]},
@@ -357,6 +357,12 @@ _BUSINESS_QUERY_OUTPUT_SCHEMA: dict[str, Any] = {
         "scope": {"type": ["object", "null"]},
     },
     "required": list(BusinessQueryResultV1.model_fields),
+    "additionalProperties": False,
+}
+_BUSINESS_QUERY_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"business_query": _BUSINESS_QUERY_RESULT_OUTPUT_SCHEMA},
+    "required": ["business_query"],
     "additionalProperties": False,
 }
 _CASE_MEMORY_REF_ARRAY_SCHEMA: dict[str, Any] = {"type": "array", "items": {"type": "object"}}

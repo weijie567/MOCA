@@ -74,16 +74,7 @@ EXPECTED_OUTPUT_PROPERTY_KEYS = {
         "caveats",
         "no_leak_status",
     },
-    "business_query": {
-        "schema_version",
-        "operation",
-        "resource",
-        "status",
-        "rows",
-        "answer_context",
-        "cursor",
-        "scope",
-    },
+    "business_query": {"business_query"},
     "search_policy": {"retrieval_status", "best_score", "threshold", "summary"},
 }
 NO_DATA_OUTPUT_SCHEMA_TOOL_NAMES = frozenset({"get_logistics", "get_merchant_risk", "search_sop"})
@@ -355,12 +346,15 @@ def test_business_query_schema_rejects_authority_sql_and_raw_cursor_fields() -> 
 def test_business_query_output_schema_matches_result_contract_shape() -> None:
     descriptor = _descriptor("business_query")
     schema = descriptor.output_schema
+    inner_schema = schema["properties"]["business_query"]
 
-    assert set(schema["properties"]) == set(BusinessQueryResultV1.model_fields)
-    assert set(schema["required"]) == set(BusinessQueryResultV1.model_fields)
-    assert set(schema["properties"]["operation"]["enum"]) == BUSINESS_QUERY_REGISTRY.operation_ids()
-    assert set(schema["properties"]["resource"]["enum"]) == BUSINESS_QUERY_REGISTRY.resource_ids()
-    assert set(schema["properties"]["status"]["enum"]) == {
+    assert set(schema["properties"]) == {"business_query"}
+    assert schema["required"] == ["business_query"]
+    assert set(inner_schema["properties"]) == set(BusinessQueryResultV1.model_fields)
+    assert set(inner_schema["required"]) == set(BusinessQueryResultV1.model_fields)
+    assert set(inner_schema["properties"]["operation"]["enum"]) == BUSINESS_QUERY_REGISTRY.operation_ids()
+    assert set(inner_schema["properties"]["resource"]["enum"]) == BUSINESS_QUERY_REGISTRY.resource_ids()
+    assert set(inner_schema["properties"]["status"]["enum"]) == {
         "ok",
         "partial",
         "empty",
@@ -368,8 +362,8 @@ def test_business_query_output_schema_matches_result_contract_shape() -> None:
         "invalid_request",
         "unavailable",
     }
-    assert schema["properties"]["rows"]["items"]["type"] == "object"
-    assert schema["properties"]["answer_context"]["type"] == ["object", "null"]
+    assert inner_schema["properties"]["rows"]["items"]["type"] == "object"
+    assert inner_schema["properties"]["answer_context"]["type"] == ["object", "null"]
 
 
 def test_query_business_metric_schema_enums_are_registry_derived() -> None:

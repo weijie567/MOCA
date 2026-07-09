@@ -1778,7 +1778,7 @@
 - `rg -n "name=\"business_query\"|tool:business_query|additionalProperties|raw_sql|merchant_scope|tenant_id" src/tools/catalog.py src/tools/policy.py src/tools/executors/business.py tests/tools/test_catalog.py tests/tools/test_tool_platform.py` → required descriptor/schema/policy-denial evidence found。
 
 **剩余风险**
-- 🟡 business_query runtime execution remains intentionally deferred to 62-04; current executor returns safe `unavailable` for otherwise valid specs.
+- ✅ business_query runtime execution deferred 风险已由 Phase 62 Plan 04 Task 2 关闭：`BusinessToolExecutor` 现委托 `BusinessToolService.invoke_tool(...)`。
 - 🟡 planner allowlist 仍是静态副本；post-Phase 62 或 Phase 65 tool-label/registry cleanup 可考虑把 planner allowlist 从 ToolCatalog 派生。
 
 ## 2026-07-09 — Phase 62 Plan 04 BusinessFactService business_query runtime ✅已修复验证
@@ -1808,5 +1808,34 @@
 - `rg -n "async def query_business|BusinessQueryCompiler|metric_input_to_business_query" src/business/service.py src/business/query/compiler.py` → required symbols found。
 
 **剩余风险**
-- 🟡 `business_query` 仍未通过 `BusinessToolExecutor` 接入 ToolPlatform runtime；这是 62-04 Task 2 的执行范围。
+- ✅ `business_query` ToolPlatform runtime 接入已由 62-04 Task 2 关闭。
 - 🟡 final response / API / frontend projection 仍未消费 `fact["business_query"]`；按计划留给 62-06/62-07。
+
+## 2026-07-09 — Phase 62 Plan 04 business_query ToolPlatform dispatch ✅已修复验证
+
+**子系统**
+- 工具调用 / investigate business_context / business query runtime
+
+**问题 / 根因**
+- 62-03 为 `business_query` 注册了 catalog/policy/allowlist，但 `BusinessToolExecutor` 仍有 `_business_query_deferred_result(...)` 分支，对合法请求返回 `BUSINESS_QUERY_RUNTIME_DEFERRED`。
+- investigate 聚合 business fact 时统一写入 `ToolResultProjector.normalized_result`，对 `fact["business_query"]` 这类已在 service 层脱敏和规范化的嵌套 payload 会丢失 `operation/resource/rows/cursor/answer_context` 等 drilldown 所需结构。
+
+**影响**
+- ToolPlatform 允许 `business_query` 后仍无法到达 service runtime，agent 端只能得到 unavailable。
+- 即使 service 返回 `fact["business_query"]`，investigate 的 `business_context.facts["business_query"]` 也无法承载后续 final/API/frontend drilldown 需要的稳定查询结果。
+
+**处理状态**
+- ✅ 移除 executor deferred 分支，`BusinessToolExecutor.has_tool(...)` 和 `execute(...)` 统一委托 `BusinessToolService`。
+- ✅ investigate 对 `resource_type == "business_query"` 且 `result.data["business_query"]` 为 dict 的结果，写入该规范 payload；其他业务 fact 仍沿用 projection normalized result。
+- ✅ 修正 `business_query` ToolCatalog output schema：ToolPlatform 验证 `ToolResultV2.data` 时使用 `{"business_query": BusinessQueryResultV1}` fact envelope，而不是只验证内部 result。
+- ✅ 新增 ToolPlatform runtime dispatch、investigate accumulation、catalog output envelope 回归测试。
+
+**证据 / 验证**
+- 文件：`src/tools/executors/business.py`、`src/tools/catalog.py`、`src/agent/nodes/investigate.py`、`tests/tools/test_tool_platform.py`、`tests/tools/test_catalog.py`、`tests/agent/test_nodes/test_investigate.py`。
+- Phase / commit：62-04 Task 2 GREEN（本条所在提交）
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_tool_platform.py tests/agent/test_nodes/test_investigate.py tests/tools/test_catalog.py -q --tb=short` → `155 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/tools/executors/business.py src/tools/catalog.py src/agent/nodes/investigate.py tests/tools/test_tool_platform.py tests/tools/test_catalog.py tests/agent/test_nodes/test_investigate.py .planning/ARCHITECTURE-DEBT.md .planning/LOCAL-VALIDATION-ISSUES.md` → 通过
+
+**剩余风险**
+- 🟡 final response / API / frontend projection 仍未消费 `fact["business_query"]`；按计划留给 62-06/62-07。
+- 🟡 planner allowlist 仍是静态副本；post-Phase 62 或 Phase 65 tool-label/registry cleanup 可考虑把 planner allowlist 从 ToolCatalog 派生。

@@ -908,7 +908,11 @@ def _accumulate_tool_result(
             for ref in result.business_fact_refs:
                 ref_data = ref.model_dump(mode="json")
                 context["business_fact_refs"].append(ref_data)
-                context["facts"][ref.resource_type] = normalized
+                context["facts"][ref.resource_type] = _business_fact_payload_for_context(
+                    ref.resource_type,
+                    result,
+                    normalized,
+                )
                 context["claim_dependency_map"].append(
                     {
                         "claim_id": f"business:{ref.resource_type}:{ref.resource_id}",
@@ -940,6 +944,17 @@ def _accumulate_tool_result(
         )
         error["resource"] = resource_type
         context["errors"].append(error)
+
+
+def _business_fact_payload_for_context(
+    resource_type: str,
+    result: ToolResultV2,
+    normalized: dict[str, Any],
+) -> dict[str, Any]:
+    if resource_type != "business_query" or not isinstance(result.data, dict):
+        return normalized
+    payload = result.data.get("business_query")
+    return payload if isinstance(payload, dict) else normalized
 
 
 def _business_status(context: dict[str, Any]) -> str:
