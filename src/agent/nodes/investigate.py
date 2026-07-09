@@ -41,6 +41,10 @@ _CASE_SLOT_RESOURCES = {
     "refund_case_id": ("get_refund_case", "refund_case"),
     "ticket_id": ("get_ticket", "ticket"),
 }
+_METRIC_TOOL_NAME = "query_business_metric"
+_METRIC_EVENT_OR_RATE_IDS = frozenset(
+    {"order_count", "refund_case_count", "coupon_record_count", "merchant_refund_rate"}
+)
 
 
 def _get_llm() -> ChatOpenAI:
@@ -77,6 +81,13 @@ def _deterministic_fallback_plan_next_step(
 ) -> dict[str, Any]:
     attempted = accumulated_context.get("attempted") or set()
     unusable = accumulated_context.get("unusable") or set()
+    descriptor_names = {descriptor.name for descriptor in available_descriptors}
+    metric_step = _metric_fallback_step(state, descriptor_names, attempted, unusable)
+    if metric_step is not None:
+        return metric_step
+    if _is_metric_intent(state):
+        return {"stop": True, "stop_reason": "no_more_useful_tools"}
+
     slots = _case_slots_for_loop(state, accumulated_context.get("discovered_slots"))
     candidates = [
         ("get_order", {"order_no": slots.get("order_id")}),
@@ -84,12 +95,76 @@ def _deterministic_fallback_plan_next_step(
         ("get_ticket", {"ticket_id": slots.get("ticket_id")}),
         ("search_policy", {"query": state.get("user_query") or state.get("normalized_query") or ""}),
     ]
-    descriptor_names = {descriptor.name for descriptor in available_descriptors}
     for tool_name, args in candidates:
         key = _attempt_key(tool_name, args)
         if tool_name in descriptor_names and tool_name not in unusable and key not in attempted and all(args.values()):
             return {"next_tool": tool_name, "args": args, "reason": "deterministic investigation fallback"}
     return {"stop": True, "stop_reason": "no_more_useful_tools"}
+
+
+def _metric_fallback_step(
+    state: AgentState,
+    descriptor_names: set[str],
+    attempted: set[Any],
+    unusable: set[Any],
+) -> dict[str, Any] | None:
+    args = _metric_args_from_active_slots(state)
+    if args is None:
+        return None
+    key = _attempt_key(_METRIC_TOOL_NAME, args)
+    if _METRIC_TOOL_NAME not in descriptor_names or _METRIC_TOOL_NAME in unusable or key in attempted:
+        return None
+    return {
+        "next_tool": _METRIC_TOOL_NAME,
+        "args": args,
+        "reason": "deterministic business metric fallback",
+    }
+
+
+def _metric_args_from_active_slots(state: AgentState) -> dict[str, Any] | None:
+    if not _is_metric_intent(state):
+        return None
+    active_slots = state.get("active_slots") if isinstance(state.get("active_slots"), dict) else {}
+    metric_id = _safe_slot_value(active_slots.get("metric_id"))
+    if not metric_id:
+        return None
+
+    time_preset = _safe_slot_value(active_slots.get("metric_time_preset"))
+    start_at = _safe_slot_value(active_slots.get("metric_time_range_start"))
+    end_at = _safe_slot_value(active_slots.get("metric_time_range_end"))
+    has_time_range = bool(start_at and end_at)
+    if metric_id in _METRIC_EVENT_OR_RATE_IDS and not has_time_range:
+        return None
+    if metric_id == "pending_ticket_count" and not (time_preset or has_time_range):
+        return None
+
+    args: dict[str, Any] = {"metric_id": metric_id}
+    if time_preset:
+        args["time_preset"] = time_preset
+    if has_time_range:
+        args["start_at"] = start_at
+        args["end_at"] = end_at
+    merchant_id = _safe_slot_value(active_slots.get("merchant_id"))
+    if merchant_id:
+        args["merchant_id"] = merchant_id
+    status_filter = _safe_status_filter(active_slots.get("status_filter"))
+    if status_filter:
+        args["status_filter"] = status_filter
+    return args
+
+
+def _is_metric_intent(state: AgentState) -> bool:
+    return (state.get("primary_intent") or state.get("current_intent")) == "business_metric_query"
+
+
+def _safe_status_filter(value: Any) -> list[str]:
+    if isinstance(value, str):
+        safe_value = _safe_slot_value(value)
+        return [safe_value] if safe_value else []
+    if not isinstance(value, list):
+        return []
+    safe_values = [_safe_slot_value(item) for item in value]
+    return [item for item in safe_values if item]
 
 
 async def investigate(state: AgentState, config: RunnableConfig) -> dict:
