@@ -73,6 +73,88 @@ async def test_order_identifier_clarification_lists_all_accepted_identifier_type
 
 
 @pytest.mark.asyncio
+async def test_metric_time_range_clarification_lists_supported_options_without_policy_internals(base_state):
+    result = await clarification_gate(
+        {
+            **base_state,
+            "primary_intent": "business_metric_query",
+            "routing_hints": {
+                "clarification_reason": "missing_required_slots",
+                "missing_required_slots": [{"all_of": ["metric_time_range"]}],
+            },
+            "missing_required_slots": [{"all_of": ["metric_time_range"]}],
+        },
+        {},
+    )
+
+    question = result["clarification_request"]["questions"][0]
+    assert "时间范围" in question
+    for option in ("今天", "本周", "本月", "本季度", "今年", "起止时间"):
+        assert option in question
+    assert "metric_time_range" not in result["final_response"]
+    assert "routing_hints" not in result["final_response"]
+    assert "slot" not in result["final_response"].lower()
+
+
+@pytest.mark.asyncio
+async def test_metric_id_clarification_lists_supported_metric_labels(base_state):
+    result = await clarification_gate(
+        {
+            **base_state,
+            "primary_intent": "business_metric_query",
+            "missing_required_slots": [{"all_of": ["metric_id"]}],
+        },
+        {},
+    )
+
+    question = result["clarification_request"]["questions"][0]
+    for label in ("订单数", "退款单数", "待处理工单数", "补偿券记录数", "商户退款率"):
+        assert label in question
+    assert "business_metric_query" not in question
+    assert "metric_id" not in question
+
+
+@pytest.mark.asyncio
+async def test_metric_merchant_filter_clarification_is_user_readable(base_state):
+    result = await clarification_gate(
+        {
+            **base_state,
+            "primary_intent": "business_metric_query",
+            "missing_required_slots": [{"all_of": ["merchant_filter"]}],
+        },
+        {},
+    )
+
+    question = result["clarification_request"]["questions"][0]
+    assert "商家" in question
+    assert "当前权限范围" in question
+    assert "merchant_filter" not in question
+
+
+@pytest.mark.asyncio
+async def test_metric_scope_denial_does_not_confirm_unauthorized_merchant(base_state):
+    result = await clarification_gate(
+        {
+            **base_state,
+            "primary_intent": "business_metric_query",
+            "routing_hints": {
+                "clarification_reason": "unsupported_or_ambiguous",
+                "safe_reason": "metric_scope_denied",
+                "merchant_id": "merchant-secret-404",
+            },
+            "active_slots": {"merchant_id": "merchant-secret-404"},
+        },
+        {},
+    )
+
+    response = result["final_response"]
+    assert "当前权限范围内无法提供该商户指标" in response
+    assert "merchant-secret-404" not in response
+    assert "存在" not in response
+    assert "不存在" not in response
+
+
+@pytest.mark.asyncio
 async def test_low_confidence_and_errors_do_not_leak(base_state):
     result = await clarification_gate(
         {
