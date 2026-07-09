@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.business.query.registry import BUSINESS_QUERY_REGISTRY
+from src.business.query.schemas import BusinessQueryResultV1, BusinessQuerySpec
 from src.tools.catalog import _IDENTIFIER_SCHEMAS, RegisteredTool, ToolCatalog, ToolDescriptor, investigate_tool_names
 from src.tools.contracts import ToolCallContext
 from src.tools.executors.memory import _case_memory_request
@@ -22,6 +23,7 @@ TPH01_OUTPUT_SCHEMA_TOOL_NAMES = frozenset(
         "get_ticket",
         "get_logistics",
         "get_merchant_risk",
+        "business_query",
         "query_business_metric",
         "search_policy",
         "search_sop",
@@ -71,6 +73,16 @@ EXPECTED_OUTPUT_PROPERTY_KEYS = {
         "formula",
         "caveats",
         "no_leak_status",
+    },
+    "business_query": {
+        "schema_version",
+        "operation",
+        "resource",
+        "status",
+        "rows",
+        "answer_context",
+        "cursor",
+        "scope",
     },
     "search_policy": {"retrieval_status", "best_score", "threshold", "summary"},
 }
@@ -283,6 +295,81 @@ def test_query_business_metric_descriptor_is_read_only_and_strict() -> None:
     ]
     assert descriptor.output_schema["additionalProperties"] is False
     assert descriptor.output_schema != GENERIC_OBJECT_SCHEMA
+
+
+def test_business_query_descriptor_is_read_only_strict_and_registry_derived() -> None:
+    descriptor = _descriptor("business_query")
+
+    assert descriptor.kind == "read"
+    assert descriptor.side_effect == "read_only"
+    assert descriptor.required_permission == "tool:business_query"
+    assert descriptor.caller_allowlist == ["investigate"]
+    assert descriptor.executor == "business"
+    assert descriptor.resource_type == "business_query"
+    assert descriptor.exposure == "planner_visible"
+    assert descriptor.input_schema["additionalProperties"] is False
+    assert descriptor.output_schema["additionalProperties"] is False
+    assert descriptor.output_schema != GENERIC_OBJECT_SCHEMA
+
+    properties = descriptor.input_schema["properties"]
+    assert descriptor.input_schema["required"] == ["operation", "resource"]
+    assert set(properties) <= set(BusinessQuerySpec.model_fields)
+    assert set(properties["operation"]["enum"]) == BUSINESS_QUERY_REGISTRY.operation_ids()
+    assert set(properties["resource"]["enum"]) == BUSINESS_QUERY_REGISTRY.resource_ids()
+    assert set(properties["metric_id"]["enum"]) == BUSINESS_QUERY_REGISTRY.metric_ids()
+    assert set(properties["time_preset"]["enum"]) == BUSINESS_QUERY_REGISTRY.time_preset_ids()
+    assert properties["filters"]["additionalProperties"] is False
+    assert properties["cursor"]["type"] == ["object", "null"]
+    assert properties["cursor"]["additionalProperties"] is False
+    assert set(properties["sort"]["properties"]) == {"field", "direction"}
+
+    for forbidden in ("tenant_id", "merchant_scope", "raw_sql", "where"):
+        assert forbidden not in properties
+
+
+def test_business_query_schema_rejects_authority_sql_and_raw_cursor_fields() -> None:
+    schema = _descriptor("business_query").input_schema
+    valid_payload = {
+        "operation": "aggregate",
+        "resource": "order",
+        "metric_id": "order_count",
+        "time_preset": "this_week",
+        "filters": {"status_filter": ["paid"]},
+    }
+
+    _validate_json_value(valid_payload, schema)
+
+    for payload in (
+        valid_payload | {"tenant_id": "tenant-attacker"},
+        valid_payload | {"merchant_scope": {"merchant_ids": ["*"]}},
+        valid_payload | {"raw_sql": "select * from orders"},
+        valid_payload | {"where": {"tenant_id": "tenant-attacker"}},
+        valid_payload | {"filters": {"status_filter": ["paid"], "where": {"status": "paid"}}},
+        valid_payload | {"filters": {"status_filter": ["paid"], "arbitrary": {"status": "paid"}}},
+        valid_payload | {"cursor": "raw-cursor-token"},
+    ):
+        with pytest.raises((TypeError, ValueError)):
+            _validate_json_value(payload, schema)
+
+
+def test_business_query_output_schema_matches_result_contract_shape() -> None:
+    descriptor = _descriptor("business_query")
+    schema = descriptor.output_schema
+
+    assert set(schema["properties"]) == set(BusinessQueryResultV1.model_fields)
+    assert set(schema["required"]) == set(BusinessQueryResultV1.model_fields)
+    assert set(schema["properties"]["operation"]["enum"]) == BUSINESS_QUERY_REGISTRY.operation_ids()
+    assert set(schema["properties"]["resource"]["enum"]) == BUSINESS_QUERY_REGISTRY.resource_ids()
+    assert set(schema["properties"]["status"]["enum"]) == {
+        "ok",
+        "partial",
+        "empty",
+        "permission_denied",
+        "invalid_request",
+        "unavailable",
+    }
+    assert schema["properties"]["rows"]["items"]["type"] == "object"
+    assert schema["properties"]["answer_context"]["type"] == ["object", "null"]
 
 
 def test_query_business_metric_schema_enums_are_registry_derived() -> None:

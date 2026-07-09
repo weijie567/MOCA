@@ -123,6 +123,7 @@ _INVESTIGATE_METRIC_TOOL_ALLOWLIST = {
     "get_ticket",
     "get_logistics",
     "get_merchant_risk",
+    "business_query",
     "query_business_metric",
     "search_policy",
     "search_sop",
@@ -135,6 +136,12 @@ _MINIMAL_TOOL_ARGS = {
     "get_ticket": {"ticket_id": "TICKET-1"},
     "get_logistics": {"tracking_no": "TRACK-1"},
     "get_merchant_risk": {"merchant_id": "MER-1"},
+    "business_query": {
+        "operation": "aggregate",
+        "resource": "order",
+        "metric_id": "order_count",
+        "time_preset": "this_week",
+    },
     "query_business_metric": {"metric_id": "pending_ticket_count", "time_preset": "current_snapshot"},
     "search_policy": {"query": "refund"},
     "search_sop": {"query": "refund"},
@@ -205,6 +212,7 @@ def _business_permissions() -> list[str]:
         "tool:get_ticket",
         "tool:get_logistics",
         "tool:get_merchant_risk",
+        "tool:business_query",
         "tool:query_business_metric",
     ]
 
@@ -335,6 +343,105 @@ async def test_query_business_metric_visibility_requires_trusted_permission() ->
     assert "query_business_metric" in {view.name for view in allowed_views}
     assert "query_business_metric" not in {view.name for view in denied_views}
     assert "query_business_metric" not in {view.name for view in wrong_caller_views}
+
+
+@pytest.mark.asyncio
+async def test_business_query_visibility_requires_trusted_permission() -> None:
+    from src.tools.platform import ToolPlatform
+
+    platform = ToolPlatform.with_defaults(session=None)
+
+    allowed_views = await platform.visible_tools(
+        caller="investigate",
+        ctx=_ctx(permissions=["tool:business_query"]),
+        session=None,
+    )
+    denied_views = await platform.visible_tools(
+        caller="investigate",
+        ctx=_ctx(permissions=[]),
+        session=None,
+    )
+    wrong_caller_views = await platform.visible_tools(
+        caller="final_response",
+        ctx=_ctx(permissions=["tool:business_query"], caller_node="final_response"),
+        session=None,
+    )
+
+    assert "business_query" in {view.name for view in allowed_views}
+    assert "business_query" not in {view.name for view in denied_views}
+    assert "business_query" not in {view.name for view in wrong_caller_views}
+
+
+@pytest.mark.asyncio
+async def test_business_query_policy_denies_wrong_caller_and_missing_permission_before_dispatch() -> None:
+    from src.tools.platform import ToolPlatform
+
+    executor = _RecordingExecutor({"business_query"}, _no_data_success_result())
+    platform = ToolPlatform(executors={"business": executor})
+    args = _MINIMAL_TOOL_ARGS["business_query"]
+
+    missing_permission = await platform.invoke(
+        "business_query",
+        args,
+        _ctx(permissions=[]),
+        session=None,
+    )
+    wrong_caller = await platform.invoke(
+        "business_query",
+        args,
+        _ctx(permissions=["tool:business_query"], caller_node="final_response"),
+        session=None,
+    )
+
+    assert missing_permission.tool_result.status == "permission_denied"
+    assert missing_permission.policy_decision.reason_codes == ["missing_permission"]
+    assert wrong_caller.tool_result.status == "permission_denied"
+    assert wrong_caller.policy_decision.reason_codes == ["caller_not_allowed"]
+    assert executor.dispatched is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "malformed_args",
+    [
+        _MINIMAL_TOOL_ARGS["business_query"] | {"tenant_id": "tenant-attacker"},
+        _MINIMAL_TOOL_ARGS["business_query"] | {"merchant_scope": {"merchant_ids": ["*"]}},
+        _MINIMAL_TOOL_ARGS["business_query"] | {"raw_sql": "select * from orders"},
+        _MINIMAL_TOOL_ARGS["business_query"] | {"where": {"tenant_id": "tenant-attacker"}},
+        _MINIMAL_TOOL_ARGS["business_query"] | {"filters": {"status_filter": ["paid"], "where": {"status": "paid"}}},
+        _MINIMAL_TOOL_ARGS["business_query"]
+        | {"filters": {"status_filter": ["paid"], "arbitrary": {"status": "paid"}}},
+        _MINIMAL_TOOL_ARGS["business_query"] | {"cursor": "raw-cursor-token"},
+    ],
+)
+async def test_business_query_policy_denies_authority_and_freeform_db_args_before_dispatch(
+    malformed_args: dict[str, Any],
+) -> None:
+    from src.tools.platform import ToolPlatform
+
+    executor = _RecordingExecutor({"business_query"}, _no_data_success_result())
+    platform = ToolPlatform(executors={"business": executor})
+
+    outcome = await platform.invoke(
+        "business_query",
+        malformed_args,
+        _ctx(permissions=["tool:business_query"]),
+        session=None,
+    )
+
+    assert outcome.tool_result.status == "invalid_request"
+    assert outcome.policy_decision.reason_codes == ["schema_invalid"]
+    assert executor.dispatched is False
+    assert "select * from orders" not in outcome.model_dump_json().lower()
+    assert "raw-cursor-token" not in outcome.model_dump_json()
+
+
+def test_investigate_planner_allowlist_includes_business_query_catalog_tool() -> None:
+    from src.agent.nodes.investigate_planner import INVESTIGATE_ALLOWED_TOOL_NAMES
+
+    assert "business_query" in investigate_tool_names()
+    assert "business_query" in INVESTIGATE_ALLOWED_TOOL_NAMES
+    assert investigate_tool_names() <= INVESTIGATE_ALLOWED_TOOL_NAMES
 
 
 @pytest.mark.asyncio
