@@ -292,6 +292,20 @@ def test_agent_chat_scope_is_issued_to_agent_roles():
         assert "agent:chat" in payload["scopes"]
 
 
+def test_metrics_read_scope_is_issued_to_metric_roles():
+    for role in ("support", "manager", "merchant", "admin"):
+        token = create_access_token({"sub": "user-id", "tenant_id": "tenant-id", "role": role})
+        payload = decode_access_token(token)
+
+        assert "metrics:read" in payload["scopes"]
+
+
+def test_oauth_password_flow_advertises_metrics_read_scope():
+    from src.auth.permissions import oauth2_scheme
+
+    assert oauth2_scheme.model.flows.password.scopes["metrics:read"] == "Read scoped business metrics"
+
+
 @pytest.mark.asyncio
 async def test_verified_token_scopes_preserved_on_request_state(client, session, seeded_session):
     """A valid token's verified scopes are preserved on request.state.verified_token_scopes."""

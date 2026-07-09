@@ -116,12 +116,13 @@ _RAW_SENTINEL_VALUES = {
     "4111111111111111",
 }
 
-_INVESTIGATE_EIGHT_TOOL_ALLOWLIST = {
+_INVESTIGATE_METRIC_TOOL_ALLOWLIST = {
     "get_order",
     "get_refund_case",
     "get_ticket",
     "get_logistics",
     "get_merchant_risk",
+    "query_business_metric",
     "search_policy",
     "search_sop",
     "search_case_memory",
@@ -133,6 +134,7 @@ _MINIMAL_TOOL_ARGS = {
     "get_ticket": {"ticket_id": "TICKET-1"},
     "get_logistics": {"tracking_no": "TRACK-1"},
     "get_merchant_risk": {"merchant_id": "MER-1"},
+    "query_business_metric": {"metric_id": "pending_ticket_count", "time_preset": "current_snapshot"},
     "search_policy": {"query": "refund"},
     "search_sop": {"query": "refund"},
     "search_case_memory": {"query": "refund"},
@@ -202,6 +204,7 @@ def _business_permissions() -> list[str]:
         "tool:get_ticket",
         "tool:get_logistics",
         "tool:get_merchant_risk",
+        "tool:query_business_metric",
     ]
 
 
@@ -256,19 +259,19 @@ async def test_visible_tools_matches_catalog_investigate_allowlist() -> None:
 
 
 @pytest.mark.asyncio
-async def test_investigate_visible_tools_exactly_match_phase49_eight_tool_allowlist() -> None:
+async def test_investigate_visible_tools_exactly_match_metric_tool_allowlist() -> None:
     from src.tools.platform import ToolPlatform
 
     platform = ToolPlatform.with_defaults(session=None)
 
     views = await platform.visible_tools(
         caller="investigate",
-        ctx=_ctx(permissions=[f"tool:{name}" for name in _INVESTIGATE_EIGHT_TOOL_ALLOWLIST]),
+        ctx=_ctx(permissions=[f"tool:{name}" for name in _INVESTIGATE_METRIC_TOOL_ALLOWLIST]),
         session=None,
     )
 
-    assert {view.name for view in views} == _INVESTIGATE_EIGHT_TOOL_ALLOWLIST
-    assert {descriptor.name for descriptor in ToolCatalog().descriptors() if descriptor.name in _INVESTIGATE_EIGHT_TOOL_ALLOWLIST} == _INVESTIGATE_EIGHT_TOOL_ALLOWLIST
+    assert {view.name for view in views} == _INVESTIGATE_METRIC_TOOL_ALLOWLIST
+    assert {descriptor.name for descriptor in ToolCatalog().descriptors() if descriptor.name in _INVESTIGATE_METRIC_TOOL_ALLOWLIST} == _INVESTIGATE_METRIC_TOOL_ALLOWLIST
     assert all(view.input_schema for view in views)
     assert "create_coupon_grant_draft" not in {view.name for view in views}
 
@@ -278,14 +281,14 @@ async def test_each_investigate_allowlisted_tool_dispatches_through_tool_platfor
     from src.tools.platform import ToolPlatform
 
     platform = ToolPlatform.with_defaults(session=None)
-    ctx = _ctx(permissions=[f"tool:{name}" for name in _INVESTIGATE_EIGHT_TOOL_ALLOWLIST])
+    ctx = _ctx(permissions=[f"tool:{name}" for name in _INVESTIGATE_METRIC_TOOL_ALLOWLIST])
 
     outcomes = {}
-    for tool_name in sorted(_INVESTIGATE_EIGHT_TOOL_ALLOWLIST):
+    for tool_name in sorted(_INVESTIGATE_METRIC_TOOL_ALLOWLIST):
         outcome = await platform.invoke(tool_name, _MINIMAL_TOOL_ARGS[tool_name], ctx, session=None)
         outcomes[tool_name] = outcome
 
-    assert set(outcomes) == _INVESTIGATE_EIGHT_TOOL_ALLOWLIST
+    assert set(outcomes) == _INVESTIGATE_METRIC_TOOL_ALLOWLIST
     assert all(isinstance(outcome, ToolInvocationOutcome) for outcome in outcomes.values())
     assert all(outcome.tool_result.status in _SAFE_TERMINAL_TOOL_STATUSES for outcome in outcomes.values())
     assert all(outcome.projection.prompt_projection["tool_name"] == tool_name for tool_name, outcome in outcomes.items())
@@ -296,7 +299,7 @@ async def test_real_knowledge_executor_keeps_search_sop_dispatchable(session) ->
     from src.tools.platform import ToolPlatform
 
     platform = ToolPlatform.with_defaults(session=session)
-    ctx = _ctx(permissions=[f"tool:{name}" for name in _INVESTIGATE_EIGHT_TOOL_ALLOWLIST])
+    ctx = _ctx(permissions=[f"tool:{name}" for name in _INVESTIGATE_METRIC_TOOL_ALLOWLIST])
 
     views = await platform.visible_tools(caller="investigate", ctx=ctx, session=None)
     outcome = await platform.invoke("search_sop", {"query": "refund"}, ctx, session=None)
@@ -304,6 +307,33 @@ async def test_real_knowledge_executor_keeps_search_sop_dispatchable(session) ->
     assert "search_sop" in {view.name for view in views}
     assert outcome.tool_result.status == "unavailable"
     assert outcome.projection.prompt_projection["tool_name"] == "search_sop"
+
+
+@pytest.mark.asyncio
+async def test_query_business_metric_visibility_requires_trusted_permission() -> None:
+    from src.tools.platform import ToolPlatform
+
+    platform = ToolPlatform.with_defaults(session=None)
+
+    allowed_views = await platform.visible_tools(
+        caller="investigate",
+        ctx=_ctx(permissions=["tool:query_business_metric"]),
+        session=None,
+    )
+    denied_views = await platform.visible_tools(
+        caller="investigate",
+        ctx=_ctx(permissions=[]),
+        session=None,
+    )
+    wrong_caller_views = await platform.visible_tools(
+        caller="final_response",
+        ctx=_ctx(permissions=["tool:query_business_metric"], caller_node="final_response"),
+        session=None,
+    )
+
+    assert "query_business_metric" in {view.name for view in allowed_views}
+    assert "query_business_metric" not in {view.name for view in denied_views}
+    assert "query_business_metric" not in {view.name for view in wrong_caller_views}
 
 
 @pytest.mark.asyncio

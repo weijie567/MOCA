@@ -20,6 +20,7 @@ TPH01_OUTPUT_SCHEMA_TOOL_NAMES = frozenset(
         "get_ticket",
         "get_logistics",
         "get_merchant_risk",
+        "query_business_metric",
         "search_policy",
         "search_sop",
         "search_case_memory",
@@ -52,6 +53,23 @@ EXPECTED_OUTPUT_PROPERTY_KEYS = {
         "approved_amount",
     },
     "get_ticket": {"ticket_no", "merchant_id", "status", "channel", "summary"},
+    "query_business_metric": {
+        "metric_id",
+        "status",
+        "value",
+        "rate",
+        "numerator",
+        "denominator",
+        "unit",
+        "display_value",
+        "scope",
+        "time_range",
+        "filters",
+        "freshness",
+        "formula",
+        "caveats",
+        "no_leak_status",
+    },
     "search_policy": {"retrieval_status", "best_score", "threshold", "summary"},
 }
 NO_DATA_OUTPUT_SCHEMA_TOOL_NAMES = frozenset({"get_logistics", "get_merchant_risk", "search_sop"})
@@ -242,6 +260,29 @@ def test_scoped_tools_declare_real_output_schemas() -> None:
     assert set(memory_item_schema["required"]) == set(memory_item_schema["properties"])
 
 
+def test_query_business_metric_descriptor_is_read_only_and_strict() -> None:
+    descriptor = _descriptor("query_business_metric")
+
+    assert descriptor.kind == "read"
+    assert descriptor.side_effect == "read_only"
+    assert descriptor.required_permission == "tool:query_business_metric"
+    assert descriptor.caller_allowlist == ["investigate"]
+    assert descriptor.executor == "business"
+    assert descriptor.resource_type == "business_metric"
+    assert descriptor.input_schema["additionalProperties"] is False
+    assert "tenant_id" not in descriptor.input_schema["properties"]
+    assert "merchant_scope" not in descriptor.input_schema["properties"]
+    assert descriptor.input_schema["properties"]["metric_id"]["enum"] == [
+        "order_count",
+        "refund_case_count",
+        "pending_ticket_count",
+        "coupon_record_count",
+        "merchant_refund_rate",
+    ]
+    assert descriptor.output_schema["additionalProperties"] is False
+    assert descriptor.output_schema != GENERIC_OBJECT_SCHEMA
+
+
 def test_action_output_schema_is_strict_after_action_output_hardening() -> None:
     descriptor = _descriptor("create_coupon_grant_draft")
 
@@ -294,6 +335,7 @@ def test_descriptor_table_is_single_source_for_investigate_names_and_resource_ty
         "ticket",
         "logistics",
         "merchant_risk",
+        "business_metric",
         None,
     }
 

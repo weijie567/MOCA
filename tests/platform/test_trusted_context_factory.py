@@ -82,6 +82,51 @@ def test_factory_preserves_agent_runs_permission_intersection() -> None:
     assert context.merchant_scope.merchant_ids == ["merchant-manager"]
 
 
+def test_factory_maps_metrics_read_to_business_metric_tool_permission_only_by_intersection() -> None:
+    support = _user(role="support", merchant_id="merchant-support")
+
+    context = TrustedContextFactory.create_from_request(
+        **_factory_kwargs(user=support, verified_token_scopes=frozenset({"metrics:read"}))
+    )
+    assert "tool:query_business_metric" in context.permissions
+    assert context.merchant_scope.merchant_ids == ["merchant-support"]
+
+    missing_token_scope = TrustedContextFactory.create_from_request(
+        **_factory_kwargs(user=support, verified_token_scopes=frozenset({"orders:read"}))
+    )
+    assert "tool:query_business_metric" not in missing_token_scope.permissions
+
+    unknown_role = TrustedContextFactory.create_from_request(
+        **_factory_kwargs(
+            user=_user(role="approval_manager", merchant_id="merchant-support"),
+            verified_token_scopes=frozenset({"metrics:read"}),
+        )
+    )
+    assert "tool:query_business_metric" not in unknown_role.permissions
+    assert unknown_role.merchant_scope.merchant_ids == []
+
+
+def test_factory_merchant_metrics_scope_is_own_bound_only() -> None:
+    context = TrustedContextFactory.create_from_request(
+        **_factory_kwargs(
+            user=_user(role="merchant", merchant_id="merchant-legacy"),
+            verified_token_scopes=frozenset({"metrics:read"}),
+        )
+    )
+
+    assert context.permissions == ["tool:query_business_metric"]
+    assert context.merchant_scope.merchant_ids == ["merchant-legacy"]
+
+    with pytest.raises(ValueError):
+        TrustedContextFactory.create_from_request(
+            **_factory_kwargs(
+                user=_user(role="merchant", merchant_id="merchant-legacy"),
+                verified_token_scopes=frozenset({"metrics:read"}),
+                server_merchant_scope={"merchant_ids": ["*"]},
+            )
+        )
+
+
 def test_factory_accepts_explicit_server_tool_permissions_without_token_scope_widening() -> None:
     manager = _user(role="manager", merchant_id="merchant-manager")
     context = TrustedContextFactory.create_from_request(
