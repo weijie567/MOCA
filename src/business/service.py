@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -18,7 +19,7 @@ from src.business.adapters import (
     get_refund_case_adapter,
     get_ticket_adapter,
 )
-from src.business.schemas import BusinessContextV1, BusinessFactResultV1
+from src.business.schemas import BusinessContextV1, BusinessFactResultV1, BusinessMetricQueryInput, BusinessMetricResultV1
 from src.platform.trusted_context import MerchantScopeV1
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 
@@ -109,7 +110,7 @@ class BusinessFactService:
         return cls(session)
 
     def has_tool(self, name: str) -> bool:
-        return name in self.tools or name in {"get_logistics", "get_merchant_risk"}
+        return name in self.tools or name in {"get_logistics", "get_merchant_risk", "query_business_metric"}
 
     async def get_order(self, order_no: str, ctx: ToolCallContext) -> BusinessFactResultV1:
         return await self._read_tool("get_order", {"order_no": order_no}, ctx)
@@ -145,6 +146,28 @@ class BusinessFactService:
             safe_message="Business fact is unavailable",
             error_source="tool",
         )
+
+    async def query_business_metric(self, args: dict[str, Any], ctx: ToolCallContext) -> BusinessFactResultV1:
+        try:
+            query = BusinessMetricQueryInput.model_validate(args)
+        except ValidationError:
+            return self._safe_result(
+                "invalid_request",
+                resource_name="business_metric",
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_METRIC_INVALID_REQUEST",
+                safe_message="Business metric request is invalid",
+                error_source="caller",
+            )
+
+        merchant_ids = self._authorized_metric_merchant_ids(query, ctx)
+        if merchant_ids is None:
+            return self._permission_denied_result("business_metric", ctx.tenant_id)
+
+        metric = await self._calculate_business_metric(query, ctx, merchant_ids)
+        return self._metric_to_business_fact_result(metric, ctx)
 
     async def fetch_context(self, slots: dict[str, Any], intent: str, ctx: ToolCallContext) -> BusinessContextV1:
         """Aggregate approved domain facts into a prompt-safe business context."""
@@ -223,6 +246,78 @@ class BusinessFactService:
             missing_required_facts=missing_required_facts,
             errors=errors,
             data_freshness_at=max(freshness_values) if freshness_values else None,
+        )
+
+    def _authorized_metric_merchant_ids(
+        self,
+        query: BusinessMetricQueryInput,
+        ctx: ToolCallContext,
+    ) -> list[str] | None:
+        try:
+            scope = (
+                MerchantScopeV1(merchant_ids=ctx.merchant_scope)
+                if isinstance(ctx.merchant_scope, list)
+                else MerchantScopeV1.model_validate(ctx.merchant_scope)
+            )
+        except (TypeError, ValueError, ValidationError):
+            return None
+        if not scope.merchant_ids:
+            return None
+        if query.merchant_id is not None:
+            if not scope.allows(merchant_id=query.merchant_id):
+                return None
+            return [query.merchant_id]
+        return list(scope.merchant_ids)
+
+    async def _calculate_business_metric(
+        self,
+        query: BusinessMetricQueryInput,
+        ctx: ToolCallContext,
+        merchant_ids: list[str],
+    ) -> BusinessMetricResultV1:
+        del query, ctx, merchant_ids
+        raise NotImplementedError("metric calculation is implemented by metric-specific runtime methods")
+
+    def _metric_to_business_fact_result(
+        self,
+        metric: BusinessMetricResultV1,
+        ctx: ToolCallContext,
+    ) -> BusinessFactResultV1:
+        if metric.status == "permission_denied":
+            return self._permission_denied_result("business_metric", ctx.tenant_id)
+        if metric.status == "invalid_request":
+            return self._safe_result(
+                "invalid_request",
+                resource_name="business_metric",
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_METRIC_INVALID_REQUEST",
+                safe_message="Business metric request is invalid",
+                error_source="caller",
+            )
+
+        fact = metric.model_dump(mode="json")
+        fact_ref = BusinessFactRefV1(
+            tenant_id=ctx.tenant_id,
+            source_system="business_fact_service",
+            resource_type="business_metric",
+            resource_id=metric.metric_id,
+            resource_version=None,
+            data_freshness_at=metric.freshness.data_freshness_at,
+            retrieved_at=datetime.now(UTC),
+        )
+        return BusinessFactResultV1(
+            tenant_id=ctx.tenant_id,
+            status="ok",
+            fact=fact,
+            business_fact_refs=[fact_ref],
+            resource_version=None,
+            data_freshness_at=metric.freshness.data_freshness_at,
+            source_system="business_fact_service",
+            scope_check_result="allowed",
+            missing_required_facts=[],
+            safe_errors=[],
         )
 
     async def _read_tool(
@@ -554,7 +649,10 @@ class BusinessToolService:
     async def invoke_tool(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         """Invoke a logical business read through the domain fact boundary."""
 
-        result = await self.fact_service._read_tool(name, args, ctx)
+        if name == "query_business_metric":
+            result = await self.fact_service.query_business_metric(args, ctx)
+        else:
+            result = await self.fact_service._read_tool(name, args, ctx)
         return self._wrap_business_fact_result(result)
 
     async def fetch_context(self, slots: dict[str, Any], intent: str, ctx: ToolCallContext) -> BusinessContextV1:
