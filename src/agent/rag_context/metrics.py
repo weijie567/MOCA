@@ -8,6 +8,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.agent.rag_context.risk_labels import (
+    filter_safe_evidence_risk_labels,
+    metric_level3_trigger_labels,
+    routing_risk_labels,
+)
 from src.agent.rag_context.routing import VerificationRoute, determine_verification_route
 
 
@@ -34,23 +39,6 @@ REQUIRED_HALLUCINATION_METRICS: tuple[str, ...] = (
     "fail_closed_rate",
     "total_cases",
 )
-_SAFE_EVIDENCE_RISK_LABELS = frozenset(
-    {
-        "authority_checked",
-        "conflict",
-        "freshness_risk",
-        "high_risk",
-        "latest_version_checked",
-        "manual_review_sensitive",
-        "ocr_low_confidence",
-        "provenance_available",
-        "source_locator_available",
-        "stale_evidence",
-    }
-)
-_ROUTING_RISK_LABELS = frozenset({"conflict", "manual_review_sensitive", "ocr_low_confidence", "stale_evidence"})
-
-
 class HallucinationCaseResult(BaseModel):
     """Redacted per-case result consumed by the eval runner."""
 
@@ -352,9 +340,7 @@ def _bundle_risk_reason_codes(bundle: Any, cited_evidence_ids: Sequence[str]) ->
         source_ids = {str(value) for value in getattr(entry, "source_evidence_ids", []) or [] if str(value)}
         if not cited & source_ids:
             continue
-        reason_codes.extend(
-            str(label) for label in getattr(entry, "risk_labels", []) or [] if str(label) in _ROUTING_RISK_LABELS
-        )
+        reason_codes.extend(str(label) for label in getattr(entry, "risk_labels", []) or [] if str(label) in routing_risk_labels())
     return _unique_strings(reason_codes)
 
 
@@ -388,7 +374,7 @@ def _risk_hints_from_evidence_refs(refs: Sequence[Mapping[str, Any]]) -> list[di
     hints: list[dict[str, Any]] = []
     for ref in refs:
         evidence_id = str(ref.get("evidence_id") or "")
-        labels = [str(label) for label in ref.get("risk_labels") or [] if str(label) in _SAFE_EVIDENCE_RISK_LABELS]
+        labels = filter_safe_evidence_risk_labels(ref.get("risk_labels") or [])
         if evidence_id and labels:
             hints.append({"evidence_id": evidence_id, "labels": _unique_strings(labels)})
     return hints
@@ -482,9 +468,9 @@ def _level3_triggered(case: Mapping[str, Any], status: str) -> bool:
     risk_hints = _risk_hints(claim)
     if status in {"conflicting", "fail_closed", "ocr_low_confidence", "stale"}:
         return True
-    if {"high_risk", "manual_review_sensitive", "semantic_timeout", "semantic_provider_error"} & risk_hints:
+    if metric_level3_trigger_labels() & risk_hints:
         return True
-    return "semantic_malformed_output" in risk_hints
+    return False
 
 
 def _regenerate_route_enabled(case: Mapping[str, Any], status: str) -> bool:

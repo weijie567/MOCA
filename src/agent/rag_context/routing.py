@@ -8,6 +8,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.agent.rag_context.risk_labels import (
+    ROUTE_MANUAL_REVIEW_REASONS as _ROUTE_MANUAL_REVIEW_REASONS,
+    ROUTE_STALE_OR_OCR_REASONS as _ROUTE_STALE_OR_OCR_REASONS,
+)
+
 
 class VerificationRoute(StrEnum):
     ALLOW = "allow"
@@ -50,21 +55,6 @@ _ROUTE_REFUSE_REASONS = {
     "latest_version_invalid",
     "tenant_scope_invalid",
 }
-_ROUTE_MANUAL_REVIEW_REASONS = {
-    "conflicting_evidence",
-    "conflict",
-    "manual_review_sensitive",
-    "semantic_ambiguous",
-    "semantic_provider_timeout",
-    "semantic_provider_error",
-    "semantic_provider_malformed",
-    "semantic_budget_claim_count_exceeded",
-    "semantic_budget_evidence_count_exceeded",
-    "semantic_budget_input_chars_exceeded",
-    "needs_semantic_review",
-    "level2_partial_overlap_ambiguous",
-}
-_ROUTE_STALE_OR_OCR_REASONS = {"stale_evidence", "freshness_invalid", "effective_date_invalid", "ocr_low_confidence"}
 _ROUTE_INSUFFICIENT_REASONS = {
     "business_fact_missing",
     "business_fact_ref_required",

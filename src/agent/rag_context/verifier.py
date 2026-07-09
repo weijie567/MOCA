@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.agent.rag_context.claims import MaterialClaim
 from src.agent.rag_context.domain_rules import DomainRuleVerifier, failed_rule_reason_codes
+from src.agent.rag_context.risk_labels import requires_semantic_review_for_risk_hints
 from src.agent.rag_context.schemas import MaterialClaimAuthorityClass, RagContextBundle
 from src.knowledge.schemas import EvidenceRefV1
 from src.tools.contracts import BusinessFactRefV1, ToolResultV2
@@ -377,8 +378,7 @@ class MaterialClaimVerifier:
         evidence_snippets: Sequence[Mapping[str, Any]],
         risk_hints: Sequence[str] | None = None,
     ) -> Level2VerificationResult:
-        hints = {str(hint) for hint in risk_hints or []}
-        if hints & {"conflict", "stale_evidence", "ocr_low_confidence", "manual_review_sensitive"}:
+        if requires_semantic_review_for_risk_hints(risk_hints or []):
             return Level2VerificationResult(
                 outcome=Level2SupportOutcome.NEEDS_SEMANTIC_REVIEW,
                 reason_codes=["level2_semantic_trigger_hint"],
@@ -1017,7 +1017,7 @@ _STOPWORDS = {
 def should_run_level3_semantic_verification(case: Mapping[str, Any]) -> bool:
     authority_class = str(case.get("authority_class") or "")
     risk_level = str(case.get("risk_level") or "").casefold()
-    risk_hints = {str(hint) for hint in case.get("risk_hints") or []}
+    risk_hints = [str(hint) for hint in case.get("risk_hints") or []]
     level2_outcome = str(case.get("level2_outcome") or "")
     if authority_class == MaterialClaimAuthorityClass.ACTION_RECOMMENDATION_CLAIM.value:
         return True
@@ -1028,7 +1028,7 @@ def should_run_level3_semantic_verification(case: Mapping[str, Any]) -> bool:
         Level2SupportOutcome.NEEDS_SEMANTIC_REVIEW.value,
     }:
         return True
-    return bool(risk_hints & {"conflict", "stale_evidence", "ocr_low_confidence", "manual_review_sensitive"})
+    return requires_semantic_review_for_risk_hints(risk_hints)
 
 
 def _redacted_semantic_claim(claim: Mapping[str, Any], max_evidence: int) -> dict[str, Any]:
