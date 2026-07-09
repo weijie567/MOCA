@@ -9,6 +9,7 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.business.query.compiler import BusinessQueryCompiler
+from src.business.query.projection import safe_business_query_api_payload
 from src.business.query.schemas import BusinessQuerySpec
 from src.business.service import BusinessFactService
 from src.db.models import Order
@@ -153,6 +154,42 @@ async def test_business_query_list_orders_applies_scope_before_limit_and_returns
     serialized = result.model_dump_json()
     assert str(out_of_scope.id) not in serialized
     assert "ORD-BQ-OUT-OF-SCOPE-NEWER" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_business_query_denied_list_returns_typed_no_leak_payload(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    service = BusinessFactService.with_default_registry(session)
+
+    result = await service.query_business(
+        {
+            "operation": "list",
+            "resource": "order",
+            "merchant_id": "MERCHANT-SECRET",
+            "time_preset": "this_week",
+            "fields": ["order_no", "status"],
+        },
+        _ctx(seeded_session, merchant_scope={"merchant_ids": ["MERCHANT-ALLOWED"]}),
+    )
+
+    payload = _business_query_fact(result)
+    assert payload["operation"] == "list"
+    assert payload["resource"] == "order"
+    assert payload["status"] == "permission_denied"
+    assert payload["rows"] == []
+    assert payload["answer_context"]["query_spec"]["operation"] == "list"
+    assert payload["answer_context"]["query_spec"]["merchant_id"] is None
+    assert payload["answer_context"]["query_spec"]["resource_id"] is None
+    assert payload["scope"]["no_leak_status"] == "scope_denied_no_existence_leak"
+
+    api_payload = safe_business_query_api_payload(payload)
+    assert api_payload["operation"] == "list"
+    assert api_payload["resource_label"] == "订单"
+    assert api_payload["safe_reason"] == "scope_denied_no_existence_leak"
+    assert api_payload["rows"] == []
+    assert "MERCHANT-SECRET" not in result.model_dump_json()
 
 
 @pytest.mark.asyncio

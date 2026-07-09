@@ -281,7 +281,7 @@ class BusinessFactService:
 
         merchant_ids = self._authorized_business_query_merchant_ids(spec, ctx)
         if merchant_ids is None:
-            return self._permission_denied_result("business_query", ctx.tenant_id)
+            return self._business_query_result_to_fact_result(self._denied_business_query_result(spec), ctx)
 
         try:
             compiled = self.query_compiler.compile(
@@ -325,6 +325,33 @@ class BusinessFactService:
                 return None
             return [spec.merchant_id]
         return list(scope.merchant_ids)
+
+    @staticmethod
+    def _denied_business_query_result(spec: BusinessQuerySpec) -> BusinessQueryResultV1:
+        scope = BusinessQueryScopeSummary(
+            scope_label="authorized_merchants",
+            merchant_id=None,
+            no_leak_status="scope_denied_no_existence_leak",
+        )
+        safe_spec = spec.model_copy(update={"merchant_id": None, "resource_id": None})
+        return BusinessQueryResultV1(
+            operation=spec.operation,
+            resource=spec.resource,
+            status="permission_denied",
+            rows=[],
+            answer_context=BusinessQueryAnswerContext(
+                query_spec=safe_spec,
+                result_refs=[],
+                allowed_drilldowns=[],
+                fields_shown=list(safe_spec.fields),
+                scope=scope,
+                time_summary=safe_spec.time_preset,
+                filter_summary=",".join(safe_spec.filters.status_filter)
+                if safe_spec.filters.status_filter
+                else None,
+            ),
+            scope=scope,
+        )
 
     async def _execute_business_query(
         self,
