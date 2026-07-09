@@ -53,6 +53,69 @@ def _assert_no_false_evidence_claim(text: str) -> None:
     assert not any(phrase in text for phrase in FALSE_EVIDENCE_CLAIM_PHRASES)
 
 
+def _metric_fact(
+    *,
+    metric_id: str = "refund_case_count",
+    status: str = "ok",
+    display_value: str = "3",
+    value: float | None = 3,
+    rate: float | None = None,
+    numerator: int | None = None,
+    denominator: int | None = None,
+    unit: str = "count",
+    formula: str = "count refund cases by created_at in authorized merchant scope",
+    caveats: list[str] | None = None,
+    no_leak_status: str = "not_applicable",
+) -> dict:
+    return {
+        "metric_id": metric_id,
+        "status": status,
+        "value": value,
+        "rate": rate,
+        "numerator": numerator,
+        "denominator": denominator,
+        "unit": unit,
+        "display_value": display_value,
+        "scope": {
+            "tenant_id": "TENANT-SHOULD-NOT-LEAK",
+            "merchant_ids": ["MERCHANT-SHOULD-NOT-LEAK"],
+            "scope_label": "当前权限范围",
+        },
+        "time_range": {
+            "start_at": "2026-07-09T00:00:00+08:00",
+            "end_at": "2026-07-10T00:00:00+08:00",
+            "preset": "today",
+            "timezone": "Asia/Shanghai",
+        },
+        "filters": {"merchant_id": None, "status_filter": ["requested"]},
+        "freshness": {
+            "data_freshness_at": "2026-07-09T04:00:00+00:00",
+            "computed_at": "2026-07-09T04:01:00+00:00",
+            "source_system": "business_fact_service",
+        },
+        "formula": formula,
+        "caveats": caveats or [],
+        "no_leak_status": no_leak_status,
+    }
+
+
+def _metric_state(base_state: dict, metric: dict) -> dict:
+    return {
+        **base_state,
+        "primary_intent": "business_metric_query",
+        "current_intent": "business_metric_query",
+        "requested_operation": "read_status",
+        "business_context": {
+            "facts": {"business_metric": metric},
+            "status": "complete",
+            "business_fact_refs": [{"resource_type": "business_metric", "resource_id": metric["metric_id"]}],
+            "missing_required_facts": [],
+            "errors": [],
+        },
+        "recommendation_draft": None,
+    }
+
+
 def _state_with_deferred(state: dict) -> dict:
     return {
         **state,
@@ -443,6 +506,111 @@ async def test_final_response_renders_order_status_business_fact_response_withou
     _assert_no_false_evidence_claim(result["final_response"])
     assert result["llm_outputs"]["final_response"]["evidence_citations"] == []
     assert result["llm_outputs"]["final_response"]["final_status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_metric_count_response_is_number_first_with_scope_time_filter_freshness(base_state):
+    state = _metric_state(base_state, _metric_fact())
+    state["recommendation_draft"] = {
+        "recommended_action": "insufficient_evidence",
+        "missing_info": ["No relevant policy found"],
+        "evidence_refs": [],
+    }
+
+    result = await final_response(state)
+
+    assert result["final_response"].startswith("3")
+    assert "范围：当前权限范围" in result["final_response"]
+    assert "时间：today" in result["final_response"]
+    assert "筛选：status=requested" in result["final_response"]
+    assert "新鲜度：2026-07-09T04:00:00+00:00" in result["final_response"]
+    _assert_no_false_evidence_claim(result["final_response"])
+    output = result["llm_outputs"]["final_response"]
+    assert output["response_kind"] == "metric_answer"
+    assert output["metric"]["metric_id"] == "refund_case_count"
+    assert output["metric"]["metric_label"] == "退款单数"
+    assert output["metric"]["display_value"] == "3"
+    assert output["metric"]["scope_label"] == "当前权限范围"
+    assert "TENANT-SHOULD-NOT-LEAK" not in str(output["metric"])
+    assert "MERCHANT-SHOULD-NOT-LEAK" not in str(output["metric"])
+
+
+@pytest.mark.asyncio
+async def test_metric_refund_rate_response_shows_percentage_and_formula(base_state):
+    metric = _metric_fact(
+        metric_id="merchant_refund_rate",
+        display_value="12.5%",
+        value=None,
+        rate=0.125,
+        numerator=1,
+        denominator=8,
+        unit="percentage",
+        formula="orders with refund cases / total orders",
+    )
+
+    result = await final_response(_metric_state(base_state, metric))
+
+    assert result["final_response"].startswith("12.5%")
+    assert "1/8" in result["final_response"]
+    assert "orders with refund cases / total orders" in result["final_response"]
+    _assert_no_false_evidence_claim(result["final_response"])
+
+
+@pytest.mark.asyncio
+async def test_metric_coupon_count_discloses_demo_record_caveat(base_state):
+    metric = _metric_fact(
+        metric_id="coupon_record_count",
+        display_value="2",
+        value=2,
+        caveats=["MOCA demo action draft records, not external delivery success."],
+    )
+
+    result = await final_response(_metric_state(base_state, metric))
+
+    assert result["final_response"].startswith("2")
+    assert "MOCA 演示系统" in result["final_response"]
+    assert "不是外部优惠券实际发放成功数" in result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_metric_permission_denied_uses_no_existence_leak_wording(base_state):
+    metric = _metric_fact(
+        status="permission_denied",
+        display_value="不可提供",
+        value=None,
+        no_leak_status="scope_denied_no_existence_leak",
+    )
+    metric["filters"]["merchant_id"] = "MERCHANT-SHOULD-NOT-LEAK"
+
+    result = await final_response(_metric_state(base_state, metric))
+
+    assert result["final_response"] == "当前权限范围内无法提供该商户指标。"
+    assert "MERCHANT-SHOULD-NOT-LEAK" not in result["final_response"]
+    output = result["llm_outputs"]["final_response"]
+    assert output["response_kind"] == "metric_answer"
+    assert output["metric"]["safe_reason"] == "scope_denied_no_existence_leak"
+    assert "MERCHANT-SHOULD-NOT-LEAK" not in str(output["metric"])
+
+
+@pytest.mark.asyncio
+async def test_metric_refund_rate_zero_denominator_is_non_computable_not_zero_percent(base_state):
+    metric = _metric_fact(
+        metric_id="merchant_refund_rate",
+        status="non_computable",
+        display_value="N/A",
+        value=None,
+        rate=None,
+        numerator=0,
+        denominator=0,
+        unit="percentage",
+        formula="orders with refund cases / total orders",
+    )
+
+    result = await final_response(_metric_state(base_state, metric))
+
+    assert result["final_response"].startswith("暂无可计算退款率")
+    assert "所选权限范围和时间范围内没有订单" in result["final_response"]
+    assert "0%" not in result["final_response"]
 
 
 @pytest.mark.asyncio
