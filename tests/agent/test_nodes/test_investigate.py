@@ -888,6 +888,54 @@ async def test_every_execution_uses_tool_platform():
 
 
 @pytest.mark.asyncio
+async def test_deterministic_fallback_calls_metric_tool_from_complete_active_slots():
+    events: list[dict[str, Any]] = []
+    manager = FakePlatform({"query_business_metric": _metric_success()})
+    planner = _PlannerSequence(["{not-json"])
+    state = _state([])
+    state["user_query"] = "今天有多少退款单 MERCHANT-FROM-USER-SHOULD-NOT-BE-ARGS"
+    state["primary_intent"] = "business_metric_query"
+    state["active_slots"] = {
+        "metric_id": "refund_case_count",
+        "metric_time_preset": "today",
+        "metric_time_range_start": "2026-07-09T00:00:00+08:00",
+        "metric_time_range_end": "2026-07-10T00:00:00+08:00",
+        "merchant_id": "MER-VALIDATED",
+        "status_filter": ["requested"],
+    }
+
+    await investigate(state, _config(manager, events, investigate_planner=planner, max_iterations=1))
+
+    assert [call[0] for call in manager.calls] == ["query_business_metric"]
+    assert manager.calls[0][1] == {
+        "metric_id": "refund_case_count",
+        "time_preset": "today",
+        "start_at": "2026-07-09T00:00:00+08:00",
+        "end_at": "2026-07-10T00:00:00+08:00",
+        "merchant_id": "MER-VALIDATED",
+        "status_filter": ["requested"],
+    }
+    assert "MERCHANT-FROM-USER-SHOULD-NOT-BE-ARGS" not in str(manager.calls[0][1])
+
+
+@pytest.mark.asyncio
+async def test_deterministic_fallback_stops_metric_query_with_incomplete_active_slots():
+    events: list[dict[str, Any]] = []
+    manager = FakePlatform({"query_business_metric": _metric_success()})
+    planner = _PlannerSequence(["{not-json"])
+    state = _state([])
+    state["user_query"] = "当前有多少订单"
+    state["current_intent"] = "business_metric_query"
+    state["active_slots"] = {"metric_id": "order_count"}
+
+    result = await investigate(state, _config(manager, events, investigate_planner=planner, max_iterations=1))
+
+    assert manager.calls == []
+    assert result["termination_reason"] == "no_more_useful_tools"
+    assert result["business_context"]["facts"] == {}
+
+
+@pytest.mark.asyncio
 async def test_metric_result_accumulates_under_business_metric_fact():
     events: list[dict[str, Any]] = []
     manager = FakePlatform({"query_business_metric": _metric_success()})
