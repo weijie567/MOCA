@@ -94,7 +94,7 @@ Plans:
 - [x] 62-04 Business Query Runtime Implementation — controlled aggregate/list/detail/breakdown/compare execution in `BusinessFactService` with scoped repositories and bounded pagination.
 - [x] 62-05 Answer Context And Drilldown Flow — `last_query_spec`, `last_answer_context`, result cursor, expected-slot-type parser flow, and aggregate-to-list follow-up revalidation.
 - [x] 62-06 Projection, Final Response, API, And Eval — safe backend projection, `business_query_answer` payload, golden/eval coverage, and raw payload stripping.
-- [ ] 62-07 Agent Console Business Query UI — typed Timeline/Details rendering, operation-specific result display, frontend unit/build checks, and E2E phase gate.
+- [x] 62-07 Agent Console Business Query UI — typed Timeline/Details rendering, operation-specific result display, frontend unit/build checks, and E2E phase gate.
 
 ### Phase 63: Safety Taxonomy And Risk Vocabulary
 
