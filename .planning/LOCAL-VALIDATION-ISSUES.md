@@ -20616,3 +20616,43 @@ Task 2 GREEN 首次运行 focused suite 时，`tests/agent/test_graph.py::test_b
 
 **剩余问题和下次继续排查入口**  
 无产品遗留。若后续 metric slot gate 继续同时传 preset 与 expanded window，兼容层应仍以 preset 作为语义源；只有无 preset 的显式时间范围才进入 `BusinessQuerySpec.start_at/end_at`。
+
+## 2026-07-09 — Phase 62-05 SUMMARY self-check 命令误用 zsh `path` 变量
+
+**问题现象**  
+创建 `62-05-SUMMARY.md` 后首次运行 self-check 命令，文件存在性检查通过，但 commit hash 检查输出 `zsh:6: command not found: git` 和 `MISSING: 9255b49` 等假失败。
+
+**如何检测/复现**  
+在 zsh 中运行包含 `for path in ...; do ...; done` 后继续执行 `git log ... | grep ...` 的同一个 shell 片段。
+
+**关键证据或命令**  
+self-check 输出显示文件均 `FOUND`，但同一 shell 内 `git` 和 `grep` 变为 command not found。原因是 zsh 的 `path` 是特殊数组变量，赋值会覆盖 `$PATH`。
+
+**当前判断/根因**  
+这是验证命令写法错误，不是仓库实现或 commit 缺失。循环变量命名为 `path` 污染了 zsh 命令搜索路径。
+
+**已做处理**  
+改用 `file_path` 作为循环变量并重跑 self-check。
+
+**剩余问题和下次继续排查入口**  
+无产品遗留。后续 zsh shell 片段避免使用 `path`、`status` 等特殊变量名。
+
+## 2026-07-09 — Phase 62-05 GSD state/roadmap handlers 仍不适配 MOCA 文档格式
+
+**问题现象**  
+完成 62-05 后按执行流程调用 `state.advance-plan`、`state.update-progress`、`state.record-metric`、`state.add-decision`、`state.record-session`、`roadmap.update-plan-progress`、`requirements.mark-complete`。其中 `state.update-progress` 将 Phase 62 错算为 `5/5`、`100%` 且 `completed_phases: 1`；`state.record-metric` 返回 `recorded:false`；三条 `state.add-decision` 均返回 `added:false`；`roadmap.update-plan-progress 62` 返回 `no matching checkbox found`；`requirements.mark-complete BQ-62-05 BQ-62-04` 返回 `changed:0`。
+
+**如何检测/复现**  
+依次运行上述 GSD SDK query handler，然后查看 `git diff -- .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md`。
+
+**关键证据或命令**  
+handler 后 `.planning/STATE.md` frontmatter 被改为 `total_plans: 5`、`completed_plans: 5`、`percent: 100`，而 Phase 62 当前应为 5/7 completed、next plan 62-06。`ROADMAP.md` 未被 handler 自动勾选 62-05。
+
+**当前判断/根因**  
+与 62-02、62-04 记录一致：当前 GSD SDK handlers 仍不适配 MOCA 的紧凑 `STATE.md` frontmatter/current-position 结构和普通 Markdown roadmap checkbox 格式；phase-local `BQ-62-*` requirement IDs 不在全局 `REQUIREMENTS.md` 中。
+
+**已做处理**  
+手动修正 `.planning/STATE.md` 为 Phase 62 Plan 6/7、completed plans 5/7、progress 71%、next plan 62-06；手动将 `.planning/ROADMAP.md` 的 62-05 checkbox 标为完成。
+
+**剩余问题和下次继续排查入口**  
+无产品实现遗留。后续 Phase 62 plan 完成时，仍必须在调用这些 handlers 后检查 `.planning/STATE.md` / `.planning/ROADMAP.md` diff；若继续错算，应修复 GSD SDK handler 或继续手动 metadata 修正并记录。

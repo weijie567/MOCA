@@ -92,7 +92,7 @@ Plans:
 - [x] 62-02 Safe Business Query Contract And Schema — accepted `business_query` contract, strict `BusinessQuerySpec`, result/context/cursor models, and metric compatibility mapping.
 - [x] 62-03 ToolPlatform Policy And Trusted Scope Boundary — trusted permission mapping, read-only ToolCatalog descriptor, ToolPolicy denial checks, and safe executor boundary.
 - [x] 62-04 Business Query Runtime Implementation — controlled aggregate/list/detail/breakdown/compare execution in `BusinessFactService` with scoped repositories and bounded pagination.
-- [ ] 62-05 Answer Context And Drilldown Flow — `last_query_spec`, `last_answer_context`, result cursor, expected-slot-type parser flow, and aggregate-to-list follow-up revalidation.
+- [x] 62-05 Answer Context And Drilldown Flow — `last_query_spec`, `last_answer_context`, result cursor, expected-slot-type parser flow, and aggregate-to-list follow-up revalidation.
 - [ ] 62-06 Projection, Final Response, API, And Eval — safe backend projection, `business_query_answer` payload, golden/eval coverage, and raw payload stripping.
 - [ ] 62-07 Agent Console Business Query UI — typed Timeline/Details rendering, operation-specific result display, frontend unit/build checks, and E2E phase gate.
 
