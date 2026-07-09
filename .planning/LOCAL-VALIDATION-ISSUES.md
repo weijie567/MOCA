@@ -20676,3 +20676,23 @@ Task 1 新增 `_business_query_fact(...)` 时把任意 `BUSINESS_FACT_PERMISSION
 
 **剩余问题和下次继续排查入口**  
 无产品遗留。后续若新增其他 business fact denial fallback，必须先按 resource 精确匹配，避免抢占 compatibility 分支。
+
+## 2026-07-09 — Phase 62-06 GSD state/roadmap handlers 继续错算 Phase 62 进度
+
+**问题现象**  
+完成 62-06 后按执行流程调用 `state.advance-plan`、`state.update-progress`、`state.record-metric`、`state.add-decision`、`state.record-session`、`roadmap.update-plan-progress`、`requirements.mark-complete`。其中 `state.update-progress` 将 `.planning/STATE.md` 错改为 `completed_phases: 1`、`total_plans: 5`、`completed_plans: 5`、`percent: 100`；`state.record-metric` 返回 `recorded:false`；三条 `state.add-decision` 返回 `added:false`；`roadmap.update-plan-progress 62` 返回 `no matching checkbox found`；`requirements.mark-complete BQ-62-06 BQ-62-08 BQ-62-04` 返回 `changed:0`。
+
+**如何检测/复现**  
+在 62-06 SUMMARY 创建后运行上述 GSD SDK query handler，然后查看 `git diff -- .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md`。
+
+**关键证据或命令**  
+`state.update-progress` 输出 `{"updated":true,"percent":100,"completed":5,"total":5,"bar":"[██████████] 100%"}`，但 Phase 62 roadmap 有 7 个 plan，62-06 完成后应为 6/7 complete、next plan 62-07。`roadmap.update-plan-progress 62` 输出 `{"updated":false,"phase":"62","reason":"no matching checkbox found"}`。
+
+**当前判断/根因**  
+与 62-05 记录一致：当前 GSD SDK handlers 仍不适配 MOCA 的 Phase 62 roadmap checkbox 格式、STATE frontmatter/current-position 结构，以及 phase-local `BQ-62-*` requirement IDs。
+
+**已做处理**  
+手动修正 `.planning/STATE.md` 为 Phase 62 Plan 7/7、completed plans 6/7、progress 86%、next plan 62-07；手动将 `.planning/ROADMAP.md` 的 62-06 checkbox 标为完成。
+
+**剩余问题和下次继续排查入口**  
+无产品实现遗留。后续 62-07 完成时仍需先运行 GSD handlers，再人工核对 `.planning/STATE.md` / `.planning/ROADMAP.md`；若继续错算，应修 GSD SDK handler 或继续手动 metadata 修正并记录。
