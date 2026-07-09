@@ -20915,3 +20915,23 @@ GSD `state.record-session` handler 对 MOCA 当前 compact STATE frontmatter 仍
 
 **剩余问题和下次继续排查入口**
 无产品实现遗留。后续调用 `state.record-session` 后必须检查 STATE diff；必要时避免依赖该 handler 写 resume file，改由手工同步并记录。
+
+## 2026-07-10 — Phase 63 pattern mapper 初次验证误触发裸 pytest
+
+**问题现象**
+Phase 63 pattern mapper 子代理在生成 `63-PATTERNS.md` 过程中报告：一次用于核对内容的命令因 shell 转义错误意外触发了裸 `pytest`。该结果已被子代理明确标记为无效，并在后续改用正确引用的 `rg` 验证继续完成 pattern map。
+
+**如何检测/复现**
+本轮没有保留完整误触发命令原文；问题来自子代理完成报告中的说明。当前仓库规则明确禁止在 MOCA 中使用裸 `pytest` 或裸 `python -m pytest` 作为有效验证入口。
+
+**关键证据或命令**
+子代理完成报告说明 “A quoted `rg` verification was rerun correctly after an initial shell-escaping mistake accidentally invoked bare `pytest`; that result was discarded as invalid per MOCA rules.” 当前没有使用该裸 `pytest` 结果作为 Phase 63 结论。
+
+**当前判断/根因**
+这是验证命令入口/转义问题，不是产品代码或 phase artifact 语义问题。按 MOCA 规则，任何裸 `pytest` 输出都视为无效验证，后续测试必须使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` 或仓库 `.venv` 入口。
+
+**已做处理**
+未采信裸 `pytest` 结果；保留 pattern mapper 产出的 `63-PATTERNS.md`，其中列出的验证命令均使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。Phase 63 plan 和 execute 阶段继续显式要求所有测试命令使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`，并在 review 中检查是否出现裸测试入口。
