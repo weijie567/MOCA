@@ -65,7 +65,7 @@
 | Action draft | `src/actions/service.py:51` | 创建 coupon grant draft，校验 approval/snapshot/hash | business action state | 业务动作权威记录，不是 memory |
 | AuditLog model | `src/db/models.py:199` | `audit_logs` 表，字段包括 action、resource、metadata | audit | 表存在，但当前未看到它作为 tool manager 主审计链路稳定接入 |
 | Audit repository | `src/repositories/audit_repo.py:14` | `record_tool_call` 写 `AuditLog` | audit | 当前使用范围有限，需要和 replay/action/approval 职责重新对齐 |
-| Redis 配置 | `src/config.py:14`, `docker-compose.yml:18` | 配置 Redis URL 与服务 | cache candidate | 当前仓库中没有找到实际 Redis client 使用依据 |
+| Redis 未来选项 | `docs/contract-spec.md:1626` | 当前 runtime 不配置、不启动、不依赖 Redis | future cache candidate | 只有出现量化瓶颈后，才可作为非权威 TTL hot cache / rate limit / short lock / SSE buffer / worker hint 引入；PostgreSQL 仍是权威源 |
 | Conversation threads/messages | `src/db/models.py:1212`, `src/db/models.py:1305`, `src/conversation/*` | 保存 thread-scoped user / assistant / tool messages 与 prompt context metadata | conversation log projection | 已实现 redacted / prompt-safe conversation context；不是 raw prompt 或完整 raw transcript |
 | Tool calls/results tables | `src/db/models.py:1357`, `src/db/models.py:1401`, `src/conversation/repository.py:436` | 保存 tool call summaries、normalized result JSON、prompt summaries、raw result refs / hashes | tool log projection | 已实现 prompt-safe tool context 与 raw result 引用字段；仍不保存 raw payload 本体 |
 | Thread summaries | `src/db/models.py:1448`, `src/conversation/repository.py:398` | 保存 rolling thread summaries、source message ids、source tool result ids | short-term conversation context | 已实现 thread_rolling summary；`session_memories` 仍只承担 slot continuity |

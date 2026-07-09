@@ -11,7 +11,6 @@ class Settings(BaseSettings):
     project_version: str = "0.1.0"
     api_v1_prefix: str = "/api/v1"
     database_url: str = "postgresql+asyncpg://moca:moca_dev@localhost:5432/moca"
-    redis_url: str = "redis://localhost:6379/0"
     jwt_secret: str = Field(default="dev-secret-change-in-prod-32-bytes-min")
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60

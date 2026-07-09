@@ -1615,7 +1615,7 @@ Case memory 在目标模型中保持 append-only + `review_status`，不复用 l
 
 ### 13.6 Storage model
 
-PostgreSQL is the authoritative store for durable memory, workflow checkpoint source-of-truth state, and audit/replay records. Redis may be used only as a non-authoritative hot layer or runtime coordination layer.
+PostgreSQL is the authoritative store for durable memory, workflow checkpoint source-of-truth state, and audit/replay records. Redis is not part of the current runtime dependency set. It may be introduced only after a measured bottleneck, and only as a non-authoritative hot layer or runtime coordination layer.
 
 Authoritative memory storage uses PostgreSQL:
 
@@ -1627,7 +1627,7 @@ Authoritative memory storage uses PostgreSQL:
 - `memory_tombstones`
 - `memory_write_events`
 
-Redis MUST NOT be used for authoritative session memory, long-term memory, case memory, tombstones, policy evidence, approval/action state, workflow checkpoint source-of-truth state, or replay events. Redis MAY be introduced for non-authoritative active-session hot cache, active-run hot checkpoint cache, short TTL locks, rate limits, debounce, SSE buffers, worker hints, or temporary caches.
+Redis MUST NOT be used for authoritative session memory, long-term memory, case memory, tombstones, policy evidence, approval/action state, workflow checkpoint source-of-truth state, or replay events. Redis MAY be introduced after measured bottlenecks for non-authoritative active-session hot cache, active-run hot checkpoint cache, short TTL locks, rate limits, debounce, SSE buffers, worker hints, or temporary caches.
 
 Phase 12 does not require Redis. If Phase 12 or a later phase adds Redis to a session-memory or checkpoint path, it must satisfy all of these conditions:
 
@@ -2578,7 +2578,7 @@ memory_write_events
 Memory constraints / indexes：
 
 - `session_memories`: unique `(tenant_id, user_id, thread_id)` where `deleted_at is null`; add `version int not null default 1` and update with lock/CAS on `(id, version)` so concurrent runs cannot silently lose `active_slots_json`, `session_summary`, `unresolved_questions_json`, `last_intent`, or `last_business_context_refs_json`. Merge precedence is current-turn explicit slots > compatible non-expired existing session slots > no inherited value; CAS miss reloads and retries deterministic merge or returns conflict, never last-write-wins. `active_slots_json` must use `session_slots.v1`; inherited slots must retain source/freshness metadata and cannot be treated as current-turn explicit input. `session_summary` must not store policy conclusions, risk decisions, approval decisions, action authorization, durable preferences, or case precedent.
-- Optional Redis hot cache for session memory or active-run checkpoint state has no schema ownership. It must be treated as a derived view of PostgreSQL-backed state, carry a mandatory TTL, fall back to PostgreSQL on miss/error, and never be the only copy of approval waits, side-effect boundaries, audit/replay facts, or CAS-controlled session-memory writes.
+- Optional Redis hot cache for session memory or active-run checkpoint state has no schema ownership and is not part of the current runtime. It can only be introduced after a measured bottleneck. It must be treated as a derived view of PostgreSQL-backed state, carry a mandatory TTL, fall back to PostgreSQL on miss/error, and never be the only copy of approval waits, side-effect boundaries, audit/replay facts, or CAS-controlled session-memory writes.
 - `long_term_memories`: unique `(tenant_id, scope_type, scope_id, content_hash)` where `deleted_at is null and is_current = true`；不得使用 `supersedes is null` 作为 active predicate。
 - `case_memories`: metadata filter index `(tenant_id, scope_type, scope_id, case_type, policy_family, policy_version, review_status, expires_at)` where `deleted_at is null`; active content identity index `(tenant_id, scope_type, scope_id, content_hash)` where `deleted_at is null`; source identity index `(tenant_id, scope_type, scope_id, source_identity_hash)` where `source_identity_hash is not null and deleted_at is null`; optional HNSW embedding index remains a ranking accelerator, not the only retrieval path. Case memory 目标采用 append-only + `review_status` 过滤，不复用 long-term memory 的 same-content active unique version model。
 - `thread_case_links`: composite tenant FKs `(conversation_thread_id, tenant_id)` -> `(conversation_threads.id, conversation_threads.tenant_id)` and `(case_id, tenant_id)` -> `(refund_cases.id, refund_cases.tenant_id)`；active unique `(tenant_id, conversation_thread_id, case_id)` where `deleted_at is null`；check `link_source in ('run_auto', 'staff_manual', 'import')`；legacy `conversation_threads.case_id` 不被删除、重命名或重解释。

@@ -178,4 +178,4 @@ uv run ruff format --check .
 uv run pytest tests/ -x --ignore=tests/integration -q --tb=short
 ```
 
-Evaluation scripts remain local commands because the full RAG path requires a migrated and seeded database with pgvector. This keeps CI pure, fast, and independent of DB, Redis, embedding, and LLM services while preserving full local evaluation coverage.
+Evaluation scripts remain local commands because the full RAG path requires a migrated and seeded database with pgvector. This keeps CI pure, fast, and independent of DB, embedding, and LLM services while preserving full local evaluation coverage.
