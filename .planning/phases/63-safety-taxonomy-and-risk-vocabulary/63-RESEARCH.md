@@ -424,22 +424,25 @@ This split is recommended because Phase 63 crosses safety policy, action draft, 
 | A1 | No live external service configuration was queried; repository evidence did not identify Phase 63 live-service state. | Runtime State Inventory | If production-like external config stores action/risk strings, the plan would need an additional migration/audit task. |
 | A2 | The research is valid until 2026-08-09 unless Phase 63 source anchors change first. | Metadata | If the codebase changes earlier, planner should re-check source anchors before using this research. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should `RiskDecisionV1` gain optional `risk_severity` / `risk_disposition` fields in Phase 63, or should Phase 63 keep those as internal normalized helpers only?**
+1. **RESOLVED: Should `RiskDecisionV1` gain optional `risk_severity` / `risk_disposition` fields in Phase 63, or should Phase 63 keep those as internal normalized helpers only?**
    - What we know: `RiskDecisionV1.risk_level` is a compatibility string today. [VERIFIED: repo src/approvals/schemas.py:32]
    - What's unclear: Whether public/persisted schema expansion is desired before Phase 67-style broader contract hardening. [VERIFIED: repo .planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-CONTEXT.md:52]
    - Recommendation: Keep Phase 63 schema changes additive and minimal; prefer internal helpers unless tests show persisted fields are required. [VERIFIED: repo .planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-CONTEXT.md:33]
+   - Resolution for planning: Phase 63 keeps `RiskDecisionV1.risk_level` compatible and requires new risk-gate logic to emit severity-only `risk_level` plus explicit normalized `risk_severity` / `risk_disposition` where Phase 63 tests require it. Broad persisted/API schema hardening remains deferred to the suggested Phase 67 unless execution finds a directly required compatibility fix. [VERIFIED: repo .planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-02-PLAN.md:149]
 
-2. **Should `compensation` remain a compatibility action ID or be remapped to `issue_coupon`?**
+2. **RESOLVED: Should `compensation` remain a compatibility action ID or be remapped to `issue_coupon`?**
    - What we know: Current local action sets include `compensation`, and canonicalizers also map coupon/compensation terms to `issue_coupon` in some branches. [VERIFIED: repo src/agent/nodes/risk_gate.py:37] [VERIFIED: repo src/agent/nodes/risk_gate.py:281]
    - What's unclear: Whether existing persisted or test fixtures depend on exact `action_type="compensation"`. [VERIFIED: repo src/db/models.py:1164]
    - Recommendation: Pin current behavior in `63-01` parity tests before changing this mapping. [VERIFIED: repo .planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-CONTEXT.md:49]
+   - Resolution for planning: Phase 63 treats `compensation` as a compatibility alias that resolves to executable action `issue_coupon`; it does not introduce `compensation` as a new external write tool. Parity tests in `63-01` must capture the current alias behavior before caller migration. [VERIFIED: repo .planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-01-PLAN.md:135]
 
-3. **Should ActionService enforce executable action allowlists in Phase 63?**
+3. **RESOLVED: Should ActionService enforce executable action allowlists in Phase 63?**
    - What we know: Tool schema accepts any non-empty string action type, and ActionService validates payload/hash/snapshot binding. [VERIFIED: repo src/tools/catalog.py:723] [VERIFIED: repo src/actions/service.py:97]
    - What's unclear: Whether adding service-level allowlist now would break compatibility rows or widen phase scope. [VERIFIED: repo .planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-CONTEXT.md:33]
    - Recommendation: Require `action_draft` to block dispositions before ToolPlatform in Phase 63; add service-level allowlist only if scoped tests prove compatibility. [VERIFIED: repo .planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-CONTEXT.md:120]
+   - Resolution for planning: Phase 63 enforces executable/disposition separation at `action_draft` before ToolPlatform invocation. It does not add a broad ActionService allowlist or ToolCatalog schema enum unless a focused Phase 63 test proves it is directly required; otherwise that broader hardening is recorded as Phase 67 scope. [VERIFIED: repo .planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-03-PLAN.md:138]
 
 ## Environment Availability
 
