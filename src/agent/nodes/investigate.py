@@ -19,8 +19,9 @@ from src.agent.nodes.investigate_planner import (
     parse_investigate_planner_decision,
 )
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE, INVESTIGATE_PLANNER_SYSTEM
-from src.agent.state import AgentState
+from src.agent.state import AgentState, business_query_context_binding
 from src.business.query.registry import BUSINESS_QUERY_REGISTRY
+from src.business.query.schemas import BusinessQueryResultV1
 from src.config import settings
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
@@ -204,6 +205,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         "best_score": state.get("best_score"),
         "planner_errors": [],
         "planner_fallback_count": 0,
+        "business_query_context_update": None,
     }
     termination_reason = "no_more_useful_tools"
     calls_executed = 0
@@ -332,6 +334,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             projection=outcome.projection,
         )
         _accumulate_tool_result(context, descriptor, tool_name, result, prompt_summary, outcome.projection)
+        _record_business_query_drilldown_context(state, context, tool_name, result)
         if result.status == "unavailable":
             context["unusable"].add(tool_name)
         if result.status not in TERMINAL_STATUSES:
@@ -367,7 +370,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             },
         }
     ]
-    return {
+    update = {
         "business_context": business_context,
         "policy_evidence": context["policy_refs"],
         "retrieved_evidence": {
@@ -386,6 +389,9 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         "termination_reason": termination_reason,
         "trace_steps": trace_steps,
     }
+    if isinstance(context.get("business_query_context_update"), dict):
+        update.update(context["business_query_context_update"])
+    return update
 
 
 async def _plan_next_step_with_fallback(
@@ -955,6 +961,91 @@ def _business_fact_payload_for_context(
         return normalized
     payload = result.data.get("business_query")
     return payload if isinstance(payload, dict) else normalized
+
+
+def _record_business_query_drilldown_context(
+    state: AgentState,
+    context: dict[str, Any],
+    tool_name: str,
+    result: ToolResultV2,
+) -> None:
+    if tool_name != "business_query":
+        return
+    if result.status not in FACT_STATUSES:
+        context["business_query_context_update"] = _clear_business_query_drilldown_context()
+        return
+    update = _business_query_drilldown_context_update(state, result)
+    context["business_query_context_update"] = update or _clear_business_query_drilldown_context()
+
+
+def _business_query_drilldown_context_update(state: AgentState, result: ToolResultV2) -> dict[str, Any] | None:
+    business_query = _safe_business_query_result(result)
+    if business_query is None or business_query.answer_context is None:
+        return None
+
+    answer_context = business_query.answer_context.model_dump(mode="json")
+    cursor = None
+    if business_query.cursor is not None:
+        cursor = business_query.cursor.model_dump(mode="json")
+    elif business_query.answer_context.cursor is not None:
+        cursor = business_query.answer_context.cursor.model_dump(mode="json")
+    expected_slot_type = _expected_slot_type_for_business_query_context(answer_context, cursor)
+    return {
+        "last_query_spec": business_query.answer_context.query_spec.model_dump(mode="json"),
+        "last_answer_context": answer_context,
+        "result_cursor": cursor,
+        "expected_slot_type": expected_slot_type,
+        "expected_slot_context": {
+            "schema_version": "business_query_expected_slot_context.v1",
+            "purpose": "business_query_drilldown",
+            "context_binding": business_query_context_binding(state),
+            "operation": business_query.operation,
+            "resource": business_query.resource,
+            "allowed_drilldowns": list(business_query.answer_context.allowed_drilldowns),
+            "fields_shown": list(business_query.answer_context.fields_shown),
+        },
+    }
+
+
+def _safe_business_query_result(result: ToolResultV2) -> BusinessQueryResultV1 | None:
+    if not isinstance(result.data, dict):
+        return None
+    payload = result.data.get("business_query")
+    if not isinstance(payload, dict):
+        return None
+    # Validate only the stable BusinessQueryResultV1 contract fields. Raw executor/debug
+    # keys may exist in malformed tool data but must not enter drilldown state.
+    stable_payload = {
+        key: value
+        for key, value in payload.items()
+        if key in BusinessQueryResultV1.model_fields
+    }
+    try:
+        return BusinessQueryResultV1.model_validate(stable_payload)
+    except ValidationError:
+        return None
+
+
+def _expected_slot_type_for_business_query_context(
+    answer_context: dict[str, Any],
+    cursor: dict[str, Any] | None,
+) -> str | None:
+    allowed_drilldowns = answer_context.get("allowed_drilldowns")
+    if isinstance(allowed_drilldowns, list) and allowed_drilldowns:
+        return "field_request"
+    if isinstance(cursor, dict) and cursor.get("has_more") is True:
+        return "cursor_request"
+    return None
+
+
+def _clear_business_query_drilldown_context() -> dict[str, Any]:
+    return {
+        "last_query_spec": None,
+        "last_answer_context": None,
+        "result_cursor": None,
+        "expected_slot_type": None,
+        "expected_slot_context": None,
+    }
 
 
 def _business_status(context: dict[str, Any]) -> str:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from collections.abc import Mapping
 from typing import Any
 
 from typing_extensions import TypedDict
@@ -72,6 +75,11 @@ class AgentState(TypedDict, total=False):
     last_recommendation_summary: LastRecommendationSummary | None
     evidence_refs: list[EvidenceRef]
     last_business_context_refs: LastBusinessContextRefs | None
+    last_query_spec: dict[str, Any] | None
+    last_answer_context: dict[str, Any] | None
+    result_cursor: dict[str, Any] | None
+    expected_slot_type: str | None
+    expected_slot_context: dict[str, Any] | None
 
     # Ephemeral context: reset by receive_request at the start of each turn.
     user_query: str | None
@@ -183,3 +191,27 @@ class AgentState(TypedDict, total=False):
     current_run_id: str | None
     run_started_at: str | None
     trace_steps: list[dict[str, Any]] | None
+
+
+def business_query_context_binding(state: Mapping[str, Any]) -> str:
+    """Fingerprint trusted identity/scope fields without storing raw authority values."""
+    payload = {
+        "tenant_id": _binding_value(state.get("tenant_id")),
+        "user_id": _binding_value(state.get("user_id")),
+        "role": _binding_value(state.get("role")),
+        "thread_id": _binding_value(state.get("thread_id")),
+        "session_id": _binding_value(state.get("session_id")),
+        "merchant_scope": _binding_value(state.get("merchant_scope")),
+    }
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"sha256:{hashlib.sha256(serialized.encode('utf-8')).hexdigest()}"
+
+
+def _binding_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _binding_value(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return sorted(_binding_value(item) for item in value)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)

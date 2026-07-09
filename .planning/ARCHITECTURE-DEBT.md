@@ -1839,3 +1839,13 @@
 **剩余风险**
 - 🟡 final response / API / frontend projection 仍未消费 `fact["business_query"]`；按计划留给 62-06/62-07。
 - 🟡 planner allowlist 仍是静态副本；post-Phase 62 或 Phase 65 tool-label/registry cleanup 可考虑把 planner allowlist 从 ToolCatalog 派生。
+
+## 2026-07-09 — Phase 62 Plan 05 Task 1 business_query 安全答案上下文状态边界 ⚠️修复但验证有缺口
+
+- **子系统**：工具调用 / Agent Graph 状态 / 意图识别 drilldown 上下文
+- **问题现象 / 根因**：62-04 已让 `BusinessFactService` 返回稳定 `fact["business_query"]`，但 `AgentState` 尚无 `last_query_spec`、`last_answer_context`、`result_cursor` 和 expected-slot 上下文字段；`receive_request` 也没有同线程/同身份上下文绑定检查。这样后续 `订单号是多少？` 等 drilldown 只能重新解析最终回复文本或失去上轮查询结构，且存在跨 user/tenant/thread/scope 误用旧上下文的风险。
+- **影响**：多轮 drilldown 无法安全复用上一轮查询范围，也无法证明未把 raw rows、raw tool args、tenant_id、merchant_scope 或 denied id 放进可回放状态。若后续直接做 follow-up parser，会缺少可信状态边界。
+- **处理状态**：⚠️ 已完成 Task 1 范围内修复并通过节点级验证。`AgentState` 新增 drilldown 上下文字段；`investigate` 在成功 `business_query` 后只从 `BusinessQueryResultV1.answer_context` 提取 replayable `BusinessQuerySpec`、safe answer context 和结构化 cursor，并在 `permission_denied` 等非成功结果时显式清空旧上下文；`receive_request` 用 fingerprint 绑定 tenant/user/role/thread/session/scope，不在状态中存 raw authority fields，fingerprint 不匹配时清空上下文。
+- **证据**：Phase 62 Plan 05 Task 1；文件 `src/agent/state.py`、`src/agent/nodes/receive_request.py`、`src/agent/nodes/investigate.py`、`tests/agent/test_nodes/test_receive_request.py`、`tests/agent/test_nodes/test_investigate.py`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_investigate.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_receive_request.py -q --tb=short` → `106 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/state.py src/agent/nodes/receive_request.py src/agent/nodes/investigate.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_nodes/test_investigate.py` → 通过。
+- **剩余风险**：🟡 本 task 只建立安全状态边界；follow-up phrase 解析、`business_query_spec` 派生、slot gate 路由和 graph 级 `本周多少订单？ -> 订单号是多少？` 重执行验证仍由 62-05 Task 2 完成。final/API/frontend 投影仍按计划留给 62-06/62-07。
