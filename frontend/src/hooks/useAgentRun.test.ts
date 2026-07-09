@@ -226,6 +226,94 @@ describe('useAgentRun thread lifecycle', () => {
     expect(result.current.state.steps).toEqual([])
   })
 
+  it('keeps typed business query payloads on the active run but ignores stale business query callbacks', async () => {
+    let resolveSecondRun: ((value: Awaited<ReturnType<typeof createRun>>) => void) | null = null
+    createRunMock
+      .mockResolvedValueOnce({ success: true, data: { run_id: 'run-1', status: 'pending' } })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSecondRun = resolve
+        }),
+      )
+    const { result } = renderHook(() => useAgentRun())
+
+    await act(async () => {
+      await result.current.submitQuery('本周多少订单')
+    })
+    act(() => {
+      streamCallbacks.get('run-1')?.onEvent(
+        event({
+          event_type: 'final_response',
+          run_id: 'run-1',
+          step_index: 1,
+          node_name: 'final_response',
+          status: 'completed',
+          message: '业务汇总查询完成',
+          payload: {
+            response_kind: 'business_query_answer',
+            final_response: '本周订单 128 单。',
+            business_query: {
+              operation: 'aggregate',
+              resource_label: '订单',
+              result_label: '本周订单 128 单',
+              scope_label: '当前权限范围',
+              time_label: '本周',
+            },
+          } as unknown as SseEvent['payload'],
+        }),
+      )
+    })
+
+    expect(result.current.state.steps[0].payload).toMatchObject({
+      response_kind: 'business_query_answer',
+      business_query: {
+        operation: 'aggregate',
+        result_label: '本周订单 128 单',
+      },
+    })
+
+    let secondSubmit: Promise<void> | null = null
+    act(() => {
+      secondSubmit = result.current.submitQuery('订单号是多少') as Promise<void>
+    })
+    expect(result.current.state.steps).toEqual([])
+
+    act(() => {
+      streamCallbacks.get('run-1')?.onEvent(
+        event({
+          event_type: 'final_response',
+          run_id: 'run-1',
+          step_index: 2,
+          node_name: 'final_response',
+          status: 'completed',
+          message: '业务列表查询完成',
+          payload: {
+            response_kind: 'business_query_answer',
+            final_response: '旧结果不应回填。',
+            business_query: {
+              operation: 'list',
+              resource_label: '订单',
+              result_label: '旧列表',
+              row_count: 2,
+              limit: 20,
+              rows: [{ 订单号: 'ORD-STALE' }],
+            },
+          } as unknown as SseEvent['payload'],
+        }),
+      )
+    })
+
+    expect(result.current.state.steps).toEqual([])
+
+    await act(async () => {
+      resolveSecondRun?.({ success: true, data: { run_id: 'run-2', status: 'pending' } })
+      await secondSubmit
+    })
+
+    expect(result.current.state.runId).toBe('run-2')
+    expect(result.current.state.steps).toEqual([])
+  })
+
   it('updates one timeline row per node instead of appending running and completed duplicates', async () => {
     createRunMock.mockResolvedValueOnce({ success: true, data: { run_id: 'run-1', status: 'pending' } })
     const { result } = renderHook(() => useAgentRun())
@@ -404,6 +492,130 @@ describe('TimelineStep safe result labels', () => {
         }),
         expected: ['查询业务指标', 'tool: 查询业务指标'],
         forbidden: ['MERCHANT-SHOULD-NOT-LEAK', 'raw_args'],
+      },
+    ]
+
+    cases.forEach(({ event: step, expected, forbidden = [] }) => {
+      const { unmount } = render(createElement(TimelineStep, { step, isLast: true }))
+
+      expected.forEach((text) => expect(screen.getByText(text)).toBeTruthy())
+      forbidden.forEach((text) => expect(screen.queryByText(text)).toBeNull())
+
+      unmount()
+    })
+  })
+
+  it('renders business query timeline labels from typed safe payload fields only', () => {
+    const cases: Array<{ event: SseEvent; expected: string[]; forbidden?: string[] }> = [
+      {
+        event: event({
+          event_type: 'step_started',
+          node_name: 'investigate',
+          status: 'running',
+          payload: {
+            response_kind: 'business_query_answer',
+            business_query: {
+              operation: 'aggregate',
+              resource_label: '订单',
+              result_label: '本周订单 128 单',
+              scope_label: '当前权限范围',
+              raw_sql: 'SHOULD_NOT_RENDER',
+            },
+            raw_args: { tenant_id: 'tenant-secret' },
+          } as unknown as SseEvent['payload'],
+        }),
+        expected: ['正在查询业务汇总', 'aggregate: 本周订单 128 单 · scope: 当前权限范围'],
+        forbidden: ['raw_args', 'tenant-secret', 'raw_sql', 'SHOULD_NOT_RENDER'],
+      },
+      {
+        event: event({
+          event_type: 'final_response',
+          node_name: 'final_response',
+          status: 'completed',
+          payload: {
+            response_kind: 'business_query_answer',
+            business_query: {
+              operation: 'aggregate',
+              resource_label: '订单',
+              result_label: '本周订单 128 单',
+              scope_label: '当前权限范围',
+            },
+          } as unknown as SseEvent['payload'],
+        }),
+        expected: ['业务汇总查询完成', 'aggregate: 本周订单 128 单 · scope: 当前权限范围'],
+      },
+      {
+        event: event({
+          event_type: 'final_response',
+          node_name: 'final_response',
+          status: 'completed',
+          payload: {
+            response_kind: 'business_query_answer',
+            business_query: {
+              operation: 'list',
+              resource_label: '订单',
+              row_count: 5,
+              limit: 20,
+              rows: [{ 订单号: 'ORD-SAFE-1' }],
+              raw_payload: 'SHOULD_NOT_RENDER',
+              cursor_label: '查看更多',
+            },
+            raw_cursor: 'cursor-secret',
+          } as unknown as SseEvent['payload'],
+        }),
+        expected: ['业务列表查询完成', 'list: 订单 · rows: 5/20'],
+        forbidden: ['ORD-SAFE-1', 'raw_payload', 'raw_cursor', 'cursor-secret'],
+      },
+      {
+        event: event({
+          event_type: 'final_response',
+          node_name: 'final_response',
+          status: 'completed',
+          payload: {
+            response_kind: 'business_query_answer',
+            business_query: {
+              operation: 'detail',
+              resource_label: '退款单',
+              fields_label: '退款单号、状态、金额',
+              merchant_scope: ['merchant-secret'],
+            },
+            routing_hints: { route: 'SHOULD_NOT_RENDER' },
+          } as unknown as SseEvent['payload'],
+        }),
+        expected: ['业务详情查询完成', 'detail: 退款单 · fields: 退款单号、状态、金额'],
+        forbidden: ['routing_hints', 'merchant-secret', 'merchant_scope', 'SHOULD_NOT_RENDER'],
+      },
+      {
+        event: event({
+          event_type: 'final_response',
+          node_name: 'final_response',
+          status: 'completed',
+          payload: {
+            response_kind: 'business_query_answer',
+            business_query: {
+              operation: 'breakdown',
+              resource_label: '订单',
+              group_by_label: '订单状态',
+            },
+          } as unknown as SseEvent['payload'],
+        }),
+        expected: ['业务分组查询完成', 'breakdown: 订单 · by: 订单状态'],
+      },
+      {
+        event: event({
+          event_type: 'final_response',
+          node_name: 'final_response',
+          status: 'completed',
+          payload: {
+            response_kind: 'business_query_answer',
+            business_query: {
+              operation: 'compare',
+              result_label: '订单量对比',
+              compare_label: '本周 vs 上周',
+            },
+          } as unknown as SseEvent['payload'],
+        }),
+        expected: ['业务对比查询完成', 'compare: 订单量对比 · 本周 vs 上周'],
       },
     ]
 
