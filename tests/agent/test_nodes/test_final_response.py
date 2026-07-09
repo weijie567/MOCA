@@ -629,3 +629,64 @@ async def test_final_response_complaint_folded_note_visible_without_deferred_ste
 
     assert "投诉情绪" in result["final_response"]
     assert result["llm_outputs"]["final_response"]["response_text"] == result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_final_response_handles_small_talk_without_default_policy_template(base_state):
+    result = await final_response(
+        {
+            **base_state,
+            "primary_intent": "small_talk",
+            "requested_operation": "advise",
+            "recommendation_draft": None,
+        }
+    )
+
+    assert "你好" in result["final_response"]
+    assert "订单号、退款单号或工单号" in result["final_response"]
+    assert "建议按已检索到的政策依据处理" not in result["final_response"]
+    assert "根据已检索到的政策依据" not in result["final_response"]
+    assert "政策证据" not in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["evidence_citations"] == []
+    assert result["llm_outputs"]["final_response"]["direct_response_intent"] == "small_talk"
+
+
+@pytest.mark.asyncio
+async def test_final_response_handles_unsupported_aggregate_order_query(base_state):
+    result = await final_response(
+        {
+            **base_state,
+            "primary_intent": "unsupported",
+            "requested_operation": "advise",
+            "routing_hints": {"unsupported_reason": "aggregate_order_query"},
+            "recommendation_draft": None,
+        }
+    )
+
+    assert "不支持统计订单总数" in result["final_response"]
+    assert "具体订单号" in result["final_response"]
+    assert "建议按已检索到的政策依据处理" not in result["final_response"]
+    assert "根据已检索到的政策依据" not in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["evidence_citations"] == []
+    assert result["llm_outputs"]["final_response"]["direct_response_intent"] == "unsupported"
+
+
+@pytest.mark.asyncio
+async def test_final_response_handles_generic_unsupported_without_irrelevant_identifier_prompt(base_state):
+    result = await final_response(
+        {
+            **base_state,
+            "primary_intent": "unsupported",
+            "requested_operation": "advise",
+            "recommendation_draft": None,
+        }
+    )
+
+    assert "当前只支持商家售后相关" in result["final_response"]
+    assert "政策问答" in result["final_response"]
+    assert "订单/退款/工单查询" in result["final_response"]
+    assert "补偿建议" in result["final_response"]
+    assert "请提供订单号" not in result["final_response"]
+    assert "建议按已检索到的政策依据处理" not in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["evidence_citations"] == []
+    assert result["llm_outputs"]["final_response"]["direct_response_intent"] == "unsupported"

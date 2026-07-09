@@ -504,3 +504,56 @@ async def test_short_approval_reply_without_flow_is_not_classified_by_llm(monkey
     assert result["risk_tier"] == "forbidden_in_chat"
     assert result["routing_hints"]["clarification_reason"] == "approval_chat_not_trusted"
     assert result["classification_trace"]["route_decision"] == "clarification_gate"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["你好", "您好", "hi", "谢谢"])
+async def test_standalone_small_talk_is_direct_without_llm(monkeypatch, base_state, query):
+    def fail_llm():
+        raise AssertionError("LLM should not be called for standalone small talk")
+
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", fail_llm)
+
+    result = await contextual_intent_module.contextual_intent_resolve({**base_state, "user_query": query})
+
+    assert result["primary_intent"] == "small_talk"
+    assert result["requested_operation"] == "advise"
+    assert result["classification_trace"]["route_decision"] == "final_response"
+    assert "standalone_small_talk" in result["classification_trace"]["reason_codes"]
+    assert result["llm_outputs"]["contextual_intent_resolve"]["classification_trace"] == result["classification_trace"]
+
+
+@pytest.mark.asyncio
+async def test_business_keyword_text_does_not_use_small_talk_guard(monkeypatch, base_state):
+    monkeypatch.setattr(
+        contextual_intent_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            _intent_v3(
+                primary_intent="order_status_inquiry",
+                requested_operation="read_status",
+                candidate_slots={},
+            )
+        ),
+    )
+
+    result = await contextual_intent_module.contextual_intent_resolve({**base_state, "user_query": "你好，订单呢"})
+
+    assert result["primary_intent"] == "order_status_inquiry"
+    assert "standalone_small_talk" not in result["classification_trace"]["reason_codes"]
+
+
+@pytest.mark.asyncio
+async def test_aggregate_order_count_request_is_unsupported_without_llm(monkeypatch, base_state):
+    def fail_llm():
+        raise AssertionError("LLM should not be called for unsupported aggregate order counts")
+
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", fail_llm)
+
+    result = await contextual_intent_module.contextual_intent_resolve({**base_state, "user_query": "当前有多少订单"})
+
+    assert result["primary_intent"] == "unsupported"
+    assert result["requested_operation"] == "advise"
+    assert result["routing_hints"]["unsupported_reason"] == "aggregate_order_query"
+    assert result["classification_trace"]["route_decision"] == "final_response"
+    assert "unsupported_aggregate_order_query" in result["classification_trace"]["reason_codes"]
