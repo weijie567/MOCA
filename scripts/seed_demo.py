@@ -11,19 +11,40 @@ from sqlalchemy import delete, select
 from src.auth.jwt import hash_password
 from src.db.models import (
     ActionDraft,
+    ActionSafetySnapshot,
     AuditLog,
     AgentRun,
     AgentStep,
+    AgentTraceEvent,
+    ApprovalAssignment,
+    ApprovalDecision,
+    ApprovalEvent,
+    ApprovalLevel,
     ApprovalRequest,
     ApprovalStep,
+    CaseMemory,
+    CaseWorkingContext,
+    CaseWorkingContextRevision,
+    ConversationMessage,
+    ConversationSummary,
+    ConversationThread,
+    DocumentBlock,
+    LongTermMemory,
     Merchant,
+    MemoryTombstone,
+    MemoryWriteEvent,
     Order,
     PolicyChunk,
     PolicyDocument,
+    RagIngestionJob,
     RefundCase,
     Role,
+    SessionMemory,
     Tenant,
+    ThreadCaseLink,
     Ticket,
+    ToolCallRecord,
+    ToolResultRecord,
     User,
     UserRole,
 )
@@ -48,15 +69,51 @@ async def reset_demo_data(session) -> None:
         .scalars()
         .all()
     )
+    approval_level_ids: list[uuid.UUID] = []
+    if approval_ids:
+        approval_level_ids = list(
+            (await session.execute(select(ApprovalLevel.id).where(ApprovalLevel.approval_request_id.in_(approval_ids))))
+            .scalars()
+            .all()
+        )
+
+    await session.execute(delete(SessionMemory).where(SessionMemory.tenant_id.in_(tenant_ids)))
+
+    if run_ids:
+        await session.execute(delete(ApprovalEvent).where(ApprovalEvent.run_id.in_(run_ids)))
+        await session.execute(delete(AgentTraceEvent).where(AgentTraceEvent.run_id.in_(run_ids)))
+        await session.execute(delete(MemoryWriteEvent).where(MemoryWriteEvent.run_id.in_(run_ids)))
+        await session.execute(delete(ActionSafetySnapshot).where(ActionSafetySnapshot.run_id.in_(run_ids)))
+        await session.execute(delete(AgentStep).where(AgentStep.run_id.in_(run_ids)))
+
+    await session.execute(delete(ToolResultRecord).where(ToolResultRecord.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(ToolCallRecord).where(ToolCallRecord.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(ConversationMessage).where(ConversationMessage.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(ConversationSummary).where(ConversationSummary.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(ThreadCaseLink).where(ThreadCaseLink.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(ConversationThread).where(ConversationThread.tenant_id.in_(tenant_ids)))
+
+    await session.execute(delete(CaseWorkingContextRevision).where(CaseWorkingContextRevision.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(CaseWorkingContext).where(CaseWorkingContext.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(MemoryTombstone).where(MemoryTombstone.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(CaseMemory).where(CaseMemory.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(LongTermMemory).where(LongTermMemory.tenant_id.in_(tenant_ids)))
+
+    if approval_ids:
+        await session.execute(delete(ApprovalEvent).where(ApprovalEvent.approval_request_id.in_(approval_ids)))
+        await session.execute(delete(ApprovalDecision).where(ApprovalDecision.approval_request_id.in_(approval_ids)))
+    if approval_level_ids:
+        await session.execute(delete(ApprovalAssignment).where(ApprovalAssignment.approval_level_id.in_(approval_level_ids)))
+        await session.execute(delete(ApprovalLevel).where(ApprovalLevel.id.in_(approval_level_ids)))
     if approval_ids:
         await session.execute(delete(ApprovalStep).where(ApprovalStep.approval_request_id.in_(approval_ids)))
     await session.execute(delete(ActionDraft).where(ActionDraft.tenant_id.in_(tenant_ids)))
     await session.execute(delete(ApprovalRequest).where(ApprovalRequest.tenant_id.in_(tenant_ids)))
-    if run_ids:
-        await session.execute(delete(AgentStep).where(AgentStep.run_id.in_(run_ids)))
     await session.execute(delete(AgentRun).where(AgentRun.tenant_id.in_(tenant_ids)))
     await session.execute(delete(AuditLog).where(AuditLog.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(RagIngestionJob).where(RagIngestionJob.tenant_id.in_(tenant_ids)))
     await session.execute(delete(PolicyChunk).where(PolicyChunk.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(DocumentBlock).where(DocumentBlock.tenant_id.in_(tenant_ids)))
     await session.execute(delete(PolicyDocument).where(PolicyDocument.tenant_id.in_(tenant_ids)))
     await session.execute(delete(Ticket).where(Ticket.tenant_id.in_(tenant_ids)))
     await session.execute(delete(RefundCase).where(RefundCase.tenant_id.in_(tenant_ids)))

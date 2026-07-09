@@ -12,7 +12,7 @@ from src.db.models import Base
 
 
 config = context.config
-database_url = config.attributes.get("database_url") or config.get_main_option("sqlalchemy.url") or settings.database_url
+database_url = config.attributes.get("database_url") or settings.database_url or config.get_main_option("sqlalchemy.url")
 config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:
