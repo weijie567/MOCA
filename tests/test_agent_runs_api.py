@@ -33,6 +33,7 @@ from src.api.routers.agent_runs import (
     _final_response_payload,
     _sse_event,
 )
+from src.api.schemas.agent_runs import SseEventPayload
 from src.api.services.agent_run_memory import finalize_completed_agent_run_memory
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.approvals.snapshot_service import compute_action_payload_hash, persist_action_safety_snapshot
@@ -477,6 +478,62 @@ def _unsafe_metric_final_state() -> dict[str, Any]:
     }
 
 
+def _unsafe_business_query_final_state() -> dict[str, Any]:
+    return {
+        "tenant_id": "tenant-001",
+        "current_intent": "business_metric_query",
+        "final_response": "找到 1 条订单。\n范围：当前权限范围\n时间：本周",
+        "llm_outputs": {
+            "final_response": {
+                "response_kind": "business_query_answer",
+                "business_query": {
+                    "operation": "list",
+                    "resource_label": "订单",
+                    "result_label": "订单列表",
+                    "scope_label": "当前权限范围",
+                    "time_label": "本周",
+                    "filters_label": "status=paid",
+                    "freshness_label": "当前可用业务数据",
+                    "fields_label": "订单号、状态、金额",
+                    "safe_reason": "ok",
+                    "rows": [
+                        {
+                            "order_no": "ORD-BQ-001",
+                            "status": "paid",
+                            "amount": "99.00",
+                            "tenant_id": "TENANT-SHOULD-NOT-LEAK",
+                            "merchant_scope": {"merchant_ids": ["MERCHANT-SHOULD-NOT-LEAK"]},
+                            "raw_payload": {"customer_phone": "13800000000"},
+                        }
+                    ],
+                    "row_count": 1,
+                    "limit": 20,
+                    "cursor_label": "还有更多结果",
+                    "allowed_drilldowns": ["detail"],
+                    "group_by_label": "",
+                    "compare_label": "",
+                    "raw_rows": [{"sql": "SELECT * FROM unsafe_business_query"}],
+                    "raw_cursor": "cursor-raw-should-not-leak",
+                    "tool_args": {"tenant_id": "TENANT-SHOULD-NOT-LEAK"},
+                    "routing_hints": {"route": "ROUTING_HINTS_SHOULD_NOT_LEAK"},
+                },
+                "prompt_payload": {"raw": "PROMPT-PAYLOAD-SHOULD-NOT-LEAK"},
+                "merchant_scope": {"merchant_ids": ["MERCHANT-SHOULD-NOT-LEAK"]},
+            }
+        },
+        "business_context": {
+            "facts": {
+                "business_query": {
+                    "raw_args": {"sql": "SELECT * FROM unsafe_business_query"},
+                    "tenant_id": "TENANT-SHOULD-NOT-LEAK",
+                    "merchant_scope": {"merchant_ids": ["MERCHANT-SHOULD-NOT-LEAK"]},
+                }
+            }
+        },
+        "trace_steps": [_trace("final_response")],
+    }
+
+
 def test_final_response_payload_projects_safe_non_metric_response_kinds_only():
     clarification_payload = _final_response_payload(
         "要统计该指标，请选择时间范围。",
@@ -528,6 +585,58 @@ def test_final_response_payload_projects_safe_non_metric_response_kinds_only():
     assert "SHOULD_NOT_LEAK" not in serialized
 
 
+def test_sse_payload_schema_exposes_business_query_contract_field():
+    assert "business_query" in SseEventPayload.model_fields
+
+
+def test_final_response_payload_projects_safe_business_query_allowlist():
+    payload = _final_response_payload(
+        "找到 1 条订单。\n范围：当前权限范围\n时间：本周",
+        _unsafe_business_query_final_state(),
+    )
+
+    assert payload["response_kind"] == "business_query_answer"
+    assert set(payload["business_query"]) == {
+        "operation",
+        "resource_label",
+        "result_label",
+        "scope_label",
+        "time_label",
+        "filters_label",
+        "freshness_label",
+        "fields_label",
+        "safe_reason",
+        "rows",
+        "row_count",
+        "limit",
+        "cursor_label",
+        "allowed_drilldowns",
+        "group_by_label",
+        "compare_label",
+    }
+    assert payload["business_query"]["rows"] == [{"order_no": "ORD-BQ-001", "status": "paid", "amount": "99.00"}]
+    assert set(payload) == {
+        "final_response",
+        "target_merchant_context",
+        "response_kind",
+        "business_query",
+    }
+    serialized = json.dumps(payload, ensure_ascii=False)
+    for forbidden in (
+        "routing_hints",
+        "merchant_scope",
+        "TENANT-SHOULD-NOT-LEAK",
+        "MERCHANT-SHOULD-NOT-LEAK",
+        "SELECT * FROM unsafe_business_query",
+        "raw_rows",
+        "raw_cursor",
+        "tool_args",
+        "PROMPT-PAYLOAD-SHOULD-NOT-LEAK",
+        "13800000000",
+    ):
+        assert forbidden not in serialized
+
+
 class MetricFinalResponseGraph:
     async def astream(self, input_state, config, stream_mode):
         del input_state, config, stream_mode
@@ -539,6 +648,26 @@ class MetricFinalResponseLifecycleGraph:
         del input_state, config, version
         yield _node_lifecycle_event("on_chain_start", "final_response", 1, {})
         final_output = _unsafe_metric_final_state()
+        yield _node_lifecycle_event("on_chain_end", "final_response", 1, final_output)
+        yield {
+            "event": "on_chain_end",
+            "name": "LangGraph",
+            "metadata": {},
+            "data": {"output": final_output},
+        }
+
+
+class BusinessQueryFinalResponseGraph:
+    async def astream(self, input_state, config, stream_mode):
+        del input_state, config, stream_mode
+        yield ("final_response", _unsafe_business_query_final_state())
+
+
+class BusinessQueryFinalResponseLifecycleGraph:
+    async def astream_events(self, input_state, config, version):
+        del input_state, config, version
+        yield _node_lifecycle_event("on_chain_start", "final_response", 1, {})
+        final_output = _unsafe_business_query_final_state()
         yield _node_lifecycle_event("on_chain_end", "final_response", 1, final_output)
         yield {
             "event": "on_chain_end",
@@ -1650,6 +1779,55 @@ async def test_event_generator_projects_safe_metric_final_response_payload(
         "MERCHANT-SHOULD-NOT-LEAK",
         "SELECT * FROM unsafe_metric_table",
         "sql",
+    ):
+        assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("graph_factory", [BusinessQueryFinalResponseGraph, BusinessQueryFinalResponseLifecycleGraph])
+async def test_event_generator_projects_safe_business_query_final_response_payload(
+    session: AsyncSession,
+    seeded_session,
+    graph_factory,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    events = [
+        _event_data(event)
+        async for event in _event_generator(
+            graph_factory(),
+            _stream_input(run, user),
+            {"configurable": {"thread_id": run.thread_id, "session": session}},
+            run=run,
+            session=session,
+            user=user,
+        )
+        if "data" in event
+    ]
+
+    final_payload = next(event["payload"] for event in events if event["event_type"] == "final_response")
+    assert final_payload["response_kind"] == "business_query_answer"
+    assert final_payload["business_query"]["rows"] == [{"order_no": "ORD-BQ-001", "status": "paid", "amount": "99.00"}]
+    assert set(final_payload) == {
+        "final_response",
+        "target_merchant_context",
+        "response_kind",
+        "business_query",
+    }
+    serialized = json.dumps(final_payload, ensure_ascii=False)
+    for forbidden in (
+        "routing_hints",
+        "merchant_scope",
+        "TENANT-SHOULD-NOT-LEAK",
+        "MERCHANT-SHOULD-NOT-LEAK",
+        "SELECT * FROM unsafe_business_query",
+        "raw_rows",
+        "raw_cursor",
+        "tool_args",
+        "PROMPT-PAYLOAD-SHOULD-NOT-LEAK",
+        "13800000000",
     ):
         assert forbidden not in serialized
 

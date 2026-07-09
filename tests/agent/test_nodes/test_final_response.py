@@ -116,6 +116,64 @@ def _metric_state(base_state: dict, metric: dict) -> dict:
     }
 
 
+def _business_query_payload(
+    *,
+    operation: str = "list",
+    rows: list[dict] | None = None,
+    status: str = "ok",
+) -> dict:
+    query_spec = {
+        "operation": operation,
+        "resource": "order",
+        "time_preset": "this_week",
+        "fields": ["order_no", "status"],
+        "limit": 20,
+    }
+    if operation == "aggregate":
+        query_spec["metric_id"] = "order_count"
+    if operation == "breakdown":
+        query_spec.update({"metric_id": "order_count", "group_by": "status"})
+    if operation == "compare":
+        query_spec.update({"metric_id": "order_count", "compare_to": "previous_period"})
+    if operation == "detail":
+        query_spec.update({"resource_id": "ORD-BQ-001", "fields": ["order_no", "status", "amount"]})
+    return {
+        "schema_version": "business_query_result.v1",
+        "operation": operation,
+        "resource": "order",
+        "status": status,
+        "rows": rows if rows is not None else [{"order_no": "ORD-BQ-001", "status": "paid"}],
+        "answer_context": {
+            "schema_version": "business_query_answer_context.v1",
+            "query_spec": query_spec,
+            "result_refs": ["ORD-BQ-001"],
+            "allowed_drilldowns": ["detail"] if operation == "list" else ["list"] if operation == "aggregate" else [],
+            "fields_shown": query_spec.get("fields", []),
+            "scope": {"scope_label": "当前权限范围"},
+            "time_summary": "本周",
+            "filter_summary": "status=paid",
+        },
+        "scope": {"scope_label": "当前权限范围"},
+    }
+
+
+def _business_query_state(base_state: dict, payload: dict) -> dict:
+    return {
+        **base_state,
+        "primary_intent": "business_metric_query",
+        "current_intent": "business_metric_query",
+        "requested_operation": "read_status",
+        "business_context": {
+            "facts": {"business_query": payload},
+            "status": "complete",
+            "business_fact_refs": [{"resource_type": "business_query", "resource_id": "order:list"}],
+            "missing_required_facts": [],
+            "errors": [],
+        },
+        "recommendation_draft": None,
+    }
+
+
 def _state_with_deferred(state: dict) -> dict:
     return {
         **state,
@@ -611,6 +669,60 @@ async def test_metric_refund_rate_zero_denominator_is_non_computable_not_zero_pe
     assert result["final_response"].startswith("暂无可计算退款率")
     assert "所选权限范围和时间范围内没有订单" in result["final_response"]
     assert "0%" not in result["final_response"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("operation", "rows", "expected"),
+    [
+        ("aggregate", [{"metric_id": "order_count", "display_value": "12", "value": 12}], "12"),
+        ("list", [{"order_no": f"ORD-BQ-{index:03d}", "status": "paid"} for index in range(1, 8)], "7 条"),
+        ("detail", [{"order_no": "ORD-BQ-001", "status": "paid", "amount": "99.00"}], "订单详情"),
+        ("breakdown", [{"status": "delivered", "value": 3, "display_value": "3"}], "按状态分组"),
+        (
+            "compare",
+            [{"metric_id": "order_count", "current_value": 5, "previous_value": 2, "delta": 3, "display_value": "5"}],
+            "对比",
+        ),
+    ],
+)
+async def test_business_query_final_response_is_operation_specific_and_has_no_rag_claims(
+    base_state,
+    operation: str,
+    rows: list[dict],
+    expected: str,
+):
+    result = await final_response(_business_query_state(base_state, _business_query_payload(operation=operation, rows=rows)))
+
+    assert expected in result["final_response"]
+    assert "范围：当前权限范围" in result["final_response"]
+    assert "时间：本周" in result["final_response"]
+    assert "筛选：status=paid" in result["final_response"]
+    assert "政策依据" not in result["final_response"]
+    assert "RAG" not in result["final_response"]
+    assert "ORD-BQ-006" not in result["final_response"]
+    assert "ORD-BQ-007" not in result["final_response"]
+
+    output = result["llm_outputs"]["final_response"]
+    assert output["response_kind"] == "business_query_answer"
+    assert output["evidence_citations"] == []
+    assert output["business_query"]["operation"] == operation
+    assert "tenant_id" not in str(output["business_query"])
+    assert "merchant_scope" not in str(output["business_query"])
+
+
+@pytest.mark.asyncio
+async def test_business_query_denied_detail_uses_no_existence_leak_copy(base_state):
+    payload = _business_query_payload(operation="detail", rows=[], status="permission_denied")
+    payload["answer_context"]["query_spec"]["resource_id"] = "ORD-SECRET-DENIED"
+
+    result = await final_response(_business_query_state(base_state, payload))
+
+    assert result["final_response"] == "当前权限范围内无法提供该业务数据。"
+    output = result["llm_outputs"]["final_response"]
+    assert output["response_kind"] == "business_query_answer"
+    assert output["business_query"]["safe_reason"] == "scope_denied_no_existence_leak"
+    assert "ORD-SECRET-DENIED" not in str(output["business_query"])
 
 
 @pytest.mark.asyncio
