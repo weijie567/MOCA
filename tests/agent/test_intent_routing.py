@@ -581,6 +581,29 @@ def test_route_after_slot_resolution_accepts_canonical_reviewed_memory_hint_and_
     )
 
 
+def test_metric_slot_resolution_routes_complete_slots_to_investigate_and_missing_time_to_clarification():
+    complete = {
+        "primary_intent": "business_metric_query",
+        "requested_operation": "read_status",
+        "intent_confidence": 0.9,
+        "required_slots": {"all_of": ["metric_id"], "any_of": [], "optional": []},
+        "extracted_slots": {"metric_id": "refund_case_count", "metric_time_preset": "today"},
+        "run_started_at": "2026-07-09T04:00:00+00:00",
+    }
+    missing_time = {
+        "primary_intent": "business_metric_query",
+        "requested_operation": "read_status",
+        "intent_confidence": 0.9,
+        "required_slots": {"all_of": ["metric_id"], "any_of": [], "optional": []},
+        "extracted_slots": {"metric_id": "order_count", "metric_time_preset": "current_snapshot"},
+        "run_started_at": "2026-07-09T04:00:00+00:00",
+    }
+
+    assert route_after_contextual_intent(complete) == "slot_resolution_gate"
+    assert route_after_slot_resolution(complete) == "investigate"
+    assert route_after_slot_resolution(missing_time) == "clarification_gate"
+
+
 def _trusted_slot_metadata() -> dict:
     return {
         "source": "trusted_session_memory",

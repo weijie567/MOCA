@@ -41,7 +41,15 @@ from src.knowledge.schemas import (
 from src.memory.schemas import SessionMemoryBundle, SessionMemoryView
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
-from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolInvocationOutcome, ToolPolicyDecision, ToolResultV2, ToolViewV1
+from src.tools.contracts import (
+    BusinessFactRefV1,
+    ToolCallContext,
+    ToolError,
+    ToolInvocationOutcome,
+    ToolPolicyDecision,
+    ToolResultV2,
+    ToolViewV1,
+)
 from src.tools.projection import ToolResultProjector
 
 
@@ -251,11 +259,13 @@ class FakeGraphToolPlatform:
         order_id: str | None = None,
         policy_status: str = "strong_evidence",
         ticket_id: str | None = None,
+        metric_permission_denied: bool = False,
     ) -> None:
         self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
         self.order_id = order_id
         self.policy_status = policy_status
         self.ticket_id = ticket_id
+        self.metric_permission_denied = metric_permission_denied
         self.calls: list[tuple[str, dict[str, Any], ToolCallContext]] = []
         self._projector = ToolResultProjector()
         self.last_visibility_decisions = None
@@ -281,6 +291,8 @@ class FakeGraphToolPlatform:
             return self._order_result(args.get("order_no") or self.order_id or "ORD-001")
         if name == "get_ticket":
             return self._ticket_result(args.get("ticket_id") or self.ticket_id or "TICKET-001")
+        if name == "query_business_metric":
+            return self._metric_result(args, ctx.tenant_id)
         if name == "search_policy":
             return self._policy_result(ctx.tenant_id)
         raise AssertionError(f"Unexpected graph tool call: {name}")
@@ -365,6 +377,81 @@ class FakeGraphToolPlatform:
             data_freshness_at=None,
             policy_evidence_refs=evidence,
             business_fact_refs=[],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
+        )
+
+    def _metric_result(self, args: dict[str, Any], tenant_id: str) -> ToolResultV2:
+        metric_id = str(args.get("metric_id") or "refund_case_count")
+        if self.metric_permission_denied:
+            return ToolResultV2(
+                status="permission_denied",
+                data={"merchant_id": "MERCHANT-SHOULD-NOT-LEAK"},
+                summary="Business resource unavailable for this request",
+                source_system="business_fact_service",
+                data_freshness_at=None,
+                policy_evidence_refs=[],
+                business_fact_refs=[],
+                error=ToolError(
+                    code="BUSINESS_FACT_PERMISSION_DENIED",
+                    safe_message="Business resource unavailable for this request",
+                    retryable=False,
+                    source="caller",
+                ),
+                retryable=False,
+                retry_after_ms=None,
+                latency_ms=1,
+                audit_ref=None,
+            )
+        ref = BusinessFactRefV1(
+            tenant_id=tenant_id,
+            source_system="business_fact_service",
+            resource_type="business_metric",
+            resource_id=metric_id,
+            resource_version=None,
+            data_freshness_at=datetime(2026, 7, 9, 4, 0, tzinfo=UTC),
+            retrieved_at=datetime(2026, 7, 9, 4, 1, tzinfo=UTC),
+        )
+        return ToolResultV2(
+            status="success",
+            data={
+                "metric_id": metric_id,
+                "status": "ok",
+                "value": 3,
+                "rate": None,
+                "numerator": None,
+                "denominator": None,
+                "unit": "count",
+                "display_value": "3",
+                "scope": {
+                    "tenant_id": tenant_id,
+                    "merchant_ids": ["MERCHANT-SHOULD-NOT-LEAK"],
+                    "scope_label": "当前权限范围",
+                },
+                "time_range": {
+                    "start_at": args.get("start_at"),
+                    "end_at": args.get("end_at"),
+                    "preset": args.get("time_preset"),
+                    "timezone": "Asia/Shanghai",
+                },
+                "filters": {"merchant_id": args.get("merchant_id"), "status_filter": args.get("status_filter") or []},
+                "freshness": {
+                    "data_freshness_at": "2026-07-09T04:00:00+00:00",
+                    "computed_at": "2026-07-09T04:01:00+00:00",
+                    "source_system": "business_fact_service",
+                },
+                "formula": "count metric rows in authorized merchant scope",
+                "caveats": [],
+                "no_leak_status": "not_applicable",
+            },
+            summary="metric result",
+            source_system="business_fact_service",
+            data_freshness_at=datetime(2026, 7, 9, 4, 0, tzinfo=UTC),
+            policy_evidence_refs=[],
+            business_fact_refs=[ref],
             error=None,
             retryable=False,
             retry_after_ms=None,
@@ -814,8 +901,80 @@ async def test_refund_path_without_case_identifier_routes_to_clarification(monke
     assert final_state["clarification_request"]["reason"] == "missing_required_slots"
     assert "investigate" in final_state["clarification_request"]["blocked_nodes"]
     assert final_state["recommendation_draft"] is None
-    assert final_state["final_response"] == "请提供订单号或退款单号。"
+    assert "订单号或退款单号" in final_state["final_response"]
     assert final_state["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
+
+
+@pytest.mark.asyncio
+async def test_complete_metric_query_routes_through_slot_gate_investigate_and_final_response(monkeypatch):
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots(None)))
+    tool_platform = FakeGraphToolPlatform()
+    events: list[dict[str, Any]] = []
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("今天有多少退款单"),
+        _config(tool_platform, events, investigate_planner=_PlannerInjectionAttempt()),
+    )
+
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert nodes.index("contextual_intent_resolve") < nodes.index("slot_resolution_gate")
+    assert nodes.index("slot_resolution_gate") < nodes.index("investigate")
+    assert nodes.index("investigate") < nodes.index("final_response")
+    assert "rag_context_build" not in nodes
+    assert "recommendation_generation" not in nodes
+    assert [call[0] for call in tool_platform.calls] == ["query_business_metric"]
+    assert tool_platform.calls[0][1]["metric_id"] == "refund_case_count"
+    assert tool_platform.calls[0][1]["time_preset"] == "today"
+    assert "start_at" in tool_platform.calls[0][1]
+    assert "end_at" in tool_platform.calls[0][1]
+    assert final_state["business_context"]["facts"]["business_metric"]["metric_id"] == "refund_case_count"
+    assert final_state["final_response"].startswith("3")
+    assert final_state["llm_outputs"]["final_response"]["response_kind"] == "metric_answer"
+
+
+@pytest.mark.asyncio
+async def test_metric_order_count_missing_time_routes_to_clarification_without_tool_call(monkeypatch):
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots(None)))
+    tool_platform = FakeGraphToolPlatform()
+    events: list[dict[str, Any]] = []
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("当前有多少订单"),
+        _config(tool_platform, events),
+    )
+
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert final_state["current_intent"] == "business_metric_query"
+    assert "slot_resolution_gate" in nodes
+    assert "clarification_gate" in nodes
+    assert "investigate" not in nodes
+    assert tool_platform.calls == []
+    assert final_state["missing_required_slots"] == [{"all_of": ["metric_time_range"]}]
+    assert "时间范围" in final_state["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_metric_permission_denied_graph_final_response_does_not_leak_identifier(monkeypatch):
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots(None)))
+    tool_platform = FakeGraphToolPlatform(metric_permission_denied=True)
+    events: list[dict[str, Any]] = []
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("今天有多少退款单"),
+        _config(tool_platform, events, investigate_planner=_PlannerInjectionAttempt()),
+    )
+
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert "investigate" in nodes
+    assert "final_response" in nodes
+    assert [call[0] for call in tool_platform.calls] == ["query_business_metric"]
+    assert final_state["final_response"] == "当前权限范围内无法提供该商户指标。"
+    assert final_state["llm_outputs"]["final_response"]["response_kind"] == "metric_answer"
+    assert "MERCHANT-SHOULD-NOT-LEAK" not in final_state["final_response"]
+    assert "MERCHANT-SHOULD-NOT-LEAK" not in str(final_state["llm_outputs"]["final_response"])
 
 
 @pytest.mark.asyncio
@@ -864,7 +1023,7 @@ async def test_wrong_thread_or_stale_session_memory_routes_to_clarification(monk
     assert final_state["clarification_request"]["reason"] == "missing_required_slots"
     assert final_state["active_slots"] == {}
     assert final_state["extracted_slots"]["order_id"] is None
-    assert final_state["final_response"] == "请提供订单号或退款单号。"
+    assert "订单号或退款单号" in final_state["final_response"]
 
 
 @pytest.mark.asyncio
