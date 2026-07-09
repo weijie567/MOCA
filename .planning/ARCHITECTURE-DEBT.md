@@ -1701,6 +1701,41 @@
 - 🟡 `action_draft.py`、ToolPlatform 写工具边界、`intent_policy.py` 与 routing 的 action/risk/evidence-required taxonomy 迁移仍在 Phase 63 Plan 03/04。
 - 🟡 Phase 63 Plan 05 仍需加入 drift guards / parity tests，防止后续重新引入本地 action/risk 字面量副本。
 
+## 2026-07-10 — Phase 63 Plan 03 — `action_draft` 写工具入口已拒绝非可执行 disposition ✅
+
+**子系统**
+- 工具调用 / 风险审批主链 / action draft
+
+**问题现象 / 根因**
+- Phase 63 前，`src/agent/nodes/action_draft.py` 与 `risk_gate.py` 各自维护一份 action alias / canonical action type 逻辑。
+- `manual_review` 被包含在 `ACTIONABLE_ACTIONS`，旧逻辑会把拒绝/不支持类文本 canonicalize 为 `manual_review` 并继续调用 `create_coupon_grant_draft`，导致非可执行 disposition 被包装成 action draft。
+- `compensation` 被当作独立 action type 传给写工具，而不是通过统一 taxonomy 兼容为当前可执行的 `issue_coupon`。
+
+**影响**
+- 写工具入口与 risk gate 判断可能分叉，新增 action/disposition 时可能在 action_draft 漏拦。
+- 审批通过后的 action draft 路径可能对 disposition-like payload 创建 demo draft，削弱“写操作必须是具体工具”的边界。
+- action type 别名漂移会让 action service / ToolPlatform payload 与 taxonomy 语义不一致。
+
+**处理状态**
+- ✅ 已修复验证。`action_draft.py` 删除本地 `FULL_REFUND_TERMS`、`ACTIONABLE_ACTIONS` 和 `_canonical_action_type(...)`，改用 `src.agent.safety.taxonomy.resolve_action_text(...)`。
+- ✅ 在 approval / auto-allowed binding 通过之后、`project_to_tool_context(...)` 和 ToolPlatform invoke 之前，统一校验 executable action。
+- ✅ 显式 `manual_review` / `blocked` 或拒绝类文本返回 safe `action_result.status="error"`，`error_code="NON_EXECUTABLE_ACTION_DISPOSITION"`，不生成 `action_draft` / `draft_outcome`，不调用写工具。
+- ✅ `compensation` 兼容别名 canonicalize 为 `issue_coupon`，没有新增 ToolCatalog 工具。
+- ✅ 收窄 architecture guard 的外部执行路径检测，避免把 taxonomy alias helper 误报为 external compensation execution。
+
+**证据**
+- Phase 63 Plan 03；RED commit `8b2a04c`；GREEN commit `1842316`。
+- 文件：`src/agent/nodes/action_draft.py`、`tests/test_execute_action.py`、`tests/architecture/test_action_draft_boundaries.py`、`.planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-03-SUMMARY.md`。
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_execute_action.py tests/actions/test_action_draft_v2.py tests/actions/test_phase34_action_draft_bindings.py -q --tb=short` → `64 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_safety_taxonomy.py tests/architecture/test_action_draft_boundaries.py -q --tb=short` → `48 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/action_draft.py tests/test_execute_action.py tests/actions/test_action_draft_v2.py tests/actions/test_phase34_action_draft_bindings.py` → `All checks passed!`
+
+**剩余风险**
+- 🟡 `intent_policy.py` 与 routing 中的 action-bound / evidence-required / pre-route keyword taxonomy 仍待 Phase 63 Plan 04 迁移。
+- 🟡 Phase 63 Plan 05 仍需补 drift guards，防止 `risk_gate.py` / `action_draft.py` 之外重新引入本地 action taxonomy 副本。
+
 ## 2026-07-09 — Phase 62-66 覆盖矩阵补齐项（源码级硬编码审查）⚠️待规划落地
 
 **子系统**
