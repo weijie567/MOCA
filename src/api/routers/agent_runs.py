@@ -55,6 +55,15 @@ APPROVAL_ALLOWED_DECISION_TYPES = ["accept", "approve", "edit", "respond", "reje
 APPROVAL_NOT_EXECUTABLE = "APPROVAL_NOT_EXECUTABLE"
 RUN_CONVERSATION_MESSAGE_MISSING = "RUN_CONVERSATION_MESSAGE_MISSING"
 _TARGET_CONTEXT_KEY = "target" + "_merchant_context"
+_SAFE_METRIC_PAYLOAD_FIELDS = (
+    "metric_id",
+    "metric_label",
+    "scope_label",
+    "time_label",
+    "filters_label",
+    "freshness_label",
+    "safe_reason",
+)
 
 NODE_MESSAGES: dict[str, str] = {
     "receive_request": "正在接收请求",
@@ -418,10 +427,7 @@ async def _event_generator_from_graph_updates(
                 step_index=step_index + 1,
                 status="completed",
                 message="已完成",
-                payload={
-                    "final_response": str(final_response),
-                    _TARGET_CONTEXT_KEY: _project_target_context(final_state),
-                },
+                payload=_final_response_payload(str(final_response), final_state),
             )
         else:
             yield _sse_event(
@@ -582,10 +588,7 @@ async def _event_generator_from_graph_events(
                 step_index=last_step_index + 1,
                 status="completed",
                 message="已完成",
-                payload={
-                    "final_response": str(final_response),
-                    _TARGET_CONTEXT_KEY: _project_target_context(final_state),
-                },
+                payload=_final_response_payload(str(final_response), final_state),
             )
         else:
             yield _sse_event(
@@ -1188,6 +1191,32 @@ def _extract_step_payload(node_name: str, update: Any) -> dict[str, Any]:
     if rag_claim_summary is not None:
         payload["rag_claim_summary"] = rag_claim_summary
 
+    return payload
+
+
+def _final_response_payload(final_response: str, final_state: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "final_response": final_response,
+        _TARGET_CONTEXT_KEY: _project_target_context(final_state),
+    }
+    response_projection = _as_mapping(_as_mapping(final_state.get("llm_outputs")).get("final_response"))
+    response_kind = response_projection.get("response_kind")
+    if isinstance(response_kind, str) and response_kind:
+        payload["response_kind"] = response_kind
+    if response_kind == "metric_answer":
+        metric_payload = _safe_metric_payload(response_projection.get("metric"))
+        if metric_payload:
+            payload["metric"] = metric_payload
+    return payload
+
+
+def _safe_metric_payload(value: Any) -> dict[str, Any]:
+    metric = _as_mapping(value)
+    payload: dict[str, Any] = {}
+    for field in _SAFE_METRIC_PAYLOAD_FIELDS:
+        metric_value = metric.get(field)
+        if isinstance(metric_value, str) and metric_value:
+            payload[field] = metric_value
     return payload
 
 
