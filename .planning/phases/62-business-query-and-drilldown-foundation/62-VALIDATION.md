@@ -1,10 +1,11 @@
 ---
 phase: 62
 slug: business-query-and-drilldown-foundation
-status: approved
+status: verified
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-07-09
+updated: 2026-07-10
 ---
 
 # Phase 62 — Validation Strategy
@@ -44,14 +45,14 @@ Phase 62 uses canonical phase-local requirement IDs `BQ-62-01` through `BQ-62-08
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 62-TASK-01 | 01 | 1 | BQ-62-01 | T-62-01 | Registry is the single source for operation/resource/metric/time/status/field/sort definitions. | unit/parity | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_registry.py tests/agent/test_required_slots.py tests/tools/test_catalog.py -q --tb=short` | ❌ W0 for new registry test; adjacent tests exist | ⬜ pending |
-| 62-TASK-02 | 01/02 | 1/2 | BQ-62-02 | T-62-02 | `business_metric_query` maps into `BusinessQuerySpec` and remains compatibility-only. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_schemas.py tests/agent/test_graph.py -q --tb=short` | ❌ W0 for new schema test; graph tests exist | ⬜ pending |
-| 62-TASK-03 | 04 | 4 | BQ-62-03 | T-62-03 | BusinessFactService executes aggregate/list/detail/breakdown/compare through controlled scope-safe queries. | service/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py -q --tb=short` | ❌ W0 | ⬜ pending |
-| 62-TASK-04 | 03/04/06 | 3/4/6 | BQ-62-04 | T-62-04 | Out-of-scope list/detail/resource inputs do not reveal existence. | service/graph/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py tests/agent/test_graph.py tests/test_agent_runs_api.py -q --tb=short` | ⚠️ partial metric no-leak coverage only | ⬜ pending |
-| 62-TASK-05 | 05 | 5 | BQ-62-05 | T-62-05 | Drilldown flow `本周多少订单？` -> `订单号是多少？` re-executes backend query from safe context. | graph/eval | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py -q --tb=short` plus Phase 62 eval command | ⚠️ graph tests exist; new case missing | ⬜ pending |
-| 62-TASK-06 | 06 | 6 | BQ-62-06 | T-62-06 | Projection/final response emits bounded prompt-safe and UI-safe `business_query_answer` payload. | unit/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_projection.py tests/agent/test_nodes/test_final_response.py tests/test_agent_runs_api.py -q --tb=short` | ⚠️ metric coverage exists; business-query coverage missing | ⬜ pending |
-| 62-TASK-07 | 07 | 7 | BQ-62-07 | T-62-07 | Frontend Timeline/Details render aggregate/list/detail/breakdown/compare without raw rows or overlap. | frontend unit/build + phase-gate e2e | `npm --prefix frontend test && npm --prefix frontend run build`; phase gate runs `npm --prefix frontend run e2e` | ⚠️ metric frontend tests exist; business-query cases missing | ⬜ pending |
-| 62-TASK-08 | 06 | 6 | BQ-62-08 | T-62-08 | Golden/eval coverage includes drilldown, permission boundary, list/detail no-existence-leak, breakdown, and compare. | eval | Phase 61 eval script must be extended or a Phase 62 eval script added, then run through `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` | ❌ W0 | ⬜ pending |
+| 62-TASK-01 | 01 | 1 | BQ-62-01 | T-62-01 | Registry is the single source for operation/resource/metric/time/status/field/sort definitions. | unit/parity | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_registry.py tests/agent/test_required_slots.py tests/tools/test_catalog.py -q --tb=short` | ✅ `tests/business/test_business_query_registry.py` plus parser/catalog parity tests | ✅ green |
+| 62-TASK-02 | 01/02 | 1/2 | BQ-62-02 | T-62-02 | `business_metric_query` maps into `BusinessQuerySpec` and remains compatibility-only. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_schemas.py tests/agent/test_graph.py -q --tb=short` | ✅ `tests/business/test_business_query_schemas.py` and graph compatibility coverage | ✅ green |
+| 62-TASK-03 | 04 | 4 | BQ-62-03 | T-62-03 | BusinessFactService executes aggregate/list/detail/breakdown/compare through controlled scope-safe queries. | service/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py -q --tb=short` | ✅ `tests/business/test_business_query_service.py` | ✅ green |
+| 62-TASK-04 | 03/04/06 | 3/4/6 | BQ-62-04 | T-62-04 | Out-of-scope list/detail/resource inputs do not reveal existence. | service/graph/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py tests/agent/test_graph.py tests/test_agent_runs_api.py -q --tb=short` | ✅ service/tool/API no-existence-leak and denial payload coverage | ✅ green |
+| 62-TASK-05 | 05 | 5 | BQ-62-05 | T-62-05 | Drilldown flow `本周多少订单？` -> `订单号是多少？` re-executes backend query from safe context. | graph/eval | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py -q --tb=short` plus Phase 62 eval command | ✅ `tests/agent/test_graph.py` and Phase 62 golden drilldown case | ✅ green |
+| 62-TASK-06 | 06 | 6 | BQ-62-06 | T-62-06 | Projection/final response emits bounded prompt-safe and UI-safe `business_query_answer` payload. | unit/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_projection.py tests/agent/test_nodes/test_final_response.py tests/test_agent_runs_api.py -q --tb=short` | ✅ projection/final/API business-query coverage | ✅ green |
+| 62-TASK-07 | 07 | 7 | BQ-62-07 | T-62-07 | Frontend Timeline/Details render aggregate/list/detail/breakdown/compare without raw rows or overlap. | frontend unit/build + phase-gate e2e | `npm --prefix frontend test`; `npm --prefix frontend run build`; `npm --prefix frontend run e2e` | ✅ frontend unit/build/e2e business-query coverage | ✅ green |
+| 62-TASK-08 | 06 | 6 | BQ-62-08 | T-62-08 | Golden/eval coverage includes drilldown, permission boundary, list/detail no-existence-leak, breakdown, and compare. | eval | `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_phase62_business_query.py --golden-set evaluation/golden/phase62_business_query_cases.jsonl --output /tmp/phase62_business_query_eval.json` | ✅ `scripts/eval_phase62_business_query.py`, JSONL golden cases, and eval tests | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -59,13 +60,13 @@ Phase 62 uses canonical phase-local requirement IDs `BQ-62-01` through `BQ-62-08
 
 ## Wave 0 Requirements
 
-- [ ] `tests/business/test_business_query_registry.py` or equivalent parity tests for descriptor source of truth.
-- [ ] `tests/business/test_business_query_schemas.py` for strict `BusinessQuerySpec`, filters, limits, cursors, and compatibility shim.
-- [ ] `tests/business/test_business_query_service.py` for aggregate/list/detail/breakdown/compare and no-existence-leak.
-- [ ] Agent graph tests for `本周多少订单？` followed by `订单号是多少？`.
-- [ ] API payload tests for `business_query_answer` and safe payload filtering.
-- [ ] Frontend Timeline/Details tests for result kinds and no raw payload rendering.
-- [ ] Phase 62 golden/eval cases and runner updates or a new script.
+- [x] `tests/business/test_business_query_registry.py` or equivalent parity tests for descriptor source of truth.
+- [x] `tests/business/test_business_query_schemas.py` for strict `BusinessQuerySpec`, filters, limits, cursors, and compatibility shim.
+- [x] `tests/business/test_business_query_service.py` for aggregate/list/detail/breakdown/compare and no-existence-leak.
+- [x] Agent graph tests for `本周多少订单？` followed by `订单号是多少？`.
+- [x] API payload tests for `business_query_answer` and safe payload filtering.
+- [x] Frontend Timeline/Details tests for result kinds and no raw payload rendering.
+- [x] Phase 62 golden/eval cases and runner updates or a new script.
 
 ---
 
@@ -101,7 +102,29 @@ All core Phase 62 behaviors should have automated verification. Manual validatio
 - [x] Wave 0 gaps are explicit and must be scheduled by the planner.
 - [x] No watch-mode flags in required commands.
 - [x] `nyquist_compliant: true` set in frontmatter for the strategy.
-- [ ] Wave 0 tests created during implementation.
-- [ ] All final focused and broad verification commands green.
+- [x] Wave 0 tests created during implementation.
+- [x] All final focused and broad verification commands green.
 
-**Approval:** approved 2026-07-09 for planning; implementation evidence pending.
+**Approval:** verified 2026-07-10 after implementation.
+
+---
+
+## Validation Audit 2026-07-10
+
+| Metric | Count |
+|--------|-------|
+| Requirements audited | 8 |
+| Covered | 8 |
+| Partial | 0 |
+| Missing | 0 |
+| Manual-only | 1 optional smoke check |
+
+### Final Evidence
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_registry.py tests/business/test_business_query_schemas.py tests/business/test_business_query_service.py tests/tools/test_tool_platform.py tests/tools/test_catalog.py tests/tools/test_projection.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_nodes/test_investigate.py tests/agent/test_nodes/test_final_response.py tests/agent/test_graph.py tests/test_agent_runs_api.py tests/eval/test_phase62_business_query_golden.py tests/architecture/test_business_query_boundaries.py -q --tb=short` -> `421 passed, 36 warnings`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_phase62_business_query.py --golden-set evaluation/golden/phase62_business_query_cases.jsonl --output /tmp/phase62_business_query_eval.json` -> `Phase 62 business-query golden validation passed: 9 cases`
+- `npm --prefix frontend test` -> `3 files passed, 13 tests passed`
+- `npm --prefix frontend run build` -> passed
+- `npm --prefix frontend run e2e` -> `6 passed`
+- `.planning/phases/62-business-query-and-drilldown-foundation/62-UAT.md` -> `7 passed, 0 issues`
+- `.planning/phases/62-business-query-and-drilldown-foundation/62-SECURITY.md` -> `threats_open: 0`
