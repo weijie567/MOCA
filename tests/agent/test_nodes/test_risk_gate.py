@@ -456,7 +456,9 @@ async def test_phase34_approval_required_writes_risk_gate_bindings(monkeypatch, 
         "reason_codes": ["coupon_amount", "verified_claim"],
     }
     assert result["risk_decision_ref"] == f"risk_decision::{result['action_payload_hash']}"
-    RiskDecisionV1.model_validate(result["risk_decision"])
+    risk_decision = RiskDecisionV1.model_validate(result["risk_decision"])
+    assert "risk_severity:high" in risk_decision.reason_codes
+    assert "risk_disposition:approval_required" in risk_decision.reason_codes
     plan = result["approval_plan"]
     assert plan["schema_version"] == "approval_plan.v1"
     assert plan["approval_required"] is True
@@ -505,11 +507,46 @@ async def test_phase34_missing_target_merchant_fails_closed_without_approval_pla
     assert result["approval_plan"] is None
     assert result["auto_allowed_binding"] is None
     assert result["final_response"] == "操作需要人工复核，当前未创建可执行审批或动作草稿。"
-    assert result["risk_assessment"]["risk_level"] == "medium"
-    assert result["risk_assessment"]["risk_severity"] == "medium"
+    assert result["risk_assessment"]["risk_level"] == "high"
+    assert result["risk_assessment"]["risk_severity"] == "high"
     assert result["risk_assessment"]["risk_disposition"] == "manual_review"
     assert result["trace_steps"][-1]["node"] == _CANONICAL_NODE
     _assert_no_current_run_legacy_identity(result)
+
+
+@pytest.mark.asyncio
+async def test_phase63_manual_review_disposition_does_not_bind_proposed_action(monkeypatch, base_state):
+    tenant_id = base_state["tenant_id"]
+    monkeypatch.setattr(
+        risk_gate_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            {
+                "risk_level": "high",
+                "risk_reason": "Manual review is required before any customer action.",
+                "approval_required": True,
+                "rule_ref": "HR-MANUAL-REVIEW",
+            }
+        ),
+    )
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "manual_review",
+            "reasoning_summary": "Escalate this case for manual review.",
+        },
+        "claim_verification_bundle": _claim_bundle_with_safe_refs(tenant_id),
+        "business_context": _phase34_business_context(tenant_id),
+    }
+
+    result = await risk_gate_module.risk_gate(state)
+
+    assert result["proposed_action"] is None
+    assert result["approval_plan"] is None
+    assert result["action_payload_hash"] is None
+    assert result["risk_assessment"]["risk_level"] == "high"
+    assert result["risk_assessment"]["risk_severity"] == "high"
+    assert result["risk_assessment"]["risk_disposition"] == "manual_review"
 
 
 @pytest.mark.asyncio

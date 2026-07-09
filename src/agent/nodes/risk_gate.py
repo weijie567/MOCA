@@ -18,6 +18,12 @@ from src.agent.context import ContextAssembler, PromptAssembly
 from src.agent.context.session_memory_bundle import load_session_prompt_context
 from src.agent.prompts import ASSESS_RISK_SYSTEM
 from src.agent.routing import _has_allowed_action_recommendation
+from src.agent.safety.taxonomy import (
+    canonical_executable_action_type,
+    is_actionable_recommendation,
+    matches_full_refund_alias,
+    risk_assessment_with_disposition,
+)
 from src.agent.schemas import RiskAssessment
 from src.agent.state import AgentState
 from src.agent.working_state import project_working_state
@@ -40,15 +46,6 @@ RISK_CONFIG_VERSION = "risk-rules.v1"
 DEFAULT_RETRIEVAL_CONFIG_VERSION = "retrieval.v1"
 SAFE_MANUAL_REVIEW_RESPONSE = "操作需要人工复核，当前未创建可执行审批或动作草稿。"
 APPROVAL_DECISION_TYPES = ["accept", "approve", "edit", "respond", "reject", "ignore"]
-FULL_REFUND_TERMS = ("full_refund", "全额退款", "全额退", "整单退款")
-ACTIONABLE_ACTIONS = {
-    "issue_coupon",
-    "approve_refund",
-    "full_refund",
-    "partial_refund",
-    "compensation",
-    "manual_review",
-}
 NO_ACTION_RECOMMENDATIONS = {"insufficient_evidence", "citation_invalid", "retrieval_error"}
 
 
@@ -144,18 +141,13 @@ def _deterministic_rule_match(
             return rule
         if (
             "full_refund" in condition
-            and any(term in action for term in FULL_REFUND_TERMS)
+            and matches_full_refund_alias(action)
             and order.get("status") == "delivered"
         ):
             return rule
         if "merchant_risk_level" in condition and merchant_risk_level == "high":
             return rule
     return None
-
-
-def _is_actionable_recommendation(action: Any) -> bool:
-    action_text = str(action or "").lower()
-    return any(actionable in action_text for actionable in ACTIONABLE_ACTIONS)
 
 
 def _verification_route(state: AgentState) -> str | None:
@@ -177,7 +169,7 @@ def _action_requires_claim_bundle(state: AgentState, draft: dict[str, Any]) -> b
     if state.get("proposed_action"):
         return True
     action = draft.get("recommended_action")
-    return action not in NO_ACTION_RECOMMENDATIONS and _is_actionable_recommendation(action)
+    return action not in NO_ACTION_RECOMMENDATIONS and is_actionable_recommendation(action)
 
 
 def _claim_verification_bundle(state: AgentState) -> dict[str, Any] | None:
@@ -235,18 +227,26 @@ def _action_gate_block_reason(state: AgentState, draft: dict[str, Any]) -> str |
 
 def _blocked_verifier_risk(state: AgentState, reason_code: str | None = None) -> dict[str, Any]:
     route = _verification_route(state)
-    risk_level = "manual_review" if route == "manual_review" else "blocked" if route == "refuse" else "low"
+    disposition = "manual_review" if route == "manual_review" else "blocked" if route == "refuse" else "allow"
+    severity = "high" if route == "refuse" else "low" if route not in {"manual_review", "refuse"} else None
     reason = (
         "Claim verification did not allow action assessment."
         if reason_code == "claim_verification_not_allow"
         else "Recommendation verification did not allow action assessment."
     )
-    return {
-        "risk_level": risk_level,
-        "risk_reason": reason,
-        "approval_required": False,
-        "rule_ref": "PHASE33-CLAIM-VERIFY" if reason_code == "claim_verification_not_allow" else "PHASE22-VERIFY",
-    }
+    base = state.get("risk_assessment") if isinstance(state.get("risk_assessment"), dict) else {}
+    return risk_assessment_with_disposition(
+        {
+            **base,
+            "risk_reason": reason,
+            "approval_required": False,
+            "blocked": route == "refuse",
+            "rule_ref": "PHASE33-CLAIM-VERIFY" if reason_code == "claim_verification_not_allow" else "PHASE22-VERIFY",
+        },
+        disposition=disposition,
+        severity=severity,
+        reason=reason_code,
+    )
 
 
 def _blocked_action_gate_state(
@@ -278,26 +278,6 @@ def _blocked_action_gate_state(
     }
 
 
-def _canonical_action_type(action: Any) -> str:
-    action_text = str(action or "")
-    lowered = action_text.lower()
-    if lowered in ACTIONABLE_ACTIONS:
-        return lowered
-    if any(term in action_text for term in ("拒绝", "不建议", "无法支持")) or "reject" in lowered:
-        return "manual_review"
-    if any(term in lowered for term in ("coupon", "compensation", "compensate")) or any(
-        term in action_text for term in ("补偿", "券", "赔付")
-    ):
-        return "issue_coupon"
-    if any(term in action_text for term in FULL_REFUND_TERMS):
-        return "full_refund"
-    if "partial_refund" in lowered or "部分退款" in action_text:
-        return "partial_refund"
-    if "refund" in lowered or "退款" in action_text:
-        return "approve_refund"
-    return "manual_review"
-
-
 def _build_proposed_action(
     *,
     state: AgentState,
@@ -305,11 +285,13 @@ def _build_proposed_action(
     context: dict[str, Any],
     assessment: dict[str, Any],
     evidence_refs: list[EvidenceRefV1],
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     refund_case = _business_context_resource(context, "refund_case")
     order = _business_context_resource(context, "order")
     amount = _extract_compensation_amount(draft, context)
-    action_type = _canonical_action_type(draft.get("recommended_action"))
+    action_type = canonical_executable_action_type(draft.get("recommended_action"))
+    if action_type is None:
+        return None
     target_type, target_id = _action_target(refund_case=refund_case, order=order)
     run_id = str(state.get("current_run_id") or "")
     return {
@@ -379,6 +361,11 @@ def _canonical_trusted_edit_action(
     evidence_refs: list[EvidenceRefV1],
 ) -> dict[str, Any]:
     action = dict(trusted_edit.edited_action or {})
+    action_type = canonical_executable_action_type(action.get("action_type"))
+    if action_type is None:
+        raise ValueError("edited action is not executable")
+    if action_type != action.get("action_type"):
+        raise ValueError("edited action type must be canonical")
     if str(action.get("tenant_id") or "") != str(state.get("tenant_id") or ""):
         raise ValueError("edited action tenant mismatch")
     if str(action.get("run_id") or "") != str(state.get("current_run_id") or ""):
@@ -610,6 +597,12 @@ def _risk_reason_codes(assessment: dict[str, Any], state: AgentState) -> list[st
         value = assessment.get(key)
         if value:
             reason_codes.add(str(value))
+    risk_severity = assessment.get("risk_severity") or assessment.get("risk_level")
+    if risk_severity:
+        reason_codes.add(f"risk_severity:{risk_severity}")
+    risk_disposition = assessment.get("risk_disposition")
+    if risk_disposition:
+        reason_codes.add(f"risk_disposition:{risk_disposition}")
     if assessment.get("approval_required") is True:
         reason_codes.add("approval_required")
     if assessment.get("approval_required") is False:
@@ -765,13 +758,16 @@ def _phase34_fail_closed_result(
     *,
     reason: str,
 ) -> dict[str, Any]:
-    safe_assessment = {
-        **assessment,
-        "approval_required": False,
-        "blocked": True,
-        "risk_level": "manual_review",
-        "risk_reason": reason,
-    }
+    safe_assessment = risk_assessment_with_disposition(
+        {
+            **assessment,
+            "approval_required": False,
+            "blocked": True,
+            "risk_reason": reason,
+        },
+        disposition="manual_review",
+        reason="phase34_fail_closed",
+    )
     return {
         **result,
         "risk_assessment": safe_assessment,
@@ -934,6 +930,12 @@ async def _attach_snapshot_binding(
                 assessment=assessment,
                 evidence_refs=evidence_refs,
             )
+            if proposed_action is None:
+                return _phase34_fail_closed_result(
+                    result,
+                    assessment,
+                    reason="Recommended action is not executable.",
+                )
         action_payload_hash = compute_action_payload_hash(proposed_action)
         try:
             business_fact_refs = _business_fact_refs_from_state(state)
@@ -1022,12 +1024,15 @@ async def _attach_snapshot_binding(
             created_by=user_id,
         )
     except (ActionSafetySnapshotPersistenceError, TypeError, ValueError, ValidationError) as exc:
-        safe_assessment = {
-            **assessment,
-            "approval_required": False,
-            "risk_level": "manual_review",
-            "risk_reason": f"Action safety snapshot could not be verified: {exc}",
-        }
+        safe_assessment = risk_assessment_with_disposition(
+            {
+                **assessment,
+                "approval_required": False,
+                "risk_reason": f"Action safety snapshot could not be verified: {exc}",
+            },
+            disposition="manual_review",
+            reason="snapshot_binding_unverified",
+        )
         return {
             **result,
             "risk_assessment": safe_assessment,
@@ -1084,29 +1089,38 @@ def _retrieval_config_version(evidence_refs: list[EvidenceRefV1]) -> str:
 
 def _fallback_risk(draft: dict[str, Any], context: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
     if draft.get("recommended_action") == "insufficient_evidence":
-        return {
-            "risk_level": "low",
-            "risk_reason": "No action is recommended because evidence is insufficient.",
-            "approval_required": False,
-            "rule_ref": "LR-01",
-        }
+        return risk_assessment_with_disposition(
+            {
+                "risk_level": "low",
+                "risk_reason": "No action is recommended because evidence is insufficient.",
+                "approval_required": False,
+                "rule_ref": "LR-01",
+            },
+            disposition="allow",
+        )
 
     high_rule = _deterministic_rule_match(draft, context, rules)
     if high_rule:
-        return {
-            "risk_level": "high",
-            "risk_reason": high_rule.get("description") or "High risk rule matched.",
-            "approval_required": True,
-            "rule_ref": high_rule.get("id"),
-        }
+        return risk_assessment_with_disposition(
+            {
+                "risk_level": "high",
+                "risk_reason": high_rule.get("description") or "High risk rule matched.",
+                "approval_required": True,
+                "rule_ref": high_rule.get("id"),
+            },
+            disposition="approval_required",
+        )
 
     low_rule = (rules.get("low_risk") or [{}])[0]
-    return {
-        "risk_level": "low",
-        "risk_reason": low_rule.get("description") or "No high risk rule matched.",
-        "approval_required": False,
-        "rule_ref": low_rule.get("id"),
-    }
+    return risk_assessment_with_disposition(
+        {
+            "risk_level": "low",
+            "risk_reason": low_rule.get("description") or "No high risk rule matched.",
+            "approval_required": False,
+            "rule_ref": low_rule.get("id"),
+        },
+        disposition="allow",
+    )
 
 
 async def risk_gate(state: AgentState, config: RunnableConfig = None) -> dict:
@@ -1136,12 +1150,15 @@ async def risk_gate(state: AgentState, config: RunnableConfig = None) -> dict:
     if state.get("current_intent") == "policy_qa":
         low_rule = (rules.get("low_risk") or [{}])[0]
         return {
-            "risk_assessment": {
-                "risk_level": "low",
-                "risk_reason": low_rule.get("description") or "Policy explanation only; no customer action proposed.",
-                "approval_required": False,
-                "rule_ref": low_rule.get("id"),
-            },
+            "risk_assessment": risk_assessment_with_disposition(
+                {
+                    "risk_level": "low",
+                    "risk_reason": low_rule.get("description") or "Policy explanation only; no customer action proposed.",
+                    "approval_required": False,
+                    "rule_ref": low_rule.get("id"),
+                },
+                disposition="allow",
+            ),
             "proposed_action": None,
             "trace_steps": (state.get("trace_steps") or [])
             + [_trace_step("completed", started_at)],
@@ -1178,12 +1195,13 @@ async def risk_gate(state: AgentState, config: RunnableConfig = None) -> dict:
                         "rule_ref": high_rule.get("id"),
                     }
                 )
+            assessment = risk_assessment_with_disposition(assessment)
             proposed_action = (
                 {"pending_snapshot": True}
                 if draft.get("recommended_action") not in NO_ACTION_RECOMMENDATIONS
                 and (
                     assessment.get("approval_required")
-                    or _is_actionable_recommendation(draft.get("recommended_action"))
+                    or is_actionable_recommendation(draft.get("recommended_action"))
                 )
                 else None
             )
@@ -1229,7 +1247,7 @@ async def risk_gate(state: AgentState, config: RunnableConfig = None) -> dict:
         if draft.get("recommended_action") not in NO_ACTION_RECOMMENDATIONS
         and (
             fallback_assessment.get("approval_required")
-            or _is_actionable_recommendation(draft.get("recommended_action"))
+            or is_actionable_recommendation(draft.get("recommended_action"))
         )
         else None
     )
