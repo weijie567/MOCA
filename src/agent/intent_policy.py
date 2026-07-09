@@ -1249,9 +1249,7 @@ def _has_compensation_action_cue(text: str, lowered: str) -> bool:
 
 
 def _is_next_step_advice_query(text: str, lowered: str) -> bool:
-    if any(token in lowered for token in ("execute", "refund now", "override", "compensation", "coupon")):
-        return False
-    if any(token in text for token in ("直接退款", "执行", "发券", "创建", "补偿", "券", "赔付")):
+    if detect_pre_route_action_request(text) is not None or matches_compensation_alias(text):
         return False
     has_business_reference = any(token in lowered for token in ("order", "refund", "ticket", "that", "this")) or any(
         token in text for token in ("订单", "退款", "工单", "这个", "该", "那")
