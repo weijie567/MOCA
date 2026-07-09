@@ -956,6 +956,38 @@ async def test_metric_order_count_missing_time_routes_to_clarification_without_t
 
 
 @pytest.mark.asyncio
+async def test_metric_time_followup_reuses_pending_order_count_flow(monkeypatch):
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots(None)))
+    tool_platform = FakeGraphToolPlatform()
+    events: list[dict[str, Any]] = []
+    thread_id = "metric-time-followup-thread"
+    config = _config(tool_platform, events, thread_id=thread_id)
+    graph = build_graph(MemorySaver())
+
+    first_state = await graph.ainvoke(_state("现在有多少订单", thread_id), config)
+
+    assert first_state["current_intent"] == "business_metric_query"
+    assert first_state["missing_required_slots"] == [{"all_of": ["metric_time_range"]}]
+    assert "时间范围" in first_state["final_response"]
+    assert tool_platform.calls == []
+
+    second_state = await graph.ainvoke(_state("本周", thread_id), config)
+
+    nodes = [step["node"] for step in second_state["trace_steps"]]
+    assert second_state["current_intent"] == "business_metric_query"
+    assert "slot_resolution_gate" in nodes
+    assert "investigate" in nodes
+    assert second_state.get("clarification_request") is None
+    assert [call[0] for call in tool_platform.calls] == ["query_business_metric"]
+    assert tool_platform.calls[0][1]["metric_id"] == "order_count"
+    assert tool_platform.calls[0][1]["time_preset"] == "this_week"
+    assert second_state["llm_outputs"]["contextual_intent_resolve"]["classification_trace"]["reason_codes"] == [
+        "active_flow_pending_metric_time_answered"
+    ]
+    assert second_state["final_response"].startswith("3")
+
+
+@pytest.mark.asyncio
 async def test_metric_permission_denied_graph_final_response_does_not_leak_identifier(monkeypatch):
     monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots(None)))
     tool_platform = FakeGraphToolPlatform(metric_permission_denied=True)
@@ -975,6 +1007,47 @@ async def test_metric_permission_denied_graph_final_response_does_not_leak_ident
     assert final_state["llm_outputs"]["final_response"]["response_kind"] == "metric_answer"
     assert "MERCHANT-SHOULD-NOT-LEAK" not in final_state["final_response"]
     assert "MERCHANT-SHOULD-NOT-LEAK" not in str(final_state["llm_outputs"]["final_response"])
+
+
+@pytest.mark.asyncio
+async def test_small_talk_routes_directly_without_default_policy_template(monkeypatch):
+    deps = _patch_graph_dependencies(monkeypatch, intent="small_talk")
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("你好"),
+        _config(deps["tool_platform"], deps["events"]),
+    )
+
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert final_state["current_intent"] == "small_talk"
+    assert "investigate" not in nodes
+    assert "slot_resolution_gate" not in nodes
+    assert deps["tool_platform"].calls == []
+    assert "你好" in final_state["final_response"]
+    assert "建议按已检索到的政策依据处理" not in final_state["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_aggregate_order_count_routes_to_metric_clarification_without_tool_call(monkeypatch):
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots(None)))
+    tool_platform = FakeGraphToolPlatform()
+    events: list[dict[str, Any]] = []
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("当前有多少订单"),
+        _config(tool_platform, events),
+    )
+
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert final_state["current_intent"] == "business_metric_query"
+    assert "slot_resolution_gate" in nodes
+    assert "clarification_gate" in nodes
+    assert "investigate" not in nodes
+    assert tool_platform.calls == []
+    assert final_state["missing_required_slots"] == [{"all_of": ["metric_time_range"]}]
+    assert "时间范围" in final_state["final_response"]
 
 
 @pytest.mark.asyncio

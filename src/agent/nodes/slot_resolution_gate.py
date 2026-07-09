@@ -158,7 +158,7 @@ def _deterministic_metric_slots(state: AgentState) -> dict[str, Any]:
         return {}
     text = str(state.get("normalized_query") or state.get("user_query") or "")
     lowered = text.lower()
-    slots: dict[str, Any] = {}
+    slots: dict[str, Any] = _active_flow_metric_slots(state)
 
     if "退款率" in text or "refund rate" in lowered:
         slots["metric_id"] = "merchant_refund_rate"
@@ -185,6 +185,28 @@ def _deterministic_metric_slots(state: AgentState) -> dict[str, Any]:
     elif "当前" in text or "现在" in text or "current" in lowered:
         slots["metric_time_preset"] = "current_snapshot"
 
+    return slots
+
+
+def _active_flow_metric_slots(state: AgentState) -> dict[str, Any]:
+    routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
+    if routing_hints.get("workflow_state_resolution") != "answered_pending_metric_time_range":
+        return {}
+    flow = state.get("active_flow_state") if isinstance(state.get("active_flow_state"), dict) else {}
+    slots: dict[str, Any] = {}
+    for key in ("resolved_slots", "candidate_slots"):
+        flow_slots = flow.get(key)
+        if not isinstance(flow_slots, dict):
+            continue
+        for slot in ("metric_id", "resource_type", "merchant_id", "status_filter"):
+            value = flow_slots.get(slot)
+            if value not in (None, "", []):
+                slots.setdefault(slot, value)
+    candidate_slots = state.get("candidate_slots") if isinstance(state.get("candidate_slots"), dict) else {}
+    for slot in ("metric_id", "resource_type", "merchant_id", "status_filter"):
+        value = candidate_slots.get(slot)
+        if value not in (None, "", []):
+            slots.setdefault(slot, value)
     return slots
 
 

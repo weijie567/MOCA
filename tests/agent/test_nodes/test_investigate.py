@@ -906,6 +906,7 @@ async def test_deterministic_fallback_calls_metric_tool_from_complete_active_slo
 
     await investigate(state, _config(manager, events, investigate_planner=planner, max_iterations=1))
 
+    assert planner.inputs == []
     assert [call[0] for call in manager.calls] == ["query_business_metric"]
     assert manager.calls[0][1] == {
         "metric_id": "refund_case_count",
@@ -947,7 +948,10 @@ async def test_metric_result_accumulates_under_business_metric_fact():
         }
     ]
 
-    result = await investigate(_state(plan), _config(manager, events))
+    state = _state(plan)
+    state["current_intent"] = "business_metric_query"
+
+    result = await investigate(state, _config(manager, events))
 
     assert [call[0] for call in manager.calls] == ["query_business_metric"]
     metric_fact = result["business_context"]["facts"]["business_metric"]
@@ -957,6 +961,7 @@ async def test_metric_result_accumulates_under_business_metric_fact():
     assert result["claim_dependency_map"][0]["depends_on_refs"] == [
         {"resource_type": "business_metric", "resource_id": "order_count"}
     ]
+    assert result["recommendation_draft"] is None
     assert "MERCHANT-ID-SHOULD-NOT-BE-IN-PROMPT" not in result["tool_results"][0]["prompt_summary"]
     assert "TENANT-ID-SHOULD-NOT-BE-IN-PROMPT" not in result["tool_results"][0]["prompt_summary"]
 

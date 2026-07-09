@@ -378,7 +378,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         "claim_dependency_map": context["claim_dependency_map"],
         "tool_results": context["tool_results"],
         "last_business_context_refs": {"business_fact_refs": context["business_fact_refs"], "loaded_at": _now_iso()},
-        "recommendation_draft": _terminal_recommendation_draft(context),
+        "recommendation_draft": _terminal_recommendation_draft(state, context),
         "termination_reason": termination_reason,
         "trace_steps": trace_steps,
     }
@@ -422,6 +422,8 @@ async def _planner_next_step(
     scripted = _scripted_planner_step(state, context)
     if scripted is not None:
         return parse_investigate_planner_decision(scripted)
+    if _is_metric_intent(state):
+        return _deterministic_fallback_plan_next_step(state, context, tool_views)
 
     planner_input = _planner_input_payload(state, context, tool_views, iteration)
     injected_planner = configurable.get("investigate_planner")
@@ -965,7 +967,9 @@ def _missing_required_facts(state: AgentState, context: dict[str, Any]) -> list[
     return list(dict.fromkeys(missing))
 
 
-def _terminal_recommendation_draft(context: dict[str, Any]) -> dict[str, Any] | None:
+def _terminal_recommendation_draft(state: AgentState, context: dict[str, Any]) -> dict[str, Any] | None:
+    if _is_metric_intent(state):
+        return None
     retrieval_status = context["retrieval_status"]
     best_score = context["best_score"]
     if retrieval_status == "error":

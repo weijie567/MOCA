@@ -614,6 +614,34 @@ def _deterministic_context_update(
         requested_operation = str(flow.get("last_requested_operation") or "advise")
         required_slots = _required_slots_from_flow(flow, primary_intent)
         candidate_slots = flow.get("candidate_slots") if isinstance(flow.get("candidate_slots"), dict) else {}
+        pending_metric_slots = _pending_metric_time_answer_slots(primary_intent, flow, user_text)
+        if pending_metric_slots:
+            merged_candidate_slots = _merge_flow_metric_slots(flow, pending_metric_slots)
+            reason_codes = ["active_flow_pending_metric_time_answered"]
+            return _deterministic_classification_update(
+                state,
+                started_at=started_at,
+                pre_route=pre_route,
+                primary_intent=primary_intent,
+                requested_operation=requested_operation,
+                intent_confidence=1.0,
+                required_slots=required_slots,
+                candidate_slots=merged_candidate_slots,
+                routing_hints={
+                    "workflow_state_resolution": "answered_pending_metric_time_range",
+                    "clarification_request_id": flow.get("clarification_request_id"),
+                    "metric_slot_parser": "active_flow_state",
+                },
+                policy_overrides=[
+                    {
+                        "source": "active_flow_state",
+                        "reason_codes": reason_codes,
+                        "clarification_request_id": flow.get("clarification_request_id"),
+                    }
+                ],
+                reason_codes=reason_codes,
+                source="active_flow_state",
+            )
         if _is_identifier_like_answer(user_text):
             reason_codes = ["active_flow_pending_slot_answered"]
             return _deterministic_classification_update(
@@ -760,6 +788,43 @@ def _metric_time_preset_from_text(text: str) -> str | None:
     if "今年" in text or "本年" in text or "this year" in lowered:
         return "this_year"
     return None
+
+
+def _pending_metric_time_answer_slots(
+    primary_intent: str,
+    flow: dict[str, Any],
+    user_text: str,
+) -> dict[str, Any]:
+    if primary_intent != "business_metric_query":
+        return {}
+    if not _flow_has_metric_id(flow):
+        return {}
+    preset = _metric_time_preset_from_text(user_text)
+    if preset is None:
+        return {}
+    return {"metric_time_preset": preset}
+
+
+def _flow_has_metric_id(flow: dict[str, Any]) -> bool:
+    for key in ("resolved_slots", "candidate_slots"):
+        slots = flow.get(key)
+        if isinstance(slots, dict) and slots.get("metric_id"):
+            return True
+    return False
+
+
+def _merge_flow_metric_slots(flow: dict[str, Any], current_turn_slots: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for key in ("candidate_slots", "resolved_slots"):
+        slots = flow.get(key)
+        if not isinstance(slots, dict):
+            continue
+        for slot in ("metric_id", "resource_type", "merchant_id", "status_filter"):
+            value = slots.get(slot)
+            if value not in (None, "", []):
+                merged.setdefault(slot, value)
+    merged.update(current_turn_slots)
+    return merged
 
 
 def _business_metric_query_update(

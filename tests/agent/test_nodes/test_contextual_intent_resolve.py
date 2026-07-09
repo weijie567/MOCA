@@ -163,6 +163,49 @@ async def test_contextual_intent_resolve_pending_slot_identifier_uses_same_threa
 
 
 @pytest.mark.asyncio
+async def test_contextual_intent_resolve_pending_metric_time_answer_uses_same_thread_flow(
+    monkeypatch,
+    base_state,
+):
+    def fail_llm():
+        raise AssertionError("LLM should not be called for a pending metric time answer")
+
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", fail_llm)
+    state = {
+        **base_state,
+        "user_query": "本周",
+        "active_flow_state": {
+            "kind": "pending_required_slot",
+            "last_effective_intent": "business_metric_query",
+            "last_requested_operation": "read_status",
+            "required_slots": {"all_of": ["metric_id"], "any_of": [], "optional": []},
+            "candidate_slots": {"metric_id": "order_count"},
+            "resolved_slots": {"metric_id": "order_count", "resource_type": "order"},
+            "clarification_request_id": "clarify_metric_run",
+        },
+    }
+
+    result = await contextual_intent_module.contextual_intent_resolve(state)
+
+    assert result["primary_intent"] == "business_metric_query"
+    assert result["requested_operation"] == "read_status"
+    assert result["intent_confidence"] == 1.0
+    assert result["candidate_slots"] == {
+        "metric_id": "order_count",
+        "resource_type": "order",
+        "metric_time_preset": "this_week",
+    }
+    assert result["routing_hints"]["workflow_state_resolution"] == "answered_pending_metric_time_range"
+    assert result["routing_hints"]["metric_slot_parser"] == "active_flow_state"
+    assert result["classification_trace"]["raw_llm_classification"] is None
+    assert result["classification_trace"]["route_decision"] == "slot_resolution_gate"
+    assert "active_flow_pending_metric_time_answered" in result["classification_trace"]["reason_codes"]
+    assert route_after_contextual_intent(result) == "slot_resolution_gate"
+    for forbidden in FORBIDDEN_DOWNSTREAM_FIELDS:
+        assert forbidden not in result
+
+
+@pytest.mark.asyncio
 async def test_contextual_intent_resolve_invalid_structured_output_fails_closed(monkeypatch, base_state):
     monkeypatch.setattr(
         contextual_intent_module,

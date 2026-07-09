@@ -858,7 +858,7 @@ async def test_final_response_handles_small_talk_without_default_policy_template
 
 
 @pytest.mark.asyncio
-async def test_final_response_handles_unsupported_aggregate_order_query(base_state):
+async def test_final_response_handles_legacy_aggregate_order_query_as_time_clarification(base_state):
     result = await final_response(
         {
             **base_state,
@@ -869,8 +869,10 @@ async def test_final_response_handles_unsupported_aggregate_order_query(base_sta
         }
     )
 
-    assert "不支持统计订单总数" in result["final_response"]
-    assert "具体订单号" in result["final_response"]
+    assert "要统计订单数" in result["final_response"]
+    assert "今天、本周、本月、本季度、今年" in result["final_response"]
+    assert "不支持统计订单总数" not in result["final_response"]
+    assert "具体订单号" not in result["final_response"]
     _assert_no_false_evidence_claim(result["final_response"])
     assert result["llm_outputs"]["final_response"]["evidence_citations"] == []
     assert result["llm_outputs"]["final_response"]["direct_response_intent"] == "unsupported"

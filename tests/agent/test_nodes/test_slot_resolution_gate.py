@@ -266,6 +266,40 @@ async def test_slot_resolution_gate_order_count_current_requires_time_not_order_
 
 
 @pytest.mark.asyncio
+async def test_slot_resolution_gate_merges_pending_metric_time_answer_with_active_flow(monkeypatch) -> None:
+    fake_llm = CapturingLLM(_slot_response())
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: fake_llm)
+
+    result = await slot_resolution_gate_module.slot_resolution_gate(
+        _metric_state(
+            "本周",
+            candidate_slots={
+                "metric_id": "order_count",
+                "resource_type": "order",
+                "metric_time_preset": "this_week",
+            },
+            routing_hints={
+                "workflow_state_resolution": "answered_pending_metric_time_range",
+                "metric_slot_parser": "active_flow_state",
+            },
+            active_flow_state={
+                "kind": "pending_required_slot",
+                "resolved_slots": {"metric_id": "order_count", "resource_type": "order"},
+            },
+        )
+    )
+
+    assert result["active_slots"]["metric_id"] == "order_count"
+    assert result["active_slots"]["resource_type"] == "order"
+    assert result["active_slots"]["metric_time_preset"] == "this_week"
+    assert result["active_slots"]["metric_time_range_start"] == "2026-07-06T00:00:00+08:00"
+    assert result["active_slots"]["metric_time_range_end"] == "2026-07-13T00:00:00+08:00"
+    assert result["missing_required_slots"] == []
+    assert result["slot_resolution_trace"]["route_decision"] == "investigate"
+    assert "deterministic_metric_slot_parser" in result["slot_resolution_trace"]["reason_codes"]
+
+
+@pytest.mark.asyncio
 async def test_slot_resolution_gate_records_current_inherited_and_replacement_provenance(monkeypatch):
     fake_llm = CapturingLLM(_slot_response(order_id="ORD-CURRENT"))
     monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: fake_llm)

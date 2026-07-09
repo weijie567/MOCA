@@ -498,8 +498,8 @@ def _direct_response_text(state: AgentState) -> str:
     routing_hints = _mapping(state.get("routing_hints"))
     if routing_hints.get("unsupported_reason") == "aggregate_order_query":
         return (
-            "当前控制台还不支持统计订单总数。你可以提供具体订单号、退款单号或工单号，"
-            "我可以查询状态、排查退款异常，或基于政策生成处理建议。"
+            "要统计订单数，请选择时间范围：今天、本周、本月、本季度、今年，"
+            "或指定起止时间。"
         )
 
     return (

@@ -29,8 +29,9 @@ def _project_active_flow_state(state: AgentState) -> dict[str, Any] | None:
 
     operation = state.get("requested_operation")
     candidate_slots = state.get("candidate_slots") if isinstance(state.get("candidate_slots"), dict) else {}
+    resolved_slots = _resolved_slots_from_state(state)
     blocked_nodes = clarification.get("blocked_nodes") if isinstance(clarification.get("blocked_nodes"), list) else []
-    return {
+    flow_state = {
         "kind": "pending_required_slot",
         "reason": "missing_required_slots",
         "last_effective_intent": intent,
@@ -40,6 +41,18 @@ def _project_active_flow_state(state: AgentState) -> dict[str, Any] | None:
         "clarification_request_id": clarification.get("clarification_request_id"),
         "blocked_nodes": blocked_nodes,
     }
+    if resolved_slots:
+        flow_state["resolved_slots"] = resolved_slots
+    return flow_state
+
+
+def _resolved_slots_from_state(state: AgentState) -> dict[str, Any]:
+    active_slots = state.get("active_slots") if isinstance(state.get("active_slots"), dict) else {}
+    if active_slots:
+        return {key: value for key, value in active_slots.items() if value not in (None, "", [])}
+    trace = state.get("slot_resolution_trace") if isinstance(state.get("slot_resolution_trace"), dict) else {}
+    trace_slots = trace.get("resolved_slots") if isinstance(trace.get("resolved_slots"), dict) else {}
+    return {key: value for key, value in trace_slots.items() if value not in (None, "", [])}
 
 
 async def receive_request(state: AgentState) -> dict:
