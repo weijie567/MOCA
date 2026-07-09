@@ -1748,3 +1748,35 @@
 **剩余风险**
 - 🟡 `tool:business_query` 目前只是 trusted permission；descriptor visibility, policy denial, executor safe failure 仍需本 plan Task 2 完成。
 - 🟡 runtime query scope/no-existence-leak enforcement 仍属于 62-04，当前不执行数据库 query。
+
+## 2026-07-09 — Phase 62 Plan 03 business_query ToolPlatform descriptor 与 planner allowlist 同步 ⚠️修复但验证有缺口
+
+**子系统**
+- 工具调用 / ToolCatalog / ToolPolicy / investigate planner
+
+**问题 / 根因**
+- Plan 62-02 的 `BusinessQuerySpec` 已能拒绝 authority fields 与 raw SQL 类字段，但 ToolCatalog 尚未注册 `business_query` 主读工具，ToolPolicy 也没有可验证的 descriptor schema 来在 executor 前拒绝 `tenant_id`、`merchant_scope`、`raw_sql`、`where`、任意 filter object 或 raw cursor string。
+- `investigate_planner.py` 仍维护静态 `INVESTIGATE_ALLOWED_TOOL_NAMES`，新增 planner-visible tool 时若只改 catalog，会复现 Phase 61 已登记的 catalog/planner allowlist 漂移风险。
+
+**影响**
+- 没有 descriptor 时，LLM planner / ToolPlatform 看不到 Phase 62 主读契约，只能继续依赖 `query_business_metric` 兼容入口。
+- 没有 schema-denial 测试时，authority-bearing 或 free-form DB shape 可能进入 executor/service 层后才失败，削弱 ToolPlatform 边界。
+- planner allowlist 漏改会造成「ToolPlatform 可见但 planner output schema 拒绝」的运行时断裂。
+
+**处理状态**
+- ✅ 新增 `business_query` read-only ToolCatalog descriptor：`required_permission="tool:business_query"`、`caller_allowlist=["investigate"]`、`resource_type="business_query"`、`executor="business"`、`additionalProperties: false`。
+- ✅ descriptor input schema 从 `BusinessQuerySpec` 字段和 `BUSINESS_QUERY_REGISTRY` operation/resource/metric/time/status/field/sort allowlist 派生；output schema 锁定 `BusinessQueryResultV1` 顶层 shape。
+- ✅ ToolPlatform tests 覆盖 wrong caller、missing permission、authority fields、raw SQL keys、arbitrary filters、raw cursor strings 均在 dispatch 前 fail closed。
+- ✅ `BusinessToolExecutor` 对 `business_query` 只做 schema validation 后返回 safe deferred `unavailable`，不接数据库 runtime、不构造 SQL、不调用 repository。
+- ✅ `INVESTIGATE_ALLOWED_TOOL_NAMES` 同步加入 `business_query`，并新增 catalog/planner allowlist parity 测试。
+- ⚠️ 静态 planner allowlist 尚未从 ToolCatalog 自动派生；本次只做同步与测试护栏。
+
+**证据 / 验证**
+- 文件：`src/tools/catalog.py`、`src/tools/executors/business.py`、`src/agent/nodes/investigate_planner.py`、`tests/tools/test_catalog.py`、`tests/tools/test_tool_platform.py`。
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/business/test_business_query_schemas.py -q --tb=short` → `103 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/tools/catalog.py src/tools/policy.py src/tools/executors/business.py src/agent/nodes/investigate_planner.py tests/tools/test_catalog.py tests/tools/test_tool_platform.py` → 通过
+- `rg -n "name=\"business_query\"|tool:business_query|additionalProperties|raw_sql|merchant_scope|tenant_id" src/tools/catalog.py src/tools/policy.py src/tools/executors/business.py tests/tools/test_catalog.py tests/tools/test_tool_platform.py` → required descriptor/schema/policy-denial evidence found。
+
+**剩余风险**
+- 🟡 business_query runtime execution remains intentionally deferred to 62-04; current executor returns safe `unavailable` for otherwise valid specs.
+- 🟡 planner allowlist 仍是静态副本；post-Phase 62 或 Phase 65 tool-label/registry cleanup 可考虑把 planner allowlist 从 ToolCatalog 派生。

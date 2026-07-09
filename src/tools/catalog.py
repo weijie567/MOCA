@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 from src.business.query.registry import BUSINESS_QUERY_REGISTRY
+from src.business.query.schemas import BusinessQueryResultV1, BusinessQuerySpec
 from src.tools.contracts import ToolError, ToolResultV2
 
 
@@ -233,6 +234,129 @@ _BUSINESS_METRIC_OUTPUT_SCHEMA: dict[str, Any] = {
         "caveats",
         "no_leak_status",
     ],
+    "additionalProperties": False,
+}
+_BUSINESS_QUERY_OPERATION_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "enum": list(BUSINESS_QUERY_REGISTRY.operation_ids()),
+}
+_BUSINESS_QUERY_RESOURCE_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "enum": list(BUSINESS_QUERY_REGISTRY.resource_ids()),
+}
+_BUSINESS_QUERY_METRIC_SCHEMA: dict[str, Any] = {
+    "type": ["string", "null"],
+    "enum": list(BUSINESS_QUERY_REGISTRY.metric_ids()),
+}
+_BUSINESS_QUERY_TIME_PRESET_SCHEMA: dict[str, Any] = {
+    "type": ["string", "null"],
+    "enum": list(BUSINESS_QUERY_REGISTRY.time_preset_ids()),
+}
+_BUSINESS_QUERY_STATUS_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": {
+        "type": "string",
+        "enum": sorted(
+            {
+                status
+                for descriptor in BUSINESS_QUERY_REGISTRY.statuses().values()
+                for status in descriptor.values
+            }
+        ),
+        "minLength": 1,
+    },
+}
+_BUSINESS_QUERY_FILTERS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "status_filter": _BUSINESS_QUERY_STATUS_SCHEMA,
+    },
+    "required": [],
+    "additionalProperties": False,
+}
+_BUSINESS_QUERY_FIELD_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": {
+        "type": "string",
+        "enum": sorted({descriptor.id for descriptor in BUSINESS_QUERY_REGISTRY.fields().values()}),
+        "minLength": 1,
+    },
+}
+_BUSINESS_QUERY_SORT_SCHEMA: dict[str, Any] = {
+    "type": ["object", "null"],
+    "properties": {
+        "field": {
+            "type": "string",
+            "enum": sorted({descriptor.field_id for descriptor in BUSINESS_QUERY_REGISTRY.sorts().values()}),
+            "minLength": 1,
+        },
+        "direction": {"type": "string", "enum": ["asc", "desc"]},
+    },
+    "required": ["field", "direction"],
+    "additionalProperties": False,
+}
+_BUSINESS_QUERY_CURSOR_SCHEMA: dict[str, Any] = {
+    "type": ["object", "null"],
+    "properties": {
+        "cursor_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "direction": {"type": "string", "enum": ["next", "previous"]},
+    },
+    "required": ["cursor_id"],
+    "additionalProperties": False,
+}
+_BUSINESS_QUERY_INPUT_PROPERTIES: dict[str, Any] = {
+    "operation": _BUSINESS_QUERY_OPERATION_SCHEMA,
+    "resource": _BUSINESS_QUERY_RESOURCE_SCHEMA,
+    "metric_id": _BUSINESS_QUERY_METRIC_SCHEMA,
+    "time_preset": _BUSINESS_QUERY_TIME_PRESET_SCHEMA,
+    "start_at": _NULLABLE_STRING_SCHEMA,
+    "end_at": _NULLABLE_STRING_SCHEMA,
+    "merchant_id": _NULLABLE_STRING_SCHEMA,
+    "resource_id": _NULLABLE_STRING_SCHEMA,
+    "filters": _BUSINESS_QUERY_FILTERS_SCHEMA,
+    "fields": _BUSINESS_QUERY_FIELD_SCHEMA,
+    "group_by": {
+        "type": ["string", "null"],
+        "enum": sorted(
+            {
+                descriptor.id
+                for operation in BUSINESS_QUERY_REGISTRY.operations().values()
+                for descriptor in BUSINESS_QUERY_REGISTRY.fields().values()
+                if f"{descriptor.resource_id}.{descriptor.id}" in operation.group_by_field_ids
+            }
+        ),
+    },
+    "compare_to": {"type": ["string", "null"], "enum": ["previous_period"]},
+    "sort": _BUSINESS_QUERY_SORT_SCHEMA,
+    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+    "cursor": _BUSINESS_QUERY_CURSOR_SCHEMA,
+}
+_BUSINESS_QUERY_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        name: schema
+        for name, schema in _BUSINESS_QUERY_INPUT_PROPERTIES.items()
+        if name in BusinessQuerySpec.model_fields
+    },
+    "required": ["operation", "resource"],
+    "additionalProperties": False,
+}
+_BUSINESS_QUERY_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "schema_version": {"type": "string", "enum": ["business_query_result.v1"]},
+        "operation": _BUSINESS_QUERY_OPERATION_SCHEMA,
+        "resource": _BUSINESS_QUERY_RESOURCE_SCHEMA,
+        "status": {
+            "type": "string",
+            "enum": ["ok", "partial", "empty", "permission_denied", "invalid_request", "unavailable"],
+        },
+        "rows": {"type": "array", "items": {"type": "object"}},
+        "answer_context": {"type": ["object", "null"]},
+        "cursor": {"type": ["object", "null"]},
+        "scope": {"type": ["object", "null"]},
+    },
+    "required": list(BusinessQueryResultV1.model_fields),
     "additionalProperties": False,
 }
 _CASE_MEMORY_REF_ARRAY_SCHEMA: dict[str, Any] = {"type": "array", "items": {"type": "object"}}
@@ -495,6 +619,21 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
         event_family="tool_call_*",
         resource_type="merchant_risk",
         executor="business",
+    ),
+    _ToolDeclaration(
+        name="business_query",
+        kind="read",
+        input_schema=_BUSINESS_QUERY_INPUT_SCHEMA,
+        output_schema=_BUSINESS_QUERY_OUTPUT_SCHEMA,
+        side_effect="read_only",
+        caller_allowlist=("investigate",),
+        event_family="tool_call_*",
+        resource_type="business_query",
+        executor="business",
+        description=(
+            "Prepare a scoped read-only business_query request for aggregate, list, "
+            "detail, breakdown, or compare business facts."
+        ),
     ),
     _ToolDeclaration(
         name="query_business_metric",

@@ -20517,3 +20517,22 @@ git diff -- .planning/STATE.md .planning/ROADMAP.md
 ### 剩余问题和下次继续排查入口
 
 无产品实现问题遗留。后续 Phase 62 plan 完成时，调用这些 GSD handlers 后必须检查 `.planning/STATE.md` / `.planning/ROADMAP.md` diff；若再次错算，应优先修 GSD SDK handler 或在执行摘要中明确记录手动 metadata 修正。
+## 2026-07-09 — Phase 62-03 business_query catalog schema helper import 失败
+
+**问题现象**  
+Task 2 GREEN 第一次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/business/test_business_query_schemas.py -q --tb=short` 时，测试 collection 阶段失败，`src/tools/catalog.py` import 抛出 `AttributeError: 'BusinessQueryFieldDescriptor' object has no attribute 'field_id'`。
+
+**如何检测/复现**  
+运行上述 MOCA 安全 pytest 命令即可在 import `src.tools.catalog` 时复现。
+
+**关键证据或命令**  
+`src/tools/catalog.py` 的 `_BUSINESS_QUERY_INPUT_PROPERTIES["group_by"]` 生成逻辑误把 `BusinessQueryFieldDescriptor` 字段名写成 `descriptor.field_id`；真实 registry descriptor 字段是 `id`。
+
+**当前判断/根因**  
+这是 62-03 Task 2 新增 catalog schema helper 时的实现错误，不是 pytest 环境问题；collection 失败发生在业务测试执行前。
+
+**已做处理**  
+将 `descriptor.field_id` 修正为 `descriptor.id`，随后重跑 focused suite：`103 passed, 1 warning`。
+
+**剩余问题和下次继续排查入口**  
+无产品遗留。若后续 schema helper 再扩展字段，应优先用 registry descriptor dataclass 字段名或新增小型 schema-helper 单元测试避免 import-time 失败。

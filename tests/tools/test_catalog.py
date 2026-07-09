@@ -435,6 +435,7 @@ def test_descriptor_table_is_single_source_for_investigate_names_and_resource_ty
         "ticket",
         "logistics",
         "merchant_risk",
+        "business_query",
         "business_metric",
         None,
     }
