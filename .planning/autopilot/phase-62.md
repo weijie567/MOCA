@@ -4,7 +4,7 @@ status: running
 current_step: execute
 plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-07-09T21:46:00+08:00"
+updated_at: "2026-07-09T22:21:30+08:00"
 next_command: "$gsd-execute-phase 62"
 ---
 
@@ -31,6 +31,8 @@ next_command: "$gsd-execute-phase 62"
 - Created `.planning/phases/62-business-query-and-drilldown-foundation/62-02-SUMMARY.md`.
 - Wave 3 / Plan `62-03` completed by `gsd-executor`.
 - Created `.planning/phases/62-business-query-and-drilldown-foundation/62-03-SUMMARY.md`.
+- Wave 4 / Plan `62-04` completed by `gsd-executor`.
+- Created `.planning/phases/62-business-query-and-drilldown-foundation/62-04-SUMMARY.md`.
 
 ## Evidence
 
@@ -102,6 +104,18 @@ next_command: "$gsd-execute-phase 62"
   - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/platform/test_trusted_context_factory.py tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/business/test_business_query_schemas.py -q --tb=short` -> `143 passed, 1 warning`.
   - `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check ...` passed.
 - `62-03` documented two auto-fixes: synchronizing `investigate_planner` static allowlist for `business_query`, and fixing a catalog schema helper import-time bug found during validation.
+- Plan `62-04` commits:
+  - `204b2db test(62-04): add failing tests for business query runtime`
+  - `8b553e8 feat(62-04): implement business query runtime`
+  - `b23e98d test(62-04): add failing tests for business query dispatch`
+  - `a195dec feat(62-04): wire business query tool dispatch`
+  - `cd74138 test(62-04): add business query boundary backstops`
+  - `e66204e docs(62-04): complete business query runtime plan`
+- `62-04` spot-check passed: working tree clean, summary exists, `## Self-Check: PASSED` present, `gsd-sdk query verify.key-links ...62-04-PLAN.md` returned `all_verified=true`, and `phase-plan-index` now reports `62-04.has_summary=true`.
+- `62-04` executor verification reported:
+  - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py tests/business/test_service.py tests/tools/test_tool_platform.py tests/tools/test_catalog.py tests/agent/test_nodes/test_investigate.py tests/architecture/test_business_query_boundaries.py -q --tb=short` -> `216 passed, 1 warning`.
+  - `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check ...` passed.
+- `62-04` documented auto-fixes: allowing `BusinessFactRefV1` resource `business_query`, aligning ToolCatalog output validation with the `{"business_query": ...}` runtime envelope, and correcting GSD state/roadmap metadata after SDK progress miscalculation.
 
 ## Last Failure
 
