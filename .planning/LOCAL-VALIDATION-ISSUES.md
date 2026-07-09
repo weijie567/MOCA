@@ -20576,3 +20576,23 @@ Task 3 新增 `tests/architecture/test_business_query_boundaries.py` 后首次�
 
 **剩余问题和下次继续排查入口**  
 无产品遗留。后续若 `investigate_tool_names` API 改为接收 catalog 对象，应同步调整此 architecture backstop。
+
+## 2026-07-09 — Phase 62-04 GSD state/roadmap handlers 再次不适配 MOCA 文档格式
+
+**问题现象**  
+完成 62-04 后按执行流程调用 `gsd-sdk query state.advance-plan`、`state.update-progress`、`state.record-metric`、`state.add-decision`、`state.record-session`、`roadmap.update-plan-progress`、`requirements.mark-complete`。其中 `state.update-progress` 将 Phase 62 错算为 `5/5`、`100%`，`state.record-metric` 返回 `recorded:false`，`state.add-decision` 返回 `added:false`，`roadmap.update-plan-progress 62` 返回 `no matching checkbox found`，`requirements.mark-complete BQ-62-03 BQ-62-04 BQ-62-08` 返回 `changed:0`。
+
+**如何检测/复现**  
+依次运行上述 GSD SDK query handler，然后查看 `git diff -- .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md`。
+
+**关键证据或命令**  
+`git diff` 显示 `.planning/STATE.md` 被错误更新为 completed phases `1`、total plans `5`、completed plans `5`、progress `100%`，而 Phase 62 当前应为 4/7 completed。`ROADMAP.md` 未被 handler 标记 62-04。
+
+**当前判断/根因**  
+与 62-02 记录的问题一致：当前 GSD SDK state/roadmap handlers 仍不适配 MOCA 的紧凑 `STATE.md` frontmatter/current-position 结构和普通 Markdown roadmap checkbox 格式；phase-local `BQ-62-*` requirement IDs 不在全局 `REQUIREMENTS.md` 中。
+
+**已做处理**  
+手动修正 `.planning/STATE.md` 为 Phase 62 Plan 5/7、completed plans 4/7、progress 57%、next plan 62-05；手动将 `.planning/ROADMAP.md` 的 62-04 checkbox 标为完成。保留 handler 调用输出作为本地验证证据。
+
+**剩余问题和下次继续排查入口**  
+无产品实现遗留。后续 Phase 62 plan 完成时，仍必须在调用这些 handlers 后检查 `.planning/STATE.md` / `.planning/ROADMAP.md` diff；如果继续错算，应修复 GSD SDK handler 或继续做手动 metadata 修正并记录。
