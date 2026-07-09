@@ -40,18 +40,18 @@ created: 2026-07-09
 
 ## Per-Task Verification Map
 
-Formal Phase 62 requirement IDs are still TBD during planning. The planner should replace `BQ-TBD-*` placeholders with final phase-local IDs or mapped requirement IDs.
+Phase 62 uses canonical phase-local requirement IDs `BQ-62-01` through `BQ-62-08`.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 62-TBD-01 | 01 | 1 | BQ-TBD-01 | T-62-01 | Registry is the single source for operation/resource/metric/time/status/field/sort definitions. | unit/parity | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_registry.py tests/agent/test_required_slots.py tests/tools/test_catalog.py -q --tb=short` | ❌ W0 for new registry test; adjacent tests exist | ⬜ pending |
-| 62-TBD-02 | 01/02 | 1 | BQ-TBD-02 | T-62-02 | `business_metric_query` maps into `BusinessQuerySpec` and remains compatibility-only. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_schemas.py tests/agent/test_graph.py -q --tb=short` | ❌ W0 for new schema test; graph tests exist | ⬜ pending |
-| 62-TBD-03 | 03 | 2 | BQ-TBD-03 | T-62-03 | BusinessFactService executes aggregate/list/detail/breakdown/compare through controlled scope-safe queries. | service/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py -q --tb=short` | ❌ W0 | ⬜ pending |
-| 62-TBD-04 | 03/05 | 2 | BQ-TBD-04 | T-62-04 | Out-of-scope list/detail/resource inputs do not reveal existence. | service/graph/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py tests/agent/test_graph.py tests/test_agent_runs_api.py -q --tb=short` | ⚠️ partial metric no-leak coverage only | ⬜ pending |
-| 62-TBD-05 | 04 | 3 | BQ-TBD-05 | T-62-05 | Drilldown flow `本周多少订单？` -> `订单号是多少？` re-executes backend query from safe context. | graph/eval | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py -q --tb=short` plus Phase 62 eval command | ⚠️ graph tests exist; new case missing | ⬜ pending |
-| 62-TBD-06 | 05 | 4 | BQ-TBD-06 | T-62-06 | Projection/final response emits bounded prompt-safe and UI-safe `business_query_answer` payload. | unit/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_projection.py tests/agent/test_nodes/test_final_response.py tests/test_agent_runs_api.py -q --tb=short` | ⚠️ metric coverage exists; business-query coverage missing | ⬜ pending |
-| 62-TBD-07 | 05 | 4 | BQ-TBD-07 | T-62-07 | Frontend Timeline/Details render aggregate/list/detail/breakdown/compare without raw rows or overlap. | frontend unit/e2e | `npm --prefix frontend test && npm --prefix frontend run e2e` | ⚠️ metric frontend tests exist; business-query cases missing | ⬜ pending |
-| 62-TBD-08 | 05 | 4 | BQ-TBD-08 | T-62-08 | Golden/eval coverage includes drilldown, permission boundary, list/detail no-existence-leak, breakdown, and compare. | eval | Phase 61 eval script must be extended or a Phase 62 eval script added, then run through `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` | ❌ W0 | ⬜ pending |
+| 62-TASK-01 | 01 | 1 | BQ-62-01 | T-62-01 | Registry is the single source for operation/resource/metric/time/status/field/sort definitions. | unit/parity | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_registry.py tests/agent/test_required_slots.py tests/tools/test_catalog.py -q --tb=short` | ❌ W0 for new registry test; adjacent tests exist | ⬜ pending |
+| 62-TASK-02 | 01/02 | 1/2 | BQ-62-02 | T-62-02 | `business_metric_query` maps into `BusinessQuerySpec` and remains compatibility-only. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_schemas.py tests/agent/test_graph.py -q --tb=short` | ❌ W0 for new schema test; graph tests exist | ⬜ pending |
+| 62-TASK-03 | 04 | 4 | BQ-62-03 | T-62-03 | BusinessFactService executes aggregate/list/detail/breakdown/compare through controlled scope-safe queries. | service/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py -q --tb=short` | ❌ W0 | ⬜ pending |
+| 62-TASK-04 | 03/04/06 | 3/4/6 | BQ-62-04 | T-62-04 | Out-of-scope list/detail/resource inputs do not reveal existence. | service/graph/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py tests/agent/test_graph.py tests/test_agent_runs_api.py -q --tb=short` | ⚠️ partial metric no-leak coverage only | ⬜ pending |
+| 62-TASK-05 | 05 | 5 | BQ-62-05 | T-62-05 | Drilldown flow `本周多少订单？` -> `订单号是多少？` re-executes backend query from safe context. | graph/eval | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py -q --tb=short` plus Phase 62 eval command | ⚠️ graph tests exist; new case missing | ⬜ pending |
+| 62-TASK-06 | 06 | 6 | BQ-62-06 | T-62-06 | Projection/final response emits bounded prompt-safe and UI-safe `business_query_answer` payload. | unit/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_projection.py tests/agent/test_nodes/test_final_response.py tests/test_agent_runs_api.py -q --tb=short` | ⚠️ metric coverage exists; business-query coverage missing | ⬜ pending |
+| 62-TASK-07 | 07 | 7 | BQ-62-07 | T-62-07 | Frontend Timeline/Details render aggregate/list/detail/breakdown/compare without raw rows or overlap. | frontend unit/build + phase-gate e2e | `npm --prefix frontend test && npm --prefix frontend run build`; phase gate runs `npm --prefix frontend run e2e` | ⚠️ metric frontend tests exist; business-query cases missing | ⬜ pending |
+| 62-TASK-08 | 06 | 6 | BQ-62-08 | T-62-08 | Golden/eval coverage includes drilldown, permission boundary, list/detail no-existence-leak, breakdown, and compare. | eval | Phase 61 eval script must be extended or a Phase 62 eval script added, then run through `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -75,7 +75,7 @@ All core Phase 62 behaviors should have automated verification. Manual validatio
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| Local Agent Console inspection for typed query result readability | BQ-TBD-07 | Visual density, scroll behavior, and text fit are easier to judge in a running browser, but must not replace automated tests. | Start local API/frontend if needed, run aggregate/list/detail/drilldown examples, and record any local validation issue in `.planning/LOCAL-VALIDATION-ISSUES.md` in Chinese after handling. |
+| Local Agent Console inspection for typed query result readability | BQ-62-07 | Visual density, scroll behavior, and text fit are easier to judge in a running browser, but must not replace automated tests. | Start local API/frontend if needed, run aggregate/list/detail/drilldown examples, and record any local validation issue in `.planning/LOCAL-VALIDATION-ISSUES.md` in Chinese after handling. |
 
 ---
 

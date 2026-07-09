@@ -73,9 +73,18 @@ All claims in this section are copied from `.planning/phases/62-business-query-a
 <phase_requirements>
 ## Phase Requirements
 
-No Phase 62 requirement IDs were provided; `.planning/ROADMAP.md` says Phase 62 requirements are TBD during planning, while `.planning/REQUIREMENTS.md` currently lists v2.2 Phase 61 requirements as complete and only tracks future analytics requirements `ANL-01` through `ANL-04`. [VERIFIED: .planning/ROADMAP.md + .planning/REQUIREMENTS.md]
+Phase 62 uses phase-local requirement IDs `BQ-62-01` through `BQ-62-08` for planning traceability. They are canonical for Phase 62 PLAN.md, VALIDATION.md, and research/test maps; `.planning/REQUIREMENTS.md` is not mutated by this planning revision because Phase 62 decisions are already locked in `62-CONTEXT.md` and the checker finding only requires concrete IDs inside Phase 62 artifacts. [VERIFIED: .planning/ROADMAP.md + .planning/REQUIREMENTS.md + 62-CONTEXT.md]
 
-Planner should create Phase 62 requirement IDs before or inside PLAN.md for these required behaviors: single source of truth, safe `business_query` contract, BusinessFactService-owned runtime, drilldown answer context, projection/final response/eval/UI support, and no-existence-leak list/detail behavior. [VERIFIED: .planning/ROADMAP.md + 62-CONTEXT.md]
+| Req ID | Requirement |
+|--------|-------------|
+| BQ-62-01 | Registry is the single source for operation/resource/metric/time/status/field/sort definitions. |
+| BQ-62-02 | `business_query` is the primary read contract and `business_metric_query` maps into `BusinessQuerySpec` as compatibility only. |
+| BQ-62-03 | `BusinessFactService` owns safe aggregate/list/detail/breakdown/compare execution. |
+| BQ-62-04 | Out-of-scope list/detail/resource inputs do not reveal existence across service, graph, API, response, eval, or UI payloads. |
+| BQ-62-05 | Drilldown flow uses `last_query_spec`, `last_answer_context`, and `result_cursor` to re-execute backend query safely. |
+| BQ-62-06 | Projection, final response, and API/SSE emit bounded prompt-safe and UI-safe `business_query_answer` payloads. |
+| BQ-62-07 | Frontend Timeline/Details render aggregate/list/detail/breakdown/compare from typed payloads without raw rows. |
+| BQ-62-08 | Golden/eval coverage includes drilldown, permission boundary, list/detail no-existence-leak, breakdown, compare, projection bounds, clarification, and unsupported cases. |
 </phase_requirements>
 
 ## Summary
@@ -470,27 +479,26 @@ Frontend should consume backend-projected safe payload fields only and must not 
 | A2 | Warning-sign heuristics for future plan review are engineering judgment rather than direct code facts. | Common Pitfalls | Low; they guide review but do not define implementation. |
 | A3 | Compatibility helper names such as `metric_input_to_business_query` and `derive_drilldown_spec` are sketches. | Architecture Patterns / Code Examples | Low; exact names are explicitly user-delegated discretion. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **What Phase 62 requirement IDs should PLAN.md use?** [VERIFIED: .planning/ROADMAP.md]
-   - What we know: Roadmap says requirements are TBD, and the phase has five success criteria. [VERIFIED: .planning/ROADMAP.md]
-   - What's unclear: Whether the planner should add new `BQ-*` IDs to `.planning/REQUIREMENTS.md` or define phase-local IDs only in PLAN.md. [ASSUMED]
-   - Recommendation: Create phase-local requirement IDs in PLAN.md and update `.planning/REQUIREMENTS.md` only if the GSD workflow requires milestone-level traceability. [ASSUMED]
+1. **(RESOLVED) What Phase 62 requirement IDs should PLAN.md use?** [VERIFIED: .planning/ROADMAP.md + 62-CONTEXT.md]
+   - Decision: Use phase-local canonical IDs `BQ-62-01` through `BQ-62-08` inside Phase 62 planning artifacts. Do not mutate `.planning/REQUIREMENTS.md` in this checker-fix revision because the locked decisions and phase-local validation map already provide the needed traceability.
+   - Mapping: `BQ-62-01` registry source of truth; `BQ-62-02` primary `business_query` contract and metric compatibility; `BQ-62-03` BusinessFactService runtime; `BQ-62-04` no-existence-leak; `BQ-62-05` answer context/drilldown; `BQ-62-06` projection/final/API payload; `BQ-62-07` frontend Timeline/Details; `BQ-62-08` golden/eval coverage.
 
-2. **Should `docs/contract-spec.md` be updated in Phase 62 or treated as already sufficient?** [VERIFIED: docs/contract-spec.md + 62-CONTEXT.md]
-   - What we know: Current spec defines TrustedContext, ToolPlatform, BusinessFactService, metric facts, and `query_business_metric`, but it does not yet define full `business_query` aggregate/list/detail/breakdown/compare. [VERIFIED: docs/contract-spec.md]
-   - What's unclear: Whether contract deltas should land in 62-01 or 62-02. [ASSUMED]
-   - Recommendation: Include a contract/spec delta task in 62-02 at latest, because user/project rules forbid silent contract divergence. [VERIFIED: CLAUDE.md + AGENTS.md]
+2. **(RESOLVED) Should `docs/contract-spec.md` be updated in Phase 62 or treated as already sufficient?** [VERIFIED: docs/contract-spec.md + 62-CONTEXT.md]
+   - Decision: Plan 62-02 updates `docs/contract-spec.md` with the accepted Phase 62 contract delta before ToolPlatform/runtime/UI work depends on it.
+   - Required delta: define `business_query` as the primary read contract; record aggregate/list/detail/breakdown/compare taxonomy; record `business_metric_query` as compatibility into `BusinessQuerySpec`; record BusinessFactService ownership, descriptor compatibility gates, no-existence-leak, and the business-facts-versus-RAG boundary.
+   - Boundary: the spec update must not implement or register Phase 63 risk/action taxonomy, Phase 64 RAG label unification, Phase 65 global label registry, Phase 66 config/test hygiene, or the suggested Phase 67 state-machine registry.
 
-3. **How much live data migration is required?** [VERIFIED: Runtime State Inventory]
-   - What we know: Runtime records may contain old intent/tool/response strings, and host `psql` was unavailable for row counts. [VERIFIED: docker ps + source model grep + environment probe]
-   - What's unclear: Whether the current local DB contains important historical runs that must be rewritten. [ASSUMED]
-   - Recommendation: Prefer backwards-compatible readers/renderers over data rewriting; add optional migration only with Docker/app-level verification. [ASSUMED]
+3. **(RESOLVED) How much live data migration is required?** [VERIFIED: Runtime State Inventory]
+   - Decision: Phase 62 plans backwards-compatible readers, payload compatibility, and renderer compatibility; no live DB rewrite is planned.
+   - Caution: Runtime records may contain old intent/tool/response strings, and host `psql` was unavailable during research, so execution must not assume direct host DB migration tooling. If implementers discover a necessary migration, it must be optional, app/SQLAlchemy or Docker-verified, no destructive rewrite by default, and documented in `.planning/LOCAL-VALIDATION-ISSUES.md` if local verification exposes a DB/env issue.
+   - Rationale: `business_metric_query` remains a compatibility entry and maps into `BusinessQuerySpec`, so historical records can be read/rendered safely without rewriting old runs.
 
-4. **Which controlled `breakdown` and `compare` examples should Phase 62 implement first?** [VERIFIED: 62-CONTEXT.md]
-   - What we know: D-62-16 requires at least one runtime/eval example for each. [VERIFIED: 62-CONTEXT.md]
-   - What's unclear: Best product examples are not specified. [VERIFIED: 62-CONTEXT.md]
-   - Recommendation: Use order count by status or day for `breakdown`, and this week vs last week order count or refund rate for `compare`, because existing metric/time/order data paths already exist. [ASSUMED]
+4. **(RESOLVED) Which controlled `breakdown` and `compare` examples should Phase 62 implement first?** [VERIFIED: 62-CONTEXT.md]
+   - Decision: Implement `breakdown` as order count by status and `compare` as order count for the current requested period versus the previous equivalent period.
+   - Coverage: Plan 62-01 registers these descriptors; Plan 62-04 implements runtime execution; Plan 62-06 adds golden/eval cases `breakdown_order_by_status` and `compare_order_count_previous_period`; Plan 62-07 renders both typed payloads in Timeline/Details.
+   - Rationale: These examples use existing order/time/status paths while satisfying D-62-16 that breakdown and compare are not schema-only promises.
 
 ## Environment Availability
 
@@ -529,18 +537,18 @@ Frontend should consume backend-projected safe payload fields only and must not 
 
 ### Phase Requirements -> Test Map
 
-Formal Phase 62 requirement IDs are TBD, so this map uses planning placeholders that should be replaced by PLAN.md requirement IDs. [VERIFIED: .planning/ROADMAP.md]
+This map uses the canonical Phase 62 requirement IDs `BQ-62-01` through `BQ-62-08`. [VERIFIED: .planning/ROADMAP.md + 62-CONTEXT.md]
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|--------------|
-| BQ-TBD-01 | Registry is single source for operation/resource/metric/time/status/field/sort definitions. | unit/parity | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_registry.py tests/agent/test_required_slots.py tests/tools/test_catalog.py -q --tb=short` | no for new registry file; existing adjacent tests yes. [VERIFIED: test tree] |
-| BQ-TBD-02 | `business_metric_query` maps into `BusinessQuerySpec` and remains compatibility-only. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_schemas.py tests/agent/test_graph.py -q --tb=short` | no for new schema file; graph tests exist. [VERIFIED: test tree] |
-| BQ-TBD-03 | BusinessFactService executes aggregate/list/detail/breakdown/compare through controlled scope-safe queries. | service/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py -q --tb=short` | no. [VERIFIED: test tree] |
-| BQ-TBD-04 | Out-of-scope list/detail/resource inputs do not reveal existence. | service/graph/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py tests/agent/test_graph.py tests/test_agent_runs_api.py -q --tb=short` | partially existing metric no-leak tests only. [VERIFIED: test tree + evaluation/golden/phase61_ux_cases.jsonl] |
-| BQ-TBD-05 | Drilldown flow `本周多少订单？` -> `订单号是多少？` re-executes backend query using last query context. | graph/eval | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py -q --tb=short` plus eval script update | graph tests exist; new case missing. [VERIFIED: test tree + 62-CONTEXT.md] |
-| BQ-TBD-06 | Projection/final response emits bounded prompt-safe and UI-safe `business_query_answer` payload. | unit/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_projection.py tests/agent/test_nodes/test_final_response.py tests/test_agent_runs_api.py -q --tb=short` | existing metric tests yes; business-query tests missing. [VERIFIED: test tree] |
-| BQ-TBD-07 | Frontend Timeline/Details render aggregate/list/detail/breakdown/compare without raw rows or overlap. | frontend unit/e2e | `npm --prefix frontend test && npm --prefix frontend run e2e` | existing metric frontend tests yes; business-query tests missing. [VERIFIED: frontend test tree + 62-UI-SPEC.md] |
-| BQ-TBD-08 | Golden/eval coverage includes drilldown, permission boundary, list/detail no-existence-leak, breakdown, and compare. | eval | Existing Phase 61 eval script must be extended or a Phase 62 eval script added. | missing. [VERIFIED: evaluation/golden/phase61_ux_cases.jsonl + scripts/eval_phase61_ux.py + 62-CONTEXT.md] |
+| BQ-62-01 | Registry is single source for operation/resource/metric/time/status/field/sort definitions. | unit/parity | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_registry.py tests/agent/test_required_slots.py tests/tools/test_catalog.py -q --tb=short` | no for new registry file; existing adjacent tests yes. [VERIFIED: test tree] |
+| BQ-62-02 | `business_metric_query` maps into `BusinessQuerySpec` and remains compatibility-only. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_schemas.py tests/agent/test_graph.py -q --tb=short` | no for new schema file; graph tests exist. [VERIFIED: test tree] |
+| BQ-62-03 | BusinessFactService executes aggregate/list/detail/breakdown/compare through controlled scope-safe queries. | service/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py -q --tb=short` | no. [VERIFIED: test tree] |
+| BQ-62-04 | Out-of-scope list/detail/resource inputs do not reveal existence. | service/graph/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py tests/agent/test_graph.py tests/test_agent_runs_api.py -q --tb=short` | partially existing metric no-leak tests only. [VERIFIED: test tree + evaluation/golden/phase61_ux_cases.jsonl] |
+| BQ-62-05 | Drilldown flow `本周多少订单？` -> `订单号是多少？` re-executes backend query using last query context. | graph/eval | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py -q --tb=short` plus eval script update | graph tests exist; new case missing. [VERIFIED: test tree + 62-CONTEXT.md] |
+| BQ-62-06 | Projection/final response emits bounded prompt-safe and UI-safe `business_query_answer` payload. | unit/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_projection.py tests/agent/test_nodes/test_final_response.py tests/test_agent_runs_api.py -q --tb=short` | existing metric tests yes; business-query tests missing. [VERIFIED: test tree] |
+| BQ-62-07 | Frontend Timeline/Details render aggregate/list/detail/breakdown/compare without raw rows or overlap. | frontend unit/build/e2e | `npm --prefix frontend test && npm --prefix frontend run build`; phase gate also runs `npm --prefix frontend run e2e` | existing metric frontend tests yes; business-query tests missing. [VERIFIED: frontend test tree + 62-UI-SPEC.md] |
+| BQ-62-08 | Golden/eval coverage includes drilldown, permission boundary, list/detail no-existence-leak, breakdown, and compare. | eval | Existing Phase 61 eval script must be extended or a Phase 62 eval script added. | missing. [VERIFIED: evaluation/golden/phase61_ux_cases.jsonl + scripts/eval_phase61_ux.py + 62-CONTEXT.md] |
 
 ### Sampling Rate
 
