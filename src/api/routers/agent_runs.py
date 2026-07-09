@@ -64,6 +64,25 @@ _SAFE_METRIC_PAYLOAD_FIELDS = (
     "freshness_label",
     "safe_reason",
 )
+_SAFE_RESPONSE_REASON_CODES = frozenset(
+    {
+        "aggregate_order_query",
+        "approval_chat_not_trusted",
+        "low_confidence",
+        "merchant_filter",
+        "metric_scope_denied",
+        "metric_status_filter",
+        "missing_case_identifier",
+        "missing_identifier",
+        "missing_order_reference",
+        "missing_required_slots",
+        "missing_time_range",
+        "multi_target_request",
+        "scope_denied_no_existence_leak",
+        "unsupported_metric",
+        "unsupported_or_ambiguous",
+    }
+)
 
 NODE_MESSAGES: dict[str, str] = {
     "receive_request": "正在接收请求",
@@ -1200,13 +1219,17 @@ def _final_response_payload(final_response: str, final_state: dict[str, Any]) ->
         _TARGET_CONTEXT_KEY: _project_target_context(final_state),
     }
     response_projection = _as_mapping(_as_mapping(final_state.get("llm_outputs")).get("final_response"))
-    response_kind = response_projection.get("response_kind")
+    response_kind = response_projection.get("response_kind") or _infer_response_kind(final_state, response_projection)
     if isinstance(response_kind, str) and response_kind:
         payload["response_kind"] = response_kind
     if response_kind == "metric_answer":
         metric_payload = _safe_metric_payload(response_projection.get("metric"))
         if metric_payload:
             payload["metric"] = metric_payload
+    elif response_kind in {"clarification", "unsupported"}:
+        safe_reason = _safe_response_reason(final_state, response_projection)
+        if safe_reason:
+            payload["safe_reason"] = safe_reason
     return payload
 
 
@@ -1218,6 +1241,41 @@ def _safe_metric_payload(value: Any) -> dict[str, Any]:
         if isinstance(metric_value, str) and metric_value:
             payload[field] = metric_value
     return payload
+
+
+def _infer_response_kind(final_state: dict[str, Any], response_projection: dict[str, Any]) -> str | None:
+    direct_intent = response_projection.get("direct_response_intent")
+    if direct_intent == "small_talk":
+        return "small_talk"
+    if direct_intent == "unsupported":
+        return "unsupported"
+    if isinstance(final_state.get("clarification_request"), dict):
+        return "clarification"
+    if response_projection.get("clarification_reason"):
+        return "clarification"
+    routing_hints = _as_mapping(final_state.get("routing_hints"))
+    if routing_hints.get("clarification_reason"):
+        return "clarification"
+    return None
+
+
+def _safe_response_reason(final_state: dict[str, Any], response_projection: dict[str, Any]) -> str | None:
+    routing_hints = _as_mapping(final_state.get("routing_hints"))
+    candidates = (
+        response_projection.get("safe_reason"),
+        response_projection.get("clarification_reason"),
+        routing_hints.get("safe_reason"),
+        routing_hints.get("clarification_reason"),
+        routing_hints.get("unsupported_reason"),
+    )
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate in _SAFE_RESPONSE_REASON_CODES:
+            return candidate
+    clarification_request = _as_mapping(final_state.get("clarification_request"))
+    request_reason = clarification_request.get("reason")
+    if isinstance(request_reason, str) and request_reason in _SAFE_RESPONSE_REASON_CODES:
+        return request_reason
+    return None
 
 
 def _started_step_payload(completed_payload: dict[str, Any]) -> dict[str, Any]:
