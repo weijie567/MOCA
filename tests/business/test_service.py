@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ from src.business.service import (
     _merchant_scope_allows,
 )
 from src.integrations.demo_business.authz import merchant_can_access
+from src.db.models import ActionDraft, AgentRun, Order, RefundCase, Ticket
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 from src.tools.executors.business import BusinessToolExecutor
 
@@ -211,6 +213,60 @@ def _assert_wrapped_tool_result_has_no_facts(
     assert result.error.safe_message == safe_message
 
 
+def _metric_value(result: BusinessFactResultV1) -> dict:
+    assert result.status == "ok"
+    assert result.fact is not None
+    assert result.business_fact_refs
+    assert result.business_fact_refs[0].resource_type == "business_metric"
+    return result.fact
+
+
+async def _add_coupon_draft(
+    session: AsyncSession,
+    *,
+    tenant_id,
+    user_id,
+    merchant_id,
+    created_at: datetime,
+    action_type: str = "issue_coupon",
+) -> None:
+    run_id = uuid4()
+    session.add(
+        AgentRun(
+            id=run_id,
+            thread_id=f"metric-coupon-{run_id}",
+            tenant_id=tenant_id,
+            user_id=user_id,
+            input_query="metric coupon fixture",
+            final_status="completed",
+            target_merchant_id=str(merchant_id),
+            target_merchant_ref={"merchant_id": str(merchant_id)},
+            scope_classification="business_merchant",
+            started_at=created_at,
+            completed_at=created_at,
+        )
+    )
+    await session.flush()
+    session.add(
+        ActionDraft(
+            id=uuid4(),
+            run_id=run_id,
+            tenant_id=tenant_id,
+            idempotency_key=f"{run_id}:{action_type}",
+            action_type=action_type,
+            status="draft_created",
+            payload={"target_id": "RF-METRIC"},
+            target_merchant_id=str(merchant_id),
+            draft_outcome={"status": "not_executed_demo"},
+            execution_mode="demo",
+            created_by_agent_run=run_id,
+            created_at=created_at,
+            updated_at=created_at,
+        )
+    )
+    await session.flush()
+
+
 @pytest.mark.asyncio
 async def test_business_fact_ref_accepts_metric_query_result_with_metric_provenance() -> None:
     service = _StubMetricService(_metric_result())
@@ -302,6 +358,227 @@ async def test_business_tool_service_dispatches_query_business_metric() -> None:
     assert tool_result.data is not None
     assert tool_result.data["metric_id"] == "pending_ticket_count"
     assert tool_result.business_fact_refs[0].resource_type == "business_metric"
+
+
+@pytest.mark.asyncio
+async def test_metric_order_count_respects_support_manager_and_admin_scope(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    service = BusinessFactService.with_default_registry(session)
+    now = datetime.now(UTC)
+    args = {
+        "metric_id": "order_count",
+        "start_at": (now - timedelta(days=10)).isoformat(),
+        "end_at": (now + timedelta(days=1)).isoformat(),
+    }
+
+    support_fact = _metric_value(await service.query_business_metric(args, _seeded_context(seeded_session, "cs_zhang")))
+    manager_fact = _metric_value(
+        await service.query_business_metric(args, _seeded_context(seeded_session, "approval_manager"))
+    )
+    admin_fact = _metric_value(await service.query_business_metric(args, _seeded_context(seeded_session, "admin_user")))
+    narrowed_admin_fact = _metric_value(
+        await service.query_business_metric(
+            args,
+            _seeded_context(
+                seeded_session,
+                "admin_user",
+                merchant_scope={"merchant_ids": [str(seeded_session["second_merchant"].id)]},
+            ),
+        )
+    )
+
+    assert support_fact["value"] == 1
+    assert support_fact["scope"]["merchant_ids"] == [str(seeded_session["merchant"].id)]
+    assert manager_fact["value"] == 1
+    assert manager_fact["scope"]["merchant_ids"] == [str(seeded_session["merchant"].id)]
+    assert admin_fact["value"] == 2
+    assert admin_fact["scope"]["merchant_ids"] == ["*"]
+    assert narrowed_admin_fact["value"] == 1
+    assert narrowed_admin_fact["scope"]["merchant_ids"] == [str(seeded_session["second_merchant"].id)]
+
+
+@pytest.mark.asyncio
+async def test_metric_runtime_computes_refunds_tickets_coupons_and_refund_rate(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    service = BusinessFactService.with_default_registry(session)
+    now = datetime.now(UTC)
+    support_ctx = _seeded_context(seeded_session, "cs_zhang")
+    time_args = {
+        "start_at": (now - timedelta(days=10)).isoformat(),
+        "end_at": (now + timedelta(days=1)).isoformat(),
+    }
+    await _add_coupon_draft(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=seeded_session["users"]["cs_zhang"].id,
+        merchant_id=seeded_session["merchant"].id,
+        created_at=now - timedelta(days=1),
+    )
+    await _add_coupon_draft(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=seeded_session["users"]["cs_zhang"].id,
+        merchant_id=seeded_session["second_merchant"].id,
+        created_at=now - timedelta(days=1),
+    )
+    await _add_coupon_draft(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=seeded_session["users"]["cs_zhang"].id,
+        merchant_id=seeded_session["merchant"].id,
+        created_at=now - timedelta(days=1),
+        action_type="not_coupon",
+    )
+
+    refund_fact = _metric_value(
+        await service.query_business_metric({"metric_id": "refund_case_count", **time_args}, support_ctx)
+    )
+    ticket_fact = _metric_value(
+        await service.query_business_metric({"metric_id": "pending_ticket_count"}, support_ctx)
+    )
+    coupon_fact = _metric_value(
+        await service.query_business_metric({"metric_id": "coupon_record_count", **time_args}, support_ctx)
+    )
+    refund_rate_fact = _metric_value(
+        await service.query_business_metric({"metric_id": "merchant_refund_rate", **time_args}, support_ctx)
+    )
+
+    assert refund_fact["value"] == 1
+    assert ticket_fact["value"] == 1
+    assert ticket_fact["filters"]["status_filter"] == ["open", "in_progress"]
+    assert coupon_fact["value"] == 1
+    assert any("MOCA demo" in caveat for caveat in coupon_fact["caveats"])
+    assert refund_rate_fact["numerator"] == 1
+    assert refund_rate_fact["denominator"] == 1
+    assert refund_rate_fact["rate"] == 1.0
+    assert refund_rate_fact["display_value"] == "100.00%"
+
+
+@pytest.mark.asyncio
+async def test_metric_time_preset_uses_local_business_timezone_boundaries(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    tenant = seeded_session["tenant"]
+    merchant = seeded_session["merchant"]
+    before_today_utc = datetime(2026, 7, 8, 15, 59, 59, tzinfo=UTC)
+    start_today_utc = datetime(2026, 7, 8, 16, 0, 0, tzinfo=UTC)
+    session.add_all(
+        [
+            Order(
+                id=uuid4(),
+                tenant_id=tenant.id,
+                merchant_id=merchant.id,
+                order_no="ORD-METRIC-BEFORE-TODAY",
+                buyer_name="Boundary",
+                item_name="Boundary",
+                amount=1,
+                currency="CNY",
+                status="paid",
+                created_at=before_today_utc,
+                updated_at=before_today_utc,
+            ),
+            Order(
+                id=uuid4(),
+                tenant_id=tenant.id,
+                merchant_id=merchant.id,
+                order_no="ORD-METRIC-START-TODAY",
+                buyer_name="Boundary",
+                item_name="Boundary",
+                amount=1,
+                currency="CNY",
+                status="paid",
+                created_at=start_today_utc,
+                updated_at=start_today_utc,
+            ),
+        ]
+    )
+    await session.flush()
+
+    fact = _metric_value(
+        await BusinessFactService.with_default_registry(session).query_business_metric(
+            {"metric_id": "order_count", "time_preset": "today"},
+            _seeded_context(
+                seeded_session,
+                "cs_zhang",
+                merchant_scope={"merchant_ids": [str(merchant.id)]},
+            ).model_copy(update={"effective_at": "2026-07-09T12:00:00+08:00"}),
+        )
+    )
+
+    assert fact["value"] == 1
+    assert fact["time_range"]["start_at"] == "2026-07-08T16:00:00Z"
+    assert fact["time_range"]["end_at"] == "2026-07-09T04:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_metric_invalid_ranges_empty_scope_and_malicious_args_fail_closed(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    service = BusinessFactService.with_default_registry(session)
+    ctx = _seeded_context(seeded_session, "cs_zhang")
+
+    invalid_range = await service.query_business_metric(
+        {
+            "metric_id": "order_count",
+            "start_at": "2026-07-09T00:00:00Z",
+            "end_at": "2026-07-08T00:00:00Z",
+        },
+        ctx,
+    )
+    unsupported_status = await service.query_business_metric(
+        {"metric_id": "order_count", "time_preset": "today", "status_filter": ["cancelled"]},
+        ctx.model_copy(update={"effective_at": "2026-07-09T12:00:00+08:00"}),
+    )
+    empty_scope = await service.query_business_metric(
+        {"metric_id": "order_count", "time_preset": "today"},
+        ctx.model_copy(update={"merchant_scope": {"merchant_ids": []}, "effective_at": "2026-07-09T12:00:00+08:00"}),
+    )
+    malicious_tenant = await service.query_business_metric(
+        {"metric_id": "order_count", "time_preset": "today", "tenant_id": str(seeded_session["other_tenant"].id)},
+        ctx.model_copy(update={"effective_at": "2026-07-09T12:00:00+08:00"}),
+    )
+    malicious_scope = await service.query_business_metric(
+        {"metric_id": "order_count", "time_preset": "today", "merchant_scope": ["*"]},
+        ctx.model_copy(update={"effective_at": "2026-07-09T12:00:00+08:00"}),
+    )
+
+    assert invalid_range.status == "invalid_request"
+    assert unsupported_status.status == "invalid_request"
+    _assert_fail_closed(empty_scope, "permission_denied")
+    assert malicious_tenant.status == "invalid_request"
+    assert malicious_scope.status == "invalid_request"
+    assert str(seeded_session["other_tenant"].id) not in malicious_tenant.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_metric_future_empty_range_and_zero_denominator_are_deterministic(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    service = BusinessFactService.with_default_registry(session)
+    ctx = _seeded_context(seeded_session, "cs_zhang")
+    future_args = {
+        "start_at": "2099-01-01T00:00:00Z",
+        "end_at": "2099-01-02T00:00:00Z",
+    }
+
+    empty_count = _metric_value(await service.query_business_metric({"metric_id": "order_count", **future_args}, ctx))
+    refund_rate = _metric_value(
+        await service.query_business_metric({"metric_id": "merchant_refund_rate", **future_args}, ctx)
+    )
+
+    assert empty_count["value"] == 0
+    assert empty_count["display_value"] == "0"
+    assert refund_rate["status"] == "non_computable"
+    assert refund_rate["denominator"] == 0
+    assert refund_rate["rate"] is None
+    assert refund_rate["display_value"] == "暂无可计算退款率"
 
 
 @pytest.mark.asyncio
