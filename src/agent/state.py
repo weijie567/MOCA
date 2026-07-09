@@ -28,6 +28,7 @@ class ActiveSlots(TypedDict, total=False):
     metric_time_range_start: str | None
     metric_time_range_end: str | None
     status_filter: str | list[str] | None
+    business_query_spec: dict[str, Any] | None
 
 
 class LastRecommendationSummary(TypedDict, total=False):

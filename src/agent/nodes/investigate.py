@@ -20,8 +20,9 @@ from src.agent.nodes.investigate_planner import (
 )
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE, INVESTIGATE_PLANNER_SYSTEM
 from src.agent.state import AgentState, business_query_context_binding
+from src.business.schemas import BusinessMetricQueryInput
 from src.business.query.registry import BUSINESS_QUERY_REGISTRY
-from src.business.query.schemas import BusinessQueryResultV1
+from src.business.query.schemas import BusinessQueryResultV1, BusinessQuerySpec, metric_input_to_business_query
 from src.config import settings
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
@@ -44,6 +45,7 @@ _CASE_SLOT_RESOURCES = {
     "ticket_id": ("get_ticket", "ticket"),
 }
 _METRIC_TOOL_NAME = "query_business_metric"
+_BUSINESS_QUERY_TOOL_NAME = "business_query"
 
 
 def _get_llm() -> ChatOpenAI:
@@ -81,6 +83,9 @@ def _deterministic_fallback_plan_next_step(
     attempted = accumulated_context.get("attempted") or set()
     unusable = accumulated_context.get("unusable") or set()
     descriptor_names = {descriptor.name for descriptor in available_descriptors}
+    business_query_step = _business_query_fallback_step(state, descriptor_names, attempted, unusable)
+    if business_query_step is not None:
+        return business_query_step
     metric_step = _metric_fallback_step(state, descriptor_names, attempted, unusable)
     if metric_step is not None:
         return metric_step
@@ -118,6 +123,38 @@ def _metric_fallback_step(
         "args": args,
         "reason": "deterministic business metric fallback",
     }
+
+
+def _business_query_fallback_step(
+    state: AgentState,
+    descriptor_names: set[str],
+    attempted: set[Any],
+    unusable: set[Any],
+) -> dict[str, Any] | None:
+    args = _business_query_args_from_active_slots(state)
+    if args is None:
+        return None
+    key = _attempt_key(_BUSINESS_QUERY_TOOL_NAME, args)
+    if _BUSINESS_QUERY_TOOL_NAME not in descriptor_names or _BUSINESS_QUERY_TOOL_NAME in unusable or key in attempted:
+        return None
+    return {
+        "next_tool": _BUSINESS_QUERY_TOOL_NAME,
+        "args": args,
+        "reason": "deterministic business query drilldown fallback",
+    }
+
+
+def _business_query_args_from_active_slots(state: AgentState) -> dict[str, Any] | None:
+    if not _is_metric_intent(state):
+        return None
+    active_slots = state.get("active_slots") if isinstance(state.get("active_slots"), dict) else {}
+    spec = active_slots.get("business_query_spec")
+    if not isinstance(spec, dict):
+        return None
+    try:
+        return BusinessQuerySpec.model_validate(spec).model_dump(mode="json", exclude_none=True)
+    except ValidationError:
+        return None
 
 
 def _metric_args_from_active_slots(state: AgentState) -> dict[str, Any] | None:
@@ -334,7 +371,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             projection=outcome.projection,
         )
         _accumulate_tool_result(context, descriptor, tool_name, result, prompt_summary, outcome.projection)
-        _record_business_query_drilldown_context(state, context, tool_name, result)
+        _record_business_query_drilldown_context(state, context, tool_name, args, result)
         if result.status == "unavailable":
             context["unusable"].add(tool_name)
         if result.status not in TERMINAL_STATUSES:
@@ -967,9 +1004,18 @@ def _record_business_query_drilldown_context(
     state: AgentState,
     context: dict[str, Any],
     tool_name: str,
+    args: dict[str, Any],
     result: ToolResultV2,
 ) -> None:
-    if tool_name != "business_query":
+    if tool_name == _METRIC_TOOL_NAME:
+        if result.status not in FACT_STATUSES:
+            context["business_query_context_update"] = _clear_business_query_drilldown_context()
+            return
+        update = _metric_business_query_drilldown_context_update(state, args, result)
+        if update is not None:
+            context["business_query_context_update"] = update
+        return
+    if tool_name != _BUSINESS_QUERY_TOOL_NAME:
         return
     if result.status not in FACT_STATUSES:
         context["business_query_context_update"] = _clear_business_query_drilldown_context()
@@ -1005,6 +1051,85 @@ def _business_query_drilldown_context_update(state: AgentState, result: ToolResu
             "fields_shown": list(business_query.answer_context.fields_shown),
         },
     }
+
+
+def _metric_business_query_drilldown_context_update(
+    state: AgentState,
+    args: dict[str, Any],
+    result: ToolResultV2,
+) -> dict[str, Any] | None:
+    try:
+        metric_args = dict(args)
+        if metric_args.get("time_preset"):
+            metric_args.pop("start_at", None)
+            metric_args.pop("end_at", None)
+        metric_input = BusinessMetricQueryInput.model_validate(metric_args)
+        query_spec = metric_input_to_business_query(metric_input)
+    except ValidationError:
+        return None
+    answer_context = _metric_business_query_answer_context(query_spec, result)
+    expected_slot_type = _expected_slot_type_for_business_query_context(answer_context, None)
+    return {
+        "last_query_spec": query_spec.model_dump(mode="json"),
+        "last_answer_context": answer_context,
+        "result_cursor": None,
+        "expected_slot_type": expected_slot_type,
+        "expected_slot_context": {
+            "schema_version": "business_query_expected_slot_context.v1",
+            "purpose": "business_query_drilldown",
+            "context_binding": business_query_context_binding(state),
+            "operation": query_spec.operation,
+            "resource": query_spec.resource,
+            "allowed_drilldowns": list(answer_context["allowed_drilldowns"]),
+            "fields_shown": list(answer_context["fields_shown"]),
+        },
+    }
+
+
+def _metric_business_query_answer_context(
+    query_spec: BusinessQuerySpec,
+    result: ToolResultV2,
+) -> dict[str, Any]:
+    metric_id = query_spec.metric_id or ""
+    data = result.data if isinstance(result.data, dict) else {}
+    allowed_drilldowns = ["list"] if query_spec.operation == "aggregate" and query_spec.resource == "order" else []
+    return {
+        "schema_version": "business_query_answer_context.v1",
+        "query_spec": query_spec.model_dump(mode="json"),
+        "result_refs": [metric_id] if metric_id else [],
+        "allowed_drilldowns": allowed_drilldowns,
+        "fields_shown": [metric_id] if metric_id else [],
+        "cursor": None,
+        "scope": _metric_business_query_scope(data),
+        "time_summary": _metric_business_query_time_summary(query_spec, data),
+        "filter_summary": _metric_business_query_filter_summary(query_spec),
+    }
+
+
+def _metric_business_query_scope(data: dict[str, Any]) -> dict[str, Any] | None:
+    scope = data.get("scope")
+    if not isinstance(scope, dict):
+        return None
+    scope_label = scope.get("scope_label")
+    if not isinstance(scope_label, str) or not scope_label.strip():
+        return None
+    return {"scope_label": scope_label.strip()}
+
+
+def _metric_business_query_time_summary(query_spec: BusinessQuerySpec, data: dict[str, Any]) -> str | None:
+    if query_spec.time_preset:
+        return query_spec.time_preset
+    time_range = data.get("time_range")
+    if isinstance(time_range, dict):
+        preset = time_range.get("preset")
+        if isinstance(preset, str) and preset:
+            return preset
+    return None
+
+
+def _metric_business_query_filter_summary(query_spec: BusinessQuerySpec) -> str | None:
+    status_filter = query_spec.filters.status_filter
+    return ",".join(status_filter) if status_filter else None
 
 
 def _safe_business_query_result(result: ToolResultV2) -> BusinessQueryResultV1 | None:

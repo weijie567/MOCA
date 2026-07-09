@@ -15,6 +15,7 @@ from src.agent.intent_policy import (
 from src.agent.schemas import RequiredSlotExpression
 from src.agent.state import AgentState
 from src.business.query.registry import BUSINESS_QUERY_REGISTRY
+from src.business.query.schemas import BusinessQuerySpec
 from src.knowledge.schemas import RAG_CONTEXT_STATUSES as SCHEMA_RAG_CONTEXT_STATUSES
 
 
@@ -37,6 +38,15 @@ BUSINESS_ID_SLOTS = ("order_id", "refund_case_id", "ticket_id")
 SLOT_RESOLUTION_TRACE_SCHEMA = "slot_resolution_trace.phase54"
 BUSINESS_DEMO_TIMEZONE = ZoneInfo("Asia/Shanghai")
 SUPPORTED_METRIC_IDS = BUSINESS_QUERY_REGISTRY.metric_ids()
+EXPECTED_SLOT_TYPES = frozenset(
+    {
+        "time_range",
+        "resource_id",
+        "merchant_filter",
+        "field_request",
+        "cursor_request",
+    }
+)
 _SLOT_INVALIDATION_TERMS = {
     "order_id": ("订单", "order"),
     "refund_case_id": ("退款单", "退款", "refund"),
@@ -97,6 +107,13 @@ def missing_required_slots(
     resolved_slots: dict[str, Any] | None,
 ) -> list[dict[str, list[str]]]:
     return SLOT_POLICY_REGISTRY.missing_required_slots(required_slots, resolved_slots)
+
+
+def normalize_expected_slot_type(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized if normalized in EXPECTED_SLOT_TYPES else None
 
 
 def resolve_slots_for_completeness(state: AgentState) -> dict[str, Any]:
@@ -478,6 +495,9 @@ def _slot_resolution_route_decision(
                 return [], "clarification_gate", ["required_slot_policy_mismatch"]
         except Exception:
             return [], "clarification_gate", ["malformed_required_slots"]
+    business_query_reason_codes = _apply_business_query_spec_slot_policy(state, resolved_slots)
+    if business_query_reason_codes:
+        return [], "investigate", business_query_reason_codes
     missing = missing_required_slots(policy, resolved_slots)
     if missing:
         return missing, "clarification_gate", ["missing_required_slots"]
@@ -491,6 +511,38 @@ def _slot_resolution_route_decision(
     if _needs_reviewed_memory_context(state):
         return [], "memory_context_load", []
     return [], "investigate", []
+
+
+def _apply_business_query_spec_slot_policy(
+    state: AgentState,
+    resolved_slots: dict[str, Any],
+) -> list[str]:
+    if _intent(state) != "business_metric_query":
+        return []
+    spec = _business_query_spec_slot(resolved_slots.get("business_query_spec"))
+    if spec is None:
+        resolved_slots.pop("business_query_spec", None)
+        return []
+    resolved_slots.clear()
+    resolved_slots["business_query_spec"] = spec
+    routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
+    reason_codes = ["business_query_spec_ready"]
+    expected_slot_type = normalize_expected_slot_type(routing_hints.get("expected_slot_type"))
+    if expected_slot_type is not None:
+        reason_codes.append(f"expected_slot_type:{expected_slot_type}")
+    if routing_hints.get("business_query_slot_parser") == "deterministic":
+        reason_codes.append("deterministic_business_query_slot_parser")
+    return reason_codes
+
+
+def _business_query_spec_slot(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    try:
+        spec = BusinessQuerySpec.model_validate(value)
+    except Exception:
+        return None
+    return spec.model_dump(mode="json", exclude_none=True)
 
 
 def _apply_metric_slot_policy(

@@ -17,6 +17,7 @@ from src.agent.schemas import SlotExtractionResult
 from src.agent.state import AgentState
 from src.agent.working_state import project_working_state
 from src.business.query.registry import BUSINESS_QUERY_REGISTRY
+from src.business.query.schemas import BusinessQuerySpec
 from src.config import settings
 
 
@@ -102,7 +103,7 @@ async def slot_resolution_gate(state: AgentState, config: RunnableConfig | None 
                     }
                 )
 
-    deterministic_extracted = _deterministic_metric_slots(state)
+    deterministic_extracted = {**_deterministic_metric_slots(state), **_deterministic_business_query_slots(state)}
     if deterministic_extracted:
         extracted = _merge_deterministic_metric_slots({}, state)
         resolution_state = _state_with_metric_parser_hint(state, extracted)
@@ -136,7 +137,7 @@ async def slot_resolution_gate(state: AgentState, config: RunnableConfig | None 
 
 
 def _merge_deterministic_metric_slots(extracted: dict[str, Any], state: AgentState) -> dict[str, Any]:
-    deterministic = _deterministic_metric_slots(state)
+    deterministic = {**_deterministic_metric_slots(state), **_deterministic_business_query_slots(state)}
     if not deterministic:
         return dict(extracted)
     merged = dict(extracted)
@@ -147,10 +148,15 @@ def _merge_deterministic_metric_slots(extracted: dict[str, Any], state: AgentSta
 
 
 def _state_with_metric_parser_hint(state: AgentState, extracted: dict[str, Any]) -> AgentState:
-    if not _deterministic_metric_slots(state):
+    metric_slots = _deterministic_metric_slots(state)
+    business_query_slots = _deterministic_business_query_slots(state)
+    if not metric_slots and not business_query_slots:
         return {**state, "extracted_slots": extracted}
     routing_hints = dict(state.get("routing_hints") or {}) if isinstance(state.get("routing_hints"), dict) else {}
-    routing_hints["metric_slot_parser"] = "deterministic"
+    if metric_slots:
+        routing_hints["metric_slot_parser"] = "deterministic"
+    if business_query_slots:
+        routing_hints["business_query_slot_parser"] = "deterministic"
     return {**state, "extracted_slots": extracted, "routing_hints": routing_hints}
 
 
@@ -221,6 +227,21 @@ def _active_flow_metric_slots(state: AgentState) -> dict[str, Any]:
         if value not in (None, "", []):
             slots.setdefault(slot, value)
     return slots
+
+
+def _deterministic_business_query_slots(state: AgentState) -> dict[str, Any]:
+    routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
+    if routing_hints.get("workflow_state_resolution") != "answered_business_query_drilldown":
+        return {}
+    candidate_slots = state.get("candidate_slots") if isinstance(state.get("candidate_slots"), dict) else {}
+    spec = candidate_slots.get("business_query_spec")
+    if not isinstance(spec, dict):
+        return {}
+    try:
+        validated = BusinessQuerySpec.model_validate(spec)
+    except ValidationError:
+        return {}
+    return {"business_query_spec": validated.model_dump(mode="json", exclude_none=True)}
 
 
 def _node_update(

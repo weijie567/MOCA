@@ -20596,3 +20596,23 @@ Task 3 新增 `tests/architecture/test_business_query_boundaries.py` 后首次�
 
 **剩余问题和下次继续排查入口**  
 无产品实现遗留。后续 Phase 62 plan 完成时，仍必须在调用这些 handlers 后检查 `.planning/STATE.md` / `.planning/ROADMAP.md` diff；如果继续错算，应修复 GSD SDK handler 或继续做手动 metadata 修正并记录。
+
+## 2026-07-09 — Phase 62-05 drilldown graph 首轮 metric 结果未写入安全上下文
+
+**问题现象**  
+Task 2 GREEN 首次运行 focused suite 时，`tests/agent/test_graph.py::test_business_query_drilldown_followup_reuses_same_thread_answer_context` 失败：首轮 `本周多少订单？` 已调用 `query_business_metric`，但 `first_state["last_query_spec"]` 为 `None`，第二轮无法基于安全上下文派生 `business_query` list spec。
+
+**如何检测/复现**  
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py::test_business_query_drilldown_followup_reuses_same_thread_answer_context -q --tb=short`。
+
+**关键证据或命令**  
+调试命令 `UV_CACHE_DIR=/tmp/uv-cache uv run python ...` 打印首轮 graph state：`calls == [("query_business_metric", {"metric_id": "order_count", "time_preset": "this_week", "start_at": "...", "end_at": "..."})]`，`last_query_spec None`，`expected_slot_type None`。
+
+**当前判断/根因**  
+`investigate` 将旧 metric tool args 转为 `BusinessQuerySpec` 作为兼容 drilldown context 时，原 args 同时包含 `time_preset` 和 slot gate 展开的 `start_at/end_at`；`BusinessQuerySpec` 正确拒绝 preset 与显式时间窗混用，导致兼容上下文被丢弃。
+
+**已做处理**  
+在 `_metric_business_query_drilldown_context_update(...)` 中对 metric 兼容 spec 做归一化：若存在 `time_preset`，构建 `BusinessMetricQueryInput` 前移除派生的 `start_at/end_at`，保留 preset 作为 replayable query spec。随后 focused suite 通过：`5 passed, 2 warnings`。
+
+**剩余问题和下次继续排查入口**  
+无产品遗留。若后续 metric slot gate 继续同时传 preset 与 expanded window，兼容层应仍以 preset 作为语义源；只有无 preset 的显式时间范围才进入 `BusinessQuerySpec.start_at/end_at`。

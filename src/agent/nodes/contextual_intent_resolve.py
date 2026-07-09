@@ -27,9 +27,10 @@ from src.agent.intent_policy import (
 )
 from src.agent.prompts import CLASSIFY_INTENT_SYSTEM
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
-from src.agent.routing import route_after_contextual_intent
-from src.agent.state import AgentState
+from src.agent.routing import normalize_expected_slot_type, route_after_contextual_intent
+from src.agent.state import AgentState, business_query_context_binding
 from src.business.query.registry import BUSINESS_QUERY_REGISTRY
+from src.business.query.schemas import BusinessQuerySpec
 from src.config import settings
 
 
@@ -106,6 +107,20 @@ _BUSINESS_KEYWORDS_RE = re.compile(
     r"(?:订单|退款|退货|工单|补偿|优惠券|投诉|申诉|解封|政策|规则|审批|处理|状态|order|refund|ticket|coupon|policy)",
     re.IGNORECASE,
 )
+_BUSINESS_QUERY_FIELD_REQUEST_RE = re.compile(
+    r"(?:订单号|单号|退款单号|工单号|券号|编号|明细|详情|列表|list|detail|order\s*(?:no|number|id))",
+    re.IGNORECASE,
+)
+_BUSINESS_QUERY_CURSOR_REQUEST_RE = re.compile(
+    r"(?:下一页|下页|继续|更多|next\s*page|more)",
+    re.IGNORECASE,
+)
+_BUSINESS_QUERY_FIELD_ALIASES = {
+    "order": (("订单号", "单号", "order no", "order number", "order id"), "order_no"),
+    "refund_case": (("退款单号", "退款编号", "refund case", "refund no"), "refund_case_no"),
+    "ticket": (("工单号", "工单编号", "ticket"), "ticket_no"),
+    "coupon_record": (("券号", "优惠券编号", "coupon"), "coupon_record_no"),
+}
 
 
 def _semantic_payload(semantic: SemanticIntent) -> dict[str, Any]:
@@ -605,6 +620,10 @@ def _deterministic_context_update(
     if _is_standalone_small_talk(user_text):
         return _standalone_small_talk_update(state, pre_route, started_at)
 
+    drilldown_slots = _business_query_drilldown_candidate_slots(state, user_text)
+    if drilldown_slots is not None:
+        return _business_query_drilldown_update(state, pre_route, started_at, drilldown_slots)
+
     metric_slots = _deterministic_metric_candidate_slots(user_text)
     if metric_slots is not None:
         return _business_metric_query_update(state, pre_route, started_at, metric_slots)
@@ -828,6 +847,182 @@ def _merge_flow_metric_slots(flow: dict[str, Any], current_turn_slots: dict[str,
                 merged.setdefault(slot, value)
     merged.update(current_turn_slots)
     return merged
+
+
+def _business_query_drilldown_candidate_slots(
+    state: AgentState,
+    user_text: str,
+) -> dict[str, Any] | None:
+    trusted_context = _trusted_business_query_drilldown_context(state)
+    if trusted_context is None:
+        return None
+    expected_slot_type = _business_query_expected_slot_type(state)
+    if _BUSINESS_QUERY_CURSOR_REQUEST_RE.search(user_text):
+        if expected_slot_type not in (None, "cursor_request"):
+            return None
+        spec = _cursor_business_query_spec(trusted_context)
+        reason_code = "business_query_drilldown_cursor_request"
+        slot_type = "cursor_request"
+    elif _BUSINESS_QUERY_FIELD_REQUEST_RE.search(user_text):
+        if expected_slot_type not in (None, "field_request"):
+            return None
+        spec = _field_business_query_spec(trusted_context, user_text)
+        reason_code = "business_query_drilldown_field_request"
+        slot_type = "field_request"
+    else:
+        return None
+    if spec is None:
+        return None
+    return {
+        "business_query_spec": spec.model_dump(mode="json", exclude_none=True),
+        "expected_slot_type": slot_type,
+        "reason_code": reason_code,
+    }
+
+
+def _trusted_business_query_drilldown_context(state: AgentState) -> dict[str, Any] | None:
+    last_query_spec = state.get("last_query_spec")
+    last_answer_context = state.get("last_answer_context")
+    expected_context = state.get("expected_slot_context")
+    if not isinstance(last_query_spec, dict) or not isinstance(last_answer_context, dict):
+        return None
+    if not isinstance(expected_context, dict):
+        return None
+    if expected_context.get("purpose") != "business_query_drilldown":
+        return None
+    if expected_context.get("context_binding") != business_query_context_binding(state):
+        return None
+    try:
+        spec = BusinessQuerySpec.model_validate(last_query_spec)
+    except ValidationError:
+        return None
+    return {
+        "last_query_spec": spec,
+        "last_answer_context": dict(last_answer_context),
+        "result_cursor": state.get("result_cursor") if isinstance(state.get("result_cursor"), dict) else None,
+        "expected_slot_context": dict(expected_context),
+    }
+
+
+def _business_query_expected_slot_type(state: AgentState) -> str | None:
+    expected_slot_type = normalize_expected_slot_type(state.get("expected_slot_type"))
+    if expected_slot_type is not None:
+        return expected_slot_type
+    expected_context = state.get("expected_slot_context")
+    if isinstance(expected_context, dict):
+        return normalize_expected_slot_type(expected_context.get("expected_slot_type"))
+    return None
+
+
+def _field_business_query_spec(context: dict[str, Any], user_text: str) -> BusinessQuerySpec | None:
+    answer_context = context["last_answer_context"]
+    allowed_drilldowns = answer_context.get("allowed_drilldowns")
+    if not isinstance(allowed_drilldowns, list) or "list" not in allowed_drilldowns:
+        return None
+    prior_spec: BusinessQuerySpec = context["last_query_spec"]
+    if prior_spec.operation not in {"aggregate", "group_by", "compare"}:
+        return None
+    fields = _requested_business_query_fields(prior_spec.resource, user_text)
+    if not fields:
+        return None
+    payload = _business_query_scope_payload(prior_spec)
+    payload.update(
+        {
+            "operation": "list",
+            "resource": prior_spec.resource,
+            "fields": fields,
+            "limit": BUSINESS_QUERY_REGISTRY.resource_descriptor(prior_spec.resource).default_limit,
+        }
+    )
+    return _validated_business_query_spec(payload)
+
+
+def _cursor_business_query_spec(context: dict[str, Any]) -> BusinessQuerySpec | None:
+    cursor = context.get("result_cursor")
+    if not isinstance(cursor, dict):
+        return None
+    next_cursor = cursor.get("next_cursor")
+    if not isinstance(next_cursor, dict):
+        return None
+    prior_spec: BusinessQuerySpec = context["last_query_spec"]
+    if prior_spec.operation != "list":
+        return None
+    payload = prior_spec.model_dump(mode="json", exclude_none=True)
+    payload["cursor"] = next_cursor
+    return _validated_business_query_spec(payload)
+
+
+def _business_query_scope_payload(spec: BusinessQuerySpec) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "time_preset": spec.time_preset,
+        "start_at": spec.start_at,
+        "end_at": spec.end_at,
+        "merchant_id": spec.merchant_id,
+        "filters": spec.filters.model_dump(mode="json"),
+    }
+    return {key: value for key, value in payload.items() if value not in (None, "")}
+
+
+def _requested_business_query_fields(resource: str, user_text: str) -> list[str]:
+    aliases = _BUSINESS_QUERY_FIELD_ALIASES.get(resource)
+    if aliases is None:
+        return []
+    terms, field_id = aliases
+    lowered = user_text.lower()
+    if any(term.lower() in lowered for term in terms):
+        return [field_id]
+    if any(term in lowered for term in ("明细", "详情", "列表", "list", "detail")):
+        list_fields = BUSINESS_QUERY_REGISTRY.field_ids_for_resource(resource, purpose="list")
+        return [field_id] if field_id in list_fields else sorted(list_fields)[:1]
+    return []
+
+
+def _validated_business_query_spec(payload: dict[str, Any]) -> BusinessQuerySpec | None:
+    try:
+        return BusinessQuerySpec.model_validate(payload)
+    except ValidationError:
+        return None
+
+
+def _business_query_drilldown_update(
+    state: AgentState,
+    pre_route: PreRouteDecision,
+    started_at: str,
+    drilldown_slots: dict[str, Any],
+) -> dict[str, Any]:
+    expected_slot_type = str(drilldown_slots["expected_slot_type"])
+    reason_codes = [str(drilldown_slots["reason_code"])]
+    candidate_slots = {"business_query_spec": drilldown_slots["business_query_spec"]}
+    expected_context = state.get("expected_slot_context") if isinstance(state.get("expected_slot_context"), dict) else {}
+    return _deterministic_classification_update(
+        state,
+        started_at=started_at,
+        pre_route=pre_route,
+        primary_intent="business_metric_query",
+        requested_operation="read_status",
+        intent_confidence=1.0,
+        required_slots=SLOT_POLICY_REGISTRY.required_slots_for("business_metric_query").model_dump(),
+        candidate_slots=candidate_slots,
+        routing_hints={
+            "workflow_state_resolution": "answered_business_query_drilldown",
+            "expected_slot_type": expected_slot_type,
+            "business_query_slot_parser": "deterministic",
+            "expected_slot_context": {
+                "purpose": "business_query_drilldown",
+                "operation": expected_context.get("operation"),
+                "resource": expected_context.get("resource"),
+            },
+        },
+        policy_overrides=[
+            {
+                "source": "business_query_drilldown_context",
+                "expected_slot_type": expected_slot_type,
+                "reason_codes": reason_codes,
+            }
+        ],
+        reason_codes=reason_codes,
+        source="business_query_drilldown_context",
+    )
 
 
 def _business_metric_query_update(
