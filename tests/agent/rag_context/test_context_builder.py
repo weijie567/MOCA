@@ -178,6 +178,47 @@ async def test_prompt_citation_ids_map_to_canonical_refs_with_bounded_prompt_saf
 
 
 @pytest.mark.asyncio
+async def test_manual_review_sensitive_survives_prompt_safe_risk_label_projection() -> None:
+    """Phase 64: manual-review labels must not be filtered from safe RAG projections."""
+    ContextBuilder, _RagContextBundle = _load_context_api()
+    text = "Manual review sensitive policy evidence must stay visible to safe projections."
+    evidence = _evidence_ref(text=text)
+    service = FakePolicyKnowledgeService({evidence.evidence_id: text})
+
+    bundle = await ContextBuilder(policy_service=service, max_snippet_chars=180).build(
+        candidate_evidence_refs=[evidence],
+        business_fact_refs=[_business_fact_ref()],
+        trusted_context=_trusted_context(),
+        risk_hints=[
+            {
+                "evidence_id": evidence.evidence_id,
+                "labels": ["manual_review_sensitive", "raw_debug_secret"],
+            }
+        ],
+    )
+
+    assert bundle.prompt_context.citations[0].risk_labels == ["manual_review_sensitive"]
+    assert bundle.citation_map["C1"].risk_labels == ["manual_review_sensitive"]
+    assert bundle.prompt_context.risk_labels == ["manual_review_sensitive"]
+    assert bundle.final_response_context.risk_labels == ["manual_review_sensitive"]
+    assert bundle.memory_context.risk_labels == ["manual_review_sensitive"]
+    assert bundle.replay_context.risk_labels == ["manual_review_sensitive"]
+    assert bundle.business_fact_context.risk_labels == ["manual_review_sensitive"]
+    assert bundle.action_snapshot_context.risk_labels == ["manual_review_sensitive"]
+
+    safe_surfaces = {
+        "prompt_context": bundle.prompt_context,
+        "final_response_context": bundle.final_response_context,
+        "memory_context": bundle.memory_context,
+        "replay_context": bundle.replay_context,
+        "business_fact_context": bundle.business_fact_context,
+        "action_snapshot_context": bundle.action_snapshot_context,
+        "citation_map": bundle.citation_map,
+    }
+    assert "raw_debug_secret" not in _json_text(safe_surfaces)
+
+
+@pytest.mark.asyncio
 async def test_duplicate_and_adjacent_evidence_merge_projection_without_rewriting_identity() -> None:
     """CTX-04: dedupe and projection-only merging cannot rewrite EvidenceRefV1 identity."""
     ContextBuilder, _RagContextBundle = _load_context_api()
