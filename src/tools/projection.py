@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.business.query.projection import business_query_response_text, safe_business_query_metadata
 from src.tools.contracts import ToolResultProjectionV1, ToolResultV2
 
 # Keys that must never appear in normalized or prompt surfaces.
@@ -157,6 +158,10 @@ class ToolResultProjector:
         if metric_result:
             normalized.update(metric_result)
 
+        business_query = self._extract_business_query_result(data)
+        if business_query:
+            normalized["business_query"] = business_query
+
         # Refs from the ToolResultV2 envelope (not from data).
         if result.business_fact_refs:
             normalized["business_fact_refs"] = self._business_fact_refs_from_envelope(result)
@@ -277,7 +282,14 @@ class ToolResultProjector:
 
         redaction_applied = _has_raw_sentinels_in_dict(result.data or {})
         metric_summary = self._metric_prompt_summary(normalized)
-        summary = metric_summary["text"] if metric_summary else normalized.get("summary", result.summary[:500])
+        business_query_summary = self._business_query_prompt_summary(normalized)
+        summary = (
+            business_query_summary["text"]
+            if business_query_summary
+            else metric_summary["text"]
+            if metric_summary
+            else normalized.get("summary", result.summary[:500])
+        )
 
         prompt_projection = {
             "tool_name": tool_name,
@@ -292,6 +304,8 @@ class ToolResultProjector:
             "redaction_applied": redaction_applied,
             "text_for_prompt": "",  # filled by _build_text_for_prompt
         }
+        if business_query_summary:
+            prompt_projection["business_query_summary"] = business_query_summary
         if metric_summary:
             prompt_projection["metric_summary"] = metric_summary
         return prompt_projection
@@ -349,6 +363,15 @@ class ToolResultProjector:
 
         return metric
 
+    def _extract_business_query_result(self, data: dict[str, Any]) -> dict[str, Any]:
+        payload = data.get("business_query")
+        if not isinstance(payload, dict):
+            return {}
+        try:
+            return safe_business_query_metadata(payload)
+        except ValueError:
+            return {}
+
     @staticmethod
     def _metric_prompt_summary(normalized: dict[str, Any]) -> dict[str, Any] | None:
         metric_id = normalized.get("metric_id")
@@ -386,6 +409,22 @@ class ToolResultProjector:
         if len(text) > _MAX_TEXT_FOR_PROMPT:
             text = text[:_MAX_TEXT_FOR_PROMPT - 3] + "..."
         return text
+
+    @staticmethod
+    def _business_query_prompt_summary(normalized: dict[str, Any]) -> dict[str, Any] | None:
+        business_query = normalized.get("business_query")
+        if not isinstance(business_query, dict):
+            return None
+        text = business_query_response_text(business_query)
+        return {
+            "operation": business_query.get("operation"),
+            "resource_label": business_query.get("resource_label"),
+            "result_label": business_query.get("result_label"),
+            "row_count": business_query.get("row_count"),
+            "limit": business_query.get("limit"),
+            "safe_reason": business_query.get("safe_reason"),
+            "text": text,
+        }
 
     # ------------------------------------------------------------------
     # Audit and resource refs

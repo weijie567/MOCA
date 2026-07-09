@@ -36,6 +36,7 @@ from src.api.schemas.common import ApiResponse
 from src.approvals.schemas import ApprovalRequestCreateCommand
 from src.approvals.service import ApprovalService, ApprovalTransitionError
 from src.auth.permissions import get_current_user
+from src.business.query.projection import safe_business_query_api_payload
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
 from src.db.models import AgentRun, User
@@ -1226,6 +1227,10 @@ def _final_response_payload(final_response: str, final_state: dict[str, Any]) ->
         metric_payload = _safe_metric_payload(response_projection.get("metric"))
         if metric_payload:
             payload["metric"] = metric_payload
+    elif response_kind == "business_query_answer":
+        business_query_payload = _safe_business_query_payload(response_projection.get("business_query"))
+        if business_query_payload:
+            payload["business_query"] = business_query_payload
     elif response_kind in {"clarification", "unsupported"}:
         safe_reason = _safe_response_reason(final_state, response_projection)
         if safe_reason:
@@ -1241,6 +1246,16 @@ def _safe_metric_payload(value: Any) -> dict[str, Any]:
         if isinstance(metric_value, str) and metric_value:
             payload[field] = metric_value
     return payload
+
+
+def _safe_business_query_payload(value: Any) -> dict[str, Any]:
+    business_query = _as_mapping(value)
+    if not business_query:
+        return {}
+    try:
+        return safe_business_query_api_payload(business_query)
+    except ValueError:
+        return {}
 
 
 def _infer_response_kind(final_state: dict[str, Any], response_projection: dict[str, Any]) -> str | None:

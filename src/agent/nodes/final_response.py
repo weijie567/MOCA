@@ -6,6 +6,7 @@ from typing import Any
 from src.agent.graph_vocabulary import project_trace_step_for_contract
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
+from src.business.query.projection import business_query_response_text, safe_business_query_metadata
 
 DEMO_NOT_EXECUTED_TEXT = "演示模式未执行优惠券发放、退款、工单关闭或任何外部动作"
 _POLICY_QA_DISPLAYABLE_VERIFIER_REASONS = frozenset({"level2_partial_overlap_ambiguous"})
@@ -328,6 +329,54 @@ def _business_fact_llm_output(response_text: str) -> dict[str, Any]:
         "final_status": "completed",
         "mode": "deterministic-template",
         "approval_context": None,
+    }
+
+
+def _business_query_fact(state: AgentState) -> dict[str, Any]:
+    context = _mapping(state.get("business_context"))
+    facts = _business_context_facts(context)
+    query = _dict_value(facts.get("business_query"))
+    if query:
+        return query
+    for error in context.get("errors") or []:
+        if not isinstance(error, dict):
+            continue
+        if error.get("resource") != "business_query" and error.get("code") != "BUSINESS_FACT_PERMISSION_DENIED":
+            continue
+        return {
+            "schema_version": "business_query_result.v1",
+            "operation": "detail",
+            "resource": "order",
+            "status": "permission_denied",
+            "rows": [],
+            "answer_context": {
+                "schema_version": "business_query_answer_context.v1",
+                "query_spec": {"operation": "detail", "resource": "order", "fields": ["order_no"], "limit": 20},
+                "result_refs": [],
+                "allowed_drilldowns": [],
+                "fields_shown": [],
+                "scope": {"scope_label": "当前权限范围", "no_leak_status": "scope_denied_no_existence_leak"},
+                "time_summary": None,
+                "filter_summary": None,
+            },
+            "scope": {"scope_label": "当前权限范围", "no_leak_status": "scope_denied_no_existence_leak"},
+        }
+    return {}
+
+
+def _business_query_response_text(query: dict[str, Any]) -> str:
+    return business_query_response_text(query)
+
+
+def _business_query_llm_output(response_text: str, query: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "response_text": response_text,
+        "evidence_citations": [],
+        "final_status": "completed",
+        "mode": "deterministic-template",
+        "approval_context": None,
+        "response_kind": "business_query_answer",
+        "business_query": safe_business_query_metadata(query),
     }
 
 
@@ -1057,6 +1106,17 @@ async def final_response(state: AgentState) -> dict:
             "llm_outputs": {
                 **(state.get("llm_outputs") or {}),
                 "final_response": _direct_response_llm_output(response_text, _state_intent(state)),
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+        }
+    business_query = _business_query_fact(state)
+    if business_query:
+        response_text = _decorate_deferred_response(_business_query_response_text(business_query), state)
+        return {
+            "final_response": response_text,
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "final_response": _business_query_llm_output(response_text, business_query),
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }

@@ -12,6 +12,12 @@ from src.business.query.registry import (
     BusinessQueryTimePresetDescriptor,
 )
 from src.business.query.compiler import BusinessQueryCompiler
+from src.business.query.projection import (
+    BUSINESS_QUERY_API_PAYLOAD_FIELDS,
+    business_query_response_text,
+    safe_business_query_api_payload,
+    safe_business_query_metadata,
+)
 from src.business.query.schemas import (
     BusinessQueryAnswerContext,
     BusinessQueryCursor,
@@ -26,6 +32,7 @@ from src.business.query.schemas import (
 
 __all__ = [
     "BUSINESS_QUERY_REGISTRY",
+    "BUSINESS_QUERY_API_PAYLOAD_FIELDS",
     "BusinessQueryAnswerContext",
     "BusinessQueryCompiler",
     "BusinessQueryCursor",
@@ -43,5 +50,8 @@ __all__ = [
     "BusinessQuerySortDescriptor",
     "BusinessQueryStatusDescriptor",
     "BusinessQueryTimePresetDescriptor",
+    "business_query_response_text",
     "metric_input_to_business_query",
+    "safe_business_query_api_payload",
+    "safe_business_query_metadata",
 ]
