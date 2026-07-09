@@ -109,7 +109,7 @@ Plans:
 3. Safety-critical route checks and action execution checks use the same taxonomy and are covered by parity tests.
 
 Plans:
-- [ ] 63-01-PLAN.md — Taxonomy registry foundation and RED/parity tests.
+- [x] 63-01-PLAN.md — Taxonomy registry foundation and RED/parity tests.
 - [ ] 63-02-PLAN.md — Risk gate risk vocabulary and action proposal migration.
 - [ ] 63-03-PLAN.md — Action draft and ToolPlatform boundary migration.
 - [ ] 63-04-PLAN.md — Intent policy and routing taxonomy/registry migration.

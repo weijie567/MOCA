@@ -20975,3 +20975,23 @@ Phase 63 第二轮 Claude plan review 追加到 `63-REVIEWS.md` 后运行 `git d
 
 **剩余问题和下次继续排查入口**
 无产品实现遗留。后续追加外部 AI markdown 输出后先运行 `git diff --check`，必要时清理尾随空格再提交。
+
+## 2026-07-10 — Phase 63 63-01 executor 无响应但留下部分执行产物
+
+**问题现象**
+启动 `gsd-executor` 执行 `63-01-PLAN.md` 后，子代理超过数分钟没有返回，也没有响应状态请求。关闭子代理时状态仍为 `running`。随后检查发现它已经提交了 RED 测试 `de4a916 test(63-01): add failing safety taxonomy parity tests`，但没有提交 GREEN 实现，也没有创建 `63-01-SUMMARY.md`；同时工作树中留下未跟踪的 `src/agent/safety/__init__.py` 和 `src/agent/safety/taxonomy.py`。
+
+**如何检测/复现**
+运行 63-01 executor 后等待多轮 `wait_agent` 超时；执行 `git status --short --untracked-files=all` 和 `git log --oneline --grep='63-01' --all`。
+
+**关键证据或命令**
+`close_agent` 返回 previous_status 为 `running`。`git log --oneline --grep='63-01' --all` 显示 `de4a916 test(63-01): add failing safety taxonomy parity tests`，但当时没有 `63-01-SUMMARY.md`，且 `src/agent/safety/*.py` 是未跟踪文件。
+
+**当前判断/根因**
+这是执行编排/子代理回传问题，不是 Phase 63 代码设计问题。子代理完成了 RED 阶段的一部分工作后没有正确返回完成状态或继续提交 GREEN 阶段。
+
+**已做处理**
+关闭无响应子代理；在主进程接管 63-01，核对 RED 测试已提交，采纳并补齐 safety taxonomy 实现，使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_safety_taxonomy.py -q --tb=short` 和 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check ...` 验证通过，然后提交 GREEN 实现 `de30961 feat(63-01): implement safety taxonomy registry`。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。后续 Phase 63 plans 改为串行执行并在每个 plan 后做 `git status` / summary / commit spot-check；如再次出现子代理无响应，优先关闭后主进程接管或改用更小的单 plan 执行。
