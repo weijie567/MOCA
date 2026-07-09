@@ -84,3 +84,24 @@ Only the Claude reviewer was invoked in this pass, because the autopilot review 
 ### Divergent Views
 
 - None recorded in this pass; there was one external reviewer.
+
+## Claude Re-Review After Codex Repair
+
+Reviewed at 2026-07-09T12:26:57Z after Codex adjudication and plan repair.
+
+### Summary
+
+Claude rechecked `62-01-PLAN.md` through `62-07-PLAN.md` plus `62-PLAN-REVIEW-DECISIONS.md` and found that the previous warnings had been mapped into concrete task, acceptance, verify, or phase-gate requirements.
+
+### Remaining Blockers
+
+- None.
+
+### Remaining Actionable Warnings
+
+- LOW: 62-01 frontmatter wording could imply registry-owned projection hints. Codex tightened the wording so projection consumes registry field allowlists but not projection formatting logic.
+- LOW: 62-05 wording could imply answer context is sourced from a future projection layer or raw tool dict. Codex tightened the wording to use the stable `BusinessFactResultV1.fact_data["business_query"]` / `BusinessQueryResultV1` handoff.
+
+### Verdict
+
+`APPROVE`. Phase 62 repaired plan set can enter implementation.
