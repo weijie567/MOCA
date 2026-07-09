@@ -71,4 +71,88 @@ Plans:
 
 ## Next
 
-Phase 61 is complete. Next step is milestone closeout or the next v2.2 follow-up phase if new scope is added.
+Phase 61 is complete. Next step is Phase 62 planning.
+
+### Phase 62: Business Query And Drilldown Foundation
+
+**Goal:** Build a safe, maintainable business-query foundation so scoped aggregate, list, detail, and follow-up drilldown questions can be added without multiplying hardcoded metric/time/status/tool/projection branches.
+**Requirements**: TBD during Phase 62 planning.
+**Depends on:** Phase 61
+**Plans:** 7 plans
+
+**Success criteria:**
+1. Business query time, scope, operation, metric/resource, status, and parser definitions have a single source of truth for the agent/business-query path.
+2. A safe `business_query` contract covers aggregate/list/detail/breakdown/compare operations with scoped filters, field allowlists, limits, cursors, sort, and no raw SQL exposure.
+3. Runtime read queries are implemented behind `BusinessFactService` and trusted scope/policy gates, not by exposing generic repository list helpers.
+4. Multi-turn drilldown uses structured answer context/query context instead of per-slot hardcoded follow-up branches.
+5. Projection, final response, regression evals, and console UI safely handle metric/list/detail answers with bounded prompt payloads and no-existence-leak semantics.
+
+Plans:
+- [ ] 62-01 Query Foundation And Single Source Cleanup — shared time/scope resolvers, operation taxonomy, metric/resource/status/time-preset definitions, and parser consolidation.
+- [ ] 62-02 Safe Business Query Contract And Schema — accepted `business_query` contract, strict `BusinessQuerySpec`, result/context/cursor models, and metric compatibility mapping.
+- [ ] 62-03 ToolPlatform Policy And Trusted Scope Boundary — trusted permission mapping, read-only ToolCatalog descriptor, ToolPolicy denial checks, and safe executor boundary.
+- [ ] 62-04 Business Query Runtime Implementation — controlled aggregate/list/detail/breakdown/compare execution in `BusinessFactService` with scoped repositories and bounded pagination.
+- [ ] 62-05 Answer Context And Drilldown Flow — `last_query_spec`, `last_answer_context`, result cursor, expected-slot-type parser flow, and aggregate-to-list follow-up revalidation.
+- [ ] 62-06 Projection, Final Response, API, And Eval — safe backend projection, `business_query_answer` payload, golden/eval coverage, and raw payload stripping.
+- [ ] 62-07 Agent Console Business Query UI — typed Timeline/Details rendering, operation-specific result display, frontend unit/build checks, and E2E phase gate.
+
+### Phase 63: Safety Taxonomy And Risk Vocabulary
+
+**Goal:** Unify action classification and risk vocabulary across `risk_gate`, `action_draft`, and `intent_policy` so safety routing and execution-side action handling cannot drift.
+**Requirements**: TBD during Phase 63 planning.
+**Depends on:** Phase 62
+**Plans:** 0 plans
+
+**Success criteria:**
+1. `canonical_action_type` and action keyword taxonomy have one owner shared by risk, action draft, and intent policy code.
+2. Risk severity and risk disposition are modeled separately instead of overloading one string field.
+3. Safety-critical route checks and action execution checks use the same taxonomy and are covered by parity tests.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 63 to break down)
+
+### Phase 64: RAG Risk Label Unification
+
+**Goal:** Unify RAG risk labels across context builder, metrics, verifier, semantic routing, and tests so labels such as `manual_review_sensitive`, `conflict`, and `stale_evidence` keep the same meaning across the RAG pipeline.
+**Requirements**: TBD during Phase 64 planning.
+**Depends on:** Phase 63
+**Plans:** 0 plans
+
+**Success criteria:**
+1. RAG risk labels have a single source of truth consumed by builder, metrics, verifier, and routing.
+2. Existing labels keep compatible semantics or receive an explicit migration note.
+3. Parity tests prevent future label-set drift.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 64 to break down)
+
+### Phase 65: Trace Event And Console Label Consistency
+
+**Goal:** Add consistency checks and registry boundaries for trace event types, node labels, tool labels, safe reasons, and console display labels so new runtime concepts do not silently degrade in replay/API/frontend surfaces.
+**Requirements**: TBD during Phase 65 planning.
+**Depends on:** Phase 64
+**Plans:** 0 plans
+
+**Success criteria:**
+1. Trace event type registration, replay validators, and DB CHECK constraints have explicit consistency tests or a documented migration workflow.
+2. Node/tool/safe-reason labels have a clear backend/frontend ownership model with fallback behavior covered by tests.
+3. Console Timeline/Details behavior remains stable when new tool names, node names, response kinds, or safe reasons are added.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 65 to break down)
+
+### Phase 66: Dev Test And Config Hygiene
+
+**Goal:** Reduce long-term validation and environment maintenance cost by consolidating test fixtures, demo constants, local configuration defaults, and developer-environment hardcoded values that are not covered by the business-query, safety, RAG, or trace-label phases.
+**Requirements**: TBD during Phase 66 planning.
+**Depends on:** Phase 65
+**Plans:** 0 plans
+
+**Success criteria:**
+1. Test magic dates and demo business identifiers use shared fixtures/constants where that reduces brittleness without obscuring test intent.
+2. E2E and frontend tests avoid unnecessary exact backend-copy assertions while still locking user-visible behavior.
+3. Local config defaults such as dev DB credentials, ports, API URLs, and investigate iteration limits have clear ownership and documented override paths.
+4. Demo-only defaults such as action draft retention policy are either renamed/isolated as demo scope or documented as intentional non-production defaults.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 66 to break down)
