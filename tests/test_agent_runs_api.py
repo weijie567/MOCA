@@ -30,6 +30,7 @@ from src.api.routers.agent_runs import (
     _ensure_can_view_run,
     _event_generator,
     _extract_step_payload,
+    _final_response_payload,
     _sse_event,
 )
 from src.api.services.agent_run_memory import finalize_completed_agent_run_memory
@@ -474,6 +475,57 @@ def _unsafe_metric_final_state() -> dict[str, Any]:
         "merchant_scope": {"merchant_ids": ["MERCHANT-SHOULD-NOT-LEAK"]},
         "trace_steps": [_trace("final_response")],
     }
+
+
+def test_final_response_payload_projects_safe_non_metric_response_kinds_only():
+    clarification_payload = _final_response_payload(
+        "要统计该指标，请选择时间范围。",
+        {
+            "llm_outputs": {
+                "final_response": {
+                    "response_text": "要统计该指标，请选择时间范围。",
+                    "final_status": "insufficient_evidence",
+                    "clarification_reason": "missing_time_range",
+                    "routing_hints": {"route": "SHOULD_NOT_LEAK"},
+                }
+            },
+            "routing_hints": {"safe_reason": "metric_scope_denied", "debug": "SHOULD_NOT_LEAK"},
+        },
+    )
+    unsupported_payload = _final_response_payload(
+        "当前不支持该统计口径。",
+        {
+            "llm_outputs": {
+                "final_response": {
+                    "response_text": "当前不支持该统计口径。",
+                    "direct_response_intent": "unsupported",
+                    "routing_hints": {"route": "SHOULD_NOT_LEAK"},
+                }
+            },
+            "routing_hints": {"unsupported_reason": "unsupported_metric", "debug": "SHOULD_NOT_LEAK"},
+        },
+    )
+    small_talk_payload = _final_response_payload(
+        "你好，我是 MOCA。",
+        {
+            "llm_outputs": {
+                "final_response": {
+                    "response_text": "你好，我是 MOCA。",
+                    "direct_response_intent": "small_talk",
+                }
+            },
+        },
+    )
+
+    assert clarification_payload["response_kind"] == "clarification"
+    assert clarification_payload["safe_reason"] == "missing_time_range"
+    assert unsupported_payload["response_kind"] == "unsupported"
+    assert unsupported_payload["safe_reason"] == "unsupported_metric"
+    assert small_talk_payload["response_kind"] == "small_talk"
+
+    serialized = json.dumps([clarification_payload, unsupported_payload, small_talk_payload], ensure_ascii=False)
+    assert "routing_hints" not in serialized
+    assert "SHOULD_NOT_LEAK" not in serialized
 
 
 class MetricFinalResponseGraph:

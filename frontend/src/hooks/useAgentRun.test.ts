@@ -1,5 +1,7 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, render, renderHook, screen } from '@testing-library/react'
+import { createElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { TimelineStep } from '@/components/timeline/TimelineStep'
 import { createRun } from '@/lib/api'
 import { connectToRunEvents } from '@/lib/sse'
 import type { SseEvent } from '@/types/events'
@@ -245,6 +247,104 @@ describe('useAgentRun thread lifecycle', () => {
       role: 'assistant',
       content: 'done',
       status: 'completed',
+    })
+  })
+})
+
+describe('TimelineStep safe result labels', () => {
+  it('renders direct response, clarification, unsupported, metric, RAG, and tool labels from safe payloads', () => {
+    const cases: Array<{ event: SseEvent; expected: string[]; forbidden?: string[] }> = [
+      {
+        event: event({
+          event_type: 'final_response',
+          node_name: 'final_response',
+          status: 'completed',
+          payload: { response_kind: 'small_talk' },
+        }),
+        expected: ['直接回复', 'response: direct'],
+      },
+      {
+        event: event({
+          event_type: 'final_response',
+          node_name: 'final_response',
+          status: 'completed',
+          payload: { response_kind: 'clarification', safe_reason: 'missing_time_range' },
+        }),
+        expected: ['需要补充信息', '原因: 缺少时间范围'],
+      },
+      {
+        event: event({
+          event_type: 'final_response',
+          node_name: 'final_response',
+          status: 'completed',
+          payload: { response_kind: 'unsupported', safe_reason: 'unsupported_metric' },
+        }),
+        expected: ['当前能力不支持', '原因: 不支持的统计口径'],
+      },
+      {
+        event: event({
+          event_type: 'step_started',
+          node_name: 'investigate',
+          status: 'running',
+          payload: {
+            response_kind: 'metric_answer',
+            metric_id: 'refund_case_count',
+            scope_label: '当前权限范围',
+          },
+        }),
+        expected: ['正在查询业务指标', 'metric: refund_case_count · scope: 当前权限范围'],
+      },
+      {
+        event: event({
+          event_type: 'final_response',
+          node_name: 'final_response',
+          status: 'completed',
+          payload: {
+            response_kind: 'metric_answer',
+            metric: {
+              metric_id: 'refund_case_count',
+              metric_label: '退款单数',
+              scope_label: '当前权限范围',
+              safe_reason: 'ok',
+            },
+            routing_hints: { route: 'SHOULD_NOT_RENDER' },
+          },
+        }),
+        expected: ['业务指标查询完成', 'metric: 退款单数 · scope: 当前权限范围'],
+        forbidden: ['routing_hints', 'SHOULD_NOT_RENDER'],
+      },
+      {
+        event: event({
+          event_type: 'step_started',
+          node_name: 'rag_context_build',
+          status: 'running',
+          payload: { evidence_count: 2 },
+        }),
+        expected: ['正在构建证据上下文', 'evidence: 2'],
+      },
+      {
+        event: event({
+          event_type: 'step_completed',
+          node_name: 'investigate',
+          status: 'completed',
+          payload: {
+            tool_name: 'query_business_metric',
+            tool_label: '查询业务指标',
+            raw_args: { merchant_id: 'MERCHANT-SHOULD-NOT-LEAK' },
+          },
+        }),
+        expected: ['查询业务指标', 'tool: 查询业务指标'],
+        forbidden: ['MERCHANT-SHOULD-NOT-LEAK', 'raw_args'],
+      },
+    ]
+
+    cases.forEach(({ event: step, expected, forbidden = [] }) => {
+      const { unmount } = render(createElement(TimelineStep, { step, isLast: true }))
+
+      expected.forEach((text) => expect(screen.getByText(text)).toBeTruthy())
+      forbidden.forEach((text) => expect(screen.queryByText(text)).toBeNull())
+
+      unmount()
     })
   })
 })
