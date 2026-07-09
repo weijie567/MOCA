@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes.investigate import _project_tool_result
-from src.business.schemas import BusinessFactResultV1
+from src.business.schemas import BusinessFactResultV1, BusinessMetricResultV1
 from src.business.service import (
     BUSINESS_READ_TOOLS,
     BusinessFactService,
@@ -119,6 +119,52 @@ def _business_fact_result(
     )
 
 
+def _metric_result(**overrides: object) -> BusinessMetricResultV1:
+    payload: dict[str, object] = {
+        "metric_id": "pending_ticket_count",
+        "status": "ok",
+        "value": 3,
+        "rate": None,
+        "numerator": None,
+        "denominator": None,
+        "unit": "count",
+        "display_value": "3",
+        "scope": {
+            "tenant_id": "tenant-09",
+            "merchant_ids": ["merchant-09"],
+            "scope_label": "当前权限范围",
+        },
+        "time_range": {
+            "start_at": None,
+            "end_at": None,
+            "preset": "current_snapshot",
+            "timezone": "Asia/Shanghai",
+        },
+        "filters": {"merchant_id": "merchant-09", "status_filter": ["open", "in_progress"]},
+        "freshness": {
+            "data_freshness_at": None,
+            "computed_at": datetime.now(UTC),
+            "source_system": "demo_business_db",
+        },
+        "formula": "count tickets where status in open/in_progress",
+        "caveats": [],
+        "no_leak_status": "not_applicable",
+    }
+    payload.update(overrides)
+    return BusinessMetricResultV1.model_validate(payload)
+
+
+class _StubMetricService(BusinessFactService):
+    def __init__(self, result: BusinessMetricResultV1) -> None:
+        super().__init__(AsyncMock())
+        self.result = result
+        self.calls: list[tuple[object, ToolCallContext, list[str]]] = []
+
+    async def _calculate_business_metric(self, query, ctx: ToolCallContext, merchant_ids: list[str]):
+        self.calls.append((query, ctx, merchant_ids))
+        return self.result
+
+
 def _seeded_context(
     seeded_session: dict,
     user_key: str = "cs_zhang",
@@ -163,6 +209,99 @@ def _assert_wrapped_tool_result_has_no_facts(
     assert result.error is not None
     assert result.error.code == code
     assert result.error.safe_message == safe_message
+
+
+@pytest.mark.asyncio
+async def test_business_fact_ref_accepts_metric_query_result_with_metric_provenance() -> None:
+    service = _StubMetricService(_metric_result())
+
+    result = await service.query_business_metric(
+        {"metric_id": "pending_ticket_count", "time_preset": "current_snapshot", "merchant_id": "merchant-09"},
+        _context(permissions=["tool:query_business_metric"], merchant_scope={"merchant_ids": ["merchant-09"]}),
+    )
+
+    assert result.status == "ok"
+    assert result.fact is not None
+    assert result.fact["metric_id"] == "pending_ticket_count"
+    assert result.fact["value"] == 3
+    assert result.fact["scope"]["merchant_ids"] == ["merchant-09"]
+    assert result.business_fact_refs == [
+        BusinessFactRefV1(
+            tenant_id="tenant-09",
+            source_system="business_fact_service",
+            resource_type="business_metric",
+            resource_id="pending_ticket_count",
+            resource_version=None,
+            data_freshness_at=result.data_freshness_at,
+            retrieved_at=result.business_fact_refs[0].retrieved_at,
+        )
+    ]
+    assert service.calls[0][2] == ["merchant-09"]
+
+
+@pytest.mark.asyncio
+async def test_business_metric_permission_denial_has_no_metric_data_or_merchant_leak() -> None:
+    service = _StubMetricService(_metric_result())
+
+    result = await service.query_business_metric(
+        {"metric_id": "order_count", "merchant_id": "merchant-secret"},
+        _context(permissions=["tool:query_business_metric"], merchant_scope={"merchant_ids": ["merchant-allowed"]}),
+    )
+
+    _assert_fail_closed(result, "permission_denied")
+    assert result.scope_check_result == "denied"
+    assert result.missing_required_facts == ["business_metric"]
+    serialized = result.model_dump_json()
+    assert "merchant-secret" not in serialized
+    assert "merchant-allowed" not in serialized
+    assert service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_business_metric_zero_denominator_refund_rate_is_successful_non_computable_fact() -> None:
+    service = _StubMetricService(
+        _metric_result(
+            metric_id="merchant_refund_rate",
+            status="non_computable",
+            value=None,
+            rate=None,
+            numerator=0,
+            denominator=0,
+            unit="ratio",
+            display_value="暂无可计算退款率",
+            formula="distinct refunded orders / total orders",
+            caveats=["当前范围内没有订单，无法计算退款率。"],
+        )
+    )
+
+    result = await service.query_business_metric(
+        {"metric_id": "merchant_refund_rate", "time_preset": "today"},
+        _context(permissions=["tool:query_business_metric"], merchant_scope={"merchant_ids": ["merchant-09"]}),
+    )
+
+    assert result.status == "ok"
+    assert result.fact is not None
+    assert result.fact["status"] == "non_computable"
+    assert result.fact["denominator"] == 0
+    assert result.fact["rate"] is None
+    assert result.fact["display_value"] == "暂无可计算退款率"
+    assert result.business_fact_refs[0].resource_type == "business_metric"
+
+
+@pytest.mark.asyncio
+async def test_business_tool_service_dispatches_query_business_metric() -> None:
+    service = _StubMetricService(_metric_result())
+
+    tool_result = await BusinessToolService(AsyncMock(), fact_service=service).invoke_tool(
+        "query_business_metric",
+        {"metric_id": "pending_ticket_count", "time_preset": "current_snapshot"},
+        _context(permissions=["tool:query_business_metric"], merchant_scope={"merchant_ids": ["merchant-09"]}),
+    )
+
+    assert tool_result.status == "success"
+    assert tool_result.data is not None
+    assert tool_result.data["metric_id"] == "pending_ticket_count"
+    assert tool_result.business_fact_refs[0].resource_type == "business_metric"
 
 
 @pytest.mark.asyncio
