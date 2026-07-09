@@ -14,6 +14,9 @@ type MockScenario = {
 
 const INPUT_PLACEHOLDER = '输入退款咨询或补偿请求'
 const SEND_BUTTON = '发送问题'
+const API_URL =
+  process.env.MOCA_E2E_API_URL ??
+  (process.env.MOCA_E2E_LIVE ? 'http://127.0.0.1:8011' : 'http://127.0.0.1:8000')
 
 const MOCK_SCENARIOS: Record<string, MockScenario> = {
   你好: {
@@ -134,10 +137,43 @@ test.describe('Agent Console mocked Phase 61 flows', () => {
 })
 
 test.describe('Agent Console live Phase 61 flows @live', () => {
-  test('uses real agent-runs SSE for demo prompts', async ({ page, request }, testInfo) => {
+  test('uses real agent-runs SSE for direct-response smoke', async ({ page, request }, testInfo) => {
     test.skip(!process.env.MOCA_E2E_LIVE, 'Run via npm run e2e:live')
 
-    const health = await request.get('/api/v1/health')
+    const health = await request.get(`${API_URL}/health`)
+    expect(health.ok(), `Backend health check failed: ${health.status()} ${await health.text()}`).toBeTruthy()
+
+    let sawCreateRun = false
+    let sawRunEvents = false
+    page.on('response', (response) => {
+      const url = response.url()
+      if (url.includes('/api/v1/agent-runs') && response.request().method() === 'POST') {
+        sawCreateRun = true
+      }
+      if (url.includes('/api/v1/agent-runs/') && url.endsWith('/events')) {
+        sawRunEvents = true
+      }
+    })
+
+    await page.goto('/')
+    await expect(page.getByPlaceholder(INPUT_PLACEHOLDER)).toBeEnabled()
+
+    await submitAndExpect(page, '你好', {
+      responseText: '你好',
+      timelineText: '直接回复',
+      subtitleText: 'response: direct',
+    })
+
+    expect(sawCreateRun).toBeTruthy()
+    expect(sawRunEvents).toBeTruthy()
+    await expectTimelineRowsDoNotOverlap(page)
+    await page.screenshot({ path: testInfo.outputPath('agent-console-live-smoke.png'), fullPage: true })
+  })
+
+  test('uses real agent-runs SSE for full demo prompt matrix @full-live', async ({ page, request }, testInfo) => {
+    test.skip(!process.env.MOCA_E2E_FULL_LIVE, 'Requires live LLM provider: set MOCA_E2E_FULL_LIVE=1')
+
+    const health = await request.get(`${API_URL}/health`)
     expect(health.ok(), `Backend health check failed: ${health.status()} ${await health.text()}`).toBeTruthy()
 
     let sawCreateRun = false
