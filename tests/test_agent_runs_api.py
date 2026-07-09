@@ -8,6 +8,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -426,6 +427,67 @@ class GatedLifecycleGraph:
         yield _node_lifecycle_event("on_chain_start", "final_response", 2, {})
         final_output = {"final_response": "done", "trace_steps": trace_steps}
         yield _node_lifecycle_event("on_chain_end", "final_response", 2, final_output)
+        yield {
+            "event": "on_chain_end",
+            "name": "LangGraph",
+            "metadata": {},
+            "data": {"output": final_output},
+        }
+
+
+def _unsafe_metric_final_state() -> dict[str, Any]:
+    return {
+        "tenant_id": "tenant-001",
+        "current_intent": "business_metric_query",
+        "final_response": "3\n范围：当前权限范围\n时间：今天\n筛选：状态=已退款\n数据新鲜度：2026-07-09 04:00",
+        "llm_outputs": {
+            "final_response": {
+                "response_kind": "metric_answer",
+                "metric": {
+                    "metric_id": "refund_case_count",
+                    "metric_label": "退款单数",
+                    "scope_label": "当前权限范围",
+                    "time_label": "今天",
+                    "filters_label": "状态=已退款",
+                    "freshness_label": "2026-07-09 04:00",
+                    "safe_reason": "ok",
+                    "merchant_ids": ["MERCHANT-SHOULD-NOT-LEAK"],
+                    "sql": "SELECT * FROM unsafe_metric_table",
+                },
+                "routing_hints": {"route": "ROUTING_HINTS_SHOULD_NOT_LEAK"},
+                "merchant_scope": {"merchant_ids": ["MERCHANT-SHOULD-NOT-LEAK"]},
+            }
+        },
+        "business_context": {
+            "status": "permission_denied",
+            "facts": {
+                "business_metric": {
+                    "metric_id": "refund_case_count",
+                    "merchant_id": "MERCHANT-SHOULD-NOT-LEAK",
+                    "merchant_scope": {"merchant_ids": ["MERCHANT-SHOULD-NOT-LEAK"]},
+                    "routing_hints": {"route": "ROUTING_HINTS_SHOULD_NOT_LEAK"},
+                    "sql": "SELECT * FROM unsafe_metric_table",
+                }
+            },
+        },
+        "routing_hints": {"route": "ROUTING_HINTS_SHOULD_NOT_LEAK"},
+        "merchant_scope": {"merchant_ids": ["MERCHANT-SHOULD-NOT-LEAK"]},
+        "trace_steps": [_trace("final_response")],
+    }
+
+
+class MetricFinalResponseGraph:
+    async def astream(self, input_state, config, stream_mode):
+        del input_state, config, stream_mode
+        yield ("final_response", _unsafe_metric_final_state())
+
+
+class MetricFinalResponseLifecycleGraph:
+    async def astream_events(self, input_state, config, version):
+        del input_state, config, version
+        yield _node_lifecycle_event("on_chain_start", "final_response", 1, {})
+        final_output = _unsafe_metric_final_state()
+        yield _node_lifecycle_event("on_chain_end", "final_response", 1, final_output)
         yield {
             "event": "on_chain_end",
             "name": "LangGraph",
@@ -1484,6 +1546,58 @@ async def test_event_generator_projects_allowlisted_rag_claim_summary_in_step_pa
         "DEBUG_PROJECTION_SHOULD_NOT_LEAK",
         "VERIFIER_PROJECTION_SHOULD_NOT_LEAK",
         "candidate-only",
+    ):
+        assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("graph_factory", [MetricFinalResponseGraph, MetricFinalResponseLifecycleGraph])
+async def test_event_generator_projects_safe_metric_final_response_payload(
+    session: AsyncSession,
+    seeded_session,
+    graph_factory,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    events = [
+        _event_data(event)
+        async for event in _event_generator(
+            graph_factory(),
+            _stream_input(run, user),
+            {"configurable": {"thread_id": run.thread_id, "session": session}},
+            run=run,
+            session=session,
+            user=user,
+        )
+        if "data" in event
+    ]
+
+    final_payload = next(event["payload"] for event in events if event["event_type"] == "final_response")
+    assert final_payload["response_kind"] == "metric_answer"
+    assert final_payload["metric"] == {
+        "metric_id": "refund_case_count",
+        "metric_label": "退款单数",
+        "scope_label": "当前权限范围",
+        "time_label": "今天",
+        "filters_label": "状态=已退款",
+        "freshness_label": "2026-07-09 04:00",
+        "safe_reason": "ok",
+    }
+    assert set(final_payload) == {
+        "final_response",
+        "target_merchant_context",
+        "response_kind",
+        "metric",
+    }
+    serialized = json.dumps(final_payload, ensure_ascii=False)
+    for forbidden in (
+        "routing_hints",
+        "merchant_scope",
+        "MERCHANT-SHOULD-NOT-LEAK",
+        "SELECT * FROM unsafe_metric_table",
+        "sql",
     ):
         assert forbidden not in serialized
 
