@@ -544,16 +544,39 @@ async def test_business_keyword_text_does_not_use_small_talk_guard(monkeypatch, 
 
 
 @pytest.mark.asyncio
-async def test_aggregate_order_count_request_is_unsupported_without_llm(monkeypatch, base_state):
+async def test_aggregate_order_count_request_routes_to_metric_intent_without_llm(monkeypatch, base_state):
     def fail_llm():
-        raise AssertionError("LLM should not be called for unsupported aggregate order counts")
+        raise AssertionError("LLM should not be called for deterministic aggregate order counts")
 
     monkeypatch.setattr(contextual_intent_module, "_get_llm", fail_llm)
 
     result = await contextual_intent_module.contextual_intent_resolve({**base_state, "user_query": "当前有多少订单"})
 
-    assert result["primary_intent"] == "unsupported"
-    assert result["requested_operation"] == "advise"
-    assert result["routing_hints"]["unsupported_reason"] == "aggregate_order_query"
-    assert result["classification_trace"]["route_decision"] == "final_response"
-    assert "unsupported_aggregate_order_query" in result["classification_trace"]["reason_codes"]
+    assert result["primary_intent"] == "business_metric_query"
+    assert result["requested_operation"] == "read_status"
+    assert result["candidate_slots"] == {"metric_id": "order_count"}
+    assert result["classification_trace"]["route_decision"] == "slot_resolution_gate"
+    assert "deterministic_business_metric_query" in result["classification_trace"]["reason_codes"]
+
+
+@pytest.mark.asyncio
+async def test_concrete_order_status_identifier_does_not_use_metric_guard(monkeypatch, base_state):
+    monkeypatch.setattr(
+        contextual_intent_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            _intent_v3(
+                primary_intent="order_status_inquiry",
+                requested_operation="read_status",
+                candidate_slots={"order_id": "ORD-2024-001"},
+            )
+        ),
+    )
+
+    result = await contextual_intent_module.contextual_intent_resolve(
+        {**base_state, "user_query": "订单 ORD-2024-001 状态如何"}
+    )
+
+    assert result["primary_intent"] == "order_status_inquiry"
+    assert result["candidate_slots"] == {"order_id": "ORD-2024-001"}
+    assert "deterministic_business_metric_query" not in result["classification_trace"]["reason_codes"]

@@ -93,7 +93,7 @@ _ID_ANSWER_RE = re.compile(
     r"\b(?:OD|ORD|ORDER|RF|REFUND|TKT|TK|APR|MER|CUST)[-_]?[A-Z0-9]{2,}\b",
     re.IGNORECASE,
 )
-_UNSUPPORTED_AGGREGATE_ORDER_RE = re.compile(
+_AGGREGATE_ORDER_METRIC_RE = re.compile(
     r"(?:当前|现在|目前|一共|总共|总计|全部|所有)?.{0,8}(?:多少|几|数量|总数|统计|count).{0,8}(?:订单|order)",
     re.IGNORECASE,
 )
@@ -604,8 +604,9 @@ def _deterministic_context_update(
     if _is_standalone_small_talk(user_text):
         return _standalone_small_talk_update(state, pre_route, started_at)
 
-    if _is_unsupported_aggregate_order_request(user_text):
-        return _unsupported_aggregate_order_update(state, pre_route, started_at)
+    metric_slots = _deterministic_metric_candidate_slots(user_text)
+    if metric_slots is not None:
+        return _business_metric_query_update(state, pre_route, started_at, metric_slots)
 
     flow = state.get("active_flow_state") if isinstance(state.get("active_flow_state"), dict) else None
     if flow and flow.get("kind") == "pending_required_slot":
@@ -711,37 +712,76 @@ def _standalone_small_talk_update(
     )
 
 
-def _is_unsupported_aggregate_order_request(text: str) -> bool:
+def _deterministic_metric_candidate_slots(text: str) -> dict[str, Any] | None:
     normalized = text.strip()
     if not normalized:
-        return False
+        return None
     if _ID_ANSWER_RE.search(normalized):
-        return False
-    return _UNSUPPORTED_AGGREGATE_ORDER_RE.search(normalized) is not None
+        return None
+    lowered = normalized.lower()
+    metric_id: str | None = None
+    if _AGGREGATE_ORDER_METRIC_RE.search(normalized):
+        metric_id = "order_count"
+    elif ("退款率" in normalized or "refund rate" in lowered) and ("商家" in normalized or "merchant" in lowered):
+        metric_id = "merchant_refund_rate"
+    elif ("待处理" in normalized or "pending" in lowered) and ("工单" in normalized or "ticket" in lowered):
+        metric_id = "pending_ticket_count"
+    elif ("补偿券" in normalized or "优惠券" in normalized or "coupon" in lowered) and _looks_like_metric_count(normalized):
+        metric_id = "coupon_record_count"
+    elif ("退款单" in normalized or "refund case" in lowered or "refund" in lowered) and _looks_like_metric_count(normalized):
+        metric_id = "refund_case_count"
+    if metric_id is None:
+        return None
+
+    candidate_slots: dict[str, Any] = {"metric_id": metric_id}
+    preset = _metric_time_preset_from_text(normalized)
+    if preset:
+        candidate_slots["metric_time_preset"] = preset
+    if metric_id == "pending_ticket_count" and "metric_time_preset" not in candidate_slots:
+        candidate_slots["metric_time_preset"] = "current_snapshot"
+    return candidate_slots
 
 
-def _unsupported_aggregate_order_update(
+def _looks_like_metric_count(text: str) -> bool:
+    lowered = text.lower()
+    return any(term in lowered for term in ("多少", "几个", "几单", "数量", "总数", "统计", "一共", "总共", "count"))
+
+
+def _metric_time_preset_from_text(text: str) -> str | None:
+    lowered = text.lower()
+    if "今天" in text or "今日" in text or "today" in lowered:
+        return "today"
+    if "本周" in text or "这周" in text or "this week" in lowered:
+        return "this_week"
+    if "本月" in text or "这个月" in text or "this month" in lowered:
+        return "this_month"
+    if "本季度" in text or "这个季度" in text or "this quarter" in lowered:
+        return "this_quarter"
+    if "今年" in text or "本年" in text or "this year" in lowered:
+        return "this_year"
+    return None
+
+
+def _business_metric_query_update(
     state: AgentState,
     pre_route: PreRouteDecision,
     started_at: str,
+    candidate_slots: dict[str, Any],
 ) -> dict[str, Any]:
-    reason_codes = ["unsupported_aggregate_order_query"]
+    reason_codes = ["deterministic_business_metric_query"]
     return _deterministic_classification_update(
         state,
         started_at=started_at,
         pre_route=pre_route,
-        primary_intent="unsupported",
-        requested_operation="advise",
+        primary_intent="business_metric_query",
+        requested_operation="read_status",
         intent_confidence=1.0,
-        required_slots=SLOT_POLICY_REGISTRY.required_slots_for("unsupported").model_dump(),
-        candidate_slots={},
-        routing_hints={
-            "unsupported_reason": "aggregate_order_query",
-            "supported_alternatives": ["order_status_by_id", "refund_case_by_id", "ticket_by_id"],
-        },
-        policy_overrides=[{"source": "unsupported_capability_guard", "reason_codes": reason_codes}],
+        required_slots=SLOT_POLICY_REGISTRY.required_slots_for("business_metric_query").model_dump(),
+        candidate_slots=candidate_slots,
+        routing_hints={"metric_intent_parser": "deterministic"},
+        policy_overrides=[{"source": "business_metric_guard", "reason_codes": reason_codes}],
         reason_codes=reason_codes,
-        source="unsupported_capability_guard",
+        source="business_metric_guard",
     )
 
 
