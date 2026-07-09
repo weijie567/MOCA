@@ -1,5 +1,49 @@
 # 本地验证问题记录
 
+## 26. Phase 63 secure-phase SECURITY 文件探测使用 zsh 未匹配 glob 报错
+
+日期：2026-07-10
+
+### 问题现象
+
+进入 Phase 63 secure 阶段时，尝试用 shell glob 探测是否已有 SECURITY artifact：
+
+```bash
+ls .planning/phases/63-safety-taxonomy-and-risk-vocabulary/*SECURITY* 2>/dev/null || true
+```
+
+在 zsh 下由于没有匹配文件，glob 展开阶段先报错：
+
+```text
+zsh:1: no matches found: .planning/phases/63-safety-taxonomy-and-risk-vocabulary/*SECURITY*
+```
+
+### 如何检测 / 复现
+
+在没有 `*-SECURITY.md` 的 phase 目录下直接运行上述未引用 glob 命令即可复现。
+
+### 关键证据或命令
+
+后续用 `find` 替代 glob 后确认确实没有既有 SECURITY 文件：
+
+```bash
+find .planning/phases/63-safety-taxonomy-and-risk-vocabulary -maxdepth 1 -name '*SECURITY*' -type f -print
+```
+
+结果为空。
+
+### 当前判断 / 根因
+
+这是 zsh 的 `nomatch` 行为导致的探测命令问题，不是 Phase 63 security artifact 或产品代码问题。`|| true` 无法覆盖 glob 展开阶段的错误。
+
+### 已做处理
+
+改用 `find ... -name '*SECURITY*'` 进行无匹配安全探测，并继续按 secure-phase State B 从 PLAN/SUMMARY artifacts 创建 `63-SECURITY.md`。
+
+### 剩余问题和下次继续排查入口
+
+后续 workflow shell 示例如果要兼容 zsh，应优先使用 `find`，或显式引用 glob/启用 `NULL_GLOB`，避免无匹配路径把无害探测变成错误输出。
+
 ## 25. Phase 63 code review 技能入口被误当作 shell 命令
 
 日期：2026-07-10
