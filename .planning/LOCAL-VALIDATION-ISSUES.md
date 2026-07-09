@@ -19773,3 +19773,45 @@ NameError: name 'ctx' is not defined
 ### 剩余问题和下次继续排查入口
 
 当前问题已修复。后续若调整 ToolPolicy visibility，需要同时覆盖 caller、runtime availability、permission 三类条件，避免 visibility helper 与 runtime auth helper 参数漂移。
+
+## 2026-07-09：Phase 61-04 graph metric missing-time 测试误入真实 LLM/proxy 路径
+
+### 问题现象
+
+执行 61-04 graph focused verification 时，`tests/agent/test_graph.py::test_aggregate_order_count_routes_to_unsupported_without_slot_gate` 失败；用例原本期望 aggregate order count 走 unsupported，但当前 61-02/61-04 语义已应路由到 `business_metric_query -> slot_resolution_gate`。测试没有 monkeypatch slot gate LLM，导致执行时尝试初始化真实 `ChatOpenAI`，并触发本机 SOCKS 依赖缺失错误。
+
+### 如何检测 / 复现
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py::test_aggregate_order_count_routes_to_unsupported_without_slot_gate -q --tb=short
+```
+
+### 关键证据或命令
+
+失败关键报错：
+
+```text
+ImportError: Using SOCKS proxy, but the 'socksio' package is not installed.
+```
+
+调用路径进入 `slot_resolution_gate_module._get_llm()`，说明测试未隔离 LLM 依赖；同时 aggregate order count 已不再是 unsupported 语义。
+
+### 当前判断 / 根因
+
+这是本地验证用例与 Phase 61 metric intent 语义变更不一致造成的测试入口问题，不是生产代码需要真实 LLM。缺失 monkeypatch 后，单测误入外部模型/proxy 初始化路径。
+
+### 已做处理
+
+- 对相关 graph metric missing-time 测试补上 `slot_resolution_gate_module._get_llm` monkeypatch。
+- 将期望调整为 metric clarification：`business_metric_query` 进入 `slot_resolution_gate`，缺少时间范围时进入 `clarification_gate`，且不调用工具。
+- 重跑 focused graph/intent verification：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/test_intent_routing.py -q --tb=short
+```
+
+结果：`1240 passed, 34 warnings`。warning 是既有 `LangChainPendingDeprecationWarning` 和 graph config typing warning。
+
+### 剩余问题和下次继续排查入口
+
+`tests/agent/test_graph.py` 在 61-04 开始前已有未提交脏改；本次只把 61-04 新增 metric graph/routing 覆盖提交进计划切片，保留既有脏改不回滚。后续若整理 pre-existing graph tests，需要单独处理该工作树状态。
