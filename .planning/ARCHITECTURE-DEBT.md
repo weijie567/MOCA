@@ -112,6 +112,16 @@
 **这一轮 = milestone v2.1「Tool Platform Hardening」，Phase 37–41，5 phase / 14 plan，全部标记 complete（`.planning/STATE.md`）。**
 **主要契约参考**：`docs/contract-spec.md` §8.0 / §12.5 / §12.6；phase plan 若发现冲突，应先提出 spec delta。
 
+## 2026-07-10 — Phase 62 business_query denied/projection no-leak 缺口已修复 ✅
+
+- **子系统**：工具调用 / Business Query / Agent Console 投影
+- **问题现象/根因**：Phase 62 code review WR-01/WR-02 发现两个 no-existence-leak 缺口：`BusinessFactService.query_business()` 在 scope denial 时返回通用 `business_query` permission error，导致 `final_response` 只能合成固定 `detail/order` payload；同时 already-projected `business_query_answer` 路径信任 `resource_label`、`result_label`、`filters_label`、`fields_label`、`cursor_label` 等 display 字段，raw cursor / tenant / denied id 标记可藏在 allowlisted label 值中进入 API 和 Console。
+- **影响**：未授权 list/breakdown/compare 请求可能丢失原始 operation/resource 形状；未来 executor/test fixture 若把 `MERCHANT-SECRET`、`ORD-SECRET-DENIED` 或 raw cursor 放进 label 值，React escape 只能防 XSS，不能防业务存在性/原始 payload 泄漏。
+- **处理状态**：✅ 已修复验证。WR-01 新增 typed `BusinessQueryResultV1(status="permission_denied")` denial helper，保留请求 operation/resource，清空 `merchant_id` / `resource_id` 后再进入 business_query fact/result 包装。WR-02 将 display label sanitizer 与 row value sanitizer 分离，对 projected API label 值拒绝 raw/cursor/tenant/merchant/denied-id marker，并将 `cursor_label` 收敛为 `"还有更多结果"` 枚举显示；Console 组件增加同类 display-label 防御。
+- **证据**：Phase 62 review `.planning/phases/62-business-query-and-drilldown-foundation/62-REVIEW.md` WR-01/WR-02；commit `07419cb`（WR-01）；`src/business/service.py:284`、`src/business/service.py:330`；`src/business/query/projection.py:203`、`src/business/query/projection.py:413`；`frontend/src/components/details/BusinessQueryResultTab.tsx:26`；`tests/business/test_business_query_service.py`、`tests/tools/test_projection.py`、`tests/test_agent_runs_api.py`、`frontend/src/components/details/BusinessQueryResultTab.test.tsx`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py::test_business_query_denied_list_returns_typed_no_leak_payload` → passed；`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_projection.py::test_projected_business_query_payload_rejects_sensitive_values_inside_labels tests/test_agent_runs_api.py::test_final_response_payload_strips_sensitive_business_query_label_values` → passed；`npx tsc --noEmit --pretty false`（frontend）→ passed；`npx vitest run --environment jsdom src/components/details/BusinessQueryResultTab.test.tsx` → passed。
+- **剩余风险**：🟡 label 拒绝规则是 marker-based，不是完整 DLP；若后续新增业务 ID 前缀或 cursor 文案，需要同步扩展 `projection.py` 和 Console 回归测试。当前 Phase 62 typed payload / no-existence-leak 合约已由上述 focused tests 锁定。
+
 ## Phase 37 — 声明单源 + runtime/policy 内部收敛（TPH-03, TPH-04）✅⚠️
 
 **问题**

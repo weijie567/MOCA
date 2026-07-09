@@ -118,6 +118,52 @@ def test_business_query_api_payload_allowlists_fields_and_strips_raw_rows() -> N
         assert forbidden not in serialized
 
 
+def test_projected_business_query_payload_rejects_sensitive_values_inside_labels() -> None:
+    projected = safe_business_query_api_payload(
+        {
+            "operation": "list",
+            "resource_label": "订单",
+            "result_label": "ORD-SECRET-DENIED",
+            "scope_label": "MERCHANT-SECRET",
+            "time_label": "tenant-001",
+            "filters_label": "raw filter payload",
+            "freshness_label": "cursor-raw-should-not-leak",
+            "fields_label": "merchant_scope.MERCHANT-SECRET",
+            "safe_reason": "ok",
+            "rows": [{"order_no": "ORD-BQ-001", "status": "paid"}],
+            "row_count": 1,
+            "limit": 20,
+            "cursor_label": "cursor-raw-should-not-leak",
+            "allowed_drilldowns": ["detail"],
+            "group_by_label": "raw group",
+            "compare_label": "ORD-SECRET-DENIED",
+        }
+    )
+
+    assert projected["resource_label"] == "订单"
+    assert projected["result_label"] == ""
+    assert projected["scope_label"] == "当前权限范围"
+    assert projected["time_label"] == "指定时间范围"
+    assert projected["filters_label"] == "无"
+    assert projected["freshness_label"] == "当前可用业务数据"
+    assert projected["fields_label"] == ""
+    assert projected["cursor_label"] == ""
+    assert projected["group_by_label"] == ""
+    assert projected["compare_label"] == ""
+    assert projected["rows"] == [{"order_no": "ORD-BQ-001", "status": "paid"}]
+
+    serialized = json.dumps(projected, ensure_ascii=False)
+    for forbidden in (
+        "ORD-SECRET-DENIED",
+        "MERCHANT-SECRET",
+        "tenant-001",
+        "raw filter payload",
+        "cursor-raw-should-not-leak",
+        "merchant_scope",
+    ):
+        assert forbidden not in serialized
+
+
 @pytest.mark.parametrize(
     ("operation", "rows", "expected"),
     [

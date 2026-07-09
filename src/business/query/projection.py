@@ -111,6 +111,15 @@ _FORBIDDEN_KEY_MARKERS = (
     "cursor_id",
     "next_cursor",
 )
+_FORBIDDEN_DISPLAY_LABEL_MARKERS = (
+    "raw",
+    "cursor-",
+    "tenant",
+    "merchant",
+    "ord-secret",
+    "secret-denied",
+    "should-not-leak",
+)
 
 
 def business_query_response_text(payload: dict[str, Any]) -> str:
@@ -191,21 +200,21 @@ def _sanitize_projected_api_payload(payload: dict[str, Any]) -> dict[str, Any]:
     safe_rows = _sanitize_projected_rows(rows if isinstance(rows, list) else [])
     safe: dict[str, Any] = {
         "operation": operation if operation in BUSINESS_QUERY_REGISTRY.operation_ids() else "",
-        "resource_label": _safe_text(payload.get("resource_label")),
-        "result_label": _safe_text(payload.get("result_label")),
-        "scope_label": _safe_text(payload.get("scope_label")) or "当前权限范围",
-        "time_label": _safe_text(payload.get("time_label")) or "指定时间范围",
-        "filters_label": _safe_text(payload.get("filters_label")) or "无",
-        "freshness_label": _safe_text(payload.get("freshness_label")) or "当前可用业务数据",
-        "fields_label": _safe_text(payload.get("fields_label")),
+        "resource_label": _safe_display_label(payload.get("resource_label")),
+        "result_label": _safe_display_label(payload.get("result_label")),
+        "scope_label": _safe_display_label(payload.get("scope_label")) or "当前权限范围",
+        "time_label": _safe_display_label(payload.get("time_label")) or "指定时间范围",
+        "filters_label": _safe_display_label(payload.get("filters_label")) or "无",
+        "freshness_label": _safe_display_label(payload.get("freshness_label")) or "当前可用业务数据",
+        "fields_label": _safe_display_label(payload.get("fields_label")),
         "safe_reason": _safe_text(payload.get("safe_reason")) or "ok",
         "rows": safe_rows[:_MAX_API_ROWS],
         "row_count": _safe_int(payload.get("row_count"), default=len(safe_rows)),
         "limit": _safe_int(payload.get("limit"), default=max(len(safe_rows), 1)),
-        "cursor_label": _safe_text(payload.get("cursor_label")),
+        "cursor_label": "还有更多结果" if payload.get("cursor_label") == "还有更多结果" else "",
         "allowed_drilldowns": _safe_text_list(payload.get("allowed_drilldowns")),
-        "group_by_label": _safe_text(payload.get("group_by_label")),
-        "compare_label": _safe_text(payload.get("compare_label")),
+        "group_by_label": _safe_display_label(payload.get("group_by_label")),
+        "compare_label": _safe_display_label(payload.get("compare_label")),
     }
     return {field: safe[field] for field in BUSINESS_QUERY_API_PAYLOAD_FIELDS}
 
@@ -399,6 +408,16 @@ def _safe_text(value: Any) -> str:
     if _is_forbidden_text(value):
         return ""
     return value[:240]
+
+
+def _safe_display_label(value: Any) -> str:
+    label = _safe_text(value)
+    if not label:
+        return ""
+    lowered = label.lower()
+    if any(marker in lowered for marker in _FORBIDDEN_DISPLAY_LABEL_MARKERS):
+        return ""
+    return label
 
 
 def _safe_text_list(value: Any) -> list[str]:

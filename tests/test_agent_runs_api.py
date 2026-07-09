@@ -725,6 +725,50 @@ def test_phase62_business_query_api_payload_supports_no_leak_breakdown_and_compa
             assert forbidden not in serialized
 
 
+def test_final_response_payload_strips_sensitive_business_query_label_values():
+    final_state = _unsafe_business_query_final_state()
+    query = final_state["llm_outputs"]["final_response"]["business_query"]
+    query.update(
+        {
+            "resource_label": "MERCHANT-SECRET",
+            "result_label": "ORD-SECRET-DENIED",
+            "scope_label": "tenant-001",
+            "time_label": "raw time payload",
+            "filters_label": "merchant_scope.MERCHANT-SECRET",
+            "freshness_label": "cursor-raw-should-not-leak",
+            "fields_label": "ORD-SECRET-DENIED",
+            "cursor_label": "cursor-raw-should-not-leak",
+            "group_by_label": "raw group",
+            "compare_label": "ORD-SECRET-DENIED",
+        }
+    )
+
+    payload = _final_response_payload("业务查询结果", final_state)
+
+    business_query = payload["business_query"]
+    assert business_query["resource_label"] == ""
+    assert business_query["result_label"] == ""
+    assert business_query["scope_label"] == "当前权限范围"
+    assert business_query["time_label"] == "指定时间范围"
+    assert business_query["filters_label"] == "无"
+    assert business_query["freshness_label"] == "当前可用业务数据"
+    assert business_query["fields_label"] == ""
+    assert business_query["cursor_label"] == ""
+    assert business_query["group_by_label"] == ""
+    assert business_query["compare_label"] == ""
+
+    serialized = json.dumps(payload, ensure_ascii=False)
+    for forbidden in (
+        "MERCHANT-SECRET",
+        "ORD-SECRET-DENIED",
+        "tenant-001",
+        "raw time payload",
+        "cursor-raw-should-not-leak",
+        "merchant_scope",
+    ):
+        assert forbidden not in serialized
+
+
 class MetricFinalResponseGraph:
     async def astream(self, input_state, config, stream_mode):
         del input_state, config, stream_mode

@@ -23,9 +23,22 @@ const UNSAFE_KEY_PARTS = [
   'stack',
   'cursor_token',
 ]
+const UNSAFE_DISPLAY_TEXT_PARTS = [
+  'raw',
+  'cursor-',
+  'tenant',
+  'merchant',
+  'ord-secret',
+  'secret-denied',
+  'should-not-leak',
+]
 
 function text(value: unknown) {
-  return typeof value === 'string' ? value.trim() : ''
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  const normalized = trimmed.toLowerCase()
+  if (UNSAFE_DISPLAY_TEXT_PARTS.some((part) => normalized.includes(part))) return ''
+  return trimmed
 }
 
 function latestBusinessQuery(steps: SseEvent[]) {
