@@ -1,3 +1,18 @@
+from __future__ import annotations
+
+from src.business.query.registry import BUSINESS_QUERY_REGISTRY
+
+
+_BUSINESS_METRIC_ID_LIST = ", ".join(BUSINESS_QUERY_REGISTRY.metrics())
+_BUSINESS_METRIC_TIME_PRESET_LIST = ", ".join(BUSINESS_QUERY_REGISTRY.time_presets())
+_BUSINESS_METRIC_RESOURCE_TYPE_LIST = ", ".join(
+    dict.fromkeys(
+        BUSINESS_QUERY_REGISTRY.compatibility_resource_type(metric_id)
+        for metric_id in BUSINESS_QUERY_REGISTRY.metrics()
+    )
+)
+
+
 CLASSIFY_INTENT_SYSTEM = """You classify merchant operations and support questions into the strict IntentResultV3 JSON schema.
 
 Allowed intents:
@@ -51,7 +66,7 @@ JSON: {"schema_version":"intent_result.v3","primary_intent":"unsupported","reque
 """
 
 
-EXTRACT_SLOTS_SYSTEM = """Extract structured identifiers and issue type from a merchant operations or support query.
+EXTRACT_SLOTS_SYSTEM = f"""Extract structured identifiers and issue type from a merchant operations or support query.
 
 Fields to extract:
 - order_id
@@ -61,9 +76,9 @@ Fields to extract:
 - customer_id
 - issue_type
 - action_type
-- metric_id (one of: order_count, refund_case_count, pending_ticket_count, coupon_record_count, merchant_refund_rate)
-- resource_type (one of: order, refund_case, ticket, action_draft, merchant_metric)
-- metric_time_preset (one of: today, this_week, this_month, this_quarter, this_year, current_snapshot)
+- metric_id (one of: {_BUSINESS_METRIC_ID_LIST})
+- resource_type (one of: {_BUSINESS_METRIC_RESOURCE_TYPE_LIST})
+- metric_time_preset (one of: {_BUSINESS_METRIC_TIME_PRESET_LIST})
 - metric_time_range_start
 - metric_time_range_end
 - status_filter

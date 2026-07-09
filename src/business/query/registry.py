@@ -37,7 +37,7 @@ class BusinessMetricDescriptor:
     status_allowlist: frozenset[str]
     compatibility_resource_type: str
     default_time_preset: str | None = None
-    default_status_filter: frozenset[str] = frozenset()
+    default_status_filter: tuple[str, ...] = ()
     requires_merchant_filter: bool = False
     parser_aliases: frozenset[str] = frozenset()
     unit: str = "count"
@@ -186,7 +186,7 @@ class BusinessQueryRegistry:
     def status_filter_values_for_metric(self, metric_id: str) -> frozenset[str]:
         return self.metric_descriptor(metric_id).status_allowlist
 
-    def default_status_filter_for_metric(self, metric_id: str) -> frozenset[str]:
+    def default_status_filter_for_metric(self, metric_id: str) -> tuple[str, ...]:
         return self.metric_descriptor(metric_id).default_status_filter
 
     def metric_requires_merchant_filter(self, metric_id: str) -> bool:
@@ -347,7 +347,7 @@ _METRICS: Mapping[str, BusinessMetricDescriptor] = {
         operation_id="aggregate",
         accepted_time_presets=WINDOW_TIME_PRESETS,
         status_allowlist=frozenset({"pending", "paid", "shipped", "delivered", "completed"}),
-        parser_aliases=frozenset({"订单数", "多少订单", "订单量", "订单总数"}),
+        parser_aliases=frozenset({"订单数", "多少订单", "订单量", "订单总数", "order", "order count"}),
     ),
     "refund_case_count": BusinessMetricDescriptor(
         id="refund_case_count",
@@ -356,7 +356,7 @@ _METRICS: Mapping[str, BusinessMetricDescriptor] = {
         operation_id="aggregate",
         accepted_time_presets=WINDOW_TIME_PRESETS,
         status_allowlist=frozenset({"submitted", "reviewing", "approved", "rejected", "closed"}),
-        parser_aliases=frozenset({"退款单", "退款单数", "多少退款", "退款数量"}),
+        parser_aliases=frozenset({"退款单", "退款单数", "多少退款", "退款数量", "refund", "refund case"}),
     ),
     "pending_ticket_count": BusinessMetricDescriptor(
         id="pending_ticket_count",
@@ -366,8 +366,8 @@ _METRICS: Mapping[str, BusinessMetricDescriptor] = {
         accepted_time_presets=WINDOW_TIME_PRESETS | frozenset({"current_snapshot"}),
         status_allowlist=frozenset({"open", "in_progress"}),
         default_time_preset="current_snapshot",
-        default_status_filter=frozenset({"open", "in_progress"}),
-        parser_aliases=frozenset({"待处理工单", "当前待处理工单", "还有多少工单", "工单数"}),
+        default_status_filter=("open", "in_progress"),
+        parser_aliases=frozenset({"待处理工单", "当前待处理工单", "还有多少工单", "工单数", "pending ticket"}),
     ),
     "coupon_record_count": BusinessMetricDescriptor(
         id="coupon_record_count",
@@ -376,7 +376,7 @@ _METRICS: Mapping[str, BusinessMetricDescriptor] = {
         operation_id="aggregate",
         accepted_time_presets=WINDOW_TIME_PRESETS,
         status_allowlist=frozenset(),
-        parser_aliases=frozenset({"补偿券", "优惠券", "券记录", "发了多少券"}),
+        parser_aliases=frozenset({"补偿券", "优惠券", "券记录", "发了多少券", "coupon"}),
     ),
     "merchant_refund_rate": BusinessMetricDescriptor(
         id="merchant_refund_rate",
@@ -386,7 +386,7 @@ _METRICS: Mapping[str, BusinessMetricDescriptor] = {
         accepted_time_presets=WINDOW_TIME_PRESETS,
         status_allowlist=frozenset(),
         requires_merchant_filter=True,
-        parser_aliases=frozenset({"退款率", "商户退款率"}),
+        parser_aliases=frozenset({"退款率", "商户退款率", "refund rate"}),
         unit="ratio",
     ),
 }
@@ -396,37 +396,37 @@ _TIME_PRESETS: Mapping[str, BusinessQueryTimePresetDescriptor] = {
         id="today",
         windowed=True,
         snapshot=False,
-        parser_aliases=frozenset({"今天", "今日"}),
+        parser_aliases=frozenset({"今天", "今日", "today"}),
     ),
     "this_week": BusinessQueryTimePresetDescriptor(
         id="this_week",
         windowed=True,
         snapshot=False,
-        parser_aliases=frozenset({"本周", "这周"}),
+        parser_aliases=frozenset({"本周", "这周", "this week"}),
     ),
     "this_month": BusinessQueryTimePresetDescriptor(
         id="this_month",
         windowed=True,
         snapshot=False,
-        parser_aliases=frozenset({"本月", "这个月"}),
+        parser_aliases=frozenset({"本月", "这个月", "this month"}),
     ),
     "this_quarter": BusinessQueryTimePresetDescriptor(
         id="this_quarter",
         windowed=True,
         snapshot=False,
-        parser_aliases=frozenset({"本季度", "这个季度"}),
+        parser_aliases=frozenset({"本季度", "这个季度", "this quarter"}),
     ),
     "this_year": BusinessQueryTimePresetDescriptor(
         id="this_year",
         windowed=True,
         snapshot=False,
-        parser_aliases=frozenset({"今年", "本年"}),
+        parser_aliases=frozenset({"今年", "本年", "this year"}),
     ),
     "current_snapshot": BusinessQueryTimePresetDescriptor(
         id="current_snapshot",
         windowed=False,
         snapshot=True,
-        parser_aliases=frozenset({"当前", "现在", "目前"}),
+        parser_aliases=frozenset({"当前", "现在", "目前", "current"}),
     ),
 }
 

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from src.business.query.registry import BUSINESS_QUERY_REGISTRY
 from src.tools.contracts import ToolError, ToolResultV2
 
 
@@ -140,17 +141,11 @@ _SEARCH_POLICY_OUTPUT_SCHEMA: dict[str, Any] = {
 }
 _BUSINESS_METRIC_ID_SCHEMA: dict[str, Any] = {
     "type": "string",
-    "enum": [
-        "order_count",
-        "refund_case_count",
-        "pending_ticket_count",
-        "coupon_record_count",
-        "merchant_refund_rate",
-    ],
+    "enum": list(BUSINESS_QUERY_REGISTRY.metrics()),
 }
 _BUSINESS_METRIC_TIME_PRESET_SCHEMA: dict[str, Any] = {
     "type": "string",
-    "enum": ["today", "this_week", "this_month", "this_quarter", "this_year", "current_snapshot"],
+    "enum": list(BUSINESS_QUERY_REGISTRY.time_presets()),
 }
 _BUSINESS_METRIC_STATUS_FILTER_SCHEMA: dict[str, Any] = {
     "type": "array",

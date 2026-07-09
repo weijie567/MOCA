@@ -14,6 +14,7 @@ from src.agent.intent_policy import (
 )
 from src.agent.schemas import RequiredSlotExpression
 from src.agent.state import AgentState
+from src.business.query.registry import BUSINESS_QUERY_REGISTRY
 from src.knowledge.schemas import RAG_CONTEXT_STATUSES as SCHEMA_RAG_CONTEXT_STATUSES
 
 
@@ -35,32 +36,7 @@ SLOT_ROUTES = SLOT_RESOLUTION_ROUTES
 BUSINESS_ID_SLOTS = ("order_id", "refund_case_id", "ticket_id")
 SLOT_RESOLUTION_TRACE_SCHEMA = "slot_resolution_trace.phase54"
 BUSINESS_DEMO_TIMEZONE = ZoneInfo("Asia/Shanghai")
-SUPPORTED_METRIC_IDS = frozenset(
-    {
-        "order_count",
-        "refund_case_count",
-        "pending_ticket_count",
-        "coupon_record_count",
-        "merchant_refund_rate",
-    }
-)
-METRIC_RESOURCE_TYPES: Mapping[str, str] = {
-    "order_count": "order",
-    "refund_case_count": "refund_case",
-    "pending_ticket_count": "ticket",
-    "coupon_record_count": "action_draft",
-    "merchant_refund_rate": "merchant_metric",
-}
-METRIC_STATUS_ALLOWLISTS: Mapping[str, frozenset[str]] = {
-    "order_count": frozenset({"pending", "paid", "shipped", "delivered", "completed"}),
-    "refund_case_count": frozenset({"submitted", "reviewing", "approved", "rejected", "closed"}),
-    "pending_ticket_count": frozenset({"open", "in_progress"}),
-    "coupon_record_count": frozenset(),
-    "merchant_refund_rate": frozenset(),
-}
-METRIC_EVENT_OR_RATE_IDS = frozenset(
-    {"order_count", "refund_case_count", "coupon_record_count", "merchant_refund_rate"}
-)
+SUPPORTED_METRIC_IDS = BUSINESS_QUERY_REGISTRY.metric_ids()
 _SLOT_INVALIDATION_TERMS = {
     "order_id": ("订单", "order"),
     "refund_case_id": ("退款单", "退款", "refund"),
@@ -534,7 +510,7 @@ def _apply_metric_slot_policy(
         return [{"all_of": ["metric_id"]}], [*reason_codes, "unsupported_metric_id"]
 
     resolved_slots["metric_id"] = metric_id
-    resolved_slots["resource_type"] = METRIC_RESOURCE_TYPES[metric_id]
+    resolved_slots["resource_type"] = BUSINESS_QUERY_REGISTRY.compatibility_resource_type(metric_id)
 
     status_missing = _apply_metric_status_filter(metric_id, resolved_slots)
     missing: list[dict[str, list[str]]] = []
@@ -542,7 +518,9 @@ def _apply_metric_slot_policy(
         missing.append({"all_of": ["metric_status_filter"]})
         reason_codes.append("unsupported_metric_status_filter")
 
-    if metric_id == "merchant_refund_rate" and not _string_slot(resolved_slots.get("merchant_id")):
+    if BUSINESS_QUERY_REGISTRY.metric_requires_merchant_filter(metric_id) and not _string_slot(
+        resolved_slots.get("merchant_id")
+    ):
         missing.append({"all_of": ["merchant_filter"]})
         reason_codes.append("merchant_filter_required")
 
@@ -568,14 +546,15 @@ def _clear_metric_slots(resolved_slots: dict[str, Any]) -> None:
 
 def _apply_metric_status_filter(metric_id: str, resolved_slots: dict[str, Any]) -> bool:
     raw_status = resolved_slots.get("status_filter")
-    allowlist = METRIC_STATUS_ALLOWLISTS[metric_id]
-    if metric_id == "pending_ticket_count":
+    allowlist = BUSINESS_QUERY_REGISTRY.status_filter_values_for_metric(metric_id)
+    default_status_filter = BUSINESS_QUERY_REGISTRY.default_status_filter_for_metric(metric_id)
+    if default_status_filter:
         if raw_status not in (None, "", []):
             requested = _status_filter_values(raw_status)
             if not requested <= allowlist:
                 resolved_slots.pop("status_filter", None)
                 return True
-        resolved_slots["status_filter"] = ["open", "in_progress"]
+        resolved_slots["status_filter"] = list(default_status_filter)
         return False
 
     if raw_status in (None, "", []):
@@ -603,27 +582,27 @@ def _apply_metric_time_policy(
     resolved_slots: dict[str, Any],
 ) -> tuple[bool, str]:
     preset = _string_slot(resolved_slots.get("metric_time_preset"))
-    if metric_id == "pending_ticket_count":
-        if preset in (None, "current_snapshot"):
-            resolved_slots["metric_time_preset"] = "current_snapshot"
+    if preset is None:
+        preset = BUSINESS_QUERY_REGISTRY.default_time_preset_for_metric(metric_id)
+    if preset is not None:
+        if not BUSINESS_QUERY_REGISTRY.metric_accepts_time_preset(metric_id, preset):
+            resolved_slots.pop("metric_time_preset", None)
+            if preset in BUSINESS_QUERY_REGISTRY.snapshot_time_preset_ids():
+                return True, "metric_time_range_required"
+            return True, "unsupported_metric_time_preset"
+        if preset in BUSINESS_QUERY_REGISTRY.snapshot_time_preset_ids():
+            resolved_slots["metric_time_preset"] = preset
             resolved_slots.pop("metric_time_range_start", None)
             resolved_slots.pop("metric_time_range_end", None)
             return False, ""
-        if preset in {"today", "this_week", "this_month", "this_quarter", "this_year"}:
+        if preset in BUSINESS_QUERY_REGISTRY.window_time_preset_ids():
             _apply_metric_time_preset(state, preset, resolved_slots)
             return False, ""
         resolved_slots.pop("metric_time_preset", None)
-        return True, "current_snapshot_only_for_snapshot_metrics"
-
-    if preset == "current_snapshot":
-        resolved_slots.pop("metric_time_preset", None)
-        return True, "metric_time_range_required"
-    if preset in {"today", "this_week", "this_month", "this_quarter", "this_year"}:
-        _apply_metric_time_preset(state, preset, resolved_slots)
-        return False, ""
+        return True, "unsupported_metric_time_preset"
     if _has_explicit_metric_time_range(resolved_slots):
         return _apply_explicit_metric_time_range(state, resolved_slots)
-    if metric_id in METRIC_EVENT_OR_RATE_IDS:
+    if BUSINESS_QUERY_REGISTRY.default_time_preset_for_metric(metric_id) is None:
         return True, "metric_time_range_required"
     return False, ""
 

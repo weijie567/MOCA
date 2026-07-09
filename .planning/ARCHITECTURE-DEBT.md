@@ -1689,3 +1689,34 @@
 - 🔴 Phase 62-66 尚未生成 PLAN.md；上述补齐项目前只是审查裁决，未被任务化。
 - 🔴 状态机 registry / DB CHECK / API / frontend parity 不属于现有 Phase 62-66 的明确成功标准，建议新增 Phase 67 或在 Phase 65 后追加专门 phase。
 - 🟡 Phase 62 若只落 foundation 而不覆盖生产 drilldown/list/detail/cursor/UI/eval，则还需要后续 business query coverage expansion phase。
+
+## 2026-07-09 — Phase 62 Plan 01 business query registry 与 metric routing 派生 ⚠️修复但验证有缺口
+
+**子系统**
+- 工具调用 / 意图识别 / agent metric parser / ToolCatalog
+
+**问题 / 根因**
+- Phase 61 的 `business_metric_query` 在 `routing`、contextual intent parser、slot resolution parser、investigate fallback、prompt 与 ToolCatalog schema 中各自维护 metric id、resource type、status filter、time preset 和 parser alias。
+- 这些枚举和策略属于 business query/drilldown 基础契约；多源维护会导致新增 `list/detail/breakdown/compare` 或新增指标时出现 route/schema/parser 漂移。
+
+**影响**
+- metric id、resource type、time policy、status policy 在 agent 与 tool catalog 之间可能不一致。
+- `current_snapshot` 与窗口型 time preset 的边界容易被局部硬编码改坏。
+- ToolCatalog schema 若漏改，LLM planner 与 deterministic routing 会看到不同的可用枚举。
+
+**处理状态**
+- ✅ 新增 `src/business/query/registry.py`，用 frozen descriptor / `MappingProxyType` / `frozenset` 建立 Phase 62 business query registry。
+- ✅ registry 锁定 operation/resource/time/status/field/sort/metric descriptor，并保留 Phase 61 `business_metric_query` 兼容 resource mapping（如 `coupon_record_count` → `action_draft`）。
+- ✅ `src/agent/routing.py`、`src/agent/nodes/contextual_intent_resolve.py`、`src/agent/nodes/slot_resolution_gate.py`、`src/agent/nodes/investigate.py`、`src/agent/prompts.py`、`src/tools/catalog.py` 已改为从 `BUSINESS_QUERY_REGISTRY` 派生 metric/time/status/parser/schema 口径。
+- ⚠️ `src/business/service.py` 仍保留 Phase 61 metric runtime 分支和状态过滤实现；这是后续 BusinessQuerySpec/runtime plan 的执行边界，本计划未迁移业务执行层。
+
+**证据 / 验证**
+- 文件：`src/business/query/registry.py`、`src/agent/routing.py`、`src/agent/nodes/contextual_intent_resolve.py`、`src/agent/nodes/slot_resolution_gate.py`、`src/agent/nodes/investigate.py`、`src/agent/prompts.py`、`src/tools/catalog.py`。
+- 测试：`tests/business/test_business_query_registry.py`、`tests/agent/test_required_slots.py`、`tests/agent/test_nodes/test_contextual_intent_resolve.py`、`tests/agent/test_nodes/test_slot_resolution_gate.py`、`tests/agent/test_nodes/test_investigate.py`、`tests/tools/test_catalog.py`。
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_registry.py tests/agent/test_required_slots.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/tools/test_catalog.py tests/agent/test_nodes/test_investigate.py -q --tb=short` → `185 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/business/query/registry.py src/business/query/__init__.py src/agent/routing.py src/agent/nodes/contextual_intent_resolve.py src/agent/nodes/slot_resolution_gate.py src/agent/nodes/investigate.py src/agent/prompts.py src/tools/catalog.py tests/business/test_business_query_registry.py tests/agent/test_required_slots.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_nodes/test_investigate.py tests/tools/test_catalog.py` → 通过
+- `rg -n "BUSINESS_QUERY_REGISTRY|BusinessQueryRegistry" src/agent/routing.py src/agent/nodes/contextual_intent_resolve.py src/agent/nodes/slot_resolution_gate.py src/tools/catalog.py src/agent/nodes/investigate.py` → 以上 agent/tool catalog surface 均命中 registry import / use。
+
+**剩余风险**
+- 🟡 `business_metric_query` 仍是 Phase 61 兼容 entry；后续 plan 需要把 BusinessQuerySpec/runtime/service 边界接上 registry。
+- 🟡 registry 当前只覆盖 Phase 62 foundation allowlist 与 parser/schema 派生；cursor、drilldown state、detail/list runtime 与 UI drilldown 仍在后续计划。

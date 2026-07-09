@@ -29,6 +29,7 @@ from src.agent.prompts import CLASSIFY_INTENT_SYSTEM
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
 from src.agent.routing import route_after_contextual_intent
 from src.agent.state import AgentState
+from src.business.query.registry import BUSINESS_QUERY_REGISTRY
 from src.config import settings
 
 
@@ -746,18 +747,7 @@ def _deterministic_metric_candidate_slots(text: str) -> dict[str, Any] | None:
         return None
     if _ID_ANSWER_RE.search(normalized):
         return None
-    lowered = normalized.lower()
-    metric_id: str | None = None
-    if _AGGREGATE_ORDER_METRIC_RE.search(normalized):
-        metric_id = "order_count"
-    elif ("退款率" in normalized or "refund rate" in lowered) and ("商家" in normalized or "merchant" in lowered):
-        metric_id = "merchant_refund_rate"
-    elif ("待处理" in normalized or "pending" in lowered) and ("工单" in normalized or "ticket" in lowered):
-        metric_id = "pending_ticket_count"
-    elif ("补偿券" in normalized or "优惠券" in normalized or "coupon" in lowered) and _looks_like_metric_count(normalized):
-        metric_id = "coupon_record_count"
-    elif ("退款单" in normalized or "refund case" in lowered or "refund" in lowered) and _looks_like_metric_count(normalized):
-        metric_id = "refund_case_count"
+    metric_id = _registry_metric_id_from_text(normalized)
     if metric_id is None:
         return None
 
@@ -765,9 +755,29 @@ def _deterministic_metric_candidate_slots(text: str) -> dict[str, Any] | None:
     preset = _metric_time_preset_from_text(normalized)
     if preset:
         candidate_slots["metric_time_preset"] = preset
-    if metric_id == "pending_ticket_count" and "metric_time_preset" not in candidate_slots:
-        candidate_slots["metric_time_preset"] = "current_snapshot"
+    default_preset = BUSINESS_QUERY_REGISTRY.default_time_preset_for_metric(metric_id)
+    if default_preset and "metric_time_preset" not in candidate_slots:
+        candidate_slots["metric_time_preset"] = default_preset
     return candidate_slots
+
+
+def _registry_metric_id_from_text(text: str) -> str | None:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    if _AGGREGATE_ORDER_METRIC_RE.search(normalized):
+        return BUSINESS_QUERY_REGISTRY.metric_id_for_alias("多少订单")
+    for alias, metric_id in BUSINESS_QUERY_REGISTRY.metric_parser_aliases().items():
+        alias_lowered = alias.lower()
+        if alias_lowered not in lowered:
+            continue
+        if BUSINESS_QUERY_REGISTRY.metric_descriptor(metric_id).unit == "count" and not _looks_like_metric_count(
+            normalized
+        ):
+            continue
+        return metric_id
+    if "refund rate" in lowered and "merchant" in lowered:
+        return BUSINESS_QUERY_REGISTRY.metric_id_for_alias("退款率")
+    return None
 
 
 def _looks_like_metric_count(text: str) -> bool:
@@ -777,16 +787,9 @@ def _looks_like_metric_count(text: str) -> bool:
 
 def _metric_time_preset_from_text(text: str) -> str | None:
     lowered = text.lower()
-    if "今天" in text or "今日" in text or "today" in lowered:
-        return "today"
-    if "本周" in text or "这周" in text or "this week" in lowered:
-        return "this_week"
-    if "本月" in text or "这个月" in text or "this month" in lowered:
-        return "this_month"
-    if "本季度" in text or "这个季度" in text or "this quarter" in lowered:
-        return "this_quarter"
-    if "今年" in text or "本年" in text or "this year" in lowered:
-        return "this_year"
+    for alias, preset_id in BUSINESS_QUERY_REGISTRY.time_preset_parser_aliases().items():
+        if alias.lower() in lowered and preset_id in BUSINESS_QUERY_REGISTRY.window_time_preset_ids():
+            return preset_id
     return None
 
 

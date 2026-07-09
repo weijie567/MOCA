@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -23,6 +24,14 @@ from src.tools.contracts import (
     ToolViewV1,
 )
 from src.tools.projection import ToolResultProjector
+
+
+def test_investigate_metric_fallback_uses_business_query_registry() -> None:
+    source = Path("src/agent/nodes/investigate.py").read_text()
+
+    assert "BUSINESS_QUERY_REGISTRY" in source
+    assert "_METRIC_EVENT_OR_RATE_IDS" not in source
+    assert 'metric_id == "pending_ticket_count"' not in source
 
 
 def _state(plan: list[dict[str, Any]]) -> dict[str, Any]:

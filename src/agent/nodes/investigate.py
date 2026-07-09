@@ -20,6 +20,7 @@ from src.agent.nodes.investigate_planner import (
 )
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE, INVESTIGATE_PLANNER_SYSTEM
 from src.agent.state import AgentState
+from src.business.query.registry import BUSINESS_QUERY_REGISTRY
 from src.config import settings
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
@@ -42,9 +43,6 @@ _CASE_SLOT_RESOURCES = {
     "ticket_id": ("get_ticket", "ticket"),
 }
 _METRIC_TOOL_NAME = "query_business_metric"
-_METRIC_EVENT_OR_RATE_IDS = frozenset(
-    {"order_count", "refund_case_count", "coupon_record_count", "merchant_refund_rate"}
-)
 
 
 def _get_llm() -> ChatOpenAI:
@@ -133,10 +131,16 @@ def _metric_args_from_active_slots(state: AgentState) -> dict[str, Any] | None:
     start_at = _safe_slot_value(active_slots.get("metric_time_range_start"))
     end_at = _safe_slot_value(active_slots.get("metric_time_range_end"))
     has_time_range = bool(start_at and end_at)
-    if metric_id in _METRIC_EVENT_OR_RATE_IDS and not has_time_range:
+    if metric_id not in BUSINESS_QUERY_REGISTRY.metric_ids():
         return None
-    if metric_id == "pending_ticket_count" and not (time_preset or has_time_range):
+
+    if time_preset and not BUSINESS_QUERY_REGISTRY.metric_accepts_time_preset(metric_id, time_preset):
         return None
+    if not time_preset and not has_time_range:
+        default_time_preset = BUSINESS_QUERY_REGISTRY.default_time_preset_for_metric(metric_id)
+        if default_time_preset is None:
+            return None
+        time_preset = default_time_preset
 
     args: dict[str, Any] = {"metric_id": metric_id}
     if time_preset:

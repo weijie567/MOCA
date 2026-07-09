@@ -16,6 +16,7 @@ from src.agent.routing import resolve_slots_with_provenance
 from src.agent.schemas import SlotExtractionResult
 from src.agent.state import AgentState
 from src.agent.working_state import project_working_state
+from src.business.query.registry import BUSINESS_QUERY_REGISTRY
 from src.config import settings
 
 
@@ -157,35 +158,47 @@ def _deterministic_metric_slots(state: AgentState) -> dict[str, Any]:
     if state.get("primary_intent") != "business_metric_query":
         return {}
     text = str(state.get("normalized_query") or state.get("user_query") or "")
-    lowered = text.lower()
     slots: dict[str, Any] = _active_flow_metric_slots(state)
 
-    if "退款率" in text or "refund rate" in lowered:
-        slots["metric_id"] = "merchant_refund_rate"
-    elif "待处理" in text and "工单" in text:
-        slots["metric_id"] = "pending_ticket_count"
-        slots["metric_time_preset"] = "current_snapshot"
-    elif "补偿券" in text or ("coupon" in lowered and any(token in lowered for token in ("count", "issued"))):
-        slots["metric_id"] = "coupon_record_count"
-    elif "退款单" in text or ("refund" in lowered and any(token in lowered for token in ("count", "how many"))):
-        slots["metric_id"] = "refund_case_count"
-    elif "订单" in text or ("order" in lowered and any(token in lowered for token in ("count", "how many"))):
-        slots["metric_id"] = "order_count"
+    metric_id = _registry_metric_id_from_text(text)
+    if metric_id is not None:
+        slots["metric_id"] = metric_id
+        default_preset = BUSINESS_QUERY_REGISTRY.default_time_preset_for_metric(metric_id)
+        if default_preset and "metric_time_preset" not in slots:
+            slots["metric_time_preset"] = default_preset
 
-    if "今天" in text or "today" in lowered:
-        slots["metric_time_preset"] = "today"
-    elif "本周" in text or "这周" in text or "this week" in lowered:
-        slots["metric_time_preset"] = "this_week"
-    elif "本月" in text or "这个月" in text or "this month" in lowered:
-        slots["metric_time_preset"] = "this_month"
-    elif "本季度" in text or "这个季度" in text or "this quarter" in lowered:
-        slots["metric_time_preset"] = "this_quarter"
-    elif "今年" in text or "this year" in lowered:
-        slots["metric_time_preset"] = "this_year"
-    elif "当前" in text or "现在" in text or "current" in lowered:
-        slots["metric_time_preset"] = "current_snapshot"
+    preset = _registry_time_preset_from_text(text)
+    if preset:
+        slots["metric_time_preset"] = preset
 
     return slots
+
+
+def _registry_metric_id_from_text(text: str) -> str | None:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    for alias, metric_id in BUSINESS_QUERY_REGISTRY.metric_parser_aliases().items():
+        if alias.lower() not in lowered:
+            continue
+        if BUSINESS_QUERY_REGISTRY.metric_descriptor(metric_id).unit == "count" and not _looks_like_metric_count(
+            normalized
+        ):
+            continue
+        return metric_id
+    return None
+
+
+def _registry_time_preset_from_text(text: str) -> str | None:
+    lowered = text.lower()
+    for alias, preset_id in BUSINESS_QUERY_REGISTRY.time_preset_parser_aliases().items():
+        if alias.lower() in lowered:
+            return preset_id
+    return None
+
+
+def _looks_like_metric_count(text: str) -> bool:
+    lowered = text.lower()
+    return any(term in lowered for term in ("多少", "几个", "几单", "数量", "总数", "统计", "一共", "总共", "count"))
 
 
 def _active_flow_metric_slots(state: AgentState) -> dict[str, Any]:
