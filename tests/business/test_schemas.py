@@ -296,3 +296,12 @@ def test_tool_call_context_rejects_untrusted_extra_fields():
 @pytest.mark.parametrize("module_name", ["src.business", "src.business.schemas", "src.business.service"])
 def test_public_business_imports_do_not_trigger_tool_platform_cycle(module_name: str) -> None:
     subprocess.run([sys.executable, "-c", f"import {module_name}"], check=True)
+
+
+def test_business_query_contracts_are_reexported_for_compatibility() -> None:
+    from src.business.query.schemas import BusinessQuerySpec as CanonicalBusinessQuerySpec
+    from src.business.query.schemas import metric_input_to_business_query as canonical_metric_mapping
+    from src.business.schemas import BusinessQuerySpec, metric_input_to_business_query
+
+    assert BusinessQuerySpec is CanonicalBusinessQuerySpec
+    assert metric_input_to_business_query is canonical_metric_mapping
