@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: executing
-last_updated: "2026-07-10T02:55:00+08:00"
+last_updated: "2026-07-10T06:05:00+08:00"
 last_activity: 2026-07-10
 progress:
-  total_phases: 5
-  completed_phases: 1
-  total_plans: 7
-  completed_plans: 7
-  percent: 20
+  total_phases: 6
+  completed_phases: 3
+  total_plans: 17
+  completed_plans: 17
+  percent: 50
 ---
 
 # Project State: MOCA
@@ -20,19 +20,19 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-09)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 63 — safety-taxonomy-and-risk-vocabulary
+**Current focus:** Phase 64 — rag-risk-label-unification
 
 ## Current Position
 
-Phase: 63 (safety-taxonomy-and-risk-vocabulary) — EXECUTING
-Plan: 5/5 — execution plans complete; autopilot code review next
-Status: 63-05 completed; safety taxonomy drift guards and full focused Phase 63 pytest/ruff gate are green.
+Phase: 64 (rag-risk-label-unification) — READY FOR AUTOPILOT
+Plan: 0/0 — planning not started
+Status: Phase 63 completed with code review clean after one fixed warning, UAT 5/5 passed, `threats_open: 0`, and `nyquist_compliant: true`.
 Last activity: 2026-07-10
-Next: Run Phase 63 autopilot code review / verify / secure / validate / closeout, then continue the user-requested chain to `$gsd-phase-autopilot 64`.
+Next: Continue the user-requested chain with `$gsd-phase-autopilot 64`.
 
 Resume file: .planning/autopilot/phase-63.md
 
-Progress: [█████████░] 90%
+Progress: [█████░░░░░] 50%
 
 ## Last Completed Milestone
 
@@ -64,14 +64,15 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 - Phase 62 grain decision: Business Query mainline is one phase with seven plans, not five separate phases; independent safety/RAG/trace hardcoding debts remain future follow-up phase candidates.
 - Phase 62 completed with 7/7 plans, clean code review, UAT 7/7 passed, `threats_open: 0`, and `nyquist_compliant: true`.
 - Phase 63 added: Safety Taxonomy And Risk Vocabulary.
-- Phase 63 planned as five execution plans and passed GSD plan-checker plus two-round Claude/Codex plan review; execution is running sequentially to avoid shared-worktree conflicts.
+- Phase 63 planned as five execution plans and passed GSD plan-checker plus two-round Claude/Codex plan review.
+- Phase 63 completed with canonical safety taxonomy, risk severity/disposition split, action-draft executable boundary, registry-derived routing, drift guards, post-review recommendation_generation registry fix, UAT, security, and validation closeout.
 - Phase 64 added: RAG Risk Label Unification.
 - Phase 65 added: Trace Event And Console Label Consistency.
 - Phase 66 added: Dev Test And Config Hygiene.
 
 **Planned Phase:** 61 (Product Experience Fixes) — 5 plans — 2026-07-09T02:57:41.178Z
 **Planned Phase:** 62 (Business Query And Drilldown Foundation) — 7 plans — 2026-07-09T12:11:17Z
-**Executing Phase:** 63 (Safety Taxonomy And Risk Vocabulary) — 5/5 plans complete, autopilot review/verification pending
+**Completed Phase:** 63 (Safety Taxonomy And Risk Vocabulary) — 5/5 plans complete, review/UAT/security/validation clean
 **Registered Phase:** 64 (RAG Risk Label Unification) — pending `$gsd-plan-phase 64`
 **Registered Phase:** 65 (Trace Event And Console Label Consistency) — pending `$gsd-plan-phase 65`
 **Registered Phase:** 66 (Dev Test And Config Hygiene) — pending `$gsd-plan-phase 66`

@@ -11,7 +11,7 @@
 ## Current Planning State
 
 **Active milestone:** v2.2 Product Experience Fixes
-**Status:** Phase 61 complete
+**Status:** Phase 63 complete
 **Scope:** Fix concrete Agent Console and agent-response UX pain points without weakening the v2.1 safety, evidence, tool, memory, or approval contracts.
 
 ## Current Milestone: v2.2 Product Experience Fixes
@@ -71,7 +71,7 @@ Plans:
 
 ## Next
 
-Phase 62 is complete. Next step is Phase 63 planning.
+Phase 63 is complete. Next step is Phase 64 autopilot / planning.
 
 ### Phase 62: Business Query And Drilldown Foundation
 
@@ -101,7 +101,7 @@ Plans:
 **Goal:** Unify action classification and risk vocabulary across `risk_gate`, `action_draft`, and `intent_policy` so safety routing and execution-side action handling cannot drift.
 **Requirements**: TBD during Phase 63 planning.
 **Depends on:** Phase 62
-**Plans:** 5 plans
+**Plans:** 5/5 plans complete
 
 **Success criteria:**
 1. `canonical_action_type` and action keyword taxonomy have one owner shared by risk, action draft, and intent policy code.
@@ -114,6 +114,8 @@ Plans:
 - [x] 63-03-PLAN.md — Action draft and ToolPlatform boundary migration.
 - [x] 63-04-PLAN.md — Intent policy and routing taxonomy/registry migration.
 - [x] 63-05-PLAN.md — Drift guards, architecture-debt updates, and closeout verification.
+
+**Closeout:** code review clean after one fixed warning, UAT 5/5 passed, `threats_open: 0`, and `nyquist_compliant: true`.
 
 ### Phase 64: RAG Risk Label Unification
 
