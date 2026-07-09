@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from src.agent.intent_policy import SLOT_POLICY_REGISTRY, SlotInheritanceContext
 import src.agent.routing as routing_module
@@ -12,6 +13,7 @@ from src.agent.routing import (
     resolve_slots_with_metadata,
     route_after_slot_resolution,
 )
+from src.business.query.registry import BUSINESS_QUERY_REGISTRY
 
 
 def _slot_policy_context(**overrides) -> SlotInheritanceContext:
@@ -384,6 +386,20 @@ def _metric_state(**overrides) -> dict:
     }
     state.update(overrides)
     return state
+
+
+def test_metric_slot_policy_uses_business_query_registry_source_of_truth() -> None:
+    source = Path("src/agent/routing.py").read_text()
+
+    assert "BUSINESS_QUERY_REGISTRY" in source
+    assert routing_module.SUPPORTED_METRIC_IDS == BUSINESS_QUERY_REGISTRY.metric_ids()
+    for forbidden in (
+        "SUPPORTED_METRIC_IDS = frozenset(",
+        "METRIC_RESOURCE_TYPES:",
+        "METRIC_STATUS_ALLOWLISTS:",
+        "METRIC_EVENT_OR_RATE_IDS",
+    ):
+        assert forbidden not in source
 
 
 def test_metric_slot_policy_locks_metric_ids_and_candidate_hints_do_not_satisfy() -> None:

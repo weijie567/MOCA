@@ -439,3 +439,18 @@ async def test_slot_resolution_gate_llm_validation_error_strictly_fails_closed(m
 
     merged_state = {**state, **result}
     assert route_after_slot_resolution(merged_state) == "clarification_gate"
+
+
+def test_slot_resolution_metric_parser_uses_business_query_registry_metadata() -> None:
+    source = Path("src/agent/nodes/slot_resolution_gate.py").read_text()
+
+    assert "BUSINESS_QUERY_REGISTRY" in source
+    for forbidden in (
+        'slots["metric_id"] = "order_count"',
+        'slots["metric_id"] = "refund_case_count"',
+        'slots["metric_id"] = "pending_ticket_count"',
+        'slots["metric_id"] = "coupon_record_count"',
+        'slots["metric_id"] = "merchant_refund_rate"',
+        'slots["metric_time_preset"] = "current_snapshot"',
+    ):
+        assert forbidden not in source

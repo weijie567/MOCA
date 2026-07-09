@@ -623,3 +623,23 @@ async def test_concrete_order_status_identifier_does_not_use_metric_guard(monkey
     assert result["primary_intent"] == "order_status_inquiry"
     assert result["candidate_slots"] == {"order_id": "ORD-2024-001"}
     assert "deterministic_business_metric_query" not in result["classification_trace"]["reason_codes"]
+
+
+def test_contextual_metric_parser_uses_business_query_registry_metadata() -> None:
+    source = Path("src/agent/nodes/contextual_intent_resolve.py").read_text()
+    prompt_source = Path("src/agent/prompts.py").read_text()
+
+    assert "BUSINESS_QUERY_REGISTRY" in source
+    assert "BUSINESS_QUERY_REGISTRY" in prompt_source
+    for forbidden in (
+        'metric_id = "order_count"',
+        'metric_id = "refund_case_count"',
+        'metric_id = "pending_ticket_count"',
+        'metric_id = "coupon_record_count"',
+        'metric_id = "merchant_refund_rate"',
+        '"metric_time_preset"] = "current_snapshot"',
+        "metric_id (one of: order_count",
+        "metric_time_preset (one of: today",
+    ):
+        assert forbidden not in source
+        assert forbidden not in prompt_source

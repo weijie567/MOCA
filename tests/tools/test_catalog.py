@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
 
+from src.business.query.registry import BUSINESS_QUERY_REGISTRY
 from src.tools.catalog import _IDENTIFIER_SCHEMAS, RegisteredTool, ToolCatalog, ToolDescriptor, investigate_tool_names
 from src.tools.contracts import ToolCallContext
 from src.tools.executors.memory import _case_memory_request
@@ -281,6 +283,17 @@ def test_query_business_metric_descriptor_is_read_only_and_strict() -> None:
     ]
     assert descriptor.output_schema["additionalProperties"] is False
     assert descriptor.output_schema != GENERIC_OBJECT_SCHEMA
+
+
+def test_query_business_metric_schema_enums_are_registry_derived() -> None:
+    source = Path("src/tools/catalog.py").read_text()
+    descriptor = _descriptor("query_business_metric")
+
+    assert "BUSINESS_QUERY_REGISTRY" in source
+    assert set(descriptor.input_schema["properties"]["metric_id"]["enum"]) == BUSINESS_QUERY_REGISTRY.metric_ids()
+    assert set(descriptor.input_schema["properties"]["time_preset"]["enum"]) == BUSINESS_QUERY_REGISTRY.time_preset_ids()
+    assert '"order_count",' not in source
+    assert '"current_snapshot"],' not in source
 
 
 def test_action_output_schema_is_strict_after_action_output_hardening() -> None:
