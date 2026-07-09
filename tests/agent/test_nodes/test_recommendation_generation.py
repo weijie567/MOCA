@@ -825,6 +825,39 @@ async def test_policy_hints_in_memory_context_do_not_satisfy_policy_gate(monkeyp
     assert "safe_support_refs" not in result
 
 
+def test_policy_evidence_required_for_generation_consumes_intent_registry(monkeypatch):
+    calls: list[str] = []
+
+    class FakeIntentRegistry:
+        def requires_evidence(self, intent: str) -> bool:
+            calls.append(intent)
+            return intent == "order_status_inquiry"
+
+    monkeypatch.setattr(recommendation_generation_module, "INTENT_POLICY_REGISTRY", FakeIntentRegistry())
+
+    assert (
+        recommendation_generation_module._policy_evidence_required_for_generation(
+            {"primary_intent": "order_status_inquiry"}
+        )
+        is True
+    )
+    assert (
+        recommendation_generation_module._policy_evidence_required_for_generation({"primary_intent": "small_talk"})
+        is False
+    )
+    assert calls == ["order_status_inquiry", "small_talk"]
+
+
+def test_policy_evidence_required_for_generation_fails_closed_on_registry_error(monkeypatch):
+    class RaisingIntentRegistry:
+        def requires_evidence(self, intent: str) -> bool:
+            raise RuntimeError(f"registry unavailable for {intent}")
+
+    monkeypatch.setattr(recommendation_generation_module, "INTENT_POLICY_REGISTRY", RaisingIntentRegistry())
+
+    assert recommendation_generation_module._policy_evidence_required_for_generation({"primary_intent": "policy_qa"})
+
+
 @pytest.mark.asyncio
 async def test_mixed_citations_revalidated_to_valid(monkeypatch, base_state):
     mixed_draft = _draft()

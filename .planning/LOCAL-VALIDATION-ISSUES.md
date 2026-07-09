@@ -1,5 +1,41 @@
 # 本地验证问题记录
 
+## 25. Phase 63 code review 技能入口被误当作 shell 命令
+
+日期：2026-07-10
+
+### 问题现象
+
+Phase 63 autopilot 进入 code review 阶段后，按 checkpoint 的 `next_command` 尝试执行：
+
+```bash
+gsd-code-review 63 --depth=deep
+```
+
+本地 shell 返回 `zsh:1: command not found: gsd-code-review`。
+
+### 如何检测 / 复现
+
+在仓库根目录直接运行上述命令即可复现。`gsd-code-review` 在当前 Codex 环境中是 skill 名称，不是 PATH 中的可执行文件。
+
+### 关键证据或命令
+
+- `.planning/autopilot/phase-63.md` 当时记录 `next_command: "$gsd-code-review 63 --depth=deep"`。
+- `/Users/ming/.codex/skills/gsd-code-review/SKILL.md` 存在，说明这是 Codex skill adapter。
+- `tool_search` 未发现本会话可调用的 `spawn_agent` / `Task` 映射工具，无法按原 workflow 启动 `gsd-code-reviewer` 子代理。
+
+### 当前判断 / 根因
+
+GSD skill adapter 文档中的 `$gsd-code-review` 是对 Codex skill 的调用语义，不等价于 shell command。当前会话没有暴露子代理 spawn 工具，不能伪造 GSD reviewer 已运行。
+
+### 已做处理
+
+不使用该失败命令作为验证结论；改为按 `code-review.md` 的文件范围和深度语义进行手工 deep review，产出 Phase 63 review/fix artifact，并继续使用合规的 `UV_CACHE_DIR=/tmp/uv-cache uv run ...` 命令验证修复。
+
+### 剩余问题和下次继续排查入口
+
+后续若要完全自动化 GSD code-review/code-review-fix，需要确认当前 Codex 会话是否提供 `spawn_agent` 工具，或为 GSD skills 提供非 shell 的显式调用入口。
+
 ## 24. Phase 62-07 Playwright 双项目并行后测试全通过但进程不退出
 
 日期：2026-07-09

@@ -1804,6 +1804,31 @@
 - 🟡 跨 DB/API/frontend/service writer 的状态机 registry 与 DB CHECK hardening 仍按审查结论 defer 到建议的 Phase 67；Phase 63 仅处理 safety taxonomy / action-risk vocabulary drift。
 - 🟡 现有 legacy tests / API projection 中仍可能保留 `risk_level="manual_review"` 兼容样例；Phase 63 已通过 taxonomy normalization 和 drift guard 限制其不能重新成为 active executable action 或 risk severity source。
 
+## 2026-07-10 — Phase 63 review loop — recommendation_generation evidence policy drift 已修复验证 ✅
+
+**子系统**
+- RAG / recommendation_generation / 意图识别 policy registry
+
+**问题现象 / 根因**
+- Phase 63 已将 evidence-required intent policy 迁移到 `IntentPolicyRegistry`，但 code review 发现 `src/agent/nodes/recommendation_generation.py::_policy_evidence_required_for_generation(...)` 仍维护一份手写 intent 集合。
+- 该集合与 registry 已发散：`EVIDENCE_REQUIRED_INTENTS` 包含 `order_status_inquiry`，手写集合不包含它。
+
+**影响**
+- 新增或调整 intent 的 evidence policy 时，recommendation generation 可能绕过 registry 决策，导致 RAG partial/no-evidence gate 与 routing policy 不一致。
+- 如果 registry 不可用，旧实现没有 fail-closed 分支。
+
+**处理状态**
+- ✅ 已修复验证。`recommendation_generation.py` 改为调用 `INTENT_POLICY_REGISTRY.requires_evidence(...)`，registry 异常时 fail closed。
+- ✅ 新增节点测试锁定 recommendation_generation 消费 registry，并覆盖 registry error fail-closed。
+
+**证据 / 验证**
+- 文件：`src/agent/nodes/recommendation_generation.py`、`tests/agent/test_nodes/test_recommendation_generation.py`。
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_recommendation_generation.py tests/agent/test_intent_routing.py tests/agent/test_intent_policy_registry.py -q --tb=short` → `1263 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/recommendation_generation.py tests/agent/test_nodes/test_recommendation_generation.py` → `All checks passed!`
+
+**剩余风险**
+- 🟡 `recommendation_generation.py` 仍有 RAG risk label 集合与 actionable recommendation 集合，按计划由 Phase 64 统一处理。
+
 ## 2026-07-09 — Phase 62-66 覆盖矩阵补齐项（源码级硬编码审查）⚠️待规划落地
 
 **子系统**

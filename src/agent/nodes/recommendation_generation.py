@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from src.agent.context import ContextAssembler, PromptAssembly
 from src.agent.context.session_memory_bundle import load_session_prompt_context
+from src.agent.intent_policy import INTENT_POLICY_REGISTRY
 from src.agent.prompts import GENERATE_RECOMMENDATION_SYSTEM
 from src.agent.routing import _partial_rag_context_can_generate
 from src.agent.schemas import RecommendationDraft
@@ -361,16 +362,11 @@ def _policy_evidence_required_for_generation(state: AgentState) -> bool:
     requested_operation = state.get("requested_operation")
     if requested_operation in {"draft_action", "execute_action", "escalate"}:
         return True
-    intent = state.get("primary_intent") or state.get("current_intent")
-    return intent in {
-        "policy_qa",
-        "refund_troubleshooting",
-        "compensation_suggestion",
-        "ticket_reply_draft",
-        "appeal_or_unban",
-        "complaint_escalation",
-        "action_request",
-    }
+    intent = str(state.get("primary_intent") or state.get("current_intent") or "")
+    try:
+        return INTENT_POLICY_REGISTRY.requires_evidence(intent)
+    except Exception:
+        return True
 
 
 def _partial_package_can_generate(state: AgentState, package: VerifiedEvidencePackageV1) -> bool:

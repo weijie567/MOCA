@@ -1,11 +1,11 @@
 ---
 phase: "63"
 status: running
-current_step: code_review
+current_step: verify
 plan_review_loop: 1
 quota_waits: 0
-updated_at: "2026-07-10T05:00:00+08:00"
-next_command: "$gsd-code-review 63 --depth=deep"
+updated_at: "2026-07-10T05:35:00+08:00"
+next_command: "$gsd-verify-work 63 你来自己检测"
 ---
 
 # Phase 63 Autopilot Checkpoint
@@ -42,6 +42,10 @@ next_command: "$gsd-code-review 63 --depth=deep"
 - Plan 63-03 completed: RED tests `8b2a04c`, GREEN implementation `1842316`, summary `.planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-03-SUMMARY.md`.
 - Plan 63-04 completed: RED tests `535a63d`, GREEN implementation `379bcf8`, summary `.planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-04-SUMMARY.md`.
 - Plan 63-05 completed: RED drift guard `741382b`, GREEN residual tuple fix `0159703`, summary `.planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-05-SUMMARY.md`.
+- Stage 6 code review completed with manual fallback because `$gsd-code-review` is a skill invocation, not a shell command, and no `spawn_agent`/`Task` tool was exposed.
+- Review found one warning: `recommendation_generation._policy_evidence_required_for_generation(...)` still had a local evidence-required intent set after Phase 63 registry migration.
+- Fixed the warning by deriving recommendation-generation evidence policy from `INTENT_POLICY_REGISTRY.requires_evidence(...)` and failing closed on registry errors.
+- Created `.planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-REVIEW.md` and `63-REVIEW-FIX.md`.
 
 ## Evidence
 
@@ -59,7 +63,9 @@ next_command: "$gsd-code-review 63 --depth=deep"
 - 63-03 verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_execute_action.py tests/actions/test_action_draft_v2.py tests/actions/test_phase34_action_draft_bindings.py -q --tb=short` -> `64 passed, 1 warning`; `tests/agent/test_safety_taxonomy.py tests/architecture/test_action_draft_boundaries.py` -> `48 passed, 1 warning`; ruff -> `All checks passed!`.
 - 63-04 verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_policy_registry.py tests/agent/test_intent_routing.py -q --tb=short` -> `1223 passed, 1 warning`; `tests/agent/test_safety_taxonomy.py` -> `38 passed, 1 warning`; ruff -> `All checks passed!`.
 - 63-05 closeout verification: full focused pytest -> `1388 passed, 1 warning`; full focused ruff -> `All checks passed!`.
+- Code review fix verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_recommendation_generation.py tests/agent/test_intent_routing.py tests/agent/test_intent_policy_registry.py -q --tb=short` -> `1263 passed, 1 warning`; ruff on recommendation_generation + tests -> `All checks passed!`.
+- Post-review Phase 63 focused gate including recommendation_generation: `1428 passed, 1 warning`; focused ruff gate -> `All checks passed!`.
 
 ## Last Failure
 
-None
+`gsd-code-review 63 --depth=deep` as a shell command failed with `zsh:1: command not found`; recorded in `.planning/LOCAL-VALIDATION-ISSUES.md`. This was an invocation-method issue, not a product/test failure.
