@@ -1,9 +1,9 @@
 ---
 phase: 64
 slug: rag-risk-label-unification
-status: planned
-nyquist_compliant: false
-wave_0_complete: false
+status: verified
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-10
 updated: 2026-07-10
 ---
@@ -25,16 +25,16 @@ updated: 2026-07-10
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|--------|
-| 64-TASK-01 | 01 | 1 | RAG-LABEL-01, RAG-LABEL-02 | T-64-01, T-64-02, T-64-03 | Canonical RAG label groups exist and keep existing label strings compatible. | unit/parity | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_risk_labels.py -q --tb=short` | pending |
-| 64-TASK-02 | 02 | 2 | RAG-LABEL-01, RAG-LABEL-02 | T-64-04, T-64-05, T-64-06 | `manual_review_sensitive` survives builder projection and recommendation generation uses registry-owned filtering. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_context_builder.py tests/agent/test_nodes/test_recommendation_generation.py -q --tb=short` | pending |
-| 64-TASK-03 | 03 | 3 | RAG-LABEL-01, RAG-LABEL-02 | T-64-07, T-64-08, T-64-09 | Verifier/routing/metrics consume shared trigger groups without changing deterministic domain rules. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_semantic_verifier.py tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_routing.py tests/agent/rag_context/test_metrics.py -q --tb=short` | pending |
-| 64-TASK-04 | 04 | 4 | RAG-LABEL-03 | T-64-10, T-64-11, T-64-12 | Architecture guard prevents local label set source-of-truth drift from returning. | architecture/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_rag_risk_label_boundaries.py -q --tb=short` | pending |
+| 64-TASK-01 | 01 | 1 | RAG-LABEL-01, RAG-LABEL-02 | T-64-01, T-64-02, T-64-03 | Canonical RAG label groups exist and keep existing label strings compatible. | unit/parity | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_risk_labels.py -q --tb=short` | green |
+| 64-TASK-02 | 02 | 2 | RAG-LABEL-01, RAG-LABEL-02 | T-64-04, T-64-05, T-64-06 | `manual_review_sensitive` survives builder projection and recommendation generation uses registry-owned filtering. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_context_builder.py tests/agent/test_nodes/test_recommendation_generation.py -q --tb=short` | green |
+| 64-TASK-03 | 03 | 3 | RAG-LABEL-01, RAG-LABEL-02 | T-64-07, T-64-08, T-64-09 | Verifier/routing/metrics consume shared trigger groups without changing deterministic domain rules. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_semantic_verifier.py tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_routing.py tests/agent/rag_context/test_metrics.py -q --tb=short` | green |
+| 64-TASK-04 | 04 | 4 | RAG-LABEL-03 | T-64-10, T-64-11, T-64-12 | Architecture guard prevents local label set source-of-truth drift from returning. | architecture/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_rag_risk_label_boundaries.py -q --tb=short` | green |
 
 ## Wave 0 Requirements
 
-- [ ] RED registry tests exist before registry implementation.
-- [ ] RED builder regression proves `manual_review_sensitive` is currently filtered.
-- [ ] Drift guard exists before closeout and targets migrated caller-local set assignments only.
+- [x] RED registry tests exist before registry implementation.
+- [x] RED builder regression proves `manual_review_sensitive` is currently filtered.
+- [x] Drift guard exists before closeout and targets migrated caller-local set assignments only.
 
 ## Manual-Only Verifications
 
@@ -59,6 +59,16 @@ None. Phase 64 has no UI or external-service behavior.
 
 ## Validation Sign-Off
 
-- [ ] All Phase 64 plans have a focused test lane.
-- [ ] Final focused command is green.
-- [ ] `nyquist_compliant` updated to `true` only after final verification.
+- [x] All Phase 64 plans have a focused test lane.
+- [x] Final focused command is green: `128 passed, 1 warning`.
+- [x] `nyquist_compliant` updated to `true` only after final verification.
+
+## Validation Audit 2026-07-10
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+**Approval:** verified 2026-07-10.

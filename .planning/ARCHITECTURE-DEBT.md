@@ -1829,6 +1829,37 @@
 **剩余风险**
 - 🟡 `recommendation_generation.py` 仍有 RAG risk label 集合与 actionable recommendation 集合，按计划由 Phase 64 统一处理。
 
+## 2026-07-10 — Phase 64 — RAG risk label 单一事实源与 `manual_review_sensitive` 漂移已修复验证 ✅
+
+**子系统**
+- RAG / ContextBuilder / verifier / routing / metrics / recommendation_generation
+
+**问题现象 / 根因**
+- Phase 64 前，RAG risk label 集合在 `builder.py`、`metrics.py`、`verifier.py`、`routing.py`、`recommendation_generation.py` 多处维护。
+- 其中 `manual_review_sensitive` 已被 verifier、routing、metrics、recommendation_generation 当作语义复核 / manual-review 触发标签，但 `ContextBuilder` 的 `_SAFE_RISK_LABELS` 不包含它，会在 prompt-safe RAG context 构建时过滤掉。
+- route reason code（如 `semantic_provider_timeout`）与 evidence risk label（如 `manual_review_sensitive`）边界没有单一 owner，后续新增标签时容易再次混淆。
+
+**影响**
+- 敏感证据标签可能无法进入 prompt/final/memory/replay 等安全投影面，导致 downstream manual-review / semantic-review 语义不一致。
+- 新增或调整 RAG 标签时，需要同步多个本地集合，缺少 architecture guard 时容易漏改。
+
+**处理状态**
+- ✅ 已修复验证。新增 `src/agent/rag_context/risk_labels.py` 作为 canonical RAG risk label owner，统一 prompt-safe evidence labels、semantic/manual-review trigger labels、routing risk labels、metric level-3 trigger markers 和 RAG-coupled route reason groups。
+- ✅ `builder.py` 改为使用 `filter_prompt_safe_risk_labels(...)`，`manual_review_sensitive` 可进入现有安全投影面，unknown label 继续 fail-closed。
+- ✅ `recommendation_generation.py`、`verifier.py`、`routing.py`、`metrics.py` 均迁移到 registry helper / group。
+- ✅ 新增 `tests/architecture/test_rag_risk_label_boundaries.py`，防止迁移后的 caller 重新定义 `_SAFE_RISK_LABELS`、`_SAFE_EVIDENCE_RISK_LABELS`、`_ROUTING_RISK_LABELS`、`_ROUTE_MANUAL_REVIEW_REASONS`、`_ROUTE_STALE_OR_OCR_REASONS`，并校验 helper import source。
+
+**证据 / 验证**
+- Phase 64 Plan 01-04；summary：`.planning/phases/64-rag-risk-label-unification/64-01-SUMMARY.md`、`64-02-SUMMARY.md`、`64-03-SUMMARY.md`、`64-04-SUMMARY.md`。
+- 文件：`src/agent/rag_context/risk_labels.py`、`src/agent/rag_context/builder.py`、`src/agent/rag_context/verifier.py`、`src/agent/rag_context/routing.py`、`src/agent/rag_context/metrics.py`、`src/agent/nodes/recommendation_generation.py`。
+- Tests：`tests/agent/rag_context/test_risk_labels.py`、`tests/agent/rag_context/test_context_builder.py`、`tests/agent/rag_context/test_semantic_verifier.py`、`tests/agent/rag_context/test_verifier.py`、`tests/agent/rag_context/test_routing.py`、`tests/agent/rag_context/test_metrics.py`、`tests/agent/test_nodes/test_recommendation_generation.py`、`tests/architecture/test_rag_risk_label_boundaries.py`。
+- Focused verification：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_risk_labels.py tests/agent/rag_context/test_context_builder.py tests/agent/test_nodes/test_recommendation_generation.py tests/agent/rag_context/test_semantic_verifier.py tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_routing.py tests/agent/rag_context/test_metrics.py tests/architecture/test_rag_risk_label_boundaries.py -q --tb=short`。
+- Focused ruff：`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/rag_context/risk_labels.py src/agent/rag_context/builder.py src/agent/rag_context/verifier.py src/agent/rag_context/routing.py src/agent/rag_context/metrics.py src/agent/nodes/recommendation_generation.py tests/agent/rag_context/test_risk_labels.py tests/agent/rag_context/test_context_builder.py tests/agent/rag_context/test_semantic_verifier.py tests/agent/rag_context/test_routing.py tests/agent/rag_context/test_metrics.py tests/agent/test_nodes/test_recommendation_generation.py tests/architecture/test_rag_risk_label_boundaries.py`。
+
+**剩余风险**
+- 🟡 RAG risk label 的前端展示文案、trace/console label 一致性不在 Phase 64 范围内，已明确 defer 到 Phase 65。
+- 🟡 route reason code 与 evidence risk label 仍在同一 registry 文件中有少量耦合分组；Phase 64 已用 docstring、trigger 命名和 tests 锁定边界，若后续 reason code 体系扩大，应在 Phase 65 或后续 RAG quality phase 单独拆 registry。
+
 ## 2026-07-09 — Phase 62-66 覆盖矩阵补齐项（源码级硬编码审查）⚠️待规划落地
 
 **子系统**
