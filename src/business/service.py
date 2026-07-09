@@ -21,6 +21,21 @@ from src.business.adapters import (
     get_refund_case_adapter,
     get_ticket_adapter,
 )
+from src.business.query.compiler import (
+    BusinessQueryCompileError,
+    BusinessQueryCompiler,
+    BusinessQueryTimeWindow,
+    CompiledBusinessQuery,
+)
+from src.business.query.schemas import (
+    BusinessQueryAnswerContext,
+    BusinessQueryCursor,
+    BusinessQueryResultCursor,
+    BusinessQueryResultV1,
+    BusinessQueryScopeSummary,
+    BusinessQuerySpec,
+    metric_input_to_business_query,
+)
 from src.business.schemas import (
     BusinessContextV1,
     BusinessFactResultV1,
@@ -115,8 +130,10 @@ class BusinessFactService:
         session: AsyncSession,
         adapters: Mapping[str, BusinessFactAdapter] | None = None,
         tools: Mapping[str, BusinessReadToolDefinition] | None = None,
+        query_compiler: BusinessQueryCompiler | None = None,
     ) -> None:
         self.session = session
+        self.query_compiler = query_compiler or BusinessQueryCompiler()
         self.tools = dict(BUSINESS_READ_TOOLS if tools is None else tools)
         if adapters is not None:
             for name, adapter in adapters.items():
@@ -131,7 +148,12 @@ class BusinessFactService:
         return cls(session)
 
     def has_tool(self, name: str) -> bool:
-        return name in self.tools or name in {"get_logistics", "get_merchant_risk", "query_business_metric"}
+        return name in self.tools or name in {
+            "get_logistics",
+            "get_merchant_risk",
+            "business_query",
+            "query_business_metric",
+        }
 
     async def get_order(self, order_no: str, ctx: ToolCallContext) -> BusinessFactResultV1:
         return await self._read_tool("get_order", {"order_no": order_no}, ctx)
@@ -183,12 +205,433 @@ class BusinessFactService:
                 error_source="caller",
             )
 
-        merchant_ids = self._authorized_metric_merchant_ids(query, ctx)
-        if merchant_ids is None:
+        try:
+            spec = metric_input_to_business_query(query)
+        except ValidationError:
+            return self._safe_result(
+                "invalid_request",
+                resource_name="business_metric",
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_METRIC_INVALID_REQUEST",
+                safe_message="Business metric request is invalid",
+                error_source="caller",
+            )
+        query_result = await self.query_business(spec, ctx)
+        if query_result.status == "permission_denied":
             return self._permission_denied_result("business_metric", ctx.tenant_id)
+        if query_result.status == "invalid_request":
+            return self._safe_result(
+                "invalid_request",
+                resource_name="business_metric",
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_METRIC_INVALID_REQUEST",
+                safe_message="Business metric request is invalid",
+                error_source="caller",
+            )
+        if query_result.status != "ok" or query_result.fact is None:
+            return self._safe_result(
+                "unavailable",
+                resource_name="business_metric",
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_METRIC_UNAVAILABLE",
+                safe_message="Business metric is unavailable",
+                error_source="tool",
+            )
 
-        metric = await self._calculate_business_metric(query, ctx, merchant_ids)
+        try:
+            result_payload = BusinessQueryResultV1.model_validate(query_result.fact["business_query"])
+            metric = BusinessMetricResultV1.model_validate(result_payload.rows[0])
+        except (KeyError, IndexError, TypeError, ValidationError):
+            return self._safe_result(
+                "unavailable",
+                resource_name="business_metric",
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_METRIC_UNAVAILABLE",
+                safe_message="Business metric is unavailable",
+                error_source="tool",
+            )
         return self._metric_to_business_fact_result(metric, ctx)
+
+    async def query_business(
+        self,
+        args: dict[str, Any] | BusinessQuerySpec,
+        ctx: ToolCallContext,
+    ) -> BusinessFactResultV1:
+        try:
+            spec = args if isinstance(args, BusinessQuerySpec) else BusinessQuerySpec.model_validate(args)
+        except ValidationError:
+            return self._safe_result(
+                "invalid_request",
+                resource_name="business_query",
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_QUERY_INVALID_REQUEST",
+                safe_message="Business query request is invalid",
+                error_source="caller",
+            )
+
+        merchant_ids = self._authorized_business_query_merchant_ids(spec, ctx)
+        if merchant_ids is None:
+            return self._permission_denied_result("business_query", ctx.tenant_id)
+
+        try:
+            compiled = self.query_compiler.compile(
+                spec,
+                tenant_id=ctx.tenant_id,
+                authorized_merchant_ids=merchant_ids,
+                effective_at=self._parse_effective_at(ctx),
+            )
+            result = await self._execute_business_query(compiled, ctx)
+        except (BusinessQueryCompileError, ValidationError):
+            return self._safe_result(
+                "invalid_request",
+                resource_name="business_query",
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_QUERY_INVALID_REQUEST",
+                safe_message="Business query request is invalid",
+                error_source="caller",
+            )
+
+        return self._business_query_result_to_fact_result(result, ctx)
+
+    def _authorized_business_query_merchant_ids(
+        self,
+        spec: BusinessQuerySpec,
+        ctx: ToolCallContext,
+    ) -> list[str] | None:
+        try:
+            scope = (
+                MerchantScopeV1(merchant_ids=ctx.merchant_scope)
+                if isinstance(ctx.merchant_scope, list)
+                else MerchantScopeV1.model_validate(ctx.merchant_scope)
+            )
+        except (TypeError, ValueError, ValidationError):
+            return None
+        if not scope.merchant_ids:
+            return None
+        if spec.merchant_id is not None:
+            if not scope.allows(merchant_id=spec.merchant_id):
+                return None
+            return [spec.merchant_id]
+        return list(scope.merchant_ids)
+
+    async def _execute_business_query(
+        self,
+        compiled: CompiledBusinessQuery,
+        ctx: ToolCallContext,
+    ) -> BusinessQueryResultV1:
+        operation = compiled.spec.operation
+        if operation == "aggregate":
+            row = await self._execute_business_query_aggregate(compiled, ctx)
+            return self._business_query_result(compiled, status="ok", rows=[row])
+        if operation == "list":
+            return await self._execute_business_query_order_list(compiled)
+        if operation == "detail":
+            return await self._execute_business_query_order_detail(compiled)
+        if operation == "breakdown":
+            return await self._execute_business_query_order_breakdown(compiled)
+        if operation == "compare":
+            return await self._execute_business_query_order_compare(compiled)
+        raise BusinessQueryCompileError("unsupported business query operation")
+
+    async def _execute_business_query_aggregate(
+        self,
+        compiled: CompiledBusinessQuery,
+        ctx: ToolCallContext,
+    ) -> dict[str, Any]:
+        spec = compiled.spec
+        if spec.metric_id == "merchant_refund_rate":
+            numerator = int(await self.session.scalar(compiled.statements["numerator"]) or 0)
+            denominator = int(await self.session.scalar(compiled.statements["denominator"]) or 0)
+            if denominator == 0:
+                metric = self._business_query_metric_result(
+                    compiled,
+                    ctx,
+                    status="non_computable",
+                    value=None,
+                    rate=None,
+                    numerator=numerator,
+                    denominator=denominator,
+                    unit="ratio",
+                    display_value="暂无可计算退款率",
+                    formula="distinct refunded orders / total scoped orders",
+                    caveats=["当前范围内没有订单，无法计算退款率。"],
+                )
+            else:
+                rate = numerator / denominator
+                metric = self._business_query_metric_result(
+                    compiled,
+                    ctx,
+                    value=rate,
+                    rate=rate,
+                    numerator=numerator,
+                    denominator=denominator,
+                    unit="ratio",
+                    display_value=f"{rate * 100:.2f}%",
+                    formula="distinct refunded orders / total scoped orders",
+                )
+            return metric.model_dump(mode="json")
+
+        value = int(await self.session.scalar(compiled.statements["value"]) or 0)
+        metric_descriptor = self.query_compiler.registry.metric_descriptor(str(spec.metric_id))
+        formula_map = {
+            "order_count": "count orders by created_at in authorized merchant scope",
+            "refund_case_count": "count refund cases by created_at joined through scoped orders",
+            "pending_ticket_count": "count open or in-progress tickets joined through scoped orders",
+            "coupon_record_count": "count MOCA issue_coupon ActionDraft records by created_at",
+        }
+        caveats = (
+            [
+                "MOCA demo only: coupon_record_count counts issue_coupon ActionDraft records/drafts, "
+                "not external coupon delivery success."
+            ]
+            if spec.metric_id == "coupon_record_count"
+            else []
+        )
+        return self._business_query_metric_result(
+            compiled,
+            ctx,
+            value=value,
+            unit=metric_descriptor.unit,
+            display_value=str(value),
+            formula=formula_map[str(spec.metric_id)],
+            caveats=caveats,
+        ).model_dump(mode="json")
+
+    async def _execute_business_query_order_list(
+        self,
+        compiled: CompiledBusinessQuery,
+    ) -> BusinessQueryResultV1:
+        result = await self.session.execute(compiled.statements["rows"])
+        records = [dict(row) for row in result.mappings().all()]
+        has_more = len(records) > compiled.limit
+        visible_records = records[: compiled.limit]
+        rows = [self._safe_business_query_row(row) for row in visible_records]
+        cursor = None
+        if has_more and visible_records:
+            last_row = visible_records[-1]
+            cursor = BusinessQueryResultCursor(
+                cursor_id=BusinessQueryCompiler.encode_order_cursor(
+                    created_at=last_row["created_at"],
+                    order_no=str(last_row["order_no"]),
+                ),
+                has_more=True,
+                limit=compiled.limit,
+                next_cursor=BusinessQueryCursor(
+                    cursor_id=BusinessQueryCompiler.encode_order_cursor(
+                        created_at=last_row["created_at"],
+                        order_no=str(last_row["order_no"]),
+                    ),
+                    direction="next",
+                ),
+            )
+        status = "ok" if rows else "empty"
+        return self._business_query_result(compiled, status=status, rows=rows, cursor=cursor)
+
+    async def _execute_business_query_order_detail(
+        self,
+        compiled: CompiledBusinessQuery,
+    ) -> BusinessQueryResultV1:
+        result = await self.session.execute(compiled.statements["row"])
+        row = result.mappings().first()
+        if row is None:
+            return self._business_query_result(compiled, status="empty", rows=[])
+        return self._business_query_result(compiled, status="ok", rows=[self._safe_business_query_row(dict(row))])
+
+    async def _execute_business_query_order_breakdown(
+        self,
+        compiled: CompiledBusinessQuery,
+    ) -> BusinessQueryResultV1:
+        result = await self.session.execute(compiled.statements["rows"])
+        rows = [
+            {"status": row["status"], "value": int(row["value"] or 0), "display_value": str(int(row["value"] or 0))}
+            for row in result.mappings().all()
+        ]
+        return self._business_query_result(compiled, status="ok" if rows else "empty", rows=rows)
+
+    async def _execute_business_query_order_compare(
+        self,
+        compiled: CompiledBusinessQuery,
+    ) -> BusinessQueryResultV1:
+        current = int(await self.session.scalar(compiled.statements["current"]) or 0)
+        previous = int(await self.session.scalar(compiled.statements["previous"]) or 0)
+        row = {
+            "metric_id": compiled.spec.metric_id,
+            "current_value": current,
+            "previous_value": previous,
+            "delta": current - previous,
+            "display_value": str(current),
+            "current_period": self._time_window_payload(compiled.time_window),
+            "previous_period": self._time_window_payload(compiled.previous_time_window),
+        }
+        return self._business_query_result(compiled, status="ok", rows=[row])
+
+    def _business_query_metric_result(
+        self,
+        compiled: CompiledBusinessQuery,
+        ctx: ToolCallContext,
+        *,
+        status: Literal["ok", "invalid_request", "non_computable"] = "ok",
+        value: float | int | None,
+        rate: float | None = None,
+        numerator: int | None = None,
+        denominator: int | None = None,
+        unit: str,
+        display_value: str,
+        formula: str,
+        caveats: list[str] | None = None,
+    ) -> BusinessMetricResultV1:
+        computed_at = datetime.now(UTC)
+        return BusinessMetricResultV1(
+            metric_id=compiled.spec.metric_id,
+            status=status,
+            value=float(value) if value is not None else None,
+            rate=rate,
+            numerator=numerator,
+            denominator=denominator,
+            unit=unit,
+            display_value=display_value,
+            scope=BusinessMetricScopeV1(
+                tenant_id=ctx.tenant_id,
+                merchant_ids=list(compiled.merchant_ids),
+                scope_label="all_authorized_merchants" if "*" in compiled.merchant_ids else "authorized_merchants",
+            ),
+            time_range=BusinessMetricTimeRangeV1(
+                start_at=compiled.time_window.start_at,
+                end_at=compiled.time_window.end_at,
+                preset=compiled.time_window.preset,
+                timezone=compiled.time_window.timezone,
+            ),
+            filters=BusinessMetricFiltersV1(
+                merchant_id=compiled.spec.merchant_id,
+                status_filter=list(compiled.status_filter),
+            ),
+            freshness=BusinessMetricFreshnessV1(
+                data_freshness_at=computed_at,
+                computed_at=computed_at,
+                source_system="business_fact_service",
+            ),
+            formula=formula,
+            caveats=caveats or [],
+            no_leak_status="not_applicable",
+        )
+
+    def _business_query_result(
+        self,
+        compiled: CompiledBusinessQuery,
+        *,
+        status: Literal["ok", "partial", "empty", "permission_denied", "invalid_request", "unavailable"],
+        rows: list[dict[str, Any]],
+        cursor: BusinessQueryResultCursor | None = None,
+    ) -> BusinessQueryResultV1:
+        scope = BusinessQueryScopeSummary(
+            scope_label="all_authorized_merchants" if "*" in compiled.merchant_ids else "authorized_merchants",
+            merchant_id=compiled.spec.merchant_id,
+        )
+        fields_shown = list(compiled.fields)
+        query_spec = compiled.spec
+        if compiled.spec.operation == "detail" and status == "empty":
+            query_spec = compiled.spec.model_copy(update={"resource_id": None})
+        answer_context = BusinessQueryAnswerContext(
+            query_spec=query_spec,
+            result_refs=self._business_query_result_refs(compiled, rows),
+            allowed_drilldowns=self._allowed_business_query_drilldowns(compiled),
+            fields_shown=fields_shown,
+            cursor=cursor,
+            scope=scope,
+            time_summary=compiled.time_window.preset,
+            filter_summary=",".join(compiled.status_filter) if compiled.status_filter else None,
+        )
+        return BusinessQueryResultV1(
+            operation=compiled.spec.operation,
+            resource=compiled.spec.resource,
+            status=status,
+            rows=rows,
+            answer_context=answer_context,
+            cursor=cursor,
+            scope=scope,
+        )
+
+    @staticmethod
+    def _business_query_result_refs(compiled: CompiledBusinessQuery, rows: list[dict[str, Any]]) -> list[str]:
+        if compiled.spec.operation == "aggregate" and compiled.spec.metric_id:
+            return [compiled.spec.metric_id]
+        refs = []
+        for row in rows:
+            order_no = row.get("order_no")
+            if isinstance(order_no, str):
+                refs.append(order_no)
+        return refs
+
+    @staticmethod
+    def _allowed_business_query_drilldowns(compiled: CompiledBusinessQuery) -> list[str]:
+        if compiled.spec.operation == "aggregate" and compiled.spec.resource == "order":
+            return ["list"]
+        if compiled.spec.operation == "list" and compiled.spec.resource == "order":
+            return ["detail"]
+        return []
+
+    @staticmethod
+    def _safe_business_query_row(row: dict[str, Any]) -> dict[str, Any]:
+        return {key: BusinessFactService._json_safe_value(value) for key, value in row.items() if key != "created_at"}
+
+    @staticmethod
+    def _json_safe_value(value: Any) -> Any:
+        if isinstance(value, datetime):
+            return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+        if hasattr(value, "quantize"):
+            return str(value)
+        return value
+
+    @staticmethod
+    def _time_window_payload(time_window: BusinessQueryTimeWindow | None) -> dict[str, Any] | None:
+        if time_window is None:
+            return None
+        return {
+            "start_at": BusinessFactService._json_safe_value(time_window.start_at) if time_window.start_at else None,
+            "end_at": BusinessFactService._json_safe_value(time_window.end_at) if time_window.end_at else None,
+            "preset": time_window.preset,
+            "timezone": time_window.timezone,
+        }
+
+    @staticmethod
+    def _business_query_result_to_fact_result(
+        result: BusinessQueryResultV1,
+        ctx: ToolCallContext,
+    ) -> BusinessFactResultV1:
+        retrieved_at = datetime.now(UTC)
+        fact_ref = BusinessFactRefV1(
+            tenant_id=ctx.tenant_id,
+            source_system="business_fact_service",
+            resource_type="business_query",
+            resource_id=f"{result.operation}:{result.resource}",
+            resource_version=result.schema_version,
+            data_freshness_at=retrieved_at,
+            retrieved_at=retrieved_at,
+        )
+        return BusinessFactResultV1(
+            tenant_id=ctx.tenant_id,
+            status="ok",
+            fact={"business_query": result.model_dump(mode="json")},
+            business_fact_refs=[fact_ref],
+            resource_version=result.schema_version,
+            data_freshness_at=retrieved_at,
+            source_system="business_fact_service",
+            scope_check_result="allowed",
+            missing_required_facts=[],
+            safe_errors=[],
+        )
 
     async def fetch_context(self, slots: dict[str, Any], intent: str, ctx: ToolCallContext) -> BusinessContextV1:
         """Aggregate approved domain facts into a prompt-safe business context."""
@@ -1088,7 +1531,9 @@ class BusinessToolService:
     async def invoke_tool(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         """Invoke a logical business read through the domain fact boundary."""
 
-        if name == "query_business_metric":
+        if name == "business_query":
+            result = await self.fact_service.query_business(args, ctx)
+        elif name == "query_business_metric":
             result = await self.fact_service.query_business_metric(args, ctx)
         else:
             result = await self.fact_service._read_tool(name, args, ctx)

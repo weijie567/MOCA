@@ -1780,3 +1780,33 @@
 **剩余风险**
 - 🟡 business_query runtime execution remains intentionally deferred to 62-04; current executor returns safe `unavailable` for otherwise valid specs.
 - 🟡 planner allowlist 仍是静态副本；post-Phase 62 或 Phase 65 tool-label/registry cleanup 可考虑把 planner allowlist 从 ToolCatalog 派生。
+
+## 2026-07-09 — Phase 62 Plan 04 BusinessFactService business_query runtime ✅已修复验证
+
+**子系统**
+- 工具调用 / BusinessFactService / business query runtime
+
+**问题 / 根因**
+- 62-03 已注册 `business_query` ToolCatalog descriptor 和 trusted `tool:business_query` 权限，但 runtime 仍是 executor 里的 safe deferred `unavailable`，`BusinessFactService` 尚未拥有 `aggregate/list/detail/breakdown/compare` 的受控执行路径。
+- `BusinessFactRefV1.resource_type` 只允许旧业务资源和 `business_metric`，无法表达新 `business_query` fact ref，导致 62-04 的稳定 fact envelope 无法通过契约校验。
+
+**影响**
+- Phase 62 主读契约只能停留在 schema/policy 层，后续 drilldown/projection/eval 无法依赖 `fact["business_query"]` 的稳定结构。
+- 若不补 service runtime，新增 list/detail/drilldown 容易重新落回 agent/tool 侧拼 query 或 repository generic list helper，破坏 D-62-06 与 no-existence-leak 边界。
+
+**处理状态**
+- ✅ 新增 `BusinessQueryCompiler`，只从 registry-backed `BusinessQuerySpec` 编译 SQLAlchemy `select()` statement，不引入 raw SQL 或 generic list helper。
+- ✅ `BusinessFactService.query_business(...)` 执行 aggregate/list/detail/breakdown/compare，并把 normalized result 固定放在 `fact["business_query"]`。
+- ✅ `query_business_metric(...)` 改为先验证旧 `BusinessMetricQueryInput`，再转换为 `BusinessQuerySpec`，委托 `query_business(...)` 后恢复旧 `business_metric` result shape。
+- ✅ `BusinessFactRefV1.resource_type` 增加 `business_query`，支持新 fact ref 契约。
+
+**证据 / 验证**
+- 文件：`src/business/query/compiler.py`、`src/business/service.py`、`src/tools/contracts.py`、`tests/business/test_business_query_service.py`、`tests/business/test_service.py`。
+- Phase / commit：62-04 Task 1 GREEN（本条所在提交）
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py tests/business/test_service.py -q --tb=short` → `57 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/business/query/compiler.py src/business/query/__init__.py src/business/service.py src/tools/contracts.py tests/business/test_business_query_service.py tests/business/test_service.py` → 通过
+- `rg -n "async def query_business|BusinessQueryCompiler|metric_input_to_business_query" src/business/service.py src/business/query/compiler.py` → required symbols found。
+
+**剩余风险**
+- 🟡 `business_query` 仍未通过 `BusinessToolExecutor` 接入 ToolPlatform runtime；这是 62-04 Task 2 的执行范围。
+- 🟡 final response / API / frontend projection 仍未消费 `fact["business_query"]`；按计划留给 62-06/62-07。

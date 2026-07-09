@@ -11,6 +11,7 @@ from src.business.query.registry import (
     BusinessQueryStatusDescriptor,
     BusinessQueryTimePresetDescriptor,
 )
+from src.business.query.compiler import BusinessQueryCompiler
 from src.business.query.schemas import (
     BusinessQueryAnswerContext,
     BusinessQueryCursor,
@@ -26,6 +27,7 @@ from src.business.query.schemas import (
 __all__ = [
     "BUSINESS_QUERY_REGISTRY",
     "BusinessQueryAnswerContext",
+    "BusinessQueryCompiler",
     "BusinessQueryCursor",
     "BusinessQueryFilterSet",
     "BusinessMetricDescriptor",

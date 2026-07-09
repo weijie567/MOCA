@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes.investigate import _project_tool_result
-from src.business.schemas import BusinessFactResultV1, BusinessMetricResultV1
+from src.business.schemas import BusinessFactResultV1, BusinessMetricResultV1, BusinessQueryResultV1
 from src.business.service import (
     BUSINESS_READ_TOOLS,
     BusinessFactService,
@@ -162,9 +162,22 @@ class _StubMetricService(BusinessFactService):
         self.result = result
         self.calls: list[tuple[object, ToolCallContext, list[str]]] = []
 
-    async def _calculate_business_metric(self, query, ctx: ToolCallContext, merchant_ids: list[str]):
-        self.calls.append((query, ctx, merchant_ids))
-        return self.result
+    async def query_business(self, args, ctx: ToolCallContext):
+        from src.business.query.schemas import BusinessQuerySpec
+
+        spec = BusinessQuerySpec.model_validate(args)
+        merchant_ids = self._authorized_business_query_merchant_ids(spec, ctx)
+        if merchant_ids is None:
+            return self._permission_denied_result("business_query", ctx.tenant_id)
+        self.calls.append((spec, ctx, merchant_ids))
+        query_result = BusinessQueryResultV1(
+            operation=spec.operation,
+            resource=spec.resource,
+            status="ok",
+            rows=[self.result.model_dump(mode="json")],
+            scope={"scope_label": "authorized_merchants", "merchant_id": spec.merchant_id},
+        )
+        return self._business_query_result_to_fact_result(query_result, ctx)
 
 
 def _seeded_context(
@@ -300,7 +313,7 @@ async def test_business_metric_permission_denial_has_no_metric_data_or_merchant_
     service = _StubMetricService(_metric_result())
 
     result = await service.query_business_metric(
-        {"metric_id": "order_count", "merchant_id": "merchant-secret"},
+        {"metric_id": "order_count", "time_preset": "today", "merchant_id": "merchant-secret"},
         _context(permissions=["tool:query_business_metric"], merchant_scope={"merchant_ids": ["merchant-allowed"]}),
     )
 

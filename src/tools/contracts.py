@@ -61,7 +61,15 @@ class BusinessFactRefV1(BaseModel):
     schema_version: Literal["business_fact_ref.v1"] = "business_fact_ref.v1"
     tenant_id: str
     source_system: str
-    resource_type: Literal["order", "refund_case", "ticket", "logistics", "merchant_risk", "business_metric"]
+    resource_type: Literal[
+        "order",
+        "refund_case",
+        "ticket",
+        "logistics",
+        "merchant_risk",
+        "business_metric",
+        "business_query",
+    ]
     resource_id: str
     resource_version: str | None
     data_freshness_at: datetime | None
