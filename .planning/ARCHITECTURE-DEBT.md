@@ -1720,3 +1720,31 @@
 **剩余风险**
 - 🟡 `business_metric_query` 仍是 Phase 61 兼容 entry；后续 plan 需要把 BusinessQuerySpec/runtime/service 边界接上 registry。
 - 🟡 registry 当前只覆盖 Phase 62 foundation allowlist 与 parser/schema 派生；cursor、drilldown state、detail/list runtime 与 UI drilldown 仍在后续计划。
+
+## 2026-07-09 — Phase 62 Plan 03 trusted business_query 权限投影边界 ⚠️修复但验证有缺口
+
+**子系统**
+- 工具调用 / TrustedContext / ToolPlatform permission boundary
+
+**问题 / 根因**
+- Plan 62-02 已建立 `BusinessQuerySpec` strict schema，但 ToolPlatform 侧尚无独立的 trusted `business_query` 权限投影；如果复用 `metrics:read`，会把 Phase 61 metric compatibility 权限直接扩大到新的 list/detail/drilldown read surface。
+- `tool:business_query` 必须只能来自已验证 token scope 与角色 scope 的交集，不能从 user text、LLM output、tool args 或 frontend payload 注入。
+
+**影响**
+- 没有独立 `business:query -> tool:business_query` 映射时，62-03 无法注册安全的 `business_query` descriptor；后续 62-04 runtime 接入前缺少可信权限边界。
+- 若 `metrics:read` 一并授权 `business_query`，现有 metric 兼容路径会静默变成更宽的 business read 权限。
+
+**处理状态**
+- ✅ 在 `ROLE_SCOPES` 中为 `support` / `manager` / `admin` 增加 `business:query`，保留 deprecated `merchant` role 仅默认持有 `metrics:read` metric compatibility scope。
+- ✅ OAuth password flow scope 表增加 `business:query`。
+- ✅ `TrustedContextFactory` 的 `SCOPE_TO_TOOL_PERMISSION` 增加一对一映射 `business:query -> tool:business_query`，并保留 `metrics:read -> tool:query_business_metric`。
+- ⚠️ 本条只完成权限投影边界；`business_query` ToolCatalog descriptor/policy denial 与 runtime execution 分别由 62-03 Task 2 和 62-04 继续完成。
+
+**证据 / 验证**
+- 文件：`src/auth/jwt.py`、`src/auth/permissions.py`、`src/platform/trusted_context.py`、`tests/platform/test_trusted_context_factory.py`。
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/platform/test_trusted_context_factory.py -q --tb=short` → `40 passed, 1 warning`
+- `rg -n "business:query|tool:business_query|tool:query_business_metric" src/auth/jwt.py src/auth/permissions.py src/platform/trusted_context.py tests/platform/test_trusted_context_factory.py` → required mappings/tests found。
+
+**剩余风险**
+- 🟡 `tool:business_query` 目前只是 trusted permission；descriptor visibility, policy denial, executor safe failure 仍需本 plan Task 2 完成。
+- 🟡 runtime query scope/no-existence-leak enforcement 仍属于 62-04，当前不执行数据库 query。

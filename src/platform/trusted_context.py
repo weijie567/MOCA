@@ -27,6 +27,7 @@ SCOPE_TO_TOOL_PERMISSION = {
     "tickets:read": "tool:get_ticket",
     "knowledge:read": "tool:search_policy",
     "metrics:read": "tool:query_business_metric",
+    "business:query": "tool:business_query",
 }
 
 
