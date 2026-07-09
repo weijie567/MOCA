@@ -88,7 +88,7 @@ Phase 61 is complete. Next step is Phase 62 planning.
 5. Projection, final response, regression evals, and console UI safely handle metric/list/detail answers with bounded prompt payloads and no-existence-leak semantics.
 
 Plans:
-- [ ] 62-01 Query Foundation And Single Source Cleanup — shared time/scope resolvers, operation taxonomy, metric/resource/status/time-preset definitions, and parser consolidation.
+- [x] 62-01 Query Foundation And Single Source Cleanup — shared time/scope resolvers, operation taxonomy, metric/resource/status/time-preset definitions, and parser consolidation.
 - [ ] 62-02 Safe Business Query Contract And Schema — accepted `business_query` contract, strict `BusinessQuerySpec`, result/context/cursor models, and metric compatibility mapping.
 - [ ] 62-03 ToolPlatform Policy And Trusted Scope Boundary — trusted permission mapping, read-only ToolCatalog descriptor, ToolPolicy denial checks, and safe executor boundary.
 - [ ] 62-04 Business Query Runtime Implementation — controlled aggregate/list/detail/breakdown/compare execution in `BusinessFactService` with scoped repositories and bounded pagination.
