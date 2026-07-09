@@ -1066,6 +1066,39 @@ async def test_tool_platform_unsupported_business_reads_are_safe_unavailable(
 
 
 @pytest.mark.asyncio
+async def test_tool_platform_business_query_dispatches_to_service_runtime(
+    session,
+    seeded_session: dict,
+) -> None:
+    from src.tools.platform import ToolPlatform
+
+    platform = ToolPlatform.with_defaults(session)
+
+    outcome = await platform.invoke(
+        "business_query",
+        {
+            "operation": "aggregate",
+            "resource": "order",
+            "metric_id": "order_count",
+            "time_preset": "this_week",
+        },
+        _seeded_ctx(seeded_session),
+        session=None,
+    )
+
+    assert outcome.policy_decision.decision == "allowed"
+    assert outcome.tool_result.status == "success"
+    assert outcome.tool_result.data is not None
+    payload = outcome.tool_result.data["business_query"]
+    assert payload["operation"] == "aggregate"
+    assert payload["resource"] == "order"
+    assert payload["rows"][0]["metric_id"] == "order_count"
+    assert payload["rows"][0]["display_value"] == "1"
+    assert outcome.tool_result.business_fact_refs[0].resource_type == "business_query"
+    assert "BUSINESS_QUERY_RUNTIME_DEFERRED" not in outcome.model_dump_json()
+
+
+@pytest.mark.asyncio
 async def test_tool_platform_query_business_metric_projects_concise_metric_summary(
     session,
     seeded_session: dict,

@@ -353,6 +353,51 @@ def _metric_success() -> ToolResultV2:
     )
 
 
+def _business_query_success() -> ToolResultV2:
+    ref = BusinessFactRefV1(
+        tenant_id=str(uuid4()),
+        source_system="business_fact_service",
+        resource_type="business_query",
+        resource_id="order:list",
+        resource_version=None,
+        data_freshness_at=datetime.now(UTC),
+        retrieved_at=datetime.now(UTC),
+    )
+    return ToolResultV2(
+        status="success",
+        data={
+            "business_query": {
+                "schema_version": "business_query_result.v1",
+                "operation": "list",
+                "resource": "order",
+                "status": "ok",
+                "rows": [{"order_no": "ORD-BQ-001", "status": "paid"}],
+                "cursor": {"has_more": False, "next_cursor": None},
+                "scope": {
+                    "tenant_id": "TENANT-ID-SHOULD-NOT-BE-IN-PROMPT",
+                    "merchant_ids": ["MERCHANT-ID-SHOULD-NOT-BE-IN-PROMPT"],
+                    "scope_label": "authorized_merchants",
+                },
+                "answer_context": {
+                    "query_spec": {"operation": "list", "resource": "order", "fields": ["order_no", "status"]},
+                    "safe_to_answer": True,
+                },
+                "no_leak_status": "not_applicable",
+            }
+        },
+        summary="Business query read succeeded",
+        source_system="business_fact_service",
+        data_freshness_at=datetime.now(UTC),
+        policy_evidence_refs=[],
+        business_fact_refs=[ref],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=2,
+        audit_ref=None,
+    )
+
+
 def _order_success_with_relation_hints(
     *,
     order_no: str = "ORD-CHAIN-001",
@@ -971,6 +1016,33 @@ async def test_metric_result_accumulates_under_business_metric_fact():
         {"resource_type": "business_metric", "resource_id": "order_count"}
     ]
     assert result["recommendation_draft"] is None
+    assert "MERCHANT-ID-SHOULD-NOT-BE-IN-PROMPT" not in result["tool_results"][0]["prompt_summary"]
+    assert "TENANT-ID-SHOULD-NOT-BE-IN-PROMPT" not in result["tool_results"][0]["prompt_summary"]
+
+
+@pytest.mark.asyncio
+async def test_business_query_result_accumulates_under_business_query_fact():
+    events: list[dict[str, Any]] = []
+    manager = FakePlatform({"business_query": _business_query_success()})
+    plan = [
+        {
+            "next_tool": "business_query",
+            "args": {"operation": "list", "resource": "order", "time_preset": "this_week"},
+            "reason": "answer business query",
+        }
+    ]
+
+    result = await investigate(_state(plan), _config(manager, events))
+
+    assert [call[0] for call in manager.calls] == ["business_query"]
+    query_fact = result["business_context"]["facts"]["business_query"]
+    assert query_fact["operation"] == "list"
+    assert query_fact["resource"] == "order"
+    assert query_fact["rows"] == [{"order_no": "ORD-BQ-001", "status": "paid"}]
+    assert result["business_context"]["business_fact_refs"][0]["resource_type"] == "business_query"
+    assert result["claim_dependency_map"][0]["depends_on_refs"] == [
+        {"resource_type": "business_query", "resource_id": "order:list"}
+    ]
     assert "MERCHANT-ID-SHOULD-NOT-BE-IN-PROMPT" not in result["tool_results"][0]["prompt_summary"]
     assert "TENANT-ID-SHOULD-NOT-BE-IN-PROMPT" not in result["tool_results"][0]["prompt_summary"]
 
