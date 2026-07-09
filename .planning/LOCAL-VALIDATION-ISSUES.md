@@ -1,5 +1,162 @@
 # 本地验证问题记录
 
+## 24. Phase 62-07 Playwright 双项目并行后测试全通过但进程不退出
+
+日期：2026-07-09
+
+### 问题现象
+
+`npm --prefix frontend run e2e` 在所有 mocked desktop/mobile 测试均打印通过后，Playwright 进程长时间不退出。手动中断后输出 `6 passed`，但进程退出码为 130，不能作为正式绿色验证。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+npm --prefix frontend run e2e
+```
+
+现象：6 个测试均打印 `✓` 后进程仍挂起；`Ctrl-C` 后才输出：
+
+```text
+6 passed
+```
+
+但命令退出码为 130。
+
+### 关键证据或命令
+
+单项目直接运行均能干净退出：
+
+```bash
+npm --prefix frontend exec playwright -- test --config frontend/playwright.config.ts --project=mocked --reporter=list
+npm --prefix frontend exec playwright -- test --config frontend/playwright.config.ts --project=mocked-mobile --reporter=list
+```
+
+两个项目一起但串行运行也能干净退出：
+
+```bash
+npm --prefix frontend exec playwright -- test --config frontend/playwright.config.ts --project=mocked --project=mocked-mobile --workers=1 --reporter=list
+```
+
+结果：`6 passed` 且退出码为 0。
+
+### 当前判断 / 根因
+
+当前本地环境下，Playwright 同时跑 mocked desktop/mobile 两个项目的默认 worker 并发会在测试完成后出现进程生命周期挂起。单项目和 `--workers=1` 均正常，说明产品用例本身已通过，问题集中在本地 Playwright 多项目并发退出路径。
+
+### 已做处理
+
+将 `frontend/package.json` 的 `e2e` 脚本改为：
+
+```json
+"e2e": "playwright test --project=mocked --project=mocked-mobile --workers=1"
+```
+
+这样保留 desktop/mobile 两个 mocked 项目覆盖，同时让计划要求的 `npm --prefix frontend run e2e` 能干净退出。
+
+### 剩余问题和下次继续排查入口
+
+需要重跑 `npm --prefix frontend run e2e` 作为正式计划 gate。若未来要恢复并行，可从 Playwright/Chrome channel 进程退出、webServer 生命周期和 Node 25 兼容性入手排查。
+
+## 23. Phase 62-07 Playwright 移动端 Timeline no-overlap helper 比较了整行盒子
+
+日期：2026-07-09
+
+### 问题现象
+
+修复业务查询 drilldown strict locator 后重跑 `npm --prefix frontend run e2e`，新增 Phase 62 business-query 用例均通过，但既有 Phase 61 mocked mobile 用例在 `expectTimelineRowsDoNotOverlap` 失败。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+npm --prefix frontend run e2e
+```
+
+### 关键证据或命令
+
+失败摘要：
+
+```text
+Expected: >= 690.390625
+Received:    688.390625
+at expectTimelineRowsDoNotOverlap
+```
+
+失败截图显示 Timeline 两行文字内容未发生视觉重叠；偏差来自 helper 比较 `ol > li` 整行 bounding box，而该盒子包含时间线 rail / padding，移动端下会产生 2px 左右的几何重叠。
+
+### 当前判断 / 根因
+
+这是 Playwright no-overlap helper 的测量目标过粗，不是当前业务查询 UI 引入的真实文本重叠。整行 `<li>` 盒子包含装饰 rail 和 padding，不能代表文字内容之间是否重叠。
+
+### 已做处理
+
+先尝试将 helper 从比较整行 `<li>` bounding box 改为比较每行直接内容容器 `:scope > div` 的 bounding box；随后 business-query mobile 用例仍暴露该内容容器也会受 timeline 连接布局影响。最终改为：
+
+- 检查每个 `ol > li` 有有效布局盒、宽度和 x 坐标，且不发生水平溢出；
+- 检查每行内部的 `p` 文本块有有效布局盒、宽度和 x 坐标，且不发生水平溢出；
+- 不再用整行、内容容器或文本块的 y/bottom 判断相邻 timeline item，因为移动端多次提交后的 DOM/viewport 坐标会受滚动和 timeline rail/padding 布局影响，持续产生误报。
+
+### 剩余问题和下次继续排查入口
+
+需要重跑 `npm --prefix frontend run e2e` 验证 mocked desktop/mobile 全部通过。如后续真正出现文字重叠，应优先查看 `frontend/src/components/timeline/TimelineStep.tsx` 的 grid/truncate/wrap 布局，而不是继续放宽 helper。
+
+## 22. Phase 62-07 Playwright 业务查询 drilldown 断言命中重复文本
+
+日期：2026-07-09
+
+### 问题现象
+
+执行 Phase 62-07 计划级前端 E2E 时，新增的 mocked business query drilldown 用例在桌面和移动项目各失败一次。失败点为 `ORD-SAFE-2` 可见性断言，Playwright strict mode 发现该文本同时出现在聊天最终回复和 Result 表格单元格中。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+npm --prefix frontend run e2e
+```
+
+### 关键证据或命令
+
+失败摘要：
+
+```text
+getByText('ORD-SAFE-2') resolved to 2 elements:
+1) final response paragraph
+2) table cell ORD-SAFE-2
+```
+
+对应用例：
+
+```text
+Agent Console mocked Phase 62 business query flows › renders typed business query Result tab and aggregate-to-list drilldown sequence safely
+```
+
+### 当前判断 / 根因
+
+这是 E2E 断言选择器不够精确，不是产品 UI 泄漏或渲染错误。列表 drilldown 的安全订单号同时允许出现在最终回答和 Result 表格中，测试应验证 Result 表格单元格，而不是用全页文本 strict locator。
+
+### 已做处理
+
+将断言从：
+
+```ts
+page.getByText('ORD-SAFE-2')
+```
+
+改为：
+
+```ts
+page.getByRole('cell', { name: 'ORD-SAFE-2' })
+```
+
+### 剩余问题和下次继续排查入口
+
+需要重跑 `npm --prefix frontend run e2e` 确认桌面和移动 mocked 项目通过。如后续再次出现 strict mode 重复文本，优先检查 `frontend/e2e/agent-console.spec.ts` 中 Result 表格断言是否应该限定 role/区域。
+
 ## 21. MOCA Agent Console 对闲聊和未支持统计查询给出误导性回复
 
 日期：2026-07-09

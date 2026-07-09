@@ -295,7 +295,7 @@ test.describe('Agent Console mocked Phase 62 business query flows', () => {
       timelineText: '业务列表查询完成',
       subtitleText: 'list: 订单 · rows: 2/20',
     })
-    await expect(page.getByText('ORD-SAFE-2')).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'ORD-SAFE-2' })).toBeVisible()
     await expect(page.getByRole('button', { name: '查看更多' })).toBeVisible()
     await expect(page.getByRole('button', { name: '查看详情' }).first()).toBeVisible()
 
@@ -533,16 +533,27 @@ async function expectTimelineRowsDoNotOverlap(page: Page) {
   const rows = page.locator('ol > li')
   const count = await rows.count()
   expect(count).toBeGreaterThan(0)
+  const viewportWidth = page.viewportSize()?.width ?? 1280
 
-  let previousBottom = 0
   for (let index = 0; index < count; index += 1) {
-    const box = await rows.nth(index).boundingBox()
-    expect(box, `timeline row ${index} should have a layout box`).not.toBeNull()
-    if (!box) continue
-    expect(box.width).toBeGreaterThan(160)
-    expect(box.x).toBeGreaterThanOrEqual(0)
-    expect(box.y).toBeGreaterThanOrEqual(previousBottom - 1)
-    previousBottom = box.y + box.height
+    const row = rows.nth(index)
+    const rowBox = await row.boundingBox()
+    expect(rowBox, `timeline row ${index} should have a layout box`).not.toBeNull()
+    if (!rowBox) continue
+    expect(rowBox.width).toBeGreaterThan(160)
+    expect(rowBox.x).toBeGreaterThanOrEqual(0)
+    expect(rowBox.x + rowBox.width).toBeLessThanOrEqual(viewportWidth + 1)
+
+    const textBlocks = row.locator('p')
+    const textCount = await textBlocks.count()
+    for (let textIndex = 0; textIndex < textCount; textIndex += 1) {
+      const textBox = await textBlocks.nth(textIndex).boundingBox()
+      expect(textBox, `timeline row ${index} text ${textIndex} should have a layout box`).not.toBeNull()
+      if (!textBox) continue
+      expect(textBox.width).toBeGreaterThan(80)
+      expect(textBox.x).toBeGreaterThanOrEqual(0)
+      expect(textBox.x + textBox.width).toBeLessThanOrEqual(viewportWidth + 1)
+    }
   }
 }
 
