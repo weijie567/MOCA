@@ -86,6 +86,41 @@ def test_semantic_review_helper_uses_registry_owned_trigger_labels() -> None:
     assert not requires_semantic_review_for_risk_hints(["authority_checked", "raw_debug_secret"])
 
 
+def test_registry_trigger_groups_match_verifier_routing_and_metrics_contracts() -> None:
+    assert SEMANTIC_REVIEW_RISK_LABELS == frozenset(
+        {
+            "conflict",
+            "manual_review_sensitive",
+            "ocr_low_confidence",
+            "stale_evidence",
+        }
+    )
+    assert ROUTE_STALE_OR_OCR_REASONS == frozenset(
+        {
+            "effective_date_invalid",
+            "freshness_invalid",
+            "ocr_low_confidence",
+            "stale_evidence",
+        }
+    )
+    assert {
+        "conflict",
+        "manual_review_sensitive",
+        "semantic_provider_error",
+        "semantic_provider_malformed",
+        "semantic_provider_timeout",
+    } <= ROUTE_MANUAL_REVIEW_REASONS
+    assert METRIC_LEVEL3_TRIGGER_LABELS == frozenset(
+        {
+            "high_risk",
+            "manual_review_sensitive",
+            "semantic_malformed_output",
+            "semantic_provider_error",
+            "semantic_timeout",
+        }
+    )
+
+
 def test_route_reason_codes_are_not_prompt_safe_risk_labels() -> None:
     assert "semantic_provider_timeout" in ROUTE_MANUAL_REVIEW_REASONS
     assert "semantic_provider_timeout" not in SAFE_EVIDENCE_RISK_LABELS
