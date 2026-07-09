@@ -20438,3 +20438,82 @@ ImportError: cannot import name 'UTC' from 'datetime' (.../Python3.framework/Ver
 ### 剩余问题和下次继续排查入口
 
 无 Phase 62 实现问题遗留。以后写包含 Markdown 反引号的 shell pattern 时，先改成单引号包裹或删除反引号，避免再次绕过项目虚拟环境入口。
+
+## 2026-07-09 — Phase 62-02 SUMMARY self-check 命令中 zsh `path` 变量覆盖 PATH
+
+### 问题现象
+
+执行 62-02 SUMMARY self-check 时，第一版 shell loop 使用变量名 `path` 遍历文件路径。在 zsh 中 `path` 是与 `PATH` 绑定的特殊数组变量，赋值后导致同一个 shell 中 `git` / `grep` 无法找到，commit hash 检查误报 missing。
+
+### 如何检测 / 复现
+
+触发命令形态：
+
+```bash
+for path in docs/contract-spec.md ...; do
+  [ -f "$path" ] && echo "FOUND: $path"
+done
+for hash in bc672b4 07dee47 e2f3f05; do
+  git log --oneline --all | grep -q "$hash" && echo "FOUND: $hash"
+done
+```
+
+关键输出：
+
+```text
+zsh:2: command not found: git
+zsh:2: command not found: grep
+MISSING: bc672b4
+```
+
+### 当前判断 / 根因
+
+这是本地验证命令写法问题，不是 Git 历史或 62-02 产物缺失。zsh 的 `path` 特殊变量覆盖了命令查找路径。
+
+### 已做处理
+
+- 改用 `file_path` / `commit_hash` 变量名重跑 self-check。
+- 重跑结果确认 62-02 claimed files 均存在，commits `bc672b4`、`07dee47`、`e2f3f05` 均可在 git log 中找到。
+
+### 剩余问题和下次继续排查入口
+
+无产品问题遗留。后续写 zsh loop 避免使用 `path` 作为普通变量名；需要文件路径变量时使用 `file_path`。
+
+## 2026-07-09 — Phase 62-02 GSD state/roadmap handlers 不适配当前紧凑 planning 格式
+
+### 问题现象
+
+62-02 完成后按 execute-plan workflow 调用 GSD metadata handlers 时，部分 handler 返回成功或正常结束但没有按当前 `.planning` 文件格式产生正确结果：
+
+- `gsd-sdk query state.update-progress` 将 Phase 62 progress 错算为 `5/5 100%`，而当前 Phase 62 实际为 `2/7`。
+- `gsd-sdk query state.record-session --stopped-at ... --resume-file None` 把 `Resume file` 写成了字面量 `--resume-file`。
+- `gsd-sdk query state.record-metric 62 02 8m 2 6` 返回 `{"recorded": false}`。
+- `gsd-sdk query state.add-decision ...` 返回 `{"added": false}`。
+- `gsd-sdk query roadmap.update-plan-progress 62` 返回 `{"updated": false, "reason": "no matching checkbox found"}`。
+
+### 如何检测 / 复现
+
+关键检查命令：
+
+```bash
+gsd-sdk query state.update-progress
+gsd-sdk query state.record-session --stopped-at "Completed 62-02-PLAN.md" --resume-file "None"
+gsd-sdk query roadmap.update-plan-progress 62
+git diff -- .planning/STATE.md .planning/ROADMAP.md
+```
+
+`git diff` 显示 `STATE.md` 被错误更新为 completed plans `5/5`、progress `100%`、resume file `--resume-file`，而 `ROADMAP.md` 未标记 62-02。
+
+### 当前判断 / 根因
+
+当前判断是 GSD SDK 的部分 state/roadmap query handler 仍假设另一种 planning 文档结构或参数解析方式，不适配 MOCA 当前紧凑 `STATE.md` 与普通 Markdown checkbox roadmap 格式。
+
+### 已做处理
+
+- 手动修正 `.planning/STATE.md` 为 Phase 62 Plan 3/7、completed plans 2/7、progress 29%、next plan 62-03、resume file None。
+- 手动将 `.planning/ROADMAP.md` 的 62-02 checkbox 标为完成。
+- 保留 handler 调用结果作为本地验证证据，避免把错误 metadata 作为最终状态提交。
+
+### 剩余问题和下次继续排查入口
+
+无产品实现问题遗留。后续 Phase 62 plan 完成时，调用这些 GSD handlers 后必须检查 `.planning/STATE.md` / `.planning/ROADMAP.md` diff；若再次错算，应优先修 GSD SDK handler 或在执行摘要中明确记录手动 metadata 修正。

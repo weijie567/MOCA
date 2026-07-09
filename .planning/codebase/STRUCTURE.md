@@ -11,6 +11,7 @@ MOCA/
 │   ├── agent/               # LangGraph state, graph, nodes, trace, rag_context, tool registry
 │   ├── approvals/           # Approval-domain schemas, snapshots, services, and state machine logic
 │   ├── auth/                # JWT and permission helpers
+│   ├── business/            # BusinessFactService plus business fact/query contracts and registry-backed schemas
 │   ├── common/              # Domain-independent canonical helpers shared across phases
 │   ├── conversation/        # Conversation log and safe tool call/result persistence services
 │   ├── db/                  # SQLAlchemy models, session, Alembic migrations
@@ -60,7 +61,7 @@ MOCA/
 **`src/knowledge/`, `src/business/`, `src/memory/`, and `src/tools/`:**
 - Phase 8-16 domain facades and contracts for policy evidence, business reads, session memory, reviewed long-term/case memory schema/lifecycle, Case Working Context lifecycle boundaries, tombstone no-rewrite behavior, and tool invocation
 - `src/knowledge/schemas.py` owns EvidenceRefV1 and canonical evidence projection reused by approval snapshots
-- `src/business/schemas.py` owns BusinessContextV1 and BusinessFactResultV1; `src/business/service.py` now contains BusinessFactService as the current-business-fact domain boundary beside the BusinessToolService compatibility facade
+- `src/business/schemas.py` owns BusinessContextV1 and BusinessFactResultV1; `src/business/query/registry.py` owns business-query descriptor allowlists, and `src/business/query/schemas.py` owns strict BusinessQuerySpec/result/context/cursor contracts re-exported through `src/business/schemas.py`; `src/business/service.py` contains BusinessFactService as the current-business-fact domain boundary beside the BusinessToolService compatibility facade
 
 **`src/platform/`:**
 - Phase 27 trusted context boundary for canonical `TrustedContext`, exact `MerchantScopeV1`, `TrustedContextFactory`, and service-safe projection helpers
@@ -149,6 +150,7 @@ MOCA/
 - New replay contract/service behavior: `src/replay/`
 - New conversation/tool-result persistence behavior: `src/conversation/`
 - New trusted identity/scope or service projection behavior: `src/platform/`
+- New business query descriptor/schema behavior: `src/business/query/`
 - New memory lifecycle adapter or CWC boundary behavior: `src/memory/`
 - New shared canonical/hash helper: `src/common/`
 - New agent node: `src/agent/nodes/` and graph wiring in `src/agent/graph.py`
