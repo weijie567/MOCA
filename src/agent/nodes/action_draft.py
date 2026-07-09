@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from src.actions.schemas import DraftOutcomeV1
 from src.agent.routing import _has_allowed_action_recommendation
+from src.agent.safety.taxonomy import ActionResolution, resolve_action_text
 from src.agent.state import AgentState
 from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1, TargetMerchantBindingV1, TrustedApprovalResultV1
 from src.knowledge.schemas import ClaimVerificationBundleV1, EvidenceRefV1
@@ -16,16 +17,9 @@ from src.platform.trusted_context import TrustedContext
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 from src.tools.platform import ToolPlatform
 
-FULL_REFUND_TERMS = ("full_refund", "全额退款", "全额退", "整单退款")
 ACTION_TOOL_NAME = "create_coupon_grant_draft"
-ACTIONABLE_ACTIONS = {
-    "issue_coupon",
-    "approve_refund",
-    "full_refund",
-    "partial_refund",
-    "compensation",
-    "manual_review",
-}
+NON_EXECUTABLE_ACTION_DISPOSITION = "NON_EXECUTABLE_ACTION_DISPOSITION"
+NON_EXECUTABLE_ACTION_TYPE = "NON_EXECUTABLE_ACTION_TYPE"
 REQUIRED_APPROVAL_RESULT_FIELDS = (
     "approval_id",
     "tenant_id",
@@ -62,24 +56,29 @@ def _trace_step(status: str, started_at: str, tool_name: str | None = None) -> d
     }
 
 
-def _canonical_action_type(action: Any) -> str:
-    action_text = str(action or "")
-    lowered = action_text.lower()
-    if lowered in ACTIONABLE_ACTIONS:
-        return lowered
-    if any(term in action_text for term in ("拒绝", "不建议", "无法支持")) or "reject" in lowered:
-        return "manual_review"
-    if any(term in lowered for term in ("coupon", "compensation", "compensate")) or any(
-        term in action_text for term in ("补偿", "券", "赔付")
-    ):
-        return "issue_coupon"
-    if any(term in action_text for term in FULL_REFUND_TERMS):
-        return "full_refund"
-    if "partial_refund" in lowered or "部分退款" in action_text:
-        return "partial_refund"
-    if "refund" in lowered or "退款" in action_text:
-        return "approve_refund"
-    return "manual_review"
+def _is_explicit_non_executable_disposition(resolution: ActionResolution) -> bool:
+    return resolution.disposition in {"manual_review", "blocked"} and resolution.match_kind != "default"
+
+
+def _non_executable_action_result(
+    state: AgentState,
+    started_at: str,
+    *,
+    code: str,
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "action_result": {
+            "status": "error",
+            "data": {},
+            "error": {
+                "error_code": code,
+                "message": message,
+                "retryable": False,
+            },
+        },
+        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
+    }
 
 
 def _compat_action_result_from_data(data: dict[str, Any], draft_outcome: dict[str, Any]) -> dict[str, Any]:
@@ -509,7 +508,22 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
         }
     run_id = approval.get("run_id") or trusted_context.run_id
     approval_id = approval.get("approval_id")
-    action_type = _canonical_action_type(proposed.get("action_type"))
+    action_resolution = resolve_action_text(proposed.get("action_type"))
+    if action_resolution.executable_action_type is None:
+        if _is_explicit_non_executable_disposition(action_resolution):
+            return _non_executable_action_result(
+                state,
+                started_at,
+                code=NON_EXECUTABLE_ACTION_DISPOSITION,
+                message="Action request cannot be executed by this node.",
+            )
+        return _non_executable_action_result(
+            state,
+            started_at,
+            code=NON_EXECUTABLE_ACTION_TYPE,
+            message="Action type is not supported for draft creation.",
+        )
+    action_type = action_resolution.executable_action_type
     proposed = {**proposed, "action_type": action_type}
 
     tool_ctx = project_to_tool_context(

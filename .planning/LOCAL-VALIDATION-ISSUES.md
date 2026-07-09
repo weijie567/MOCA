@@ -20995,3 +20995,23 @@ Phase 63 第二轮 Claude plan review 追加到 `63-REVIEWS.md` 后运行 `git d
 
 **剩余问题和下次继续排查入口**
 无产品实现遗留。后续 Phase 63 plans 改为串行执行并在每个 plan 后做 `git status` / summary / commit spot-check；如再次出现子代理无响应，优先关闭后主进程接管或改用更小的单 plan 执行。
+
+## 2026-07-10 — Phase 63 63-03 action draft architecture guard 误报 taxonomy alias
+
+**问题现象**
+执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_safety_taxonomy.py tests/architecture/test_action_draft_boundaries.py -q --tb=short` 时，`tests/architecture/test_action_draft_boundaries.py::test_demo_action_sources_do_not_import_external_execution_paths` 失败。失败项是 `src/agent/safety/__init__.py` re-export 的 `src.agent.safety.taxonomy.matches_compensation_alias`，被旧 guard 里的裸字符串 `compensation` 误判为外部执行路径。
+
+**如何检测/复现**
+在 Phase 63 Plan 03 GREEN 实现后运行上述 architecture focused pytest 命令。
+
+**关键证据或命令**
+失败输出显示 violations 包含 `('src/agent/safety/__init__.py', 'src.agent.safety.taxonomy.matches_compensation_alias')`。该 import 只是 action taxonomy alias helper，不是 external adapter、outbox、reconciliation 或真实 compensation execution path。
+
+**当前判断/根因**
+这是静态测试规则过宽导致的误报。Phase 63 引入的 `matches_compensation_alias` 是只读 taxonomy helper，正是为了把 `compensation` 兼容别名收敛到 `issue_coupon`，不引入新写工具或外部执行。
+
+**已做处理**
+将 architecture guard 的 forbidden import substring 从过宽的 `compensation` 收窄为 `action_compensation`，继续保留对外部 action compensation surface 的防护，同时允许 safety taxonomy alias helper。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。继续重跑 `tests/agent/test_safety_taxonomy.py tests/architecture/test_action_draft_boundaries.py` 和 63-03 ruff/focused tests；若后续真正新增外部 compensation execution 模块，应由该 guard 或更精确的新增 guard 捕获。

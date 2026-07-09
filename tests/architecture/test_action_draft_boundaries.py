@@ -29,7 +29,7 @@ FORBIDDEN_EXTERNAL_IMPORT_PARTS = (
     "action_outbox",
     "outbox_worker",
     "reconciliation",
-    "compensation",
+    "action_compensation",
 )
 
 
