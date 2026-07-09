@@ -122,6 +122,16 @@
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py::test_business_query_denied_list_returns_typed_no_leak_payload` → passed；`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_projection.py::test_projected_business_query_payload_rejects_sensitive_values_inside_labels tests/test_agent_runs_api.py::test_final_response_payload_strips_sensitive_business_query_label_values` → passed；`npx tsc --noEmit --pretty false`（frontend）→ passed；`npx vitest run --environment jsdom src/components/details/BusinessQueryResultTab.test.tsx` → passed。
 - **剩余风险**：🟡 label 拒绝规则是 marker-based，不是完整 DLP；若后续新增业务 ID 前缀或 cursor 文案，需要同步扩展 `projection.py` 和 Console 回归测试。当前 Phase 62 typed payload / no-existence-leak 合约已由上述 focused tests 锁定。
 
+## 2026-07-10 — Phase 62 REVIEW-FIX iteration 2 business_query denied 外层 envelope 回归已修复 ✅
+
+- **子系统**：工具调用 / Business Query / ToolPlatform projection
+- **问题现象/根因**：Phase 62 re-review WR-01 发现上一轮只修了内层 `BusinessQueryResultV1(status="permission_denied")`，但 `_business_query_result_to_fact_result(...)` 仍把它包装成外层 `BusinessFactResultV1(status="ok", scope_check_result="allowed")` 并附带 `business_query` fact ref；`BusinessToolService._wrap_business_fact_result(...)` 因此继续把 denied business query 变成 `ToolResultV2.status="success"`，可能被 investigate 当成 authoritative allowed fact。
+- **影响**：empty merchant scope 或 domain-scope denial 下，最终事实上下文可能出现 denied payload/fact ref，破坏 no-existence-leak 控制面语义；如果只把外层改成 denied 但丢弃 `data`，final/API/projection 又会失去已经脱敏的 operation/resource payload。
+- **处理状态**：✅ 已修复验证。`BusinessFactService` 现在按内层 business query status 派生外层 `status`、`scope_check_result` 和 fact refs：permission denied 保留 `fact["business_query"]` 但不产生 `business_fact_refs`。`BusinessToolService` 只在 payload 可验证为 safe no-leak denied business query、且 `merchant_id/resource_id` 已清空时，把该 payload 放入 denied `ToolResultV2.data`；错误状态仍不属于 `FACT_STATUSES`，ToolPlatform projection 也不产生 resource refs。
+- **证据**：Phase 62 re-review `.planning/phases/62-business-query-and-drilldown-foundation/62-REVIEW.md` WR-01；文件 `src/business/service.py`、`tests/business/test_business_query_service.py`、`tests/tools/test_tool_platform.py`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py tests/tools/test_tool_platform.py tests/tools/test_projection.py tests/test_agent_runs_api.py tests/eval/test_phase62_business_query_golden.py -q --tb=short` → `152 passed, 1 warning`；focused regression `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py::test_business_query_denied_list_returns_typed_no_leak_payload tests/business/test_business_query_service.py::test_business_query_tool_denial_preserves_safe_payload_without_fact_refs tests/business/test_business_query_service.py::test_business_query_invalid_inputs_fail_closed_without_querying tests/tools/test_tool_platform.py::test_tool_platform_business_query_dispatches_to_service_runtime tests/tools/test_tool_platform.py::test_tool_platform_business_query_denial_preserves_safe_payload_without_fact_refs -q --tb=short` → `5 passed, 1 warning`。
+- **剩余风险**：🟡 该修复只允许当前 service 生成的 typed no-leak denied payload 进入 denied tool-result data；后续若新增其他 denied business_query shape，必须继续证明 identifier 已清空且 projection/resource refs 仍为空。
+
 ## Phase 37 — 声明单源 + runtime/policy 内部收敛（TPH-03, TPH-04）✅⚠️
 
 **问题**

@@ -20853,3 +20853,25 @@ Task 1 新增 `_business_query_fact(...)` 时把任意 `BUSINESS_FACT_PERMISSION
 
 **剩余问题和下次继续排查入口**  
 无产品实现遗留。后续 62-07 完成时仍需先运行 GSD handlers，再人工核对 `.planning/STATE.md` / `.planning/ROADMAP.md`；若继续错算，应修 GSD SDK handler 或继续手动 metadata 修正并记录。
+
+## 2026-07-10 — Phase 62 REVIEW-FIX iteration 2 ToolPlatform denial 回归测试夹具误走 policy denial
+
+**问题现象**
+修复 WR-01 后首次运行 focused regression：
+`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py::test_business_query_denied_list_returns_typed_no_leak_payload tests/business/test_business_query_service.py::test_business_query_tool_denial_preserves_safe_payload_without_fact_refs tests/business/test_business_query_service.py::test_business_query_invalid_inputs_fail_closed_without_querying tests/tools/test_tool_platform.py::test_tool_platform_business_query_dispatches_to_service_runtime tests/tools/test_tool_platform.py::test_tool_platform_business_query_denial_preserves_safe_payload_without_fact_refs -q --tb=short`
+结果 5 个用例中 1 个失败：`test_tool_platform_business_query_denial_preserves_safe_payload_without_fact_refs` 期望 `policy_decision.decision == "allowed"`，实际为 `"denied"`。
+
+**如何检测/复现**
+使用带显式 `merchant_id="MERCHANT-SECRET"` 的 `business_query` ToolPlatform 调用，并用普通客服用户的 trusted merchant scope 运行上述 focused suite。
+
+**关键证据或命令**
+pytest 摘要显示：`AssertionError: assert 'denied' == 'allowed'`。随后检查 `src/tools/policy.py` 可见 ToolPlatform runtime auth 会对显式 `merchant_id` 先做 trusted scope 校验，越权 merchant id 会在 executor/service 之前被 `scope_denied` 拦截。
+
+**当前判断/根因**
+这是新增测试夹具选择错误，不是产品代码回归。该测试想覆盖 domain/service 层 empty-scope denial 的 safe payload preservation，却使用了会被 ToolPolicyEngine 预先拒绝的显式 out-of-scope `merchant_id`。
+
+**已做处理**
+将 ToolPlatform 回归用例改为 trusted `merchant_scope={"merchant_ids": []}` 且请求 `detail` / `resource_id="ORD-SECRET-DENIED"`；这样 runtime policy 允许调度，`BusinessFactService` 在 domain scope 层返回 typed safe denied payload，并验证 `resource_id` 被清空、不进入 `ToolResultV2.business_fact_refs` 或 projection refs。
+
+**剩余问题和下次继续排查入口**
+无产品遗留。后续写 ToolPlatform denial 回归时先区分 policy denial（不会 dispatch）和 domain denial（dispatch 后由 BusinessFactService fail closed），避免测试目标混淆。

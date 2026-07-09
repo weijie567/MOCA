@@ -638,24 +638,29 @@ class BusinessFactService:
         ctx: ToolCallContext,
     ) -> BusinessFactResultV1:
         retrieved_at = datetime.now(UTC)
-        fact_ref = BusinessFactRefV1(
-            tenant_id=ctx.tenant_id,
-            source_system="business_fact_service",
-            resource_type="business_query",
-            resource_id=f"{result.operation}:{result.resource}",
-            resource_version=result.schema_version,
-            data_freshness_at=retrieved_at,
-            retrieved_at=retrieved_at,
-        )
+        is_denied = result.status == "permission_denied"
+        fact_refs: list[BusinessFactRefV1] = []
+        if not is_denied:
+            fact_refs.append(
+                BusinessFactRefV1(
+                    tenant_id=ctx.tenant_id,
+                    source_system="business_fact_service",
+                    resource_type="business_query",
+                    resource_id=f"{result.operation}:{result.resource}",
+                    resource_version=result.schema_version,
+                    data_freshness_at=retrieved_at,
+                    retrieved_at=retrieved_at,
+                )
+            )
         return BusinessFactResultV1(
             tenant_id=ctx.tenant_id,
-            status="ok",
+            status="permission_denied" if is_denied else "ok",
             fact={"business_query": result.model_dump(mode="json")},
-            business_fact_refs=[fact_ref],
+            business_fact_refs=fact_refs,
             resource_version=result.schema_version,
             data_freshness_at=retrieved_at,
             source_system="business_fact_service",
-            scope_check_result="allowed",
+            scope_check_result="denied" if is_denied else "allowed",
             missing_required_facts=[],
             safe_errors=[],
         )
@@ -1711,9 +1716,10 @@ class BusinessToolService:
         safe_code = code_map[status]
         if status == "not_found" and result.safe_errors:
             safe_code = result.safe_errors[0].code
+        safe_denied_data = BusinessToolService._safe_denied_business_query_data(result)
         return ToolResultV2(
             status=status_map[status],
-            data=None,
+            data=safe_denied_data,
             summary=safe_message,
             source_system=result.source_system,
             data_freshness_at=None,
@@ -1730,3 +1736,23 @@ class BusinessToolService:
             latency_ms=0,
             audit_ref=None,
         )
+
+    @staticmethod
+    def _safe_denied_business_query_data(result: BusinessFactResultV1) -> dict[str, Any] | None:
+        if result.status != "permission_denied" or not isinstance(result.fact, dict):
+            return None
+        payload = result.fact.get("business_query")
+        if not isinstance(payload, dict):
+            return None
+        try:
+            business_query = BusinessQueryResultV1.model_validate(payload)
+        except ValidationError:
+            return None
+        if business_query.status != "permission_denied" or business_query.answer_context is None:
+            return None
+        query_spec = business_query.answer_context.query_spec
+        if query_spec.merchant_id is not None or query_spec.resource_id is not None:
+            return None
+        if business_query.scope is None or business_query.scope.no_leak_status != "scope_denied_no_existence_leak":
+            return None
+        return {"business_query": business_query.model_dump(mode="json")}

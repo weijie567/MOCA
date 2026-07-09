@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.business.query.compiler import BusinessQueryCompiler
 from src.business.query.projection import safe_business_query_api_payload
 from src.business.query.schemas import BusinessQuerySpec
-from src.business.service import BusinessFactService
+from src.business.service import BusinessFactService, BusinessToolService
 from src.db.models import Order
 from src.tools.contracts import ToolCallContext
 
@@ -174,7 +174,11 @@ async def test_business_query_denied_list_returns_typed_no_leak_payload(
         _ctx(seeded_session, merchant_scope={"merchant_ids": ["MERCHANT-ALLOWED"]}),
     )
 
-    payload = _business_query_fact(result)
+    assert result.status == "permission_denied"
+    assert result.scope_check_result == "denied"
+    assert result.business_fact_refs == []
+    assert result.fact is not None
+    payload = result.fact["business_query"]
     assert payload["operation"] == "list"
     assert payload["resource"] == "order"
     assert payload["status"] == "permission_denied"
@@ -189,6 +193,46 @@ async def test_business_query_denied_list_returns_typed_no_leak_payload(
     assert api_payload["resource_label"] == "订单"
     assert api_payload["safe_reason"] == "scope_denied_no_existence_leak"
     assert api_payload["rows"] == []
+    assert "MERCHANT-SECRET" not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_business_query_tool_denial_preserves_safe_payload_without_fact_refs(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    service = BusinessToolService.with_default_registry(session)
+
+    result = await service.invoke_tool(
+        "business_query",
+        {
+            "operation": "list",
+            "resource": "order",
+            "merchant_id": "MERCHANT-SECRET",
+            "time_preset": "this_week",
+            "fields": ["order_no", "status"],
+        },
+        _ctx(seeded_session, merchant_scope={"merchant_ids": ["MERCHANT-ALLOWED"]}),
+    )
+
+    assert result.status == "permission_denied"
+    assert result.business_fact_refs == []
+    assert result.data is not None
+    payload = result.data["business_query"]
+    assert payload["operation"] == "list"
+    assert payload["resource"] == "order"
+    assert payload["status"] == "permission_denied"
+    assert payload["rows"] == []
+    assert payload["answer_context"]["query_spec"]["operation"] == "list"
+    assert payload["answer_context"]["query_spec"]["merchant_id"] is None
+    assert payload["answer_context"]["query_spec"]["resource_id"] is None
+    assert payload["scope"]["no_leak_status"] == "scope_denied_no_existence_leak"
+    assert result.error is not None
+    assert result.error.code == "BUSINESS_FACT_PERMISSION_DENIED"
+
+    api_payload = safe_business_query_api_payload(payload)
+    assert api_payload["operation"] == "list"
+    assert api_payload["safe_reason"] == "scope_denied_no_existence_leak"
     assert "MERCHANT-SECRET" not in result.model_dump_json()
 
 

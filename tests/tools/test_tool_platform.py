@@ -1099,6 +1099,57 @@ async def test_tool_platform_business_query_dispatches_to_service_runtime(
 
 
 @pytest.mark.asyncio
+async def test_tool_platform_business_query_denial_preserves_safe_payload_without_fact_refs(
+    session,
+    seeded_session: dict,
+) -> None:
+    from src.tools.platform import ToolPlatform
+
+    platform = ToolPlatform.with_defaults(session)
+    tenant = seeded_session["tenant"]
+    user = seeded_session["users"]["cs_zhang"]
+
+    outcome = await platform.invoke(
+        "business_query",
+        {
+            "operation": "detail",
+            "resource": "order",
+            "resource_id": "ORD-SECRET-DENIED",
+            "time_preset": "this_week",
+            "fields": ["order_no", "status"],
+        },
+        _ctx(
+            tenant_id=str(tenant.id),
+            user_id=str(user.id),
+            role=user.role,
+            permissions=_business_permissions(),
+            merchant_scope={"merchant_ids": []},
+        ),
+        session=None,
+    )
+
+    assert outcome.policy_decision.decision == "allowed"
+    assert outcome.tool_result.status == "permission_denied"
+    assert outcome.tool_result.business_fact_refs == []
+    assert outcome.tool_result.data is not None
+    payload = outcome.tool_result.data["business_query"]
+    assert payload["operation"] == "detail"
+    assert payload["resource"] == "order"
+    assert payload["status"] == "permission_denied"
+    assert payload["rows"] == []
+    assert payload["answer_context"]["query_spec"]["operation"] == "detail"
+    assert payload["answer_context"]["query_spec"]["merchant_id"] is None
+    assert payload["answer_context"]["query_spec"]["resource_id"] is None
+    assert payload["scope"]["no_leak_status"] == "scope_denied_no_existence_leak"
+    assert outcome.projection.resource_refs == []
+    assert outcome.projection.normalized_result["status"] == "permission_denied"
+    assert outcome.projection.normalized_result["business_query"]["operation"] == "detail"
+    assert outcome.projection.normalized_result["business_query"]["safe_reason"] == "scope_denied_no_existence_leak"
+    assert outcome.projection.prompt_projection["business_fact_refs"] == []
+    assert "ORD-SECRET-DENIED" not in outcome.model_dump_json()
+
+
+@pytest.mark.asyncio
 async def test_tool_platform_query_business_metric_projects_concise_metric_summary(
     session,
     seeded_session: dict,
