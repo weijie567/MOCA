@@ -91,6 +91,143 @@ const MOCK_SCENARIOS: Record<string, MockScenario> = {
       }),
     ],
   },
+  本周多少订单: {
+    finalResponse: '本周订单 128 单。范围：当前权限范围；时间：本周；筛选：无；新鲜度：当前可用业务数据。',
+    events: [
+      runStarted(),
+      finalResponse('业务汇总查询完成', {
+        final_response: '本周订单 128 单。范围：当前权限范围；时间：本周；筛选：无；新鲜度：当前可用业务数据。',
+        response_kind: 'business_query_answer',
+        business_query: {
+          operation: 'aggregate',
+          resource_label: '订单',
+          result_label: '本周订单 128 单',
+          scope_label: '当前权限范围',
+          time_label: '本周',
+          filters_label: '无',
+          freshness_label: '当前可用业务数据',
+        },
+        raw_args: { tenant_id: 'tenant-secret' },
+      }),
+    ],
+  },
+  订单号是多少: {
+    finalResponse: '当前权限范围内找到 2 个订单：ORD-SAFE-1、ORD-SAFE-2。可继续查看更多。',
+    events: [
+      runStarted(),
+      finalResponse('业务列表查询完成', {
+        final_response: '当前权限范围内找到 2 个订单：ORD-SAFE-1、ORD-SAFE-2。可继续查看更多。',
+        response_kind: 'business_query_answer',
+        business_query: {
+          operation: 'list',
+          resource_label: '订单',
+          result_label: '订单列表',
+          scope_label: '当前权限范围',
+          row_count: 2,
+          limit: 20,
+          cursor_label: '查看更多',
+          allowed_drilldowns: ['detail'],
+          rows: [
+            { 订单号: 'ORD-SAFE-1', 状态: '已支付', raw_payload: 'SHOULD_NOT_RENDER' },
+            { 订单号: 'ORD-SAFE-2', 状态: '已完成', tenant_id: 'tenant-secret' },
+          ],
+        },
+        raw_cursor: 'cursor-secret',
+      }),
+    ],
+  },
+  查看退款单详情: {
+    finalResponse: '退款单详情已返回：RF-SAFE-1，状态待处理。',
+    events: [
+      runStarted(),
+      finalResponse('业务详情查询完成', {
+        final_response: '退款单详情已返回：RF-SAFE-1，状态待处理。',
+        response_kind: 'business_query_answer',
+        business_query: {
+          operation: 'detail',
+          resource_label: '退款单',
+          result_label: '退款单详情',
+          fields_label: '退款单号、状态、金额',
+          rows: [{ 退款单号: 'RF-SAFE-1', 状态: '待处理', merchant_scope: 'merchant-secret' }],
+        },
+      }),
+    ],
+  },
+  按状态分组订单: {
+    finalResponse: '按订单状态分组：已支付 8，已完成 12。',
+    events: [
+      runStarted(),
+      finalResponse('业务分组查询完成', {
+        final_response: '按订单状态分组：已支付 8，已完成 12。',
+        response_kind: 'business_query_answer',
+        business_query: {
+          operation: 'breakdown',
+          resource_label: '订单',
+          result_label: '订单状态分组',
+          group_by_label: '订单状态',
+          rows: [
+            { 分组: '已支付', 数量: 8 },
+            { 分组: '已完成', 数量: 12 },
+          ],
+        },
+      }),
+    ],
+  },
+  对比本周和上周订单: {
+    finalResponse: '本周 vs 上周订单量对比：本周 128，上周 118，变化 +8%。',
+    events: [
+      runStarted(),
+      finalResponse('业务对比查询完成', {
+        final_response: '本周 vs 上周订单量对比：本周 128，上周 118，变化 +8%。',
+        response_kind: 'business_query_answer',
+        business_query: {
+          operation: 'compare',
+          resource_label: '订单',
+          result_label: '订单量对比',
+          compare_label: '本周 vs 上周',
+          rows: [
+            { 对比项: '本周', 数量: 128, 变化: '+8%' },
+            { 对比项: '上周', 数量: 118 },
+          ],
+        },
+      }),
+    ],
+  },
+  查询无权限订单: {
+    finalResponse: '当前权限范围内无法提供该业务数据。',
+    events: [
+      runStarted(),
+      finalResponse('业务列表查询完成', {
+        final_response: '当前权限范围内无法提供该业务数据。',
+        response_kind: 'business_query_answer',
+        business_query: {
+          operation: 'list',
+          resource_label: '订单',
+          safe_reason: 'scope_denied_no_existence_leak',
+          rows: [],
+          row_count: 0,
+          raw_args: { merchant_id: 'MERCHANT-SECRET' },
+        },
+      }),
+    ],
+  },
+  查询空订单列表: {
+    finalResponse: '当前权限范围和筛选条件下没有可显示的结果。',
+    events: [
+      runStarted(),
+      finalResponse('业务列表查询完成', {
+        final_response: '当前权限范围和筛选条件下没有可显示的结果。',
+        response_kind: 'business_query_answer',
+        business_query: {
+          operation: 'list',
+          resource_label: '订单',
+          safe_reason: 'empty_result',
+          rows: [],
+          row_count: 0,
+        },
+      }),
+    ],
+  },
 }
 
 test.describe('Agent Console mocked Phase 61 flows', () => {
@@ -133,6 +270,87 @@ test.describe('Agent Console mocked Phase 61 flows', () => {
     await expect(page.getByText('raw_args')).toHaveCount(0)
     await expectTimelineRowsDoNotOverlap(page)
     await page.screenshot({ path: testInfo.outputPath('agent-console-mocked.png'), fullPage: true })
+  })
+})
+
+test.describe('Agent Console mocked Phase 62 business query flows', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAgentApi(page)
+  })
+
+  test('renders typed business query Result tab and aggregate-to-list drilldown sequence safely', async ({ page }, testInfo) => {
+    await page.goto('/')
+    await expect(page.getByPlaceholder(INPUT_PLACEHOLDER)).toBeEnabled()
+
+    await submitAndExpect(page, '本周多少订单', {
+      responseText: '本周订单 128 单',
+      timelineText: '业务汇总查询完成',
+      subtitleText: 'aggregate: 本周订单 128 单 · scope: 当前权限范围',
+    })
+    await expect(page.getByRole('button', { name: 'Result' })).toBeVisible()
+    await expect(page.getByText('本周订单 128 单').last()).toBeVisible()
+
+    await submitAndExpect(page, '订单号是多少', {
+      responseText: 'ORD-SAFE-1',
+      timelineText: '业务列表查询完成',
+      subtitleText: 'list: 订单 · rows: 2/20',
+    })
+    await expect(page.getByText('ORD-SAFE-2')).toBeVisible()
+    await expect(page.getByRole('button', { name: '查看更多' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '查看详情' }).first()).toBeVisible()
+
+    for (const text of ['raw_args', 'raw_payload', 'raw_cursor', 'tenant-secret', 'cursor-secret', 'SHOULD_NOT_RENDER']) {
+      await expect(page.getByText(text)).toHaveCount(0)
+    }
+    await expectTimelineRowsDoNotOverlap(page)
+    await expectResultPanelDoesNotOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('agent-console-business-query-drilldown.png'), fullPage: true })
+  })
+
+  test('renders detail, breakdown, compare, denied, and empty business query states safely', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.getByPlaceholder(INPUT_PLACEHOLDER)).toBeEnabled()
+
+    await submitAndExpect(page, '查看退款单详情', {
+      responseText: 'RF-SAFE-1',
+      timelineText: '业务详情查询完成',
+      subtitleText: 'detail: 退款单 · fields: 退款单号、状态、金额',
+    })
+    await expect(page.getByText('待处理').first()).toBeVisible()
+
+    await submitAndExpect(page, '按状态分组订单', {
+      responseText: '已支付 8',
+      timelineText: '业务分组查询完成',
+      subtitleText: 'breakdown: 订单 · by: 订单状态',
+    })
+    await expect(page.getByText('已完成').first()).toBeVisible()
+
+    await submitAndExpect(page, '对比本周和上周订单', {
+      responseText: '变化 +8%',
+      timelineText: '业务对比查询完成',
+      subtitleText: 'compare: 订单量对比 · 本周 vs 上周',
+    })
+    await expect(page.getByText('+8%').first()).toBeVisible()
+
+    await submitAndExpect(page, '查询无权限订单', {
+      responseText: '当前权限范围内无法提供该业务数据',
+      timelineText: '业务列表查询完成',
+      subtitleText: 'list: 订单 · rows: 0',
+    })
+    await expect(page.getByText('当前权限范围内无法提供该业务数据。').first()).toBeVisible()
+
+    await submitAndExpect(page, '查询空订单列表', {
+      responseText: '当前权限范围和筛选条件下没有可显示的结果',
+      timelineText: '业务列表查询完成',
+      subtitleText: 'list: 订单 · rows: 0',
+    })
+    await expect(page.getByText('当前权限范围和筛选条件下没有可显示的结果。').first()).toBeVisible()
+
+    for (const text of ['merchant_scope', 'MERCHANT-SECRET', 'raw_args']) {
+      await expect(page.getByText(text)).toHaveCount(0)
+    }
+    await expectTimelineRowsDoNotOverlap(page)
+    await expectResultPanelDoesNotOverflow(page)
   })
 })
 
@@ -326,6 +544,17 @@ async function expectTimelineRowsDoNotOverlap(page: Page) {
     expect(box.y).toBeGreaterThanOrEqual(previousBottom - 1)
     previousBottom = box.y + box.height
   }
+}
+
+async function expectResultPanelDoesNotOverflow(page: Page) {
+  const resultButton = page.getByRole('button', { name: 'Result' })
+  await expect(resultButton).toBeVisible()
+  const detailsPanel = page.getByRole('heading', { name: 'Details' }).locator('..').locator('..')
+  const panelBox = await detailsPanel.boundingBox()
+  expect(panelBox, 'Details panel should have a layout box').not.toBeNull()
+  if (!panelBox) return
+  expect(panelBox.width).toBeGreaterThan(240)
+  expect(panelBox.x).toBeGreaterThanOrEqual(0)
 }
 
 function runStarted() {

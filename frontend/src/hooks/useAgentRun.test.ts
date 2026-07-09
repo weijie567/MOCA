@@ -1,5 +1,6 @@
 import { act, render, renderHook, screen } from '@testing-library/react'
 import { createElement } from 'react'
+import { DetailsPanel } from '@/components/details/DetailsPanel'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TimelineStep } from '@/components/timeline/TimelineStep'
 import { createRun } from '@/lib/api'
@@ -10,7 +11,10 @@ import { useAgentRun } from './useAgentRun'
 vi.mock('@/lib/api', () => ({
   createRun: vi.fn(),
   decideApproval: vi.fn(),
+  getPendingApprovals: vi.fn().mockResolvedValue({ success: true, data: { approvals: [], total: 0 } }),
+  getRunEvidence: vi.fn().mockResolvedValue({ success: true, data: { evidence: [] } }),
   getRunStatus: vi.fn(),
+  getRunTrace: vi.fn().mockResolvedValue({ success: true, data: { run_id: 'run-1', steps: [], timeline: [] } }),
 }))
 
 vi.mock('@/lib/sse', () => ({
@@ -630,6 +634,164 @@ describe('TimelineStep safe result labels', () => {
   })
 })
 
+describe('DetailsPanel business query Result tab', () => {
+  it('puts Result first and renders aggregate, list, detail, breakdown, and compare safely', () => {
+    const cases: Array<{ step: SseEvent; expected: string[]; forbidden?: string[] }> = [
+      {
+        step: businessQueryStep({
+          operation: 'aggregate',
+          resource_label: '订单',
+          result_label: '本周订单 128 单',
+          scope_label: '当前权限范围',
+          time_label: '本周',
+          filters_label: '无',
+          freshness_label: '当前可用业务数据',
+          raw_sql: 'SHOULD_NOT_RENDER',
+        }),
+        expected: ['本周订单 128 单', '当前权限范围', '本周', '当前可用业务数据'],
+        forbidden: ['raw_sql', 'SHOULD_NOT_RENDER'],
+      },
+      {
+        step: businessQueryStep({
+          operation: 'list',
+          resource_label: '订单',
+          result_label: '订单列表',
+          scope_label: '当前权限范围',
+          row_count: 2,
+          limit: 20,
+          cursor_label: '查看更多',
+          allowed_drilldowns: ['detail'],
+          rows: [
+            { 订单号: 'ORD-SAFE-1', 状态: '已支付', raw_payload: 'SHOULD_NOT_RENDER' },
+            { 订单号: 'ORD-SAFE-2', 状态: '已完成', tenant_id: 'tenant-secret' },
+          ],
+          raw_cursor: 'cursor-secret',
+        }),
+        expected: ['订单列表', 'ORD-SAFE-1', 'ORD-SAFE-2', '查看更多', '查看详情'],
+        forbidden: ['raw_payload', 'tenant-secret', 'raw_cursor', 'cursor-secret', 'SHOULD_NOT_RENDER'],
+      },
+      {
+        step: businessQueryStep({
+          operation: 'detail',
+          resource_label: '退款单',
+          result_label: '退款单详情',
+          fields_label: '退款单号、状态、金额',
+          rows: [{ 退款单号: 'RF-SAFE-1', 状态: '待处理', merchant_scope: 'merchant-secret' }],
+        }),
+        expected: ['退款单详情', 'RF-SAFE-1', '待处理'],
+        forbidden: ['merchant_scope', 'merchant-secret'],
+      },
+      {
+        step: businessQueryStep({
+          operation: 'breakdown',
+          resource_label: '订单',
+          result_label: '订单状态分组',
+          group_by_label: '订单状态',
+          rows: [
+            { 分组: '已支付', 数量: 8 },
+            { 分组: '已完成', 数量: 12 },
+          ],
+        }),
+        expected: ['订单状态分组', '订单状态', '已支付', '已完成'],
+      },
+      {
+        step: businessQueryStep({
+          operation: 'compare',
+          resource_label: '订单',
+          result_label: '订单量对比',
+          compare_label: '本周 vs 上周',
+          rows: [
+            { 对比项: '本周', 数量: 128, 变化: '+8%' },
+            { 对比项: '上周', 数量: 118 },
+          ],
+        }),
+        expected: ['订单量对比', '本周 vs 上周', '+8%'],
+      },
+    ]
+
+    cases.forEach(({ step, expected, forbidden = [] }) => {
+      const { unmount } = render(
+        createElement(DetailsPanel, {
+          runId: 'run-1',
+          approvalId: null,
+          role: 'support',
+          status: 'completed',
+          steps: [step],
+        }),
+      )
+
+      expect(screen.getAllByRole('button').slice(0, 5).map((button) => button.textContent)).toEqual([
+        'Result',
+        'Evidence',
+        'Approval',
+        'Trace',
+        'Run Info',
+      ])
+      expected.forEach((text) => expect(screen.getByText(text)).toBeTruthy())
+      forbidden.forEach((text) => expect(screen.queryByText(text)).toBeNull())
+
+      unmount()
+    })
+  })
+
+  it('renders denied, empty, missing, and malformed business query states without raw JSON fallback', () => {
+    const cases: Array<{ step?: SseEvent; expected: string[]; forbidden?: string[] }> = [
+      {
+        step: businessQueryStep({
+          operation: 'list',
+          resource_label: '订单',
+          safe_reason: 'scope_denied_no_existence_leak',
+          rows: [],
+          row_count: 0,
+          raw_args: { merchant_id: 'MERCHANT-SECRET' },
+        }),
+        expected: ['当前权限范围内无法提供该业务数据。'],
+        forbidden: ['MERCHANT-SECRET', 'raw_args'],
+      },
+      {
+        step: businessQueryStep({
+          operation: 'list',
+          resource_label: '订单',
+          safe_reason: 'empty_result',
+          rows: [],
+          row_count: 0,
+        }),
+        expected: ['当前权限范围和筛选条件下没有可显示的结果。'],
+      },
+      {
+        expected: ['暂无业务查询结果', '业务查询完成后，将在这里显示安全投影后的汇总、列表、详情、分组或对比结果。'],
+      },
+      {
+        step: businessQueryStep({
+          operation: 'unknown',
+          resource_label: '订单',
+          result_label: '不能安全显示',
+          rows: [{ raw_payload: 'SHOULD_NOT_RENDER', tool_args: 'secret' }],
+        }),
+        expected: ['暂无业务查询结果'],
+        forbidden: ['不能安全显示', 'raw_payload', 'tool_args', 'SHOULD_NOT_RENDER'],
+      },
+    ]
+
+    cases.forEach(({ step, expected, forbidden = [] }) => {
+      const { unmount } = render(
+        createElement(DetailsPanel, {
+          runId: step ? 'run-1' : null,
+          approvalId: null,
+          role: 'support',
+          status: step ? 'completed' : 'idle',
+          steps: step ? [step] : [],
+        }),
+      )
+
+      expected.forEach((text) => expect(screen.getByText(text)).toBeTruthy())
+      forbidden.forEach((text) => expect(screen.queryByText(text)).toBeNull())
+
+      unmount()
+    })
+  })
+})
+
 function event(overrides: Partial<SseEvent>): SseEvent {
   return {
     event_type: 'step_started',
@@ -642,4 +804,21 @@ function event(overrides: Partial<SseEvent>): SseEvent {
     payload: {},
     ...overrides,
   }
+}
+
+function businessQueryStep(businessQuery: Record<string, unknown>): SseEvent {
+  return event({
+    event_type: 'final_response',
+    run_id: 'run-1',
+    step_index: 2,
+    node_name: 'final_response',
+    status: 'completed',
+    message: '业务查询完成',
+    payload: {
+      response_kind: 'business_query_answer',
+      final_response: '业务查询完成。',
+      business_query: businessQuery,
+      routing_hints: { route: 'SHOULD_NOT_RENDER' },
+    } as unknown as SseEvent['payload'],
+  })
 }
