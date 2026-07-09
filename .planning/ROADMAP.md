@@ -113,7 +113,7 @@ Plans:
 - [x] 63-02-PLAN.md — Risk gate risk vocabulary and action proposal migration.
 - [x] 63-03-PLAN.md — Action draft and ToolPlatform boundary migration.
 - [x] 63-04-PLAN.md — Intent policy and routing taxonomy/registry migration.
-- [ ] 63-05-PLAN.md — Drift guards, architecture-debt updates, and closeout verification.
+- [x] 63-05-PLAN.md — Drift guards, architecture-debt updates, and closeout verification.
 
 ### Phase 64: RAG Risk Label Unification
 

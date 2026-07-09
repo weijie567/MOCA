@@ -1771,6 +1771,39 @@
 - 🟡 Phase 63 Plan 05 仍需新增 drift guards / static parity checks，防止 `risk_gate.py`、`action_draft.py`、`intent_policy.py`、`routing.py` 重新引入本地 action/risk taxonomy 副本。
 - 🟡 `_FACT_ONLY_INTENTS` 等非 action/risk taxonomy 的 routing-local集合仍不在本计划范围；若后续扩展 fact-only intent，应由对应 business-query / routing phase 处理。
 
+## 2026-07-10 — Phase 63 closeout — safety taxonomy / risk vocabulary 硬编码债已收敛 ✅
+
+**子系统**
+- 意图识别 / 工具调用 / 风险审批主链
+
+**问题现象 / 根因**
+- 源码级硬编码审查确认，Phase 63 前 `risk_gate.py`、`action_draft.py`、`intent_policy.py`、`routing.py` 分别维护 action alias、canonical action type、pre-route action terms、action-bound intent set、risk severity/disposition 等安全语义。
+- `risk_level` 字段曾同时承载 severity 与 disposition；`manual_review` / `blocked` 等处置值可能被当作 action type 或 risk level 使用。
+
+**影响**
+- 新增 action、disposition、risk route 或 intent 时，需要跨多个文件同步，容易造成 action draft 写工具边界、risk gate 审批边界、pre-route 安全路由和 evidence-required 策略漂移。
+- 安全审计、approval hash/replay 和工具执行路径难以稳定区分“风险严重度”“处置结果”“可执行动作”。
+
+**处理状态**
+- ✅ 已修复验证。Phase 63 建立 `src/agent/safety/taxonomy.py` 作为 canonical owner，统一 executable action types、non-executable dispositions、action aliases、pre-route action aliases、risk severities 和 risk dispositions。
+- ✅ `risk_gate.py` 改为 taxonomy-backed action resolution，`risk_level` 只保留 severity，同时输出 `risk_severity` / `risk_disposition`；非可执行 disposition 不再进入 proposed action / snapshot binding。
+- ✅ `action_draft.py` 在 ToolPlatform invoke 前用 taxonomy resolver 校验 executable action；`manual_review` / `blocked` fail closed，`compensation` 兼容为 `issue_coupon`。
+- ✅ `intent_policy.py` / `routing.py` 从 intent registry / safety taxonomy 派生 action-bound、evidence-required 和 deterministic pre-route action matching；routing-local `_ACTION_BOUND_INTENTS` 已删除。
+- ✅ 新增 `tests/architecture/test_safety_taxonomy_boundaries.py`，静态防回归：禁止 migrated callers 重新定义本地 action taxonomy 常量、local canonicalizer、pre-route action tuple、routing action-bound set，或把 `manual_review` / `blocked` 硬编码为 action type。
+
+**证据**
+- Phase 63 Plan 01-05；RED/GREEN commits：`de4a916` / `de30961`、`2240af0` / `c584d80`、`8b2a04c` / `1842316`、`535a63d` / `379bcf8`、`741382b` / `0159703`。
+- 文件：`src/agent/safety/taxonomy.py`、`src/agent/nodes/risk_gate.py`、`src/agent/nodes/action_draft.py`、`src/agent/intent_policy.py`、`src/agent/routing.py`、`tests/agent/test_safety_taxonomy.py`、`tests/agent/test_nodes/test_risk_gate.py`、`tests/test_execute_action.py`、`tests/agent/test_intent_policy_registry.py`、`tests/agent/test_intent_routing.py`、`tests/architecture/test_safety_taxonomy_boundaries.py`。
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_safety_taxonomy.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_phase22_action_boundary.py tests/test_execute_action.py tests/actions/test_action_draft_v2.py tests/actions/test_phase34_action_draft_bindings.py tests/agent/test_intent_routing.py tests/agent/test_intent_policy_registry.py tests/approvals/test_hash_binding.py tests/architecture/test_action_draft_boundaries.py tests/architecture/test_safety_taxonomy_boundaries.py -q --tb=short` → `1388 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/safety src/agent/nodes/risk_gate.py src/agent/nodes/action_draft.py src/agent/intent_policy.py src/agent/routing.py tests/agent/test_safety_taxonomy.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_phase22_action_boundary.py tests/test_execute_action.py tests/actions/test_action_draft_v2.py tests/actions/test_phase34_action_draft_bindings.py tests/agent/test_intent_routing.py tests/agent/test_intent_policy_registry.py tests/approvals/test_hash_binding.py tests/architecture/test_safety_taxonomy_boundaries.py` → `All checks passed!`
+
+**剩余风险**
+- 🟡 Phase 63 不实现 Phase 64 RAG risk label registry、Phase 65 trace/console label registry、Phase 66 config/demo hygiene。
+- 🟡 跨 DB/API/frontend/service writer 的状态机 registry 与 DB CHECK hardening 仍按审查结论 defer 到建议的 Phase 67；Phase 63 仅处理 safety taxonomy / action-risk vocabulary drift。
+- 🟡 现有 legacy tests / API projection 中仍可能保留 `risk_level="manual_review"` 兼容样例；Phase 63 已通过 taxonomy normalization 和 drift guard 限制其不能重新成为 active executable action 或 risk severity source。
+
 ## 2026-07-09 — Phase 62-66 覆盖矩阵补齐项（源码级硬编码审查）⚠️待规划落地
 
 **子系统**

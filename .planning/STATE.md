@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-09)
 ## Current Position
 
 Phase: 63 (safety-taxonomy-and-risk-vocabulary) — EXECUTING
-Plan: 5/5 — 63-05 drift guards, architecture-debt updates, and closeout verification
-Status: 63-04 completed; intent policy and routing now derive action-bound/evidence safety decisions from registry and taxonomy sources.
+Plan: 5/5 — execution plans complete; autopilot code review next
+Status: 63-05 completed; safety taxonomy drift guards and full focused Phase 63 pytest/ruff gate are green.
 Last activity: 2026-07-10
-Next: Execute Phase 63 plans sequentially, then continue the user-requested chain to `$gsd-phase-autopilot 64` only after Phase 63 completes.
+Next: Run Phase 63 autopilot code review / verify / secure / validate / closeout, then continue the user-requested chain to `$gsd-phase-autopilot 64`.
 
-Resume file: .planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-05-PLAN.md
+Resume file: .planning/autopilot/phase-63.md
 
-Progress: [████████░░] 80%
+Progress: [█████████░] 90%
 
 ## Last Completed Milestone
 
@@ -71,7 +71,7 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 
 **Planned Phase:** 61 (Product Experience Fixes) — 5 plans — 2026-07-09T02:57:41.178Z
 **Planned Phase:** 62 (Business Query And Drilldown Foundation) — 7 plans — 2026-07-09T12:11:17Z
-**Executing Phase:** 63 (Safety Taxonomy And Risk Vocabulary) — 4/5 plans complete, currently 63-05
+**Executing Phase:** 63 (Safety Taxonomy And Risk Vocabulary) — 5/5 plans complete, autopilot review/verification pending
 **Registered Phase:** 64 (RAG Risk Label Unification) — pending `$gsd-plan-phase 64`
 **Registered Phase:** 65 (Trace Event And Console Label Consistency) — pending `$gsd-plan-phase 65`
 **Registered Phase:** 66 (Dev Test And Config Hygiene) — pending `$gsd-plan-phase 66`
