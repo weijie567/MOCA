@@ -157,6 +157,75 @@ describe('useAgentRun thread lifecycle', () => {
     ])
   })
 
+  it('ignores stale terminal-run events after a new query has reset active steps', async () => {
+    let resolveSecondRun: ((value: Awaited<ReturnType<typeof createRun>>) => void) | null = null
+    createRunMock
+      .mockResolvedValueOnce({ success: true, data: { run_id: 'run-1', status: 'pending' } })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSecondRun = resolve
+        }),
+      )
+    const { result } = renderHook(() => useAgentRun())
+
+    await act(async () => {
+      await result.current.submitQuery('当前有多少订单')
+    })
+    act(() => {
+      streamCallbacks.get('run-1')?.onEvent(
+        event({
+          event_type: 'final_response',
+          run_id: 'run-1',
+          step_index: 1,
+          node_name: 'final_response',
+          status: 'completed',
+          message: '需要补充信息',
+          payload: {
+            response_kind: 'clarification',
+            safe_reason: 'missing_time_range',
+            final_response: '要统计该指标，请选择时间范围。',
+          },
+        }),
+      )
+    })
+
+    let secondSubmit: Promise<void> | null = null
+    act(() => {
+      secondSubmit = result.current.submitQuery('今天有多少退款单') as Promise<void>
+    })
+    expect(result.current.state.steps).toEqual([])
+
+    act(() => {
+      streamCallbacks.get('run-1')?.onEvent(
+        event({
+          event_type: 'step_completed',
+          run_id: 'run-1',
+          step_index: 2,
+          node_name: 'investigate',
+          status: 'completed',
+          message: '正在调查订单和规则',
+          payload: { tool_name: 'query_business_metric' },
+        }),
+      )
+    })
+
+    expect(result.current.state.steps).toEqual([])
+    expect(result.current.state.messages).toMatchObject([
+      { role: 'user', content: '当前有多少订单', status: 'completed' },
+      { role: 'assistant', content: '要统计该指标，请选择时间范围。', status: 'completed' },
+      { role: 'user', content: '今天有多少退款单', status: 'completed' },
+      { role: 'assistant', content: '', status: 'pending' },
+    ])
+
+    await act(async () => {
+      resolveSecondRun?.({ success: true, data: { run_id: 'run-2', status: 'pending' } })
+      await secondSubmit
+    })
+
+    expect(result.current.state.runId).toBe('run-2')
+    expect(result.current.state.steps).toEqual([])
+  })
+
   it('updates one timeline row per node instead of appending running and completed duplicates', async () => {
     createRunMock.mockResolvedValueOnce({ success: true, data: { run_id: 'run-1', status: 'pending' } })
     const { result } = renderHook(() => useAgentRun())
