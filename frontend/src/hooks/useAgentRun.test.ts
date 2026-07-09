@@ -714,7 +714,7 @@ describe('DetailsPanel business query Result tab', () => {
         createElement(DetailsPanel, {
           runId: 'run-1',
           approvalId: null,
-          role: 'support',
+          role: 'support_agent',
           status: 'completed',
           steps: [step],
         }),
@@ -778,7 +778,7 @@ describe('DetailsPanel business query Result tab', () => {
         createElement(DetailsPanel, {
           runId: step ? 'run-1' : null,
           approvalId: null,
-          role: 'support',
+          role: 'support_agent',
           status: step ? 'completed' : 'idle',
           steps: step ? [step] : [],
         }),

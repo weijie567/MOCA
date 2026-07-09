@@ -6,10 +6,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { DemoRole } from '@/hooks/useAuth'
 import type { SseEvent } from '@/types/events'
 import { ApprovalTab } from './ApprovalTab'
+import { BusinessQueryResultTab } from './BusinessQueryResultTab'
 import { EvidenceTab } from './EvidenceTab'
 import { TraceTab } from './TraceTab'
 
-type DetailsTab = 'evidence' | 'approval' | 'trace' | 'run'
+type DetailsTab = 'result' | 'evidence' | 'approval' | 'trace' | 'run'
 
 interface DetailsPanelProps {
   runId: string | null
@@ -38,7 +39,7 @@ export function DetailsPanel({
   approveRun,
   rejectRun,
 }: DetailsPanelProps) {
-  const [activeTab, setActiveTab] = useState<DetailsTab>('evidence')
+  const [activeTab, setActiveTab] = useState<DetailsTab>('result')
   const selectedTab = status === 'waiting_approval' ? 'approval' : activeTab
 
   const approvalEvent = useMemo(
@@ -53,11 +54,14 @@ export function DetailsPanel({
     <section className="flex min-h-0 min-w-0 flex-col bg-background">
       <div className="border-b border-border px-4 py-3">
         <h2 className="text-heading font-semibold">Details</h2>
-        <p className="mt-1 text-label text-muted-foreground">Evidence / Approval / Trace / Run Info</p>
+        <p className="mt-1 text-label text-muted-foreground">Result / Evidence / Approval / Trace / Run Info</p>
       </div>
 
       <Tabs value={selectedTab} onValueChange={(value) => setActiveTab(value as DetailsTab)} className="flex min-h-0 flex-1 flex-col">
         <TabsList>
+          <TabsTrigger value="result" activeValue={selectedTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
+            Result
+          </TabsTrigger>
           <TabsTrigger value="evidence" activeValue={selectedTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
             Evidence
           </TabsTrigger>
@@ -73,6 +77,9 @@ export function DetailsPanel({
         </TabsList>
 
         <ScrollArea className="flex-1 p-4">
+          <TabsContent value="result" activeValue={selectedTab}>
+            <BusinessQueryResultTab steps={steps} />
+          </TabsContent>
           <TabsContent value="evidence" activeValue={selectedTab}>
             <EvidenceTab runId={runId} refreshKey={detailsRefreshKey} />
           </TabsContent>

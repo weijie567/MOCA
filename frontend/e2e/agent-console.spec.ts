@@ -549,7 +549,7 @@ async function expectTimelineRowsDoNotOverlap(page: Page) {
 async function expectResultPanelDoesNotOverflow(page: Page) {
   const resultButton = page.getByRole('button', { name: 'Result' })
   await expect(resultButton).toBeVisible()
-  const detailsPanel = page.getByRole('heading', { name: 'Details' }).locator('..').locator('..')
+  const detailsPanel = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Details' }) }).first()
   const panelBox = await detailsPanel.boundingBox()
   expect(panelBox, 'Details panel should have a layout box').not.toBeNull()
   if (!panelBox) return
