@@ -664,7 +664,15 @@ def test_phase62_business_query_api_payload_supports_no_leak_breakdown_and_compa
         {
             "operation": "compare",
             "safe_reason": "ok",
-            "rows": [{"metric_id": "order_count", "current_value": 5, "previous_value": 2, "delta": 3}],
+            "rows": [
+                {
+                    "metric_id": "order_count",
+                    "metric_label": "订单数",
+                    "current_value": 5,
+                    "previous_value": 2,
+                    "delta": 3,
+                }
+            ],
             "result_label": "订单数对比",
             "compare_label": "与上一周期对比",
             "extra": {"raw_cursor": "cursor-raw-should-not-leak"},

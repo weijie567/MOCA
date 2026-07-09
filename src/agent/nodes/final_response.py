@@ -341,7 +341,7 @@ def _business_query_fact(state: AgentState) -> dict[str, Any]:
     for error in context.get("errors") or []:
         if not isinstance(error, dict):
             continue
-        if error.get("resource") != "business_query" and error.get("code") != "BUSINESS_FACT_PERMISSION_DENIED":
+        if error.get("resource") != "business_query":
             continue
         return {
             "schema_version": "business_query_result.v1",

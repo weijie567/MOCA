@@ -20656,3 +20656,23 @@ handler 后 `.planning/STATE.md` frontmatter 被改为 `total_plans: 5`、`compl
 
 **剩余问题和下次继续排查入口**  
 无产品实现遗留。后续 Phase 62 plan 完成时，仍必须在调用这些 handlers 后检查 `.planning/STATE.md` / `.planning/ROADMAP.md` diff；若继续错算，应修复 GSD SDK handler 或继续手动 metadata 修正并记录。
+
+## 2026-07-09 — Phase 62-06 Task 2 focused suite 暴露 business_query / metric denial 分支优先级问题
+
+**问题现象**  
+Task 2 GREEN 首次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase62_business_query_golden.py tests/agent/test_graph.py tests/test_agent_runs_api.py -q --tb=short` 时出现 2 个失败：`test_metric_permission_denied_graph_final_response_does_not_leak_identifier` 返回了 `当前权限范围内无法提供该业务数据。`，而 metric compatibility 期望仍是 `当前权限范围内无法提供该商户指标。`；新 API backstop 的 compare rows 断言未包含投影层自动补充的安全 `metric_label`。
+
+**如何检测/复现**  
+运行上述 focused suite。
+
+**关键证据或命令**  
+pytest failure 摘要显示：`assert '当前权限范围内无法提供该业务数据。' == '当前权限范围内无法提供该商户指标。'`；另一个 failure 显示实际 compare row 多出 `metric_label: '订单数'`。
+
+**当前判断/根因**  
+Task 1 新增 `_business_query_fact(...)` 时把任意 `BUSINESS_FACT_PERMISSION_DENIED` error 都当成 `business_query` denial，误抢了旧 `business_metric` permission-denied 分支；compare API 测试预期没有同步投影层的安全 metric label enrichment。
+
+**已做处理**  
+将 `_business_query_fact(...)` 的 error fallback 收窄为仅处理 `error["resource"] == "business_query"`；API compare backstop 明确期待 `metric_label: "订单数"`。
+
+**剩余问题和下次继续排查入口**  
+无产品遗留。后续若新增其他 business fact denial fallback，必须先按 resource 精确匹配，避免抢占 compatibility 分支。
