@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, Clock3, PauseCircle } from 'lucide-react'
-import type { SseEvent } from '@/types/events'
+import type { BusinessQueryOperation, BusinessQueryPayload, SseEvent } from '@/types/events'
 import { cn } from '@/lib/utils'
 
 const NODE_MESSAGES: Record<string, string> = {
@@ -52,6 +52,7 @@ const SAFE_REASON_LABELS: Record<string, string> = {
 }
 
 const TOOL_LABELS: Record<string, string> = {
+  business_query: '查询业务数据',
   create_coupon_grant_draft: '生成补偿券草稿',
   get_order: '查询订单',
   get_refund_case: '查询退款单',
@@ -59,6 +60,16 @@ const TOOL_LABELS: Record<string, string> = {
   query_business_metric: '查询业务指标',
   search_policy: '检索政策证据',
 }
+
+const BUSINESS_QUERY_LABELS: Record<BusinessQueryOperation, { running: string; completed: string }> = {
+  aggregate: { running: '正在查询业务汇总', completed: '业务汇总查询完成' },
+  list: { running: '正在查询业务列表', completed: '业务列表查询完成' },
+  detail: { running: '正在查询业务详情', completed: '业务详情查询完成' },
+  breakdown: { running: '正在查询业务分组', completed: '业务分组查询完成' },
+  compare: { running: '正在查询业务对比', completed: '业务对比查询完成' },
+}
+
+const BUSINESS_QUERY_OPERATIONS = new Set<string>(Object.keys(BUSINESS_QUERY_LABELS))
 
 function formatTime(timestamp: string) {
   const date = new Date(timestamp)
@@ -110,6 +121,62 @@ function metricSubtitle(step: SseEvent) {
   return `metric: ${metricLabel} · scope: ${scopeLabel}`
 }
 
+function businessQueryPayload(step: SseEvent): BusinessQueryPayload | null {
+  const query = step.payload?.business_query
+  if (!query || typeof query !== 'object') return null
+  return query
+}
+
+function businessQueryOperation(query: BusinessQueryPayload | null) {
+  const operation = safeText(query?.operation)
+  return BUSINESS_QUERY_OPERATIONS.has(operation) ? (operation as BusinessQueryOperation) : null
+}
+
+function formatRowsLabel(query: BusinessQueryPayload) {
+  const rowCount = typeof query.row_count === 'number' ? query.row_count : null
+  const limit = typeof query.limit === 'number' ? query.limit : null
+  if (rowCount !== null && limit !== null) return `${rowCount}/${limit}`
+  if (rowCount !== null) return String(rowCount)
+  return '-'
+}
+
+function businessQuerySubtitle(step: SseEvent) {
+  const query = businessQueryPayload(step)
+  const operation = businessQueryOperation(query)
+  if (!query || !operation) return 'business_query: 已安全处理'
+
+  if (operation === 'aggregate') {
+    const resultLabel = safeText(query.result_label) || safeText(query.resource_label) || '业务汇总'
+    const scopeLabel = safeText(query.scope_label) || '当前权限范围'
+    return `aggregate: ${resultLabel} · scope: ${scopeLabel}`
+  }
+
+  if (operation === 'list') {
+    const resourceLabel = safeText(query.resource_label) || '业务列表'
+    return `list: ${resourceLabel} · rows: ${formatRowsLabel(query)}`
+  }
+
+  if (operation === 'detail') {
+    const resourceLabel = safeText(query.resource_label) || '业务详情'
+    const fieldsLabel = safeText(query.fields_label) || '-'
+    return `detail: ${resourceLabel} · fields: ${fieldsLabel}`
+  }
+
+  if (operation === 'breakdown') {
+    const resourceLabel = safeText(query.resource_label) || '业务分组'
+    const groupByLabel = safeText(query.group_by_label) || '-'
+    return `breakdown: ${resourceLabel} · by: ${groupByLabel}`
+  }
+
+  const resultLabel = safeText(query.result_label) || '业务对比'
+  const compareLabel = safeText(query.compare_label)
+  return compareLabel ? `compare: ${resultLabel} · ${compareLabel}` : `compare: ${resultLabel}`
+}
+
+function isBusinessQueryStep(step: SseEvent) {
+  return responseKind(step) === 'business_query_answer' || Boolean(businessQueryPayload(step))
+}
+
 function toolLabel(step: SseEvent) {
   const explicit = safeText(step.payload?.tool_label)
   if (explicit) return explicit
@@ -122,6 +189,11 @@ function timelineLabel(step: SseEvent) {
   const nodeName = step.node_name ?? ''
   const tool = toolLabel(step)
 
+  if (isBusinessQueryStep(step)) {
+    const operation = businessQueryOperation(businessQueryPayload(step))
+    if (!operation) return step.status === 'running' ? '正在查询业务数据' : '业务查询完成'
+    return step.status === 'running' ? BUSINESS_QUERY_LABELS[operation].running : BUSINESS_QUERY_LABELS[operation].completed
+  }
   if (kind === 'metric_answer' || step.payload?.metric || step.payload?.metric_id) {
     return step.status === 'running' ? '正在查询业务指标' : '业务指标查询完成'
   }
@@ -138,6 +210,9 @@ function timelineSubtitle(step: SseEvent) {
   const nodeName = step.node_name ?? ''
   const tool = toolLabel(step)
 
+  if (isBusinessQueryStep(step)) {
+    return businessQuerySubtitle(step)
+  }
   if (kind === 'metric_answer' || step.payload?.metric || step.payload?.metric_id) {
     return metricSubtitle(step)
   }
