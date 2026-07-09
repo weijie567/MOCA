@@ -1667,6 +1667,40 @@
 - 🟡 当前 follow-up 只覆盖预设时间范围；自定义自然语言时间区间仍需单独 parser / test。
 - 🟡 这次修复保留 `business_metric_query` 使用 `read_status` operation 的 Phase 61 MVP 妥协；未来引入 `read_metric` 时需要重新检查 route/planner/status 口径。
 
+## 2026-07-10 — Phase 63 Plan 02 — `risk_gate` risk severity/disposition 与 action proposal taxonomy 已收敛 ✅
+
+**子系统**
+- 风险审批主链 / 工具调用 / action taxonomy
+
+**问题现象 / 根因**
+- Phase 63 前，`src/agent/nodes/risk_gate.py` 本地维护 `FULL_REFUND_TERMS`、`ACTIONABLE_ACTIONS`、`_canonical_action_type(...)` 和 `_is_actionable_recommendation(...)`，与新建 safety taxonomy registry、后续 `action_draft` / `intent_policy` 迁移目标重复。
+- 同一 `risk_level` 字段同时承载 severity（`low` / `medium` / `high`）和 disposition（`manual_review` / `blocked`），导致 approval/replay/audit 读取风险字段时无法稳定区分“严重度”和“处置结果”。
+- `manual_review` 这类非可执行 disposition 可能在 `approval_required=True` 时继续进入 proposed action / snapshot binding 路径，削弱 action execution boundary 的可审计性。
+
+**影响**
+- 新增 action alias、risk route 或 manual review 分支时，`risk_gate` 与 taxonomy/action-draft/intent-policy 容易漏同步。
+- 审批风险决策与 trace reason codes 中若继续混用 `risk_level=manual_review|blocked`，后续指标、回放和安全审计会把处置结果误读成严重度。
+- 非可执行 disposition 若绑定为 proposed action，会让 approval plan / snapshot hash 看起来像存在可执行写动作。
+
+**处理状态**
+- ✅ 已修复验证。`risk_gate.py` 删除本地 action alias/actionable/canonical helper 副本，改用 `src.agent.safety.taxonomy` 的 `canonical_executable_action_type`、`is_actionable_recommendation`、`matches_full_refund_alias` 和 `risk_assessment_with_disposition`。
+- ✅ 风险输出现在保持 `risk_level` 为 severity-only，同时写入 `risk_severity` 和 `risk_disposition`；manual review fail-closed 保留已有合法 severity，缺失/legacy 时由 taxonomy fallback。
+- ✅ 非可执行 disposition 在 snapshot/action binding 前 fail closed，不再生成 `proposed_action.action_type=manual_review`。
+- ✅ `RiskDecisionV1.reason_codes` 现在包含 `risk_severity:*` 和 `risk_disposition:*`，方便审批/audit 追踪。
+
+**证据**
+- Phase 63 Plan 02；RED commit `2240af0`；GREEN commit `c584d80`。
+- 文件：`src/agent/nodes/risk_gate.py`、`tests/agent/test_nodes/test_risk_gate.py`、`tests/agent/test_phase22_action_boundary.py`、`tests/approvals/test_hash_binding.py`、`.planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-02-SUMMARY.md`。
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_risk_gate.py tests/agent/test_phase22_action_boundary.py tests/approvals/test_hash_binding.py -q --tb=short` → `48 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_safety_taxonomy.py -q --tb=short` → `38 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/risk_gate.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_phase22_action_boundary.py tests/approvals/test_hash_binding.py` → `All checks passed!`
+
+**剩余风险**
+- 🟡 `action_draft.py`、ToolPlatform 写工具边界、`intent_policy.py` 与 routing 的 action/risk/evidence-required taxonomy 迁移仍在 Phase 63 Plan 03/04。
+- 🟡 Phase 63 Plan 05 仍需加入 drift guards / parity tests，防止后续重新引入本地 action/risk 字面量副本。
+
 ## 2026-07-09 — Phase 62-66 覆盖矩阵补齐项（源码级硬编码审查）⚠️待规划落地
 
 **子系统**
