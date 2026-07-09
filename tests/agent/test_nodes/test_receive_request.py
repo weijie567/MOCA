@@ -224,6 +224,105 @@ def test_agent_state_declares_slot_resolution_fields():
     assert "missing_required_slots" in annotations
 
 
+def test_agent_state_declares_business_query_drilldown_fields():
+    annotations = AgentState.__annotations__
+
+    for field in (
+        "last_query_spec",
+        "last_answer_context",
+        "result_cursor",
+        "expected_slot_type",
+        "expected_slot_context",
+    ):
+        assert field in annotations
+
+
+@pytest.mark.asyncio
+async def test_receive_request_preserves_safe_business_query_drilldown_context(base_state):
+    binding = receive_request_module.business_query_context_binding(base_state)
+    drilldown_context = {
+        "schema_version": "business_query_answer_context.v1",
+        "query_spec": {
+            "operation": "aggregate",
+            "resource": "order",
+            "metric_id": "order_count",
+            "time_preset": "this_week",
+        },
+        "result_refs": ["order_count"],
+        "allowed_drilldowns": ["list"],
+        "fields_shown": ["order_count"],
+        "scope": {"scope_label": "authorized_merchants"},
+        "time_summary": "this_week",
+        "filter_summary": None,
+    }
+    state = {
+        **base_state,
+        "last_query_spec": drilldown_context["query_spec"],
+        "last_answer_context": drilldown_context,
+        "result_cursor": None,
+        "expected_slot_type": "field_request",
+        "expected_slot_context": {
+            "schema_version": "business_query_expected_slot_context.v1",
+            "purpose": "business_query_drilldown",
+            "context_binding": binding,
+        },
+        "business_context": {"facts": {"business_query": {"raw_rows": ["SHOULD_RESET"]}}},
+        "tool_results": [{"raw_args": "SHOULD_RESET"}],
+    }
+
+    result = await receive_request(state)
+
+    assert result["last_query_spec"] == drilldown_context["query_spec"]
+    assert result["last_answer_context"] == drilldown_context
+    assert result["result_cursor"] is None
+    assert result["expected_slot_type"] == "field_request"
+    assert result["expected_slot_context"]["context_binding"] == binding
+    assert result["business_context"] is None
+    assert result["tool_results"] == []
+    serialized = str(
+        {
+            "last_query_spec": result["last_query_spec"],
+            "last_answer_context": result["last_answer_context"],
+            "result_cursor": result["result_cursor"],
+            "expected_slot_context": result["expected_slot_context"],
+        }
+    )
+    for forbidden in ("raw_rows", "raw_args", "tenant_id", "merchant_scope"):
+        assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+async def test_receive_request_clears_business_query_drilldown_context_on_binding_mismatch(base_state):
+    original_binding = receive_request_module.business_query_context_binding(base_state)
+    changed_user_state = {
+        **base_state,
+        "user_id": "different-user",
+        "last_query_spec": {"operation": "list", "resource": "order", "fields": ["order_no"]},
+        "last_answer_context": {
+            "schema_version": "business_query_answer_context.v1",
+            "query_spec": {"operation": "list", "resource": "order", "fields": ["order_no"]},
+            "result_refs": ["ORD-OLD"],
+            "allowed_drilldowns": ["detail"],
+            "fields_shown": ["order_no"],
+        },
+        "result_cursor": {"has_more": True, "limit": 20},
+        "expected_slot_type": "field_request",
+        "expected_slot_context": {
+            "schema_version": "business_query_expected_slot_context.v1",
+            "purpose": "business_query_drilldown",
+            "context_binding": original_binding,
+        },
+    }
+
+    result = await receive_request(changed_user_state)
+
+    assert result["last_query_spec"] is None
+    assert result["last_answer_context"] is None
+    assert result["result_cursor"] is None
+    assert result["expected_slot_type"] is None
+    assert result["expected_slot_context"] is None
+
+
 @pytest.mark.asyncio
 async def test_receive_request_resets_phase33_rag_claim_package_fields(base_state):
     state = {

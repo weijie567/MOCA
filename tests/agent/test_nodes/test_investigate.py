@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -383,6 +384,74 @@ def _business_query_success() -> ToolResultV2:
                     "safe_to_answer": True,
                 },
                 "no_leak_status": "not_applicable",
+            }
+        },
+        summary="Business query read succeeded",
+        source_system="business_fact_service",
+        data_freshness_at=datetime.now(UTC),
+        policy_evidence_refs=[],
+        business_fact_refs=[ref],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=2,
+        audit_ref=None,
+    )
+
+
+def _business_query_success_with_safe_drilldown_context() -> ToolResultV2:
+    ref = BusinessFactRefV1(
+        tenant_id=str(uuid4()),
+        source_system="business_fact_service",
+        resource_type="business_query",
+        resource_id="order:list",
+        resource_version=None,
+        data_freshness_at=datetime.now(UTC),
+        retrieved_at=datetime.now(UTC),
+    )
+    cursor = {
+        "schema_version": "business_query_result_cursor.v1",
+        "cursor_id": "cursor-safe-current",
+        "has_more": True,
+        "limit": 20,
+        "next_cursor": {"cursor_id": "cursor-safe-next", "direction": "next"},
+    }
+    query_spec = {
+        "operation": "list",
+        "resource": "order",
+        "time_preset": "this_week",
+        "fields": ["order_no"],
+        "limit": 20,
+    }
+    return ToolResultV2(
+        status="success",
+        data={
+            "business_query": {
+                "schema_version": "business_query_result.v1",
+                "operation": "list",
+                "resource": "order",
+                "status": "ok",
+                "rows": [
+                    {
+                        "order_no": "ORD-BQ-001",
+                        "status": "paid",
+                        "raw_payload": {"customer_phone": "13800000000"},
+                    }
+                ],
+                "answer_context": {
+                    "schema_version": "business_query_answer_context.v1",
+                    "query_spec": query_spec,
+                    "result_refs": ["ORD-BQ-001"],
+                    "allowed_drilldowns": ["detail"],
+                    "fields_shown": ["order_no"],
+                    "cursor": cursor,
+                    "scope": {"scope_label": "authorized_merchants"},
+                    "time_summary": "this_week",
+                    "filter_summary": None,
+                },
+                "cursor": cursor,
+                "scope": {"scope_label": "authorized_merchants"},
+                "raw_args": {"tenant_id": "TENANT-ID-SHOULD-NOT-BE-STORED"},
             }
         },
         summary="Business query read succeeded",
@@ -1045,6 +1114,106 @@ async def test_business_query_result_accumulates_under_business_query_fact():
     ]
     assert "MERCHANT-ID-SHOULD-NOT-BE-IN-PROMPT" not in result["tool_results"][0]["prompt_summary"]
     assert "TENANT-ID-SHOULD-NOT-BE-IN-PROMPT" not in result["tool_results"][0]["prompt_summary"]
+
+
+@pytest.mark.asyncio
+async def test_successful_business_query_stores_safe_answer_context_for_drilldown():
+    events: list[dict[str, Any]] = []
+    manager = FakePlatform({"business_query": _business_query_success_with_safe_drilldown_context()})
+    plan = [
+        {
+            "next_tool": "business_query",
+            "args": {
+                "operation": "list",
+                "resource": "order",
+                "time_preset": "this_week",
+                "fields": ["order_no"],
+            },
+            "reason": "answer business query",
+        }
+    ]
+
+    state = _state(plan)
+    result = await investigate(state, _config(manager, events))
+
+    assert result["last_query_spec"] == {
+        "operation": "list",
+        "resource": "order",
+        "metric_id": None,
+        "time_preset": "this_week",
+        "start_at": None,
+        "end_at": None,
+        "merchant_id": None,
+        "resource_id": None,
+        "filters": {"status_filter": []},
+        "fields": ["order_no"],
+        "group_by": None,
+        "compare_to": None,
+        "sort": None,
+        "limit": 20,
+        "cursor": None,
+    }
+    assert result["last_answer_context"]["allowed_drilldowns"] == ["detail"]
+    assert result["last_answer_context"]["fields_shown"] == ["order_no"]
+    assert result["result_cursor"]["next_cursor"] == {"cursor_id": "cursor-safe-next", "direction": "next"}
+    assert result["expected_slot_type"] == "field_request"
+    assert result["expected_slot_context"]["purpose"] == "business_query_drilldown"
+    serialized = json.dumps(
+        {
+            "last_query_spec": result["last_query_spec"],
+            "last_answer_context": result["last_answer_context"],
+            "result_cursor": result["result_cursor"],
+            "expected_slot_context": result["expected_slot_context"],
+        },
+        ensure_ascii=False,
+    )
+    for forbidden in (
+        "raw_payload",
+        "raw_args",
+        "tenant_id",
+        "merchant_scope",
+        "customer_phone",
+        "TENANT-ID-SHOULD-NOT-BE-STORED",
+    ):
+        assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+async def test_denied_business_query_clears_stale_drilldown_context():
+    events: list[dict[str, Any]] = []
+    manager = FakePlatform(
+        {
+            "business_query": _business_error_with_data(
+                status="permission_denied",
+                code="BUSINESS_FACT_PERMISSION_DENIED",
+                safe_message="Business resource unavailable for this request",
+                data={"business_query": {"raw_args": {"order_no": "ORD-DENIED-CTX"}}},
+            )
+        }
+    )
+    plan = [
+        {
+            "next_tool": "business_query",
+            "args": {"operation": "detail", "resource": "order", "resource_id": "ORD-DENIED-CTX"},
+            "reason": "denied drilldown",
+        }
+    ]
+    state = _state(plan) | {
+        "last_query_spec": {"operation": "list", "resource": "order", "fields": ["order_no"]},
+        "last_answer_context": {"result_refs": ["ORD-OLD"], "allowed_drilldowns": ["detail"]},
+        "result_cursor": {"has_more": True, "limit": 20},
+        "expected_slot_type": "field_request",
+        "expected_slot_context": {"purpose": "business_query_drilldown"},
+    }
+
+    result = await investigate(state, _config(manager, events))
+
+    assert result["last_query_spec"] is None
+    assert result["last_answer_context"] is None
+    assert result["result_cursor"] is None
+    assert result["expected_slot_type"] is None
+    assert result["expected_slot_context"] is None
+    assert "ORD-DENIED-CTX" not in str(result["business_context"])
 
 
 @pytest.mark.asyncio
