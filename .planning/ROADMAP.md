@@ -101,7 +101,7 @@ Plans:
 **Goal:** Unify action classification and risk vocabulary across `risk_gate`, `action_draft`, and `intent_policy` so safety routing and execution-side action handling cannot drift.
 **Requirements**: TBD during Phase 63 planning.
 **Depends on:** Phase 62
-**Plans:** 0 plans
+**Plans:** 5 plans
 
 **Success criteria:**
 1. `canonical_action_type` and action keyword taxonomy have one owner shared by risk, action draft, and intent policy code.
@@ -109,7 +109,11 @@ Plans:
 3. Safety-critical route checks and action execution checks use the same taxonomy and are covered by parity tests.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 63 to break down)
+- [ ] 63-01-PLAN.md — Taxonomy registry foundation and RED/parity tests.
+- [ ] 63-02-PLAN.md — Risk gate risk vocabulary and action proposal migration.
+- [ ] 63-03-PLAN.md — Action draft and ToolPlatform boundary migration.
+- [ ] 63-04-PLAN.md — Intent policy and routing taxonomy/registry migration.
+- [ ] 63-05-PLAN.md — Drift guards, architecture-debt updates, and closeout verification.
 
 ### Phase 64: RAG Risk Label Unification
 
