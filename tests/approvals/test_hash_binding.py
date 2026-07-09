@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.approvals.snapshots import build_action_safety_snapshot
+from src.approvals.schemas import RiskDecisionV1
 from src.db.models import ActionSafetySnapshot, ApprovalRequest
 from tests.approvals.test_service_transitions import (
     _approval_bundle,
@@ -22,6 +23,25 @@ from tests.approvals.test_service_transitions import (
 def _decision_command(*args, **kwargs):
     kwargs.setdefault("actor_role", "admin")
     return _base_decision_command(*args, **kwargs)
+
+
+def test_risk_decision_v1_accepts_legacy_disposition_risk_level() -> None:
+    decision = RiskDecisionV1(
+        tenant_id="tenant-1",
+        run_id="run-1",
+        action_id="act-1",
+        action_payload_hash="sha256:" + "1" * 64,
+        risk_level="manual_review",
+        reason_codes=["legacy-risk-level"],
+        policy_config_version="approval-policy.v1",
+        risk_config_version="risk-rules.v1",
+        approval_required=False,
+        evaluated_at="2026-06-15T00:02:00.000Z",
+        risk_rule_ref="legacy-risk-disposition",
+        risk_reason="Legacy rows may store disposition-like risk levels.",
+    )
+
+    assert decision.risk_level == "manual_review"
 
 
 def _changed_snapshot_hash(*, tenant_id, run_id, field: str) -> str:

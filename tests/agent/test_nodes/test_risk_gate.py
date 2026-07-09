@@ -505,7 +505,9 @@ async def test_phase34_missing_target_merchant_fails_closed_without_approval_pla
     assert result["approval_plan"] is None
     assert result["auto_allowed_binding"] is None
     assert result["final_response"] == "操作需要人工复核，当前未创建可执行审批或动作草稿。"
-    assert result["risk_assessment"]["risk_level"] == "manual_review"
+    assert result["risk_assessment"]["risk_level"] == "medium"
+    assert result["risk_assessment"]["risk_severity"] == "medium"
+    assert result["risk_assessment"]["risk_disposition"] == "manual_review"
     assert result["trace_steps"][-1]["node"] == _CANONICAL_NODE
     _assert_no_current_run_legacy_identity(result)
 

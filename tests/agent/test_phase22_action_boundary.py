@@ -231,7 +231,19 @@ async def test_non_allow_verifier_outcomes_block_proposed_actions_and_snapshot_e
     assert result.get("safety_snapshot_hash") is None
     assert result.get("safety_snapshot_verified") is not True
     assert result["risk_assessment"]["approval_required"] is False
-    assert result["risk_assessment"]["risk_level"] in {"manual_review", "blocked", "low"}
+    expected_dispositions = {
+        "insufficient_evidence": "allow",
+        "manual_review": "manual_review",
+        "refuse": "blocked",
+    }
+    expected_severities = {
+        "insufficient_evidence": "low",
+        "manual_review": "medium",
+        "refuse": "high",
+    }
+    assert result["risk_assessment"]["risk_level"] == expected_severities[route]
+    assert result["risk_assessment"]["risk_severity"] == expected_severities[route]
+    assert result["risk_assessment"]["risk_disposition"] == expected_dispositions[route]
     assert result["rag_verification"]["route"]["selected_by"] == "backend"
     assert result["rag_verification"]["route"]["model_selected"] is False
 
