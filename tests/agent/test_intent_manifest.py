@@ -50,6 +50,52 @@ def test_every_intent_has_positive_and_hard_negative_coverage():
         assert len(negatives) >= 3
 
 
+def test_business_metric_query_has_generic_golden_coverage_only():
+    dataset = json.loads(GOLDEN.read_text())
+    cases = dataset["cases"]
+    positives = [
+        case
+        for case in cases
+        if case["kind"] == "positive" and case["expected"].get("primary_intent") == "business_metric_query"
+    ]
+    negatives = [
+        case for case in cases if case["kind"] == "hard-negative" and case.get("negative_for") == "business_metric_query"
+    ]
+    forbidden = {
+        "order_count_query",
+        "refund_count_query",
+        "refund_case_count_query",
+        "pending_ticket_count_query",
+        "coupon_record_count_query",
+        "merchant_refund_rate_query",
+    }
+
+    assert len(positives) >= 5
+    assert len(negatives) >= 3
+    assert all(case["expected"].get("requested_operation") == "read_status" for case in positives)
+    assert forbidden.isdisjoint(
+        {
+            case["expected"].get("primary_intent")
+            for case in cases
+            if isinstance(case.get("expected"), dict)
+        }
+    )
+
+
+def test_business_metric_query_has_consistency_manifest_entry():
+    consistency = json.loads(CONSISTENCY.read_text())
+    entries = {entry["intent"]: entry for entry in consistency["entries"]}
+
+    assert entries["business_metric_query"] == {
+        "intent": "business_metric_query",
+        "in_precedence": True,
+        "in_required_slots": True,
+        "in_routing": True,
+        "in_evidence_table": False,
+        "in_golden_set": True,
+    }
+
+
 def test_stale_dataset_hash_fails(tmp_path):
     stale = json.loads(COVERAGE.read_text())
     stale["dataset_hash"] = "sha256:stale"
