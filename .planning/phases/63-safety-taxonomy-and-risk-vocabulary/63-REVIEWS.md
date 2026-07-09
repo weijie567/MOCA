@@ -364,3 +364,169 @@ Only the requested Claude reviewer was run for this autopilot stage. Treat the c
 ### Divergent Views
 
 - No divergent views because only one external reviewer was requested and run.
+
+---
+
+## Claude Review Round 2
+
+## Stance: CLEAN_WITH_LOW_RISK_NOTES
+
+我没有发现需要在执行前修复的 blocker 或 warning。Round 1 接受的 findings 在修订后的 5 个 plan 中都已有明确 repair，并且大多被落成了可测试的 acceptance / RED test 要求。
+
+## Repair Check
+
+### 1. Helper surface completeness — Clean
+
+`63-01-PLAN.md` 已补齐后续计划需要的 taxonomy helper surface：
+
+- `action_aliases_for`
+- `pre_route_action_aliases`
+- `matches_full_refund_alias`
+- `matches_compensation_alias`
+- `ActionResolution.raw_value`
+- `ActionResolution.executable_action_type`
+- `ActionResolution.disposition`
+- `ActionResolution.matched_alias`
+- `ActionResolution.match_kind`
+
+这足够支撑 `63-02 risk_gate`、`63-03 action_draft`、`63-04 intent_policy/routing` 迁移，避免 caller 重新定义局部 tuple 或 alias set。
+
+### 2. Severity / disposition preservation — Clean
+
+`63-02-PLAN.md` 已修复原先的 severity downgrade 风险：
+
+- `manual_review` 保留已有合法 severity。
+- 只有 legacy / absent severity 才 fallback 到 `medium`。
+- `blocked/refuse` 明确为 high + blocked disposition。
+- 新输出中 `risk_level` / `risk_severity` 为 severity-only。
+- `risk_disposition` 承载 routing outcome。
+- 增加 high-severity manual-review regression，防止降级成 medium。
+- `RiskDecisionV1` legacy validation 继续兼容 arbitrary string。
+
+这覆盖了 Round 1 的 HIGH finding。
+
+### 3. Risk compatibility contract — Clean
+
+`63-02` 现在明确：
+
+- 新 `risk_assessment["risk_level"]` = severity only。
+- 新 `risk_assessment["risk_severity"]` = same severity。
+- 新 `risk_assessment["risk_disposition"]` = routing outcome。
+- 新 `RiskDecisionV1.risk_level` = severity only。
+- legacy `RiskDecisionV1.model_validate(...)` 继续接受旧字符串。
+- reason codes 要包含 `risk_severity:<value>` 和 `risk_disposition:<value>` 或等价稳定格式。
+
+兼容边界足够清楚。
+
+### 4. Action-draft error contract — Clean
+
+`63-03-PLAN.md` 已补上安全 error contract：
+
+- `NON_EXECUTABLE_ACTION_DISPOSITION`
+- `NON_EXECUTABLE_ACTION_TYPE`
+- no ToolPlatform invocation
+- no `action_draft`
+- no `draft_outcome`
+- error shape 与现有 action-boundary failures 对齐
+- message 不泄露 taxonomy internals / alias list / tenant data
+- final trace step 固定 `node="action_draft"`、`status="error"`、`tool_name` absent or empty
+
+这足以避免新 error code 变成未定义的隐式 contract。
+
+### 5. Compensation policy hard negatives — Clean
+
+`63-04-PLAN.md` 已补强中英文 hard negatives：
+
+- `补偿规则是什么`
+- `什么情况下可以发券`
+- `coupon policy for late delivery`
+- `should we compensate under policy`
+- `how much compensation is allowed by rule`
+
+并保留 positive controls：
+
+- `请对 ORD-1 直接退款`
+- `refund now`
+- `发券给商家`
+
+这能覆盖 taxonomy alias 迁移后最容易误伤的 policy QA / compensation policy 问句。
+
+### 6. Registry exception fallback — Clean, implementation-sensitive
+
+`63-04` 已把原先抽象的 fail-closed 要求拆成较清楚的 layering：
+
+- direct-response / unsupported intents 仍由 existing route policy 优先处理。
+- unknown intent / registry exception 才进入 safe fallback。
+- registry exception 必须产生 test-visible marker / safe reason。
+- fallback 不得到 action execution。
+- fake-registry-raises test 被列为 RED test。
+
+这不是 plan blocker。执行时要小心别把所有 registry exception 都粗暴变成 action-bound true，计划已通过测试要求约束这个风险。
+
+### 7. Conditional local-validation logging — Clean
+
+`63-05-PLAN.md` 已把 `.planning/LOCAL-VALIDATION-ISSUES.md` 移到：
+
+```yaml
+conditional_files_modified:
+  - .planning/LOCAL-VALIDATION-ISSUES.md
+```
+
+并明确只有真实 validation/debug failure 才追加记录。这个 repair 到位。
+
+### 8. Drift guard precision — Clean
+
+`63-05` 没有 broad grep `manual_review` / `blocked`，而是要求精确检查：
+
+- assignment name includes `ACTIONABLE`, `EXECUTABLE`, `ACTION_TYPES`, `WRITE_ACTIONS`
+- local `_canonical_action_type` returning `"manual_review"` / `"blocked"`
+- ToolPlatform / proposed-action construction hardcoding `action_type="manual_review"` / `"blocked"`
+
+并明确不禁止 reason codes、compatibility schemas/tests、safe error payload tests 中出现这些字符串。误报风险已被计划约束住。
+
+### 9. MOCA test entrypoints — Clean
+
+计划中的验证命令都使用：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check ...
+```
+
+没有发现 bare `pytest` / bare `python -m pytest` 入口问题。
+
+### 10. Phase 64/65/66/67 scope boundaries — Clean
+
+`63-05` 明确禁止引入：
+
+- Phase 64 RAG risk label work
+- Phase 65 trace / console label work
+- Phase 66 config / demo hygiene
+- real external execution
+- new write tools
+- broad DB / state-machine hardening
+
+同时把 broader DB/status-machine CHECK hardening 记录为 Phase 67 deferral。scope boundary 清楚。
+
+## Low-Risk Notes
+
+1. **`63-04` fallback 行为仍是执行时最容易写错的点。**
+   Plan 已经有足够测试要求，不需要再修 plan；执行时应优先让 fake-registry-raises case pin 住 route outcome 和 reason marker。
+
+2. **`63-05` static AST guard 要保持精确。**
+   Plan 已明确不要 broad scan generic strings；执行时不要为了简单实现改成全文 grep `manual_review|blocked`。
+
+3. **Summary artifacts 通过 `<output>` 明确要求创建。**
+   各 plan frontmatter 的 `files_modified` 未列 summary 文件，但每个 plan 的 `<output>` 都要求创建 `63-xx-SUMMARY.md`。这不是执行前 blocker。
+
+## Final Verdict
+
+**CLEAN_WITH_LOW_RISK_NOTES**
+
+这些 notes 都是执行注意点，不需要再次修 plan。Phase 63 repaired plans 可以进入执行。
+
+---
+
+## Round 2 Consensus Summary
+
+Claude returned `CLEAN_WITH_LOW_RISK_NOTES`. No additional plan blockers or warnings require repair before execution. The remaining notes are execution cautions for registry exception fallback precision and static drift guard implementation.

@@ -20955,3 +20955,23 @@ Phase 63 外部 plan review 修订后，执行一条用于 sanity check 的 `rg`
 
 **剩余问题和下次继续排查入口**
 无产品实现遗留。后续包含反引号/双引号的 `rg` 检查优先用单引号包裹正则，或拆成多条命令。
+
+## 2026-07-10 — Phase 63 REVIEWS.md 追加外部 review 后尾随空格
+
+**问题现象**
+Phase 63 第二轮 Claude plan review 追加到 `63-REVIEWS.md` 后运行 `git diff --check`，检测到 3 行 markdown 尾随空格。
+
+**如何检测/复现**
+将 `/tmp/gsd-review-claude-63-r2.md` 追加到 `.planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-REVIEWS.md` 后运行 `git diff --check -- .planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-REVIEWS.md`。
+
+**关键证据或命令**
+`git diff --check` 报告 `63-REVIEWS.md:513`, `:516`, `:519` trailing whitespace，均来自外部 review 输出中的 markdown 强制换行空格。
+
+**当前判断/根因**
+这是外部 review 文本格式问题，不是 plan 内容或产品实现问题。MOCA planning artifact 不需要保留这些尾随空格。
+
+**已做处理**
+用机械格式化命令移除 `63-REVIEWS.md` 行尾空白，并重新运行 `git diff --check`。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。后续追加外部 AI markdown 输出后先运行 `git diff --check`，必要时清理尾随空格再提交。
