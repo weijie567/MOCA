@@ -421,9 +421,16 @@ def _citation_summary(evidence_refs: list[dict[str, Any]]) -> str:
 
 
 def _completed_response(draft: dict[str, Any], risk_assessment: dict[str, Any]) -> str:
-    action = draft.get("recommended_action") or "建议按已检索到的政策依据处理。"
-    reasoning = draft.get("reasoning_summary") or "已根据当前知识库证据生成建议。"
     citations = _citation_summary(draft.get("evidence_refs") or [])
+    has_evidence_citations = bool(citations)
+    action = draft.get("recommended_action") or (
+        "建议按已检索到的政策依据处理。" if has_evidence_citations else "建议先补充具体业务信息后再继续处理。"
+    )
+    reasoning = draft.get("reasoning_summary") or (
+        "已根据当前知识库证据生成建议。"
+        if has_evidence_citations
+        else "当前没有可引用的政策依据；以上仅基于已提供的业务信息整理。"
+    )
     parts = [f"建议：{action}", f"理由：{reasoning}"]
     if citations:
         parts.append(f"依据：{citations}。")
