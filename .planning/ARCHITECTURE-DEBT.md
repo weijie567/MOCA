@@ -1509,3 +1509,28 @@
 
 **剩余风险**
 - ✅ 本条已关闭 active canonical node file broadly masked by classifier 的回归风险。未来如果 active node file 需要保留历史兼容读取，必须在 classifier 中增加显式、逐行、可审计的 allowlist，而不是依赖 broad node-file bucket。
+
+## 2026-07-09 — Phase 61 Plan 02 — `business_metric_query` 操作标签 MVP 妥协 🟡有意妥协
+
+**子系统**
+- 意图识别 / slot resolution contract
+
+**问题 / 根因**
+- Phase 61 需要新增单一 generic `business_metric_query` 意图，但当前 `RequestedOperationLiteral` 只有 `read_status`、`advise`、`draft_reply`、`draft_action`、`execute_action`、`escalate`，没有 metric-specific read operation。
+- 61-02 只落 metric intent / slot / clarification contract，不落 SQL-backed metric runtime；在这一层新增 `read_metric` 会扩大 operation taxonomy 和多处下游判断面。
+
+**影响**
+- metric intent 必须被测试锁定为 read-only、非 high-risk、非 direct-response、非 evidence/RAG-required，避免 `read_status` 复用被误读成订单状态查询或写操作入口。
+- 后续 61-03/61-04 runtime 和 graph 集成不得因为 operation 仍叫 `read_status` 而让 metric query 走 per-resource status/id-required 逻辑。
+
+**处理状态**
+- 🟡 61-02 Task 1 将 `business_metric_query` 注册为唯一 metric intent，`initial_route="slot_resolution_gate"`、`required_slots=["metric_id"]`、`evidence_required=False`、`high_risk=False`。
+- 🟡 tests 锁定 no per-metric intents、read-only risk tier、not in `DIRECT_RESPONSE_INTENTS` / `EVIDENCE_REQUIRED_INTENTS`，并用 prompt/golden manifest 覆盖订单数、退款单数、待处理工单数、补偿券记录数、商户退款率。
+
+**证据 / 验证**
+- 文件：`src/agent/schemas.py`、`src/agent/intent_policy.py`、`src/agent/prompts.py`、`tests/agent/test_intent_policy_registry.py`、`tests/agent/test_intent_manifest.py`
+- Phase / commit：61-02 Task 1 GREEN（本条所在提交）
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_manifest.py tests/agent/test_intent_policy_registry.py tests/agent/test_intent_golden_contract.py -q --tb=short` → `109 passed, 1 warning`
+
+**剩余风险**
+- 🟡 若后续 metric operation taxonomy 需要在 API/SSE/trace 上与 `read_status` 明确区分，应由 post-Phase 61 contract cleanup 或单独 plan 引入 `read_metric`，并同步更新 intent/risk/task-plan/final-response 测试。

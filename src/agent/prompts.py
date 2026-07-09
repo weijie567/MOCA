@@ -9,6 +9,7 @@ Allowed intents:
 - appeal_or_unban: the user asks about appeal, unban, or reinstatement handling.
 - complaint_escalation: the user asks about complaint escalation.
 - action_request: the user asks for an ordinary action draft or execution analysis.
+- business_metric_query: the user asks for scoped operational metrics, counts, rates, or current snapshots such as order count, refund case count, pending ticket count, coupon record count, or merchant refund rate.
 - small_talk: social chit-chat with no business request.
 - unsupported: outside supported refund/order/support policy operations or lacks enough context.
 
@@ -29,6 +30,21 @@ JSON: {"schema_version":"intent_result.v3","primary_intent":"refund_troubleshoot
 
 User: "这个客户投诉很严重，可以给多少补偿券比较合适？"
 JSON: {"schema_version":"intent_result.v3","primary_intent":"compensation_suggestion","requested_operation":"draft_action","confidence":0.91,"calibrated_confidence":0.91,"secondary_intents":["complaint_escalation"],"required_slots":{"all_of":["action_type"],"any_of":[["order_id","refund_case_id","ticket_id"]],"optional":["amount"]},"candidate_slots":{},"routing_hints":{},"classifier_version":"intent_classifier.v2","calibration_version":"calibration.unverified","reason_codes":["compensation_request"]}
+
+User: "当前有多少订单？"
+JSON: {"schema_version":"intent_result.v3","primary_intent":"business_metric_query","requested_operation":"read_status","confidence":0.93,"calibrated_confidence":0.93,"secondary_intents":[],"required_slots":{"all_of":["metric_id"],"any_of":[],"optional":[]},"candidate_slots":{"metric_id":"order_count"},"routing_hints":{},"classifier_version":"intent_classifier.v2","calibration_version":"calibration.unverified","reason_codes":["business_metric_query"]}
+
+User: "今天有多少退款单？"
+JSON: {"schema_version":"intent_result.v3","primary_intent":"business_metric_query","requested_operation":"read_status","confidence":0.94,"calibrated_confidence":0.94,"secondary_intents":[],"required_slots":{"all_of":["metric_id"],"any_of":[],"optional":[]},"candidate_slots":{"metric_id":"refund_case_count","metric_time_preset":"today"},"routing_hints":{},"classifier_version":"intent_classifier.v2","calibration_version":"calibration.unverified","reason_codes":["business_metric_query"]}
+
+User: "待处理工单有多少？"
+JSON: {"schema_version":"intent_result.v3","primary_intent":"business_metric_query","requested_operation":"read_status","confidence":0.94,"calibrated_confidence":0.94,"secondary_intents":[],"required_slots":{"all_of":["metric_id"],"any_of":[],"optional":[]},"candidate_slots":{"metric_id":"pending_ticket_count","metric_time_preset":"current_snapshot"},"routing_hints":{},"classifier_version":"intent_classifier.v2","calibration_version":"calibration.unverified","reason_codes":["business_metric_query"]}
+
+User: "本周补偿券发了多少？"
+JSON: {"schema_version":"intent_result.v3","primary_intent":"business_metric_query","requested_operation":"read_status","confidence":0.94,"calibrated_confidence":0.94,"secondary_intents":[],"required_slots":{"all_of":["metric_id"],"any_of":[],"optional":[]},"candidate_slots":{"metric_id":"coupon_record_count","metric_time_preset":"this_week"},"routing_hints":{},"classifier_version":"intent_classifier.v2","calibration_version":"calibration.unverified","reason_codes":["business_metric_query"]}
+
+User: "某商家的退款率是多少？"
+JSON: {"schema_version":"intent_result.v3","primary_intent":"business_metric_query","requested_operation":"read_status","confidence":0.92,"calibrated_confidence":0.92,"secondary_intents":[],"required_slots":{"all_of":["metric_id"],"any_of":[],"optional":[]},"candidate_slots":{"metric_id":"merchant_refund_rate"},"routing_hints":{},"classifier_version":"intent_classifier.v2","calibration_version":"calibration.unverified","reason_codes":["business_metric_query"]}
 
 User: "请审批 APR-1001。"
 JSON: {"schema_version":"intent_result.v3","primary_intent":"unsupported","requested_operation":"advise","confidence":0.60,"calibrated_confidence":0.60,"secondary_intents":[],"required_slots":{"all_of":[],"any_of":[],"optional":[]},"candidate_slots":{},"routing_hints":{"clarification_reason":"approval_chat_not_trusted"},"classifier_version":"intent_classifier.v2","calibration_version":"calibration.unverified","reason_codes":["approval_chat_not_trusted"]}

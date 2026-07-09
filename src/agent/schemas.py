@@ -14,6 +14,7 @@ IntentLiteral = Literal[
     "appeal_or_unban",
     "complaint_escalation",
     "action_request",
+    "business_metric_query",
     "small_talk",
     "unsupported",
 ]

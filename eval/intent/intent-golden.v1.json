@@ -840,6 +840,84 @@
         ],
         "route": "clarification_gate"
       }
+    },
+    {
+      "id": "business_metric_query-pos-1",
+      "kind": "positive",
+      "input": "当前有多少订单？",
+      "expected": {
+        "primary_intent": "business_metric_query",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "business_metric_query-pos-2",
+      "kind": "positive",
+      "input": "今天有多少退款单？",
+      "expected": {
+        "primary_intent": "business_metric_query",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "business_metric_query-pos-3",
+      "kind": "positive",
+      "input": "待处理工单有多少？",
+      "expected": {
+        "primary_intent": "business_metric_query",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "business_metric_query-pos-4",
+      "kind": "positive",
+      "input": "本周补偿券发了多少？",
+      "expected": {
+        "primary_intent": "business_metric_query",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "business_metric_query-pos-5",
+      "kind": "positive",
+      "input": "某商家的退款率是多少？",
+      "expected": {
+        "primary_intent": "business_metric_query",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "business_metric_query-neg-1",
+      "kind": "hard-negative",
+      "input": "查询订单ORD-9001现在状态",
+      "negative_for": "business_metric_query",
+      "expected": {
+        "not_primary_intent": "business_metric_query",
+        "classifier_primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "business_metric_query-neg-2",
+      "kind": "hard-negative",
+      "input": "退款超时规则是什么？",
+      "negative_for": "business_metric_query",
+      "expected": {
+        "not_primary_intent": "business_metric_query",
+        "classifier_primary_intent": "policy_qa",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "business_metric_query-neg-3",
+      "kind": "hard-negative",
+      "input": "给ORD-9002建议补偿券",
+      "negative_for": "business_metric_query",
+      "expected": {
+        "not_primary_intent": "business_metric_query",
+        "classifier_primary_intent": "compensation_suggestion",
+        "requested_operation": "draft_action"
+      }
     }
   ]
 }

@@ -136,13 +136,13 @@ INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
         name="policy_qa",
         required_slots=RequiredSlotExpression(),
         initial_route="investigate",
-        precedence=7,
+        precedence=8,
     ),
     "order_status_inquiry": IntentDefinition(
         name="order_status_inquiry",
         required_slots=RequiredSlotExpression(any_of=[["order_id", "refund_case_id", "ticket_id"]]),
         initial_route="slot_resolution_gate",
-        precedence=6,
+        precedence=7,
     ),
     "refund_troubleshooting": IntentDefinition(
         name="refund_troubleshooting",
@@ -186,14 +186,24 @@ INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
         name="action_request",
         required_slots=RequiredSlotExpression(all_of=["action_type"], any_of=[["order_id", "refund_case_id"]]),
         initial_route="slot_resolution_gate",
-        precedence=8,
+        precedence=9,
         high_risk=True,
+    ),
+    # Phase 61 MVP compromise: metric reads reuse read_status because the
+    # operation enum has no metric-specific read operation yet. The intent
+    # definition keeps metrics read-only and disables evidence/RAG authority.
+    "business_metric_query": IntentDefinition(
+        name="business_metric_query",
+        required_slots=RequiredSlotExpression(all_of=["metric_id"]),
+        initial_route="slot_resolution_gate",
+        precedence=6,
+        evidence_required=False,
     ),
     "small_talk": IntentDefinition(
         name="small_talk",
         required_slots=RequiredSlotExpression(),
         initial_route="final_response",
-        precedence=9,
+        precedence=10,
         direct_response=True,
         evidence_required=False,
     ),
@@ -201,7 +211,7 @@ INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
         name="unsupported",
         required_slots=RequiredSlotExpression(),
         initial_route="final_response",
-        precedence=10,
+        precedence=11,
         direct_response=True,
         evidence_required=False,
     ),

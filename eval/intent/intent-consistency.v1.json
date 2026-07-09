@@ -1,7 +1,7 @@
 {
   "manifest_version": "intent-consistency.v1",
   "dataset_version": "intent-golden.v1",
-  "dataset_hash": "sha256:41ed5a46892eb29400d7de8522d84c028cd76551a4b70926cf4536cbaf33815c",
+  "dataset_hash": "sha256:71749811b0bb2cea296b7b55f6ef7d9076ced0623c31b703b12e1be463e9643d",
   "coverage_status": "complete",
   "future_intent_admission_fields": [
     "risk_level",
@@ -90,6 +90,14 @@
     },
     {
       "intent": "unsupported",
+      "in_precedence": true,
+      "in_required_slots": true,
+      "in_routing": true,
+      "in_evidence_table": false,
+      "in_golden_set": true
+    },
+    {
+      "intent": "business_metric_query",
       "in_precedence": true,
       "in_required_slots": true,
       "in_routing": true,
