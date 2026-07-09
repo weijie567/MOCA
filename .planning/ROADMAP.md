@@ -112,7 +112,7 @@ Plans:
 - [x] 63-01-PLAN.md — Taxonomy registry foundation and RED/parity tests.
 - [x] 63-02-PLAN.md — Risk gate risk vocabulary and action proposal migration.
 - [x] 63-03-PLAN.md — Action draft and ToolPlatform boundary migration.
-- [ ] 63-04-PLAN.md — Intent policy and routing taxonomy/registry migration.
+- [x] 63-04-PLAN.md — Intent policy and routing taxonomy/registry migration.
 - [ ] 63-05-PLAN.md — Drift guards, architecture-debt updates, and closeout verification.
 
 ### Phase 64: RAG Risk Label Unification

@@ -1736,6 +1736,41 @@
 - 🟡 `intent_policy.py` 与 routing 中的 action-bound / evidence-required / pre-route keyword taxonomy 仍待 Phase 63 Plan 04 迁移。
 - 🟡 Phase 63 Plan 05 仍需补 drift guards，防止 `risk_gate.py` / `action_draft.py` 之外重新引入本地 action taxonomy 副本。
 
+## 2026-07-10 — Phase 63 Plan 04 — intent/routing 安全策略已从 registry/taxonomy 派生 ✅
+
+**子系统**
+- 意图识别 / 路由规则 / 风险审批主链
+
+**问题现象 / 根因**
+- Phase 63 前，`src/agent/routing.py` 手写 `_ACTION_BOUND_INTENTS`，`_policy_evidence_required(...)` 还维护一份 evidence-required fallback intent set；这些集合与 `IntentDefinition.evidence_required` / high-risk policy 存在 drift 风险。
+- `src/agent/intent_policy.py::detect_pre_route(...)` 本地维护英文/中文直接动作关键词 tuple，与 safety taxonomy 中的 pre-route alias 语义重复。
+- `_has_compensation_action_cue(...)` 用本地 compensation/coupon token 判断补偿动作 cue，可能与 action taxonomy 对 `compensation -> issue_coupon` 的兼容语义分叉。
+
+**影响**
+- 新增或调整 intent/action alias 时，runtime routing 可能绕过 evidence/RAG 或误触发 action/escalation。
+- 普通 chat 中的审批/动作短语若绕过 hard-negative 或本地 alias 漂移，可能被误当作可信 action/approval truth。
+- policy question 中出现“发券/补偿”词时，若没有 hard-negative 先于 action alias，可能误进入 execute/draft action 路径。
+
+**处理状态**
+- ✅ 已修复验证。`IntentDefinition` 新增 `action_bound`，`IntentPolicyRegistry` 暴露 `action_bound_intents()` 与 `is_action_bound_intent(...)`。
+- ✅ `action_request`、`compensation_suggestion`、`complaint_escalation` 由 registry 标记 action-bound。
+- ✅ `detect_pre_route(...)` 改用 `src.agent.safety.taxonomy.detect_pre_route_action_request(...)`，保留 approval-chat / multi-target hard-negative，并新增补偿/发券 policy question hard-negative。
+- ✅ `routing._policy_evidence_required(...)` 和 `_action_bound_or_high_risk(...)` 改为从 `INTENT_POLICY_REGISTRY` 派生；registry 异常时写 `safe_routing_reasons` 并 fail closed。
+- ✅ `routing.py` 中的 `_ACTION_BOUND_INTENTS` 已删除。
+
+**证据**
+- Phase 63 Plan 04；RED commit `535a63d`；GREEN commit `379bcf8`。
+- 文件：`src/agent/intent_policy.py`、`src/agent/routing.py`、`tests/agent/test_intent_policy_registry.py`、`tests/agent/test_intent_routing.py`、`.planning/phases/63-safety-taxonomy-and-risk-vocabulary/63-04-SUMMARY.md`。
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_policy_registry.py tests/agent/test_intent_routing.py -q --tb=short` → `1223 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_safety_taxonomy.py -q --tb=short` → `38 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/intent_policy.py src/agent/routing.py tests/agent/test_intent_policy_registry.py tests/agent/test_intent_routing.py` → `All checks passed!`
+
+**剩余风险**
+- 🟡 Phase 63 Plan 05 仍需新增 drift guards / static parity checks，防止 `risk_gate.py`、`action_draft.py`、`intent_policy.py`、`routing.py` 重新引入本地 action/risk taxonomy 副本。
+- 🟡 `_FACT_ONLY_INTENTS` 等非 action/risk taxonomy 的 routing-local集合仍不在本计划范围；若后续扩展 fact-only intent，应由对应 business-query / routing phase 处理。
+
 ## 2026-07-09 — Phase 62-66 覆盖矩阵补齐项（源码级硬编码审查）⚠️待规划落地
 
 **子系统**
