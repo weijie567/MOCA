@@ -91,6 +91,14 @@ _OPERATION_DISPLAY_LABELS = {
     "execute_action": "执行动作",
     "escalate": "升级处理",
 }
+_METRIC_DISPLAY_LABELS = {
+    "order_count": "订单数",
+    "refund_case_count": "退款单数",
+    "pending_ticket_count": "待处理工单数",
+    "coupon_record_count": "补偿券记录数",
+    "merchant_refund_rate": "商户退款率",
+}
+_COUPON_RECORD_CAVEAT = "MOCA 演示系统仅统计优惠券动作草稿/记录，不是外部优惠券实际发放成功数。"
 
 
 def _now_iso() -> str:
@@ -320,6 +328,159 @@ def _business_fact_llm_output(response_text: str) -> dict[str, Any]:
         "final_status": "completed",
         "mode": "deterministic-template",
         "approval_context": None,
+    }
+
+
+def _business_metric_fact(state: AgentState) -> dict[str, Any]:
+    context = _mapping(state.get("business_context"))
+    facts = _business_context_facts(context)
+    metric = _dict_value(facts.get("business_metric"))
+    if metric:
+        return metric
+    if _state_intent(state) != "business_metric_query":
+        return {}
+    for error in context.get("errors") or []:
+        if not isinstance(error, dict):
+            continue
+        if error.get("resource") != "business_metric" and error.get("code") != "BUSINESS_FACT_PERMISSION_DENIED":
+            continue
+        return {
+            "metric_id": _dict_value(state.get("active_slots")).get("metric_id") or "business_metric",
+            "status": "permission_denied",
+            "display_value": "不可提供",
+            "scope": {"scope_label": "当前权限范围"},
+            "time_range": {},
+            "filters": {},
+            "freshness": {},
+            "no_leak_status": "scope_denied_no_existence_leak",
+        }
+    return {}
+
+
+def _metric_response_text(metric: dict[str, Any]) -> str:
+    if _metric_is_permission_denied(metric):
+        return "当前权限范围内无法提供该商户指标。"
+    if _metric_is_zero_denominator_refund_rate(metric):
+        return "暂无可计算退款率：所选权限范围和时间范围内没有订单。"
+
+    metric_id = str(metric.get("metric_id") or "")
+    label = _METRIC_DISPLAY_LABELS.get(metric_id, "业务指标")
+    display_value = str(metric.get("display_value") or "暂无结果")
+    first_line = f"{display_value}（{label}）。"
+    if metric_id == "merchant_refund_rate":
+        numerator = metric.get("numerator")
+        denominator = metric.get("denominator")
+        ratio = f"{numerator}/{denominator}" if isinstance(numerator, int) and isinstance(denominator, int) else ""
+        formula = str(metric.get("formula") or "").strip()
+        details = "，".join(part for part in (ratio, f"公式：{formula}" if formula else "") if part)
+        first_line = f"{display_value}（{details}）。" if details else f"{display_value}（{label}）。"
+
+    second_line = (
+        f"范围：{_metric_scope_label(metric)}；"
+        f"时间：{_metric_time_label(metric)}；"
+        f"筛选：{_metric_filters_label(metric)}；"
+        f"新鲜度：{_metric_freshness_label(metric)}。"
+    )
+    caveats = _metric_caveat_lines(metric)
+    return "\n".join([first_line, second_line, *caveats])
+
+
+def _metric_llm_output(response_text: str, metric: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "response_text": response_text,
+        "evidence_citations": [],
+        "final_status": "completed",
+        "mode": "deterministic-template",
+        "approval_context": None,
+        "response_kind": "metric_answer",
+        "metric": _safe_metric_metadata(metric),
+    }
+
+
+def _metric_is_permission_denied(metric: dict[str, Any]) -> bool:
+    return metric.get("status") == "permission_denied" or metric.get("no_leak_status") == "scope_denied_no_existence_leak"
+
+
+def _metric_is_zero_denominator_refund_rate(metric: dict[str, Any]) -> bool:
+    return (
+        metric.get("metric_id") == "merchant_refund_rate"
+        and metric.get("status") == "non_computable"
+        and metric.get("denominator") == 0
+    )
+
+
+def _metric_scope_label(metric: dict[str, Any]) -> str:
+    scope = _dict_value(metric.get("scope"))
+    return str(scope.get("scope_label") or "当前权限范围")
+
+
+def _metric_time_label(metric: dict[str, Any]) -> str:
+    time_range = _dict_value(metric.get("time_range"))
+    preset = str(time_range.get("preset") or "").strip()
+    start_at = str(time_range.get("start_at") or "").strip()
+    end_at = str(time_range.get("end_at") or "").strip()
+    timezone = str(time_range.get("timezone") or "").strip()
+    label = preset or "指定时间范围"
+    if start_at and end_at:
+        label = f"{label}（{start_at} 至 {end_at}）" if preset else f"{start_at} 至 {end_at}"
+    if timezone:
+        label = f"{label}，{timezone}"
+    return label
+
+
+def _metric_filters_label(metric: dict[str, Any]) -> str:
+    filters = _dict_value(metric.get("filters"))
+    parts: list[str] = []
+    status_filter = filters.get("status_filter")
+    if isinstance(status_filter, list):
+        safe_status = [str(item) for item in status_filter if isinstance(item, str) and item]
+        if safe_status:
+            parts.append(f"status={','.join(safe_status)}")
+    if isinstance(filters.get("merchant_id"), str) and filters["merchant_id"]:
+        parts.append("merchant=已按商户筛选")
+    return "；".join(parts) if parts else "无"
+
+
+def _metric_freshness_label(metric: dict[str, Any]) -> str:
+    freshness = _dict_value(metric.get("freshness"))
+    value = freshness.get("data_freshness_at") or freshness.get("computed_at")
+    return str(value) if value else "当前可用业务数据"
+
+
+def _metric_caveat_lines(metric: dict[str, Any]) -> list[str]:
+    caveats = [str(item) for item in metric.get("caveats") or [] if isinstance(item, str) and item]
+    if metric.get("metric_id") == "coupon_record_count" and _COUPON_RECORD_CAVEAT not in caveats:
+        caveats.append(_COUPON_RECORD_CAVEAT)
+    return [f"口径说明：{caveat}" for caveat in caveats[:3]]
+
+
+def _safe_metric_metadata(metric: dict[str, Any]) -> dict[str, Any]:
+    time_range = _dict_value(metric.get("time_range"))
+    freshness = _dict_value(metric.get("freshness"))
+    return {
+        "metric_id": str(metric.get("metric_id") or ""),
+        "metric_label": _METRIC_DISPLAY_LABELS.get(str(metric.get("metric_id") or ""), "业务指标"),
+        "display_value": str(metric.get("display_value") or ""),
+        "scope_label": _metric_scope_label(metric),
+        "time_range": {
+            key: value
+            for key in ("preset", "start_at", "end_at", "timezone")
+            if isinstance((value := time_range.get(key)), str) and value
+        },
+        "filters": {
+            "status_filter": [
+                item
+                for item in _dict_value(metric.get("filters")).get("status_filter", [])
+                if isinstance(item, str) and item
+            ],
+            "merchant_filter_applied": isinstance(_dict_value(metric.get("filters")).get("merchant_id"), str),
+        },
+        "freshness": {
+            key: value
+            for key in ("data_freshness_at", "computed_at", "source_system")
+            if isinstance((value := freshness.get(key)), str) and value
+        },
+        "safe_reason": str(metric.get("no_leak_status") or metric.get("status") or ""),
     }
 
 
@@ -896,6 +1057,17 @@ async def final_response(state: AgentState) -> dict:
             "llm_outputs": {
                 **(state.get("llm_outputs") or {}),
                 "final_response": _direct_response_llm_output(response_text, _state_intent(state)),
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+        }
+    metric = _business_metric_fact(state)
+    if metric:
+        response_text = _decorate_deferred_response(_metric_response_text(metric), state)
+        return {
+            "final_response": response_text,
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "final_response": _metric_llm_output(response_text, metric),
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
