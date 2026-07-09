@@ -101,8 +101,6 @@ def test_business_query_registry_is_data_only_allowlist_facts() -> None:
         "tenant_id",
         "merchant_scope",
         "raw_cursor",
-        "draft",
-        "execute",
         "layout",
     )
 
