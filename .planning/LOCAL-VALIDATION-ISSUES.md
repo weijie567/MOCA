@@ -21175,3 +21175,23 @@ Phase 64 plan 阶段按 GSD workflow 启动 `gsd-phase-researcher` 子代理生�
 
 **剩余问题和下次继续排查入口**
 无产品实现遗留。后续如继续调用 GSD 子代理，需在超时后检查 phase 目录和 git 状态，避免留下半成品未跟踪文件。
+
+## 2026-07-10 — Phase 64 64-01 GREEN 测试把 route reason code 误当 metric trigger label
+
+**问题现象**
+实现 `src/agent/rag_context/risk_labels.py` 后运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_risk_labels.py -q --tb=short`，`test_route_reason_codes_are_not_prompt_safe_risk_labels` 失败。
+
+**如何检测/复现**
+在 64-01 GREEN 实现后运行上述 focused pytest 命令。
+
+**关键证据或命令**
+失败断言为 `assert 'semantic_provider_timeout' in METRIC_LEVEL3_TRIGGER_LABELS`。但 Phase 64 plan 明确 `METRIC_LEVEL3_TRIGGER_LABELS` 使用的是现有 metrics 风险提示 marker `semantic_timeout`，而 route reason group 使用 `semantic_provider_timeout`。
+
+**当前判断/根因**
+这是测试断言口径错误，不是 registry 实现错误。Phase 64 review 决策已经要求区分 evidence risk labels、metric trigger markers 和 route reason codes；测试把 route reason code 错放到了 metric trigger label 集合。
+
+**已做处理**
+将断言修正为 `semantic_timeout in METRIC_LEVEL3_TRIGGER_LABELS`，并保留 `semantic_provider_timeout` 不属于 prompt-safe/evidence risk labels、但属于 `ROUTE_MANUAL_REVIEW_REASONS` 的边界断言。随后重跑 focused pytest 通过：`6 passed, 1 warning`；ruff 通过。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。后续 64-03 迁移 metrics 时继续保持 `_level3_triggered` 风险提示 marker 与 routing reason code 的映射边界。

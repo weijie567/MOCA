@@ -90,7 +90,7 @@ def test_route_reason_codes_are_not_prompt_safe_risk_labels() -> None:
     assert "semantic_provider_timeout" in ROUTE_MANUAL_REVIEW_REASONS
     assert "semantic_provider_timeout" not in SAFE_EVIDENCE_RISK_LABELS
     assert "semantic_provider_timeout" not in PROMPT_SAFE_RISK_LABELS
-    assert "semantic_provider_timeout" in METRIC_LEVEL3_TRIGGER_LABELS
+    assert "semantic_timeout" in METRIC_LEVEL3_TRIGGER_LABELS
     assert "freshness_invalid" in ROUTE_STALE_OR_OCR_REASONS
 
     doc = RAG_RISK_LABEL_REGISTRY.__class__.__module__
