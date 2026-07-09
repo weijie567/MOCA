@@ -9,6 +9,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from src.agent.safety.taxonomy import detect_pre_route_action_request, matches_compensation_alias
 from src.agent.schemas import IntentLiteral, RequiredSlotExpression, RequestedOperationLiteral, RiskTierLiteral
 
 
@@ -26,6 +27,7 @@ class IntentDefinition:
     evidence_required: bool = True
     high_risk: bool = False
     critical_route_class: bool = False
+    action_bound: bool = False
 
 
 @dataclass(frozen=True)
@@ -159,6 +161,7 @@ INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
         ),
         initial_route="slot_resolution_gate",
         precedence=3,
+        action_bound=True,
     ),
     "ticket_reply_draft": IntentDefinition(
         name="ticket_reply_draft",
@@ -181,6 +184,7 @@ INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
         precedence=2,
         high_risk=True,
         critical_route_class=True,
+        action_bound=True,
     ),
     "action_request": IntentDefinition(
         name="action_request",
@@ -188,6 +192,7 @@ INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
         initial_route="slot_resolution_gate",
         precedence=9,
         high_risk=True,
+        action_bound=True,
     ),
     # Phase 61 MVP compromise: metric reads reuse read_status because the
     # operation enum has no metric-specific read operation yet. The intent
@@ -230,6 +235,7 @@ INTENT_ROUTE_POLICY: dict[str, IntentRouteLiteral] = {
 DIRECT_RESPONSE_INTENTS = {name for name, definition in INTENT_DEFINITIONS.items() if definition.direct_response}
 EVIDENCE_REQUIRED_INTENTS = {name for name, definition in INTENT_DEFINITIONS.items() if definition.evidence_required}
 HIGH_RISK_INTENTS = {name for name, definition in INTENT_DEFINITIONS.items() if definition.high_risk}
+ACTION_BOUND_INTENTS = {name for name, definition in INTENT_DEFINITIONS.items() if definition.action_bound}
 CRITICAL_ROUTE_CLASSES = {
     "critical_write",
     "approval_decision",
@@ -326,6 +332,9 @@ class IntentPolicyRegistry:
     def high_risk_intents(self) -> frozenset[str]:
         return frozenset(HIGH_RISK_INTENTS)
 
+    def action_bound_intents(self) -> frozenset[str]:
+        return frozenset(ACTION_BOUND_INTENTS)
+
     def critical_route_intents(self) -> frozenset[str]:
         return frozenset(
             name for name, definition in INTENT_DEFINITIONS.items() if definition.critical_route_class
@@ -348,6 +357,9 @@ class IntentPolicyRegistry:
 
     def is_high_risk_intent(self, intent: str) -> bool:
         return intent in HIGH_RISK_INTENTS
+
+    def is_action_bound_intent(self, intent: str) -> bool:
+        return intent in ACTION_BOUND_INTENTS
 
     def is_critical_route_intent(self, intent: str) -> bool:
         return intent in CRITICAL_ROUTE_CLASSES
@@ -721,13 +733,12 @@ def detect_pre_route(query: str) -> PreRouteDecision:
             requires_clarification=True,
         )
 
-    english_action_terms = ("execute", "refund now", "override")
-    chinese_action_terms = ("直接退款", "执行", "发券", "创建")
-    if any(token in lowered for token in english_action_terms) or any(token in text for token in chinese_action_terms):
+    action_match = None if _is_policy_rule_question_without_business_reference(text, lowered) else detect_pre_route_action_request(text)
+    if action_match is not None:
         return PreRouteDecision(
             disposition="safety_sensitive",
-            requested_operation="execute_action",
-            reason_codes=["critical_write"],
+            requested_operation=action_match.requested_operation,
+            reason_codes=[action_match.reason_code],
             requires_clarification=False,
         )
 
@@ -741,6 +752,20 @@ def detect_pre_route(query: str) -> PreRouteDecision:
         )
 
     return PreRouteDecision()
+
+
+def _is_policy_rule_question_without_business_reference(text: str, lowered: str) -> bool:
+    if not matches_compensation_alias(text):
+        return False
+    has_policy_rule_question = any(token in lowered for token in ("policy", "rule", "usage", "allowed")) or any(
+        token in text for token in ("政策", "规则", "使用", "什么情况下", "可以")
+    )
+    if not has_policy_rule_question:
+        return False
+    has_business_reference = any(
+        token in lowered for token in ("ord", "order", "rf", "refund", "tkt", "ticket")
+    ) or any(token in text for token in ("订单", "退款", "工单", "这个", "该"))
+    return not has_business_reference
 
 
 def resolve_intent_precedence(
@@ -1195,9 +1220,7 @@ def _operation_for_selected_intent(intent: str, requested_operation: str) -> Req
 
 
 def _has_compensation_action_cue(text: str, lowered: str) -> bool:
-    has_compensation_term = any(token in lowered for token in ("compensation", "coupon")) or any(
-        token in text for token in ("补偿", "券", "赔付")
-    )
+    has_compensation_term = matches_compensation_alias(text)
     if not has_compensation_term:
         return False
 

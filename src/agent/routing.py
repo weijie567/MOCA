@@ -21,7 +21,6 @@ from src.knowledge.schemas import RAG_CONTEXT_STATUSES as SCHEMA_RAG_CONTEXT_STA
 
 MIN_EVIDENCE_SCORE = 0.55
 _FACT_ONLY_INTENTS = {"order_status_inquiry"}
-_ACTION_BOUND_INTENTS = {"action_request", "compensation_suggestion", "complaint_escalation"}
 _PERMISSION_CODES = {"FORBIDDEN", "permission_denied"}
 _INVESTIGATE_ROUTES = {"final_response", "clarification_gate", "rag_context_build", "recommendation_generation"}
 _RECOMMENDATION_ROUTES = {"claim_verify", "final_response"}
@@ -1123,16 +1122,11 @@ def _policy_evidence_required(state: AgentState) -> bool:
     requested_operation = state.get("requested_operation")
     if requested_operation in {"draft_action", "execute_action", "escalate"}:
         return True
-    intent = _intent(state)
-    return intent in {
-        "policy_qa",
-        "refund_troubleshooting",
-        "compensation_suggestion",
-        "ticket_reply_draft",
-        "appeal_or_unban",
-        "complaint_escalation",
-        "action_request",
-    }
+    try:
+        return INTENT_POLICY_REGISTRY.requires_evidence(_intent(state))
+    except Exception:
+        _append_safe_routing_reason(state, "intent_registry_evidence_fallback")
+        return True
 
 
 def _has_policy_candidate_refs(state: AgentState) -> bool:
@@ -1178,7 +1172,14 @@ def _action_bound_or_high_risk(state: AgentState) -> bool:
     requested_operation = state.get("requested_operation")
     if requested_operation in {"approval_decision", "draft_action", "execute_action", "escalate"}:
         return True
-    if _intent(state) in _ACTION_BOUND_INTENTS:
+    intent = _intent(state)
+    try:
+        if INTENT_POLICY_REGISTRY.is_action_bound_intent(intent):
+            return True
+        if INTENT_POLICY_REGISTRY.is_high_risk_intent(intent):
+            return True
+    except Exception:
+        _append_safe_routing_reason(state, "intent_registry_action_bound_fallback")
         return True
     if _non_empty_sequence(state.get("risk_signals")):
         return True
@@ -1196,6 +1197,14 @@ def _action_bound_or_high_risk(state: AgentState) -> bool:
         if isinstance(draft_risk, str) and draft_risk.lower() in {"high", "critical", "approval_required"}:
             return True
     return False
+
+
+def _append_safe_routing_reason(state: AgentState, reason: str) -> None:
+    reasons = state.get("safe_routing_reasons")
+    if isinstance(reasons, list):
+        reasons.append(reason)
+    else:
+        state["safe_routing_reasons"] = [reason]
 
 
 def _partial_rag_has_unsafe_evidence_indicator(state: AgentState) -> bool:

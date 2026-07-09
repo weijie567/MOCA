@@ -21015,3 +21015,23 @@ Phase 63 第二轮 Claude plan review 追加到 `63-REVIEWS.md` 后运行 `git d
 
 **剩余问题和下次继续排查入口**
 无产品实现遗留。继续重跑 `tests/agent/test_safety_taxonomy.py tests/architecture/test_action_draft_boundaries.py` 和 63-03 ruff/focused tests；若后续真正新增外部 compensation execution 模块，应由该 guard 或更精确的新增 guard 捕获。
+
+## 2026-07-10 — Phase 63 63-04 初始 rg 扫描包含不存在测试路径
+
+**问题现象**
+开始 63-04 时执行一条 `rg` 扫描命令，参数中包含不存在的 `tests/agent/test_intent_policy.py` 和 `tests/agent/test_routing.py`，`rg` 返回路径不存在错误，退出码为 2。
+
+**如何检测/复现**
+运行包含上述两个不存在路径的 `rg -n ... src/agent/intent_policy.py src/agent/routing.py tests/agent/test_intent_policy.py tests/agent/test_routing.py ...` 命令。
+
+**关键证据或命令**
+命令输出包含 `rg: tests/agent/test_intent_policy.py: No such file or directory` 和 `rg: tests/agent/test_routing.py: No such file or directory`。
+
+**当前判断/根因**
+这是本地探索命令路径写错，不是产品代码、测试环境或 phase artifact 问题。Phase 63 Plan 04 的真实测试文件是 `tests/agent/test_intent_policy_registry.py` 和 `tests/agent/test_intent_routing.py`。
+
+**已做处理**
+未采信该次 `rg` 结果；随后使用正确路径重新读取和扫描 `tests/agent/test_intent_policy_registry.py`、`tests/agent/test_intent_routing.py`、`src/agent/intent_policy.py` 和 `src/agent/routing.py`。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。后续 `rg` 多路径扫描先用 `rg --files` 或已读 plan 的文件名校验路径。
