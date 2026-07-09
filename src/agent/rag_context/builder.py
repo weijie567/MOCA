@@ -22,24 +22,12 @@ from src.agent.rag_context.schemas import (
     RagSafeContext,
     RagVerifierContext,
 )
+from src.agent.rag_context.risk_labels import filter_prompt_safe_risk_labels
 from src.knowledge.schemas import EvidenceRefV1
 from src.tools.contracts import BusinessFactRefV1
 
 
 _TRUNCATION_MARKER = " [truncated]"
-_SAFE_RISK_LABELS = frozenset(
-    {
-        "authority_checked",
-        "conflict",
-        "freshness_risk",
-        "high_risk",
-        "latest_version_checked",
-        "ocr_low_confidence",
-        "provenance_available",
-        "source_locator_available",
-        "stale_evidence",
-    }
-)
 _SAFE_TRUSTED_CONTEXT_KEYS = ("tenant_id", "run_id", "thread_id", "effective_at")
 _LEAKAGE_SENTINEL_RE = re.compile(r"\bSHOULD_NOT_[A-Z0-9_]+")
 
@@ -436,9 +424,7 @@ def _risk_labels_by_evidence_id(hints: Sequence[Mapping[str, Any]]) -> dict[str,
         evidence_id = str(hint.get("evidence_id") or "")
         if not evidence_id:
             continue
-        labels[evidence_id] = _unique_label_list(
-            str(label) for label in hint.get("labels") or [] if str(label) in _SAFE_RISK_LABELS
-        )
+        labels[evidence_id] = filter_prompt_safe_risk_labels(hint.get("labels") or [])
     return labels
 
 

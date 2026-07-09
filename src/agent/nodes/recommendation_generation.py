@@ -14,6 +14,7 @@ from src.agent.context import ContextAssembler, PromptAssembly
 from src.agent.context.session_memory_bundle import load_session_prompt_context
 from src.agent.intent_policy import INTENT_POLICY_REGISTRY
 from src.agent.prompts import GENERATE_RECOMMENDATION_SYSTEM
+from src.agent.rag_context.risk_labels import filter_safe_evidence_risk_labels
 from src.agent.routing import _partial_rag_context_can_generate
 from src.agent.schemas import RecommendationDraft
 from src.agent.state import AgentState
@@ -37,23 +38,6 @@ _ACTIONABLE_RECOMMENDATIONS = {
     "partial_refund",
     "compensation",
 }
-_SAFE_EVIDENCE_RISK_LABELS = frozenset(
-    {
-        "authority_checked",
-        "conflict",
-        "freshness_risk",
-        "high_risk",
-        "latest_version_checked",
-        "manual_review_sensitive",
-        "ocr_low_confidence",
-        "provenance_available",
-        "source_locator_available",
-        "stale_evidence",
-    }
-)
-_ROUTING_RISK_LABELS = frozenset({"conflict", "manual_review_sensitive", "ocr_low_confidence", "stale_evidence"})
-
-
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -472,7 +456,7 @@ def _risk_hints_from_evidence_items(evidence_items: list[Any]) -> list[dict[str,
         if not isinstance(item, dict):
             continue
         evidence_id = str(item.get("evidence_id") or "")
-        labels = [str(label) for label in item.get("risk_labels") or [] if str(label) in _SAFE_EVIDENCE_RISK_LABELS]
+        labels = filter_safe_evidence_risk_labels(item.get("risk_labels") or [])
         if evidence_id and labels:
             hints.append({"evidence_id": evidence_id, "labels": _unique_text(labels)})
     return hints
