@@ -4,7 +4,7 @@ status: running
 current_step: execute
 plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-07-09T22:49:33+08:00"
+updated_at: "2026-07-09T23:24:26+08:00"
 next_command: "$gsd-execute-phase 62"
 ---
 
@@ -35,6 +35,8 @@ next_command: "$gsd-execute-phase 62"
 - Created `.planning/phases/62-business-query-and-drilldown-foundation/62-04-SUMMARY.md`.
 - Wave 5 / Plan `62-05` completed by `gsd-executor`.
 - Created `.planning/phases/62-business-query-and-drilldown-foundation/62-05-SUMMARY.md`.
+- Wave 6 / Plan `62-06` completed by `gsd-executor`.
+- Created `.planning/phases/62-business-query-and-drilldown-foundation/62-06-SUMMARY.md`.
 
 ## Evidence
 
@@ -130,6 +132,18 @@ next_command: "$gsd-execute-phase 62"
   - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_nodes/test_investigate.py tests/agent/test_graph.py -q --tb=short` -> `147 passed`.
   - `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check ...` passed.
 - `62-05` documented auto-fixes: metric-compatible answers now seed drilldown context, and preset-based metric args are normalized before `BusinessQuerySpec` conversion.
+- Plan `62-06` commits:
+  - `89e38d9 test(62-06): add failing business query projection tests`
+  - `413f74c feat(62-06): project business query final payloads`
+  - `84e1838 test(62-06): add failing phase 62 business query eval tests`
+  - `fdd4b2d feat(62-06): add phase 62 business query eval coverage`
+  - `c1aeb0f docs(62-06): complete projection final api eval plan`
+- `62-06` spot-check passed: working tree clean, summary exists, `## Self-Check: PASSED` present, `gsd-sdk query verify.key-links ...62-06-PLAN.md` returned `all_verified=true`, and `phase-plan-index` now reports `62-06.has_summary=true`.
+- `62-06` executor verification reported:
+  - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_projection.py tests/agent/test_nodes/test_final_response.py tests/agent/test_graph.py tests/test_agent_runs_api.py tests/eval/test_phase62_business_query_golden.py -q --tb=short` -> `169 passed`.
+  - `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_phase62_business_query.py --golden-set evaluation/golden/phase62_business_query_cases.jsonl --output /tmp/phase62_business_query_eval.json` passed with 9 cases.
+  - Focused ruff checks passed.
+- `62-06` documented auto-fix: narrowed business-query denial fallback so metric permission-denied responses keep existing metric copy, and corrected/logged known GSD state/roadmap handler progress mismatch.
 
 ## Last Failure
 
