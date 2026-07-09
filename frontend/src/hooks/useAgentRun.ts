@@ -190,6 +190,7 @@ export function useAgentRun() {
   const controllerRef = useRef<AbortController | null>(null)
   const pollTimerRef = useRef<number | null>(null)
   const closeExpectedRef = useRef(false)
+  const runGenerationRef = useRef(0)
 
   const clearPolling = useCallback(() => {
     if (pollTimerRef.current !== null) {
@@ -204,9 +205,10 @@ export function useAgentRun() {
     controllerRef.current = null
   }, [])
 
-  const recoverRunStatus = useCallback(async (runId: string) => {
+  const recoverRunStatus = useCallback(async (runId: string, expectedGeneration = runGenerationRef.current) => {
     try {
       const result = await getRunStatus(runId)
+      if (expectedGeneration !== runGenerationRef.current) return
       if (!result.success) {
         setState((current) => ({
           ...current,
@@ -218,34 +220,38 @@ export function useAgentRun() {
 
       const recoveredStatus = normalizeStatus(result.data.final_status)
       const finalResponse = result.data.final_response ?? null
-      setState((current) => ({
-        ...current,
-        status: recoveredStatus,
-        steps: withRecoveredTerminalStep(
-          current.steps,
-          runId,
-          recoveredStatus,
-          finalResponse ?? current.finalResponse,
-          null,
-        ),
-        messages: finalResponse
-          ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
-              content: finalResponse,
-              status: 'completed',
-              runId,
-            })
-          : recoveredStatus === 'failed'
+      setState((current) => {
+        if (current.runId && current.runId !== runId) return current
+        return {
+          ...current,
+          status: recoveredStatus,
+          steps: withRecoveredTerminalStep(
+            current.steps,
+            runId,
+            recoveredStatus,
+            finalResponse ?? current.finalResponse,
+            null,
+          ),
+          messages: finalResponse
             ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
-                content: DEFAULT_ERROR_MESSAGE,
-                status: 'error',
+                content: finalResponse,
+                status: 'completed',
                 runId,
               })
-            : current.messages,
-        finalResponse: finalResponse ?? current.finalResponse,
-        activeAssistantMessageId: TERMINAL_STATUSES.has(recoveredStatus) ? null : current.activeAssistantMessageId,
-        error: recoveredStatus === 'failed' ? DEFAULT_ERROR_MESSAGE : null,
-      }))
+            : recoveredStatus === 'failed'
+              ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
+                  content: DEFAULT_ERROR_MESSAGE,
+                  status: 'error',
+                  runId,
+                })
+              : current.messages,
+          finalResponse: finalResponse ?? current.finalResponse,
+          activeAssistantMessageId: TERMINAL_STATUSES.has(recoveredStatus) ? null : current.activeAssistantMessageId,
+          error: recoveredStatus === 'failed' ? DEFAULT_ERROR_MESSAGE : null,
+        }
+      })
     } catch {
+      if (expectedGeneration !== runGenerationRef.current) return
       setState((current) => ({
         ...current,
         status: 'failed',
@@ -257,10 +263,15 @@ export function useAgentRun() {
   const startPolling = useCallback(
     (runId: string) => {
       clearPolling()
+      const generation = runGenerationRef.current
       pollTimerRef.current = window.setInterval(() => {
         void (async () => {
           try {
             const result = await getRunStatus(runId)
+            if (generation !== runGenerationRef.current) {
+              clearPolling()
+              return
+            }
             if (!result.success) {
               setState((current) => ({
                 ...current,
@@ -273,41 +284,45 @@ export function useAgentRun() {
 
             const nextStatus = normalizeStatus(result.data.final_status)
             const finalResponse = result.data.final_response ?? null
-            setState((current) => ({
-              ...current,
-              status: nextStatus,
-              steps: withRecoveredTerminalStep(
-                current.steps,
-                runId,
-                nextStatus,
-                finalResponse ?? current.finalResponse,
-                null,
-              ),
-              messages: finalResponse
-                ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
-                    content: finalResponse,
-                    status: 'completed',
-                    runId,
-                  })
-                : nextStatus === 'failed'
+            setState((current) => {
+              if (current.runId && current.runId !== runId) return current
+              return {
+                ...current,
+                status: nextStatus,
+                steps: withRecoveredTerminalStep(
+                  current.steps,
+                  runId,
+                  nextStatus,
+                  finalResponse ?? current.finalResponse,
+                  null,
+                ),
+                messages: finalResponse
                   ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
-                      content: DEFAULT_ERROR_MESSAGE,
-                      status: 'error',
+                      content: finalResponse,
+                      status: 'completed',
                       runId,
                     })
-                  : current.messages,
-              finalResponse: finalResponse ?? current.finalResponse,
-              activeAssistantMessageId:
-                TERMINAL_STATUSES.has(nextStatus) && nextStatus !== 'waiting_approval'
-                  ? null
-                  : current.activeAssistantMessageId,
-              error: nextStatus === 'failed' ? DEFAULT_ERROR_MESSAGE : null,
-            }))
+                  : nextStatus === 'failed'
+                    ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
+                        content: DEFAULT_ERROR_MESSAGE,
+                        status: 'error',
+                        runId,
+                      })
+                    : current.messages,
+                finalResponse: finalResponse ?? current.finalResponse,
+                activeAssistantMessageId:
+                  TERMINAL_STATUSES.has(nextStatus) && nextStatus !== 'waiting_approval'
+                    ? null
+                    : current.activeAssistantMessageId,
+                error: nextStatus === 'failed' ? DEFAULT_ERROR_MESSAGE : null,
+              }
+            })
 
             if (TERMINAL_STATUSES.has(nextStatus)) {
               clearPolling()
             }
           } catch {
+            if (generation !== runGenerationRef.current) return
             setState((current) => ({
               ...current,
               status: 'failed',
@@ -322,10 +337,11 @@ export function useAgentRun() {
   )
 
   const attachStream = useCallback(
-    (runId: string, assistantMessageId: string) => {
+    (runId: string, assistantMessageId: string, generation: number) => {
       closeExpectedRef.current = false
       controllerRef.current = connectToRunEvents(runId, {
         onEvent(event) {
+          if (generation !== runGenerationRef.current) return
           setState((current) => {
             if (current.runId && current.runId !== runId) {
               return current
@@ -372,14 +388,16 @@ export function useAgentRun() {
           })
         },
         onError(error) {
+          if (generation !== runGenerationRef.current) return
           if (closeExpectedRef.current) return
           setState((current) => ({ ...current, status: 'disconnected', error: error.message }))
-          void recoverRunStatus(runId)
+          void recoverRunStatus(runId, generation)
         },
         onClose() {
+          if (generation !== runGenerationRef.current) return
           if (closeExpectedRef.current) return
           setState((current) => ({ ...current, status: 'disconnected' }))
-          void recoverRunStatus(runId)
+          void recoverRunStatus(runId, generation)
         },
       })
     },
@@ -391,6 +409,8 @@ export function useAgentRun() {
       const trimmedQuery = query.trim()
       if (!trimmedQuery) return
 
+      runGenerationRef.current += 1
+      const generation = runGenerationRef.current
       stopStream()
       clearPolling()
       const userMessage: ChatMessage = {
@@ -415,6 +435,7 @@ export function useAgentRun() {
 
       try {
         const result = await createRun(trimmedQuery, threadId)
+        if (generation !== runGenerationRef.current) return
         if (!result.success) {
           setState((current) => ({
             ...current,
@@ -437,8 +458,9 @@ export function useAgentRun() {
             runId: result.data.run_id,
           }),
         }))
-        attachStream(result.data.run_id, assistantMessage.id)
+        attachStream(result.data.run_id, assistantMessage.id, generation)
       } catch {
+        if (generation !== runGenerationRef.current) return
         setState((current) => ({
           ...current,
           status: 'failed',
@@ -513,6 +535,7 @@ export function useAgentRun() {
   )
 
   const reset = useCallback(() => {
+    runGenerationRef.current += 1
     stopStream()
     clearPolling()
     setState(INITIAL_STATE)
