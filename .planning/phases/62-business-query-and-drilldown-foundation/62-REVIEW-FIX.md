@@ -1,43 +1,37 @@
 ---
 phase: 62-business-query-and-drilldown-foundation
-fixed_at: 2026-07-09T16:41:15Z
+fixed_at: 2026-07-09T17:01:54Z
 review_path: .planning/phases/62-business-query-and-drilldown-foundation/62-REVIEW.md
-iteration: 1
-findings_in_scope: 2
-fixed: 2
+iteration: 2
+findings_in_scope: 1
+fixed: 1
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 62: Code Review Fix Report
 
-**Fixed at:** 2026-07-09T16:41:15Z
+**Fixed at:** 2026-07-09T17:01:54Z
 **Source review:** .planning/phases/62-business-query-and-drilldown-foundation/62-REVIEW.md
-**Iteration:** 1
+**Iteration:** 2
 
 **Summary:**
-- Findings in scope: 2
-- Fixed: 2
+- Findings in scope: 1
+- Fixed: 1
 - Skipped: 0
 
 ## Fixed Issues
 
-### WR-01: Denied business_query errors are hard-coded as order detail payloads
+### WR-01: Denied business_query results are still wrapped as allowed successes
 
 **Status:** fixed: requires human verification
-**Files modified:** `src/business/service.py`, `tests/business/test_business_query_service.py`
-**Commit:** 07419cb
-**Applied fix:** Added a typed denied `BusinessQueryResultV1` path in `BusinessFactService.query_business()` that preserves the requested operation/resource while clearing denied merchant/resource identifiers, plus a service regression asserting denied list requests project to the expected no-leak API payload.
-
-### WR-02: Projected label fields can still leak raw cursor/id strings into the API and Console
-
-**Status:** fixed
-**Files modified:** `.planning/ARCHITECTURE-DEBT.md`, `src/business/query/projection.py`, `tests/tools/test_projection.py`, `tests/test_agent_runs_api.py`, `frontend/src/components/details/BusinessQueryResultTab.tsx`, `frontend/src/components/details/BusinessQueryResultTab.test.tsx`
-**Commit:** 161a01a
-**Applied fix:** Split display-label sanitization from row-value sanitization, rejected raw/cursor/tenant/merchant/denied-id markers in projected labels, made `cursor_label` enum-style, added API/projection regressions, added a Console display-label guard and component regression, and recorded the verified tool-call architecture debt entry required by MOCA rules.
+**Files modified:** `.planning/ARCHITECTURE-DEBT.md`, `.planning/LOCAL-VALIDATION-ISSUES.md`, `src/business/service.py`, `tests/business/test_business_query_service.py`, `tests/tools/test_tool_platform.py`
+**Commit:** e79f40f
+**Applied fix:** Derived the outer `BusinessFactResultV1` status, scope result, and fact refs from the inner `BusinessQueryResultV1.status`, so denied business queries now remain `permission_denied`, `scope_check_result="denied"`, and non-fact-bearing while preserving the typed safe denied payload. `BusinessToolService` now only carries denied `business_query` data when the payload validates as no-leak and has denied identifiers stripped, allowing ToolPlatform projection/final-response surfaces to keep operation/resource metadata without emitting authoritative fact refs.
+**Verification:** `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py::test_business_query_denied_list_returns_typed_no_leak_payload tests/business/test_business_query_service.py::test_business_query_tool_denial_preserves_safe_payload_without_fact_refs tests/business/test_business_query_service.py::test_business_query_invalid_inputs_fail_closed_without_querying tests/tools/test_tool_platform.py::test_tool_platform_business_query_dispatches_to_service_runtime tests/tools/test_tool_platform.py::test_tool_platform_business_query_denial_preserves_safe_payload_without_fact_refs -q --tb=short` -> `5 passed, 1 warning`; `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_business_query_service.py tests/tools/test_tool_platform.py tests/tools/test_projection.py tests/test_agent_runs_api.py tests/eval/test_phase62_business_query_golden.py -q --tb=short` -> `152 passed, 1 warning`.
 
 ---
 
-_Fixed: 2026-07-09T16:41:15Z_
+_Fixed: 2026-07-09T17:01:54Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 1_
+_Iteration: 2_
