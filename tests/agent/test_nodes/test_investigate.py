@@ -1060,6 +1060,40 @@ async def test_deterministic_fallback_stops_metric_query_with_incomplete_active_
 
 
 @pytest.mark.asyncio
+async def test_deterministic_fallback_calls_business_query_from_resolved_drilldown_spec():
+    events: list[dict[str, Any]] = []
+    manager = FakePlatform({"business_query": _business_query_success_with_safe_drilldown_context()})
+    planner = _PlannerSequence(["{not-json"])
+    state = _state([])
+    state["user_query"] = "订单号是多少？ MERCHANT-FROM-USER-SHOULD-NOT-BE-ARGS"
+    state["primary_intent"] = "business_metric_query"
+    state["active_slots"] = {
+        "business_query_spec": {
+            "operation": "list",
+            "resource": "order",
+            "time_preset": "this_week",
+            "filters": {"status_filter": []},
+            "fields": ["order_no"],
+            "limit": 20,
+        }
+    }
+
+    await investigate(state, _config(manager, events, investigate_planner=planner, max_iterations=1))
+
+    assert planner.inputs == []
+    assert [call[0] for call in manager.calls] == ["business_query"]
+    assert manager.calls[0][1] == {
+        "operation": "list",
+        "resource": "order",
+        "time_preset": "this_week",
+        "filters": {"status_filter": []},
+        "fields": ["order_no"],
+        "limit": 20,
+    }
+    assert "MERCHANT-FROM-USER-SHOULD-NOT-BE-ARGS" not in str(manager.calls[0][1])
+
+
+@pytest.mark.asyncio
 async def test_metric_result_accumulates_under_business_metric_fact():
     events: list[dict[str, Any]] = []
     manager = FakePlatform({"query_business_metric": _metric_success()})

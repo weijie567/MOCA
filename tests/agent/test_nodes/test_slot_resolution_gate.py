@@ -300,6 +300,40 @@ async def test_slot_resolution_gate_merges_pending_metric_time_answer_with_activ
 
 
 @pytest.mark.asyncio
+async def test_slot_resolution_gate_routes_business_query_drilldown_spec_without_metric_slots(monkeypatch) -> None:
+    fake_llm = CapturingLLM(_slot_response(order_id="ORD-SHOULD-NOT-MATTER"))
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: fake_llm)
+    spec = {
+        "operation": "list",
+        "resource": "order",
+        "time_preset": "this_week",
+        "filters": {"status_filter": []},
+        "fields": ["order_no"],
+        "limit": 20,
+    }
+
+    result = await slot_resolution_gate_module.slot_resolution_gate(
+        _metric_state(
+            "订单号是多少？",
+            candidate_slots={"business_query_spec": spec},
+            routing_hints={
+                "workflow_state_resolution": "answered_business_query_drilldown",
+                "expected_slot_type": "field_request",
+                "business_query_slot_parser": "deterministic",
+            },
+        )
+    )
+
+    assert result["active_slots"]["business_query_spec"] == spec
+    assert "metric_id" not in result["active_slots"]
+    assert "order_id" not in result["active_slots"]
+    assert result["missing_required_slots"] == []
+    assert result["slot_resolution_trace"]["route_decision"] == "investigate"
+    assert "business_query_spec_ready" in result["slot_resolution_trace"]["reason_codes"]
+    assert "deterministic_business_query_slot_parser" in result["slot_resolution_trace"]["reason_codes"]
+
+
+@pytest.mark.asyncio
 async def test_slot_resolution_gate_records_current_inherited_and_replacement_provenance(monkeypatch):
     fake_llm = CapturingLLM(_slot_response(order_id="ORD-CURRENT"))
     monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: fake_llm)

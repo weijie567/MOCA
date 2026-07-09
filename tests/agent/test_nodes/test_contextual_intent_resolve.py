@@ -11,6 +11,7 @@ from src.agent.intent_policy import PreRouteDecision, RiskDecision
 from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
 from src.agent.routing import route_after_contextual_intent
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
+from src.agent.state import business_query_context_binding
 
 
 FORBIDDEN_AUTHORITY_FIELDS = {
@@ -203,6 +204,114 @@ async def test_contextual_intent_resolve_pending_metric_time_answer_uses_same_th
     assert route_after_contextual_intent(result) == "slot_resolution_gate"
     for forbidden in FORBIDDEN_DOWNSTREAM_FIELDS:
         assert forbidden not in result
+
+
+@pytest.mark.asyncio
+async def test_contextual_intent_resolve_business_query_drilldown_field_request_uses_last_answer_context(
+    monkeypatch,
+    base_state,
+):
+    def fail_llm():
+        raise AssertionError("LLM should not be called for a safe business query drilldown reply")
+
+    state = {
+        **base_state,
+        "user_query": "订单号是多少？",
+        "thread_id": "thread-drilldown",
+        "tenant_id": "tenant-drilldown",
+        "user_id": "user-drilldown",
+        "role": "support",
+        "last_query_spec": {
+            "operation": "aggregate",
+            "resource": "order",
+            "metric_id": "order_count",
+            "time_preset": "this_week",
+            "filters": {"status_filter": []},
+        },
+        "last_answer_context": {
+            "schema_version": "business_query_answer_context.v1",
+            "query_spec": {
+                "operation": "aggregate",
+                "resource": "order",
+                "metric_id": "order_count",
+                "time_preset": "this_week",
+                "filters": {"status_filter": []},
+            },
+            "result_refs": ["order_count"],
+            "allowed_drilldowns": ["list"],
+            "fields_shown": ["order_count"],
+            "scope": {"scope_label": "authorized_merchants"},
+            "time_summary": "this_week",
+            "filter_summary": None,
+        },
+        "expected_slot_type": "field_request",
+        "expected_slot_context": {
+            "schema_version": "business_query_expected_slot_context.v1",
+            "purpose": "business_query_drilldown",
+            "context_binding": business_query_context_binding(
+                {
+                    **base_state,
+                    "thread_id": "thread-drilldown",
+                    "tenant_id": "tenant-drilldown",
+                    "user_id": "user-drilldown",
+                    "role": "support",
+                }
+            ),
+            "operation": "aggregate",
+            "resource": "order",
+            "allowed_drilldowns": ["list"],
+            "fields_shown": ["order_count"],
+        },
+    }
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", fail_llm)
+
+    result = await contextual_intent_module.contextual_intent_resolve(state)
+
+    spec = result["candidate_slots"]["business_query_spec"]
+    assert result["primary_intent"] == "business_metric_query"
+    assert spec["operation"] == "list"
+    assert spec["resource"] == "order"
+    assert spec["time_preset"] == "this_week"
+    assert spec["fields"] == ["order_no"]
+    assert spec["filters"] == {"status_filter": []}
+    assert spec["limit"] == 20
+    assert result["routing_hints"]["workflow_state_resolution"] == "answered_business_query_drilldown"
+    assert result["routing_hints"]["expected_slot_type"] == "field_request"
+    assert result["classification_trace"]["raw_llm_classification"] is None
+    assert result["classification_trace"]["route_decision"] == "slot_resolution_gate"
+    assert "business_query_drilldown_field_request" in result["classification_trace"]["reason_codes"]
+    assert route_after_contextual_intent(result) == "slot_resolution_gate"
+    for forbidden in FORBIDDEN_DOWNSTREAM_FIELDS:
+        assert forbidden not in result
+
+
+@pytest.mark.asyncio
+async def test_contextual_intent_resolve_business_query_field_request_without_context_fails_closed(
+    monkeypatch,
+    base_state,
+):
+    monkeypatch.setattr(
+        contextual_intent_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            _intent_v3(
+                primary_intent="unsupported",
+                requested_operation="advise",
+                confidence=0.2,
+                calibrated_confidence=0.2,
+                required_slots={"all_of": [], "any_of": [], "optional": []},
+                candidate_slots={},
+                reason_codes=["no_business_query_context"],
+            )
+        ),
+    )
+    state = {**base_state, "user_query": "订单号是多少？"}
+
+    result = await contextual_intent_module.contextual_intent_resolve(state)
+
+    assert result["current_intent"] == "unsupported"
+    assert "business_query_spec" not in result["candidate_slots"]
+    assert route_after_contextual_intent(result) == "clarification_gate"
 
 
 @pytest.mark.asyncio

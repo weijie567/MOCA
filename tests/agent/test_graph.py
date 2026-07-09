@@ -293,6 +293,8 @@ class FakeGraphToolPlatform:
             return self._ticket_result(args.get("ticket_id") or self.ticket_id or "TICKET-001")
         if name == "query_business_metric":
             return self._metric_result(args, ctx.tenant_id)
+        if name == "business_query":
+            return self._business_query_result(args, ctx.tenant_id)
         if name == "search_policy":
             return self._policy_result(ctx.tenant_id)
         raise AssertionError(f"Unexpected graph tool call: {name}")
@@ -448,6 +450,59 @@ class FakeGraphToolPlatform:
                 "no_leak_status": "not_applicable",
             },
             summary="metric result",
+            source_system="business_fact_service",
+            data_freshness_at=datetime(2026, 7, 9, 4, 0, tzinfo=UTC),
+            policy_evidence_refs=[],
+            business_fact_refs=[ref],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
+        )
+
+    def _business_query_result(self, args: dict[str, Any], tenant_id: str) -> ToolResultV2:
+        ref = BusinessFactRefV1(
+            tenant_id=tenant_id,
+            source_system="business_fact_service",
+            resource_type="business_query",
+            resource_id=f"{args.get('resource', 'order')}:{args.get('operation', 'list')}",
+            resource_version=None,
+            data_freshness_at=datetime(2026, 7, 9, 4, 0, tzinfo=UTC),
+            retrieved_at=datetime(2026, 7, 9, 4, 1, tzinfo=UTC),
+        )
+        cursor = {
+            "schema_version": "business_query_result_cursor.v1",
+            "cursor_id": "graph-cursor-current",
+            "has_more": False,
+            "limit": int(args.get("limit") or 20),
+            "next_cursor": None,
+        }
+        return ToolResultV2(
+            status="success",
+            data={
+                "business_query": {
+                    "schema_version": "business_query_result.v1",
+                    "operation": args.get("operation") or "list",
+                    "resource": args.get("resource") or "order",
+                    "status": "ok",
+                    "rows": [{"order_no": "ORD-GRAPH-001"}],
+                    "answer_context": {
+                        "schema_version": "business_query_answer_context.v1",
+                        "query_spec": args,
+                        "result_refs": ["ORD-GRAPH-001"],
+                        "allowed_drilldowns": ["detail"],
+                        "fields_shown": args.get("fields") or ["order_no"],
+                        "cursor": cursor,
+                        "scope": {"scope_label": "当前权限范围"},
+                        "time_summary": args.get("time_preset"),
+                        "filter_summary": None,
+                    },
+                    "cursor": cursor,
+                    "scope": {"scope_label": "当前权限范围"},
+                }
+            },
+            summary="business query result",
             source_system="business_fact_service",
             data_freshness_at=datetime(2026, 7, 9, 4, 0, tzinfo=UTC),
             policy_evidence_refs=[],
@@ -985,6 +1040,45 @@ async def test_metric_time_followup_reuses_pending_order_count_flow(monkeypatch)
         "active_flow_pending_metric_time_answered"
     ]
     assert second_state["final_response"].startswith("3")
+
+
+@pytest.mark.asyncio
+async def test_business_query_drilldown_followup_reuses_same_thread_answer_context(monkeypatch):
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots(None)))
+    tool_platform = FakeGraphToolPlatform()
+    events: list[dict[str, Any]] = []
+    thread_id = "business-query-drilldown-thread"
+    config = _config(tool_platform, events, thread_id=thread_id)
+    graph = build_graph(MemorySaver())
+
+    first_state = await graph.ainvoke(_state("本周多少订单？", thread_id), config)
+
+    assert first_state["current_intent"] == "business_metric_query"
+    assert first_state["last_query_spec"]["operation"] == "aggregate"
+    assert first_state["last_query_spec"]["resource"] == "order"
+    assert first_state["last_query_spec"]["time_preset"] == "this_week"
+    assert first_state["expected_slot_type"] == "field_request"
+
+    second_state = await graph.ainvoke(_state("订单号是多少？", thread_id), config)
+
+    nodes = [step["node"] for step in second_state["trace_steps"]]
+    assert "slot_resolution_gate" in nodes
+    assert "investigate" in nodes
+    assert [call[0] for call in tool_platform.calls] == ["query_business_metric", "business_query"]
+    assert tool_platform.calls[1][1] == {
+        "operation": "list",
+        "resource": "order",
+        "time_preset": "this_week",
+        "filters": {"status_filter": []},
+        "fields": ["order_no"],
+        "limit": 20,
+    }
+    assert second_state["active_slots"]["business_query_spec"] == tool_platform.calls[1][1]
+    assert second_state["business_context"]["facts"]["business_query"]["rows"] == [{"order_no": "ORD-GRAPH-001"}]
+    assert (
+        second_state["llm_outputs"]["contextual_intent_resolve"]["classification_trace"]["reason_codes"]
+        == ["business_query_drilldown_field_request"]
+    )
 
 
 @pytest.mark.asyncio
