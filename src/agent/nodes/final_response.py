@@ -323,6 +323,41 @@ def _business_fact_llm_output(response_text: str) -> dict[str, Any]:
     }
 
 
+def _direct_response_text(state: AgentState) -> str:
+    intent = _state_intent(state)
+    if intent == "small_talk":
+        return (
+            "你好，我是 MOCA，可以帮你查询具体订单、退款单或工单，也可以解释退款、退货和补偿政策。"
+            "请提供订单号、退款单号或工单号，或直接描述售后问题。"
+        )
+
+    if intent != "unsupported":
+        return ""
+
+    routing_hints = _mapping(state.get("routing_hints"))
+    if routing_hints.get("unsupported_reason") == "aggregate_order_query":
+        return (
+            "当前控制台还不支持统计订单总数。你可以提供具体订单号、退款单号或工单号，"
+            "我可以查询状态、排查退款异常，或基于政策生成处理建议。"
+        )
+
+    return (
+        "当前只支持商家售后相关的政策问答、订单/退款/工单查询、补偿建议和审批前动作草稿。"
+        "你可以改问具体订单、退款单或工单的状态，或咨询退款、退货、补偿政策。"
+    )
+
+
+def _direct_response_llm_output(response_text: str, intent: str) -> dict[str, Any]:
+    return {
+        "response_text": response_text,
+        "evidence_citations": [],
+        "final_status": "completed",
+        "mode": "deterministic-template",
+        "approval_context": None,
+        "direct_response_intent": intent,
+    }
+
+
 def _decorate_deferred_response(response_text: str, state: AgentState) -> str:
     additions: list[str] = []
     deferred_labels = _deferred_step_labels(state.get("deferred_steps"))
@@ -843,6 +878,17 @@ async def final_response(state: AgentState) -> dict:
                     "mode": "deterministic-template",
                     "approval_context": None,
                 },
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+        }
+    direct_response_text = _direct_response_text(state)
+    if direct_response_text:
+        response_text = _decorate_deferred_response(direct_response_text, state)
+        return {
+            "final_response": response_text,
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "final_response": _direct_response_llm_output(response_text, _state_intent(state)),
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }

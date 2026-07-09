@@ -93,6 +93,18 @@ _ID_ANSWER_RE = re.compile(
     r"\b(?:OD|ORD|ORDER|RF|REFUND|TKT|TK|APR|MER|CUST)[-_]?[A-Z0-9]{2,}\b",
     re.IGNORECASE,
 )
+_UNSUPPORTED_AGGREGATE_ORDER_RE = re.compile(
+    r"(?:当前|现在|目前|一共|总共|总计|全部|所有)?.{0,8}(?:多少|几|数量|总数|统计|count).{0,8}(?:订单|order)",
+    re.IGNORECASE,
+)
+_STANDALONE_SMALL_TALK_RE = re.compile(
+    r"^(?:你好|您好|嗨|哈喽|hello|hi|hey|在吗|谢谢|感谢|辛苦了|好的|好)$",
+    re.IGNORECASE,
+)
+_BUSINESS_KEYWORDS_RE = re.compile(
+    r"(?:订单|退款|退货|工单|补偿|优惠券|投诉|申诉|解封|政策|规则|审批|处理|状态|order|refund|ticket|coupon|policy)",
+    re.IGNORECASE,
+)
 
 
 def _semantic_payload(semantic: SemanticIntent) -> dict[str, Any]:
@@ -589,6 +601,12 @@ def _deterministic_context_update(
     pre_route: PreRouteDecision,
     started_at: str,
 ) -> dict[str, Any] | None:
+    if _is_standalone_small_talk(user_text):
+        return _standalone_small_talk_update(state, pre_route, started_at)
+
+    if _is_unsupported_aggregate_order_request(user_text):
+        return _unsupported_aggregate_order_update(state, pre_route, started_at)
+
     flow = state.get("active_flow_state") if isinstance(state.get("active_flow_state"), dict) else None
     if flow and flow.get("kind") == "pending_required_slot":
         primary_intent = str(flow.get("last_effective_intent") or "unsupported")
@@ -658,6 +676,73 @@ def _deterministic_context_update(
             is_short_approval_or_action_reply(user_text),
         )
     return None
+
+
+def _is_standalone_small_talk(text: str) -> bool:
+    normalized = re.sub(r"[，。！？!?,.\s]+", "", text.strip())
+    if not normalized:
+        return False
+    if len(normalized) > 12:
+        return False
+    if _BUSINESS_KEYWORDS_RE.search(normalized):
+        return False
+    return _STANDALONE_SMALL_TALK_RE.search(normalized) is not None
+
+
+def _standalone_small_talk_update(
+    state: AgentState,
+    pre_route: PreRouteDecision,
+    started_at: str,
+) -> dict[str, Any]:
+    reason_codes = ["standalone_small_talk"]
+    return _deterministic_classification_update(
+        state,
+        started_at=started_at,
+        pre_route=pre_route,
+        primary_intent="small_talk",
+        requested_operation="advise",
+        intent_confidence=1.0,
+        required_slots=SLOT_POLICY_REGISTRY.required_slots_for("small_talk").model_dump(),
+        candidate_slots={},
+        routing_hints={},
+        policy_overrides=[{"source": "small_talk_guard", "reason_codes": reason_codes}],
+        reason_codes=reason_codes,
+        source="small_talk_guard",
+    )
+
+
+def _is_unsupported_aggregate_order_request(text: str) -> bool:
+    normalized = text.strip()
+    if not normalized:
+        return False
+    if _ID_ANSWER_RE.search(normalized):
+        return False
+    return _UNSUPPORTED_AGGREGATE_ORDER_RE.search(normalized) is not None
+
+
+def _unsupported_aggregate_order_update(
+    state: AgentState,
+    pre_route: PreRouteDecision,
+    started_at: str,
+) -> dict[str, Any]:
+    reason_codes = ["unsupported_aggregate_order_query"]
+    return _deterministic_classification_update(
+        state,
+        started_at=started_at,
+        pre_route=pre_route,
+        primary_intent="unsupported",
+        requested_operation="advise",
+        intent_confidence=1.0,
+        required_slots=SLOT_POLICY_REGISTRY.required_slots_for("unsupported").model_dump(),
+        candidate_slots={},
+        routing_hints={
+            "unsupported_reason": "aggregate_order_query",
+            "supported_alternatives": ["order_status_by_id", "refund_case_by_id", "ticket_by_id"],
+        },
+        policy_overrides=[{"source": "unsupported_capability_guard", "reason_codes": reason_codes}],
+        reason_codes=reason_codes,
+        source="unsupported_capability_guard",
+    )
 
 
 def _short_reply_clarification_update(
