@@ -1,5 +1,81 @@
 # 本地验证问题记录
 
+## 21. MOCA Agent Console 对闲聊和未支持统计查询给出误导性回复
+
+日期：2026-07-09
+
+### 问题现象
+
+前端 Agent Console 中：
+
+- 用户输入 `你好`，Agent 返回“建议按已检索到的政策依据处理 / 已根据当前知识库证据生成建议”，但该轮没有走 RAG / investigate，属于误导性默认回复。
+- 用户输入 `当前有多少订单`，Agent 返回“请提供订单号或退款单号或工单号”，但用户问的是聚合统计能力，不是单个订单查询缺槽。
+
+### 如何检测 / 复现
+
+在本地 Compose 服务中登录 demo 用户后创建并执行 agent run：
+
+```bash
+curl -fsS -X POST http://localhost:8000/api/v1/auth/demo-token \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"cs_zhang"}'
+
+POST /api/v1/agent-runs
+GET /api/v1/agent-runs/{run_id}/events
+GET /api/v1/agent-runs/{run_id}
+```
+
+也可直接在前端 `http://localhost:3000` 的 Agent Console 输入上述两句。
+
+### 关键证据或命令
+
+出问题的历史 run 显示：
+
+- `你好`：trace 为 `receive_request -> safety_pre_route -> session_context_load -> contextual_intent_resolve -> final_response`，未进入 `investigate` / RAG，却落到通用“政策依据建议”兜底。
+- `当前有多少订单`：trace 为 `receive_request -> safety_pre_route -> session_context_load -> contextual_intent_resolve -> slot_resolution_gate -> clarification_gate -> final_response`，说明聚合统计问题被当成需要订单号的单单查询处理。
+
+修复后 live API 验证：
+
+```text
+query=你好
+final_response=你好，我是 MOCA，可以帮你查询具体订单、退款单或工单，也可以解释退款、退货和补偿政策。请提供订单号、退款单号或工单号，或直接描述售后问题。
+nodes=receive_request,safety_pre_route,session_context_load,contextual_intent_resolve,final_response
+
+query=当前有多少订单
+final_response=当前控制台还不支持统计订单总数。你可以提供具体订单号、退款单号或工单号，我可以查询状态、排查退款异常，或基于政策生成处理建议。
+nodes=receive_request,safety_pre_route,session_context_load,contextual_intent_resolve,final_response
+```
+
+验证时还遇到一个本地环境坑：`httpx.AsyncClient` 默认继承本机 SOCKS proxy 环境，但当前项目未安装 `socksio`，临时验证脚本报 `ImportError: Using SOCKS proxy, but the 'socksio' package is not installed`。改用 `httpx.AsyncClient(..., trust_env=False)` 后验证通过。
+
+### 当前判断 / 根因
+
+`final_response` 没有为 `small_talk` 和 `unsupported` 这类 direct-response intent 提供明确模板，导致没有证据/草稿时落到 `_completed_response()` 的通用政策建议文案。
+
+同时，`当前有多少订单` 属于聚合统计能力请求；当前系统只支持具体订单、退款单、工单的查询和售后建议，不具备订单总数统计 intent / read-only tool / 权限边界。缺少确定性 guard 时，该请求可能被 LLM 或 slot policy 误归入 `order_status_inquiry` 并触发缺 ID 澄清。
+
+### 已做处理
+
+- 在 `contextual_intent_resolve` 增加 standalone small-talk deterministic guard，`你好` / `谢谢` / `在吗` 等短闲聊不再调用 LLM，直接路由到 `final_response`。
+- 在 `contextual_intent_resolve` 增加 unsupported aggregate order-count guard，`当前有多少订单` 这类无 ID 的订单统计请求标记为 `unsupported`，并记录 `routing_hints.unsupported_reason=aggregate_order_query`。
+- 在 `final_response` 增加 direct-response 模板：`small_talk` 返回能力介绍；`unsupported` 返回当前支持范围；订单聚合统计返回“不支持统计订单总数”的明确说明。
+- 补充节点级和 graph 级回归测试，覆盖不会进入 slot gate / clarification gate，也不会再出现“已检索到政策依据”的默认话术。
+
+验证命令：
+
+```bash
+uv run ruff check src/agent/nodes/contextual_intent_resolve.py src/agent/nodes/final_response.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_final_response.py tests/agent/test_graph.py
+uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_final_response.py tests/agent/test_graph.py -q --tb=short
+docker compose up --build -d
+docker compose ps
+```
+
+结果：ruff 通过；focused pytest `78 passed, 31 warnings`；Compose 中 `moca-api-1`、`moca-frontend-1`、`moca-postgres-1` 均 healthy；live API 验证通过。
+
+### 剩余问题和下次继续排查入口
+
+当前只是把未支持能力正确拒绝，并没有实现“订单总数统计”功能。如果后续要支持该问题，需要新增明确的统计 intent、只读统计 tool、租户/角色权限、时间范围或筛选条件、以及 trace/eval 覆盖，不能复用单个订单查询的 slot gate。
+
 ## 20. Phase 56-02 Task 2 acceptance grep 被负向断言文本误触发
 
 日期：2026-07-07
@@ -19735,6 +19811,263 @@ Warning: STATE.md field "Last Activity Description" not found — update skipped
 
 剩余问题是 GSD 工具链债务，不影响 v2.1 产品代码或归档文件真实性。后续若要修工具，从 `gsd-sdk query milestone.complete` 的参数转发和 `gsd-tools.cjs milestone complete` 的 `STATE.md` 字段写入逻辑开始排查。
 
+## 2026-07-09：`make seed` reset demo 数据时被 `agent_trace_events -> agent_runs` 外键阻断
+
+### 问题现象
+
+运行 `make seed` 时，`scripts/seed_demo.py --reset` 在删除 demo tenant 的 `agent_runs` 时失败：
+
+```text
+asyncpg.exceptions.ForeignKeyViolationError: update or delete on table "agent_runs" violates foreign key constraint "agent_trace_events_run_id_fkey" on table "agent_trace_events"
+```
+
+### 如何检测 / 复现
+
+在已有 agent run / replay trace 历史数据的本地数据库上运行：
+
+```bash
+make migrate
+make seed
+```
+
+### 关键证据或命令
+
+失败 SQL 为：
+
+```text
+DELETE FROM agent_runs WHERE agent_runs.tenant_id IN (...)
+```
+
+PostgreSQL 报告仍有 `agent_trace_events.run_id` 引用待删除的 `agent_runs.id`。
+
+### 当前判断 / 根因
+
+`scripts/seed_demo.py::reset_demo_data()` 的删除顺序没有跟上后续 trace / replay / memory / conversation / tool-call 表演进。脚本只删除了旧的 `AgentStep`，但漏删 `AgentTraceEvent` 以及其他 demo run 派生表，导致在已跑过前端或 agent demo 的数据库中无法重置 seed。
+
+### 已做处理
+
+- 在 `scripts/seed_demo.py` 中补充 runtime 派生表 import。
+- reset 时先删除 demo tenant 的 `SessionMemory`、approval events、trace events、tool records、conversation records、memory write events、action safety snapshots、case working context、long-term/case memory 等引用 `agent_runs` 或业务 seed 表的记录。
+- 再删除 `ActionDraft`、approval 层级/决策/请求、`AgentStep`、`AgentRun`、knowledge ingestion/block/chunk/document、ticket/refund/order/user/tenant 等 seed 数据。
+- 验证命令：
+
+```bash
+uv run ruff check scripts/seed_demo.py
+make seed
+```
+
+两者均通过。
+
+### 剩余问题和下次继续排查入口
+
+当前本地 seed reset 已恢复。后续若新增持久化 runtime 表并引用 `agent_runs`、`policy_documents`、`refund_cases`、`conversation_threads` 等 seed 相关实体，需要同步更新 `reset_demo_data()` 的删除顺序，或考虑为 demo-only reset 增加集中化依赖清理 helper。
+
+## 2026-07-09：Docker Compose API 启动时 Alembic 错连容器内 `localhost:5432`
+
+### 问题现象
+
+执行 `docker compose up --build -d` 后，API 镜像构建成功，但 `moca-api-1` 启动后退出，前端因依赖 API healthcheck 也无法启动。
+
+### 如何检测 / 复现
+
+```bash
+docker compose up --build -d
+docker compose logs --no-color --tail=200 api
+docker compose ps -a
+```
+
+### 关键证据或命令
+
+API 日志显示 entrypoint 在运行 migration 时连接 `localhost:5432`：
+
+```text
+Running migrations...
+OSError: Multiple exceptions: [Errno 111] Connect call failed ('::1', 5432, 0, 0), [Errno 111] Connect call failed ('127.0.0.1', 5432)
+```
+
+但 Compose 中 API 容器应使用：
+
+```text
+DATABASE_URL=postgresql+asyncpg://moca:moca_dev@postgres:5432/moca
+```
+
+### 当前判断 / 根因
+
+`src/db/migrations/env.py` 的 Alembic URL 解析顺序为 `config.attributes -> alembic.ini sqlalchemy.url -> settings.database_url`。由于 `alembic.ini` 硬编码了宿主机开发用的 `localhost:5432`，容器中由 Compose 注入的 `DATABASE_URL` 被覆盖，导致 API entrypoint 的 `alembic upgrade head` 连接错误地址。
+
+### 已做处理
+
+- 将 `src/db/migrations/env.py` 的优先级改为 `config.attributes -> settings.database_url -> alembic.ini sqlalchemy.url`。
+- 保留本地宿主机 `make migrate` 行为，因为 `settings.database_url` 在本地仍来自 `.env` / 默认 localhost。
+- 验证命令：
+
+```bash
+uv run ruff check src/db/migrations/env.py scripts/seed_demo.py
+make migrate
+docker compose up --build -d
+curl -fsS http://localhost:8000/health
+curl -fsSI http://localhost:3000
+curl -fsS -X POST http://localhost:8000/api/v1/auth/demo-token \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"cs_zhang"}'
+```
+
+API、frontend、postgres、redis 均为 healthy，API health 和 demo token 请求通过。
+
+### 剩余问题和下次继续排查入口
+
+当前 Compose 启动路径已恢复。后续若再改 Alembic 配置，需要显式验证宿主机 `.env` 路径和容器 `DATABASE_URL` 路径都不被 `alembic.ini` 默认值覆盖。
+
+## 2026-07-09：Phase 61 planning 阶段 `gsd-plan-checker` 子代理超时
+
+### 问题现象
+
+执行 `$gsd-plan-phase 61` 收尾复核时，标准 GSD `gsd-plan-checker` 子代理未在等待窗口内返回结果。该问题发生在 planning 工作流验证阶段，不是 MOCA 应用运行时代码失败。
+
+### 如何检测 / 复现
+
+在 Phase 61 计划文件已生成后启动 `gsd-plan-checker`，要求读取：
+
+- `.planning/phases/61-product-experience-fixes/61-01-PLAN.md` 至 `61-05-PLAN.md`
+- `.planning/phases/61-product-experience-fixes/61-UI-SPEC.md`
+- `.planning/phases/61-product-experience-fixes/61-VALIDATION.md`
+- `.planning/ROADMAP.md`
+- `.planning/REQUIREMENTS.md`
+- `.planning/phases/61-product-experience-fixes/61-CONTEXT.md`
+- `.planning/phases/61-product-experience-fixes/61-RESEARCH.md`
+- `AGENTS.md`
+
+### 关键证据或命令
+
+子代理信息：
+
+```text
+agent_id=019f44d1-8b7a-73c3-a98d-ba89843693ae
+wait_agent timeout_ms=180000 -> timed_out=true
+close_agent previous_status=running
+subagent_notification status=shutdown
+```
+
+本地替代检查结果：
+
+```text
+gsd-sdk query init.plan-phase "61" -> plan_count=5, has_research=true, has_context=true
+local requirement scan -> requirements 18 / 18, missing []
+local task scan -> all 5 plans have read_first, acceptance_criteria, and threat_model
+git diff --check -- .planning/ROADMAP.md .planning/STATE.md .planning/phases/61-product-experience-fixes -> no output
+```
+
+### 当前判断 / 根因
+
+当前判断是 GSD 子代理/工具链超时或卡住，非 Phase 61 计划内容的已知 blocker。此前同轮 planning 的 `gsd-phase-researcher` 也曾超时未写文件，因此本轮研究、patterns、plan 拆分和结构复核改由本地直接完成。
+
+### 已做处理
+
+- 关闭未完成的 `gsd-plan-checker` 子代理，避免保留后台会话。
+- 补齐 Phase 61 的 `61-RESEARCH.md`、`61-PATTERNS.md`、`61-VALIDATION.md`、`61-UI-SPEC.md` 和 5 个 PLAN 文件。
+- 用本地脚本检查 18/18 requirement 覆盖、每个 task 的 `read_first` / `acceptance_criteria`、每个 plan 的 threat model，以及 whitespace。
+- 用 `gsd-sdk query state.planned-phase --phase "61" --name "Product Experience Fixes" --plans "5"` 同步 GSD 状态。
+
+### 剩余问题和下次继续排查入口
+
+Phase 61 可以进入执行，但严格意义上本轮官方 `gsd-plan-checker` 没有产出 `VERIFICATION PASSED`。如需更强的执行前复核，可重新运行 `$gsd-plan-phase 61 --reviews` 或 `$gsd-review --phase 61 --all`，重点复核 61-02/61-03 的 metric scope contract 与 61-05 的 Playwright/golden 验证范围。
+
+## 2026-07-09：Phase 61 execute 阶段 `state.begin-phase` 误解析 flags 写坏 STATE.md
+
+### 问题现象
+
+执行 Phase 61 autopilot 的 execute 初始化时，`gsd-sdk query state.begin-phase --phase "61" --name "Product Experience Fixes" --plans "5"` 返回成功样式 JSON，但把参数名当成了 phase/name/plan_count 写进 `.planning/STATE.md`。
+
+### 如何检测 / 复现
+
+命令：
+
+```bash
+gsd-sdk query state.begin-phase --phase "61" --name "Product Experience Fixes" --plans "5"
+sed -n '1,120p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+返回值：
+
+```json
+{
+  "phase": "--phase",
+  "name": "61",
+  "plan_count": "--name"
+}
+```
+
+`STATE.md` 中出现：
+
+```text
+Current focus: Phase --phase — 61
+Phase: --phase (61) — EXECUTING
+Plan: 1 of --name
+Status: Executing Phase --phase
+```
+
+### 当前判断 / 根因
+
+`state.begin-phase` 的 CLI 参数解析仍按 positional 参数读取，不接受当前 workflow 文档示例中的 `--phase/--name/--plans` flags。Phase 60 曾出现同类 GSD state update 问题；这是 GSD 工具链/文档不一致，不是 MOCA 业务代码问题。
+
+### 已做处理
+
+- 手工修复 `.planning/STATE.md` 为正确状态：Phase 61 executing，Plan 1 of 5，当前计划为 `61-01 Agent Response UX Baseline`。
+- 后续本轮 autopilot 避免再次使用 flagged `state.begin-phase` 形式；如必须调用，优先使用 positional 形式或调用后立即检查 `STATE.md`。
+
+### 剩余问题和下次继续排查入口
+
+需要在 GSD 工具层修复 `state.begin-phase` 的参数解析或 workflow 文档。继续执行 Phase 61 前，若再调用任何 `gsd-sdk query state.*` 命令，必须检查返回 JSON 和 `.planning/STATE.md` 是否一致。
+
+## 2026-07-09：Phase 61-02 executor 超时且未写 summary，需本地接管收尾
+
+### 问题现象
+
+执行 Phase 61 Wave 2 / Plan 61-02 时，`gsd-executor` 子代理超过 10 分钟仍未返回最终状态，也没有写出 `.planning/phases/61-product-experience-fixes/61-02-SUMMARY.md`。工作区已有多笔 61-02 提交和少量未提交代码。
+
+### 如何检测 / 复现
+
+关键检查命令：
+
+```bash
+test -f .planning/phases/61-product-experience-fixes/61-02-SUMMARY.md && sed -n '1,220p' .planning/phases/61-product-experience-fixes/61-02-SUMMARY.md || printf 'no-summary\n'
+git log --oneline --grep='61-02' --since='90 minutes ago'
+git status --short -- src/agent/nodes/contextual_intent_resolve.py tests/agent/test_nodes/test_contextual_intent_resolve.py
+```
+
+### 关键证据或命令
+
+`wait_agent` 对 `019f44f2-e63b-75d0-a6a7-fcc405250707` 返回 timeout；`close_agent` 返回 `previous_status=running`。初次 focused test 发现 61-02 slot parser 尚未稳定：
+
+```text
+4 failed, 181 passed, 1 warning
+```
+
+失败点集中在 `tests/agent/test_nodes/test_slot_resolution_gate.py` 中 locked metric prompts 没有解析出 `metric_id`。
+
+### 当前判断 / 根因
+
+这是 GSD executor/子代理收尾超时问题叠加半成品提交问题，不是数据库或运行时服务问题。子代理后来已经提交了 slot/clarification 大部分实现，但旧的 aggregate-order unsupported guard 仍会把 `当前有多少订单` 当成 unsupported，和 61-02 plan Task 4 冲突。
+
+### 已做处理
+
+- 关闭卡住的 61-02 子代理。
+- 本地补齐 contextual intent 的 deterministic metric routing，把 `当前有多少订单` 路由为 `business_metric_query -> slot_resolution_gate`，并保留带订单号的单订单状态查询路径。
+- 补写 `.planning/phases/61-product-experience-fixes/61-02-SUMMARY.md`。
+- 重跑 focused test：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_manifest.py tests/agent/test_intent_policy_registry.py tests/agent/test_intent_golden_contract.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_clarification_gate.py tests/agent/test_required_slots.py -q --tb=short
+```
+
+结果：`190 passed, 1 warning`。warning 是既有 `LangChainPendingDeprecationWarning`。
+
+### 剩余问题和下次继续排查入口
+
+继续执行 61-03 前不再依赖该子代理状态；以本地提交、summary 和 focused test 结果作为 61-02 完成证据。后续每个 executor 超时后必须先 spot-check summary/commits/tests，再决定等待、关闭或本地接管。
+
 ## 2026-07-09：Phase 61-03 Task 1 ToolPolicy visibility helper 漏传 ctx
 
 ### 问题现象
@@ -19901,3 +20234,207 @@ cd frontend && MOCA_E2E_FULL_LIVE=1 npm run e2e:live
 ```
 
 如果仍卡在 `slot_resolution_gate`，从 provider 网络/proxy、`socksio` 依赖、`DASHSCOPE_API_KEY` 可用性、以及 `settings.llm_timeout_seconds` 开始排查。裸 `pytest`、裸 `python -m pytest`、裸 `python` 的验证结果均不要作为 MOCA 结论。
+
+## 2026-07-09 — Docker 旧镜像导致 Phase 61 指标查询 UI 仍显示“不支持统计订单总数”
+
+### 问题现象
+
+用户在 `localhost:3000` 控制台以客服角色输入“现在有多少订单”，页面返回“当前控制台还不支持统计订单总数”，timeline 直接走 `contextual_intent_resolve -> final_response`，没有出现预期的 `business_metric_query -> slot_resolution_gate -> clarification_gate`。
+
+### 如何检测 / 复现
+
+关键检查命令：
+
+```bash
+docker compose ps
+docker compose exec -T api sh -lc 'python - <<'"'"'PY'"'"'
+from src.agent.nodes.contextual_intent_resolve import _deterministic_metric_candidate_slots
+print(_deterministic_metric_candidate_slots("现在有多少订单"))
+PY'
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+from src.agent.nodes.contextual_intent_resolve import _deterministic_metric_candidate_slots
+print(_deterministic_metric_candidate_slots("现在有多少订单"))
+PY
+```
+
+### 关键证据或命令
+
+- `docker compose ps` 显示 `moca-api-1` / `moca-frontend-1` 已运行约 6 小时，早于本次 Phase 61 相关代码确认。
+- 容器内导入 `_deterministic_metric_candidate_slots` 报 `ImportError`，证明 Docker API 镜像不是当前 worktree 代码。
+- 当前 worktree 中同一函数对“现在有多少订单”返回 `{"metric_id": "order_count"}`，完整路由测试显示缺 `metric_time_range` 时进入 `clarification_gate`。
+- 重建后真实 API 验证：
+
+```bash
+docker compose up --build -d api frontend
+docker compose up --build -d api
+UV_CACHE_DIR=/tmp/uv-cache uv run python <真实 /api/v1/agent-runs + SSE smoke>
+```
+
+最终状态返回：
+
+```json
+{"final_status":"completed","final_response":"要统计业务指标，请选择时间范围：今天、本周、本月、本季度、今年，或指定起止时间。"}
+```
+
+### 当前判断 / 根因
+
+本次 UI 截图的主因是浏览器连着旧 Docker 镜像，而不是当前源码主路径仍把“现在有多少订单”判为 unsupported。旧镜像缺少 Phase 61 的 deterministic metric intent guard，所以直接走了旧的 unsupported/direct response 路径。
+
+同时，当前源码中仍残留了一个 legacy `unsupported_reason == "aggregate_order_query"` fallback 文案，会在特殊 legacy 状态下继续说“不支持统计订单总数”；该残留已在本次一并修正为时间范围澄清。
+
+### 已做处理
+
+- 重建并重启 Docker `api` / `frontend`，然后在 API 镜像重建后再次重启 `api`。
+- 将 `src/agent/nodes/final_response.py` 的 legacy aggregate-order fallback 从“不支持统计订单总数”改成“请选择时间范围”。
+- 更新 `tests/agent/test_nodes/test_final_response.py` 对应断言，锁定不再提示具体订单号、不再说不支持统计订单总数。
+- 容器内 `grep -R "当前控制台还不支持统计订单总数\\|不支持统计订单总数" /app/src /app/tests` 已无输出。
+
+### 剩余问题和下次继续排查入口
+
+`localhost:3000` 页面如果仍显示旧内容，需要刷新页面并发起新对话；已有旧 run 的聊天气泡不会自动改写。后续若 Phase 61 行为看起来不生效，先检查 `docker compose ps` 的容器创建/运行时间，并在容器内确认关键函数或文案是否来自当前 worktree。
+
+## 2026-07-09 — Phase 61 metric 时间范围追问不能理解“本周”
+
+### 问题现象
+
+用户在同一个 `localhost:3000` Agent Console 对话里先问“现在有多少个订单”，系统正确要求补充时间范围；随后只回复“本周”，系统没有继承上一轮订单数统计意图，而是再次澄清“请再补充一下业务背景或要处理的对象”。
+
+### 如何检测 / 复现
+
+浏览器复现：
+
+1. 新对话输入“现在有多少个订单”。
+2. 等待系统返回“要统计业务指标，请选择时间范围：今天、本周、本月、本季度、今年，或指定起止时间。”
+3. 继续输入“本周”。
+
+修复前第二轮进入低置信度/业务背景澄清，而不是 `query_business_metric`。
+
+本地和真实 API 验证命令：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py::test_contextual_intent_resolve_pending_metric_time_answer_uses_same_thread_flow tests/agent/test_nodes/test_slot_resolution_gate.py::test_slot_resolution_gate_merges_pending_metric_time_answer_with_active_flow tests/agent/test_graph.py::test_metric_time_followup_reuses_pending_order_count_flow -q --tb=short
+docker compose up --build -d api
+UV_CACHE_DIR=/tmp/uv-cache uv run python <同一 thread_id 下 /api/v1/agent-runs 两轮 smoke>
+```
+
+### 关键证据或命令
+
+- 代码检查显示 `contextual_intent_resolve` 的 pending flow 只识别 identifier-like answer（订单号/退款单号/工单号），没有识别 `本周` / `本月` / `今年` 这类 `metric_time_range` 回答。
+- 修复后真实 API smoke：
+
+```json
+{
+  "first": {
+    "query": "现在有多少订单",
+    "status": "completed",
+    "response": "要统计业务指标，请选择时间范围：今天、本周、本月、本季度、今年，或指定起止时间。"
+  },
+  "second": {
+    "query": "本周",
+    "status": "completed",
+    "response": "3（订单数）。\\n范围：authorized_merchants；时间：this_week（2026-07-05T16:00:00Z 至 2026-07-12T16:00:00Z），Asia/Shanghai；筛选：无；新鲜度：当前可用业务数据。"
+  }
+}
+```
+
+### 当前判断 / 根因
+
+这是 same-thread pending flow 续接能力缺口，不是 thread/session memory 完全失效。
+
+- Graph checkpoint / session context 中能保留上一轮 clarification 和已解析 `metric_id=order_count`。
+- 但续接逻辑只把 ID 样式短答当成 pending slot answer。
+- “本周”既不是完整业务问题，也不是 ID，所以修复前会被重新分类成低置信度短句，最终走业务背景澄清。
+- 另外，metric 槽齐后 `investigate` 仍可能让 planner 选择 `search_policy`，导致 metric query 走偏到 RAG/recommendation 状态。
+
+### 已做处理
+
+- `receive_request` 投影 pending flow 时携带上一轮已解析 `resolved_slots`。
+- `contextual_intent_resolve` 新增 pending metric time answer 分支，识别“今天/本周/本月/本季度/今年”并继承上一轮 metric intent。
+- `slot_resolution_gate` 对 `answered_pending_metric_time_range` 合并 active flow metric slots 和本轮时间范围。
+- `investigate` 对 `business_metric_query` 优先走确定性 `query_business_metric` planner，不交给 LLM planner 误选 `search_policy`。
+- metric intent 不再生成 policy insufficient-evidence recommendation draft，真实 API run status 变为 `completed`。
+
+### 剩余问题和下次继续排查入口
+
+当前已覆盖“本周”等预设时间范围。若后续要支持自然语言自定义区间（例如“7 月 1 日到 7 月 8 日”）作为追问答案，需要扩展 explicit metric time range parser，并增加同一 thread 的 API smoke。
+
+## 2026-07-09 — `gsd-sdk query phase.add` 在 v2.2 complete 状态下重复生成 Phase 62
+
+### 问题现象
+
+在 Phase 61 已完成、v2.2 `STATE.md` 标记 `status: complete` 的状态下，连续运行 `gsd-sdk query phase.add ...` 两次后，`.planning/ROADMAP.md` 被追加了两个 `### Phase 62` block，且创建了两个 `62-*` phase 目录，而不是生成 Phase 62、Phase 63。
+
+### 如何检测 / 复现
+
+本次触发命令：
+
+```bash
+gsd-sdk query phase.add "Query Foundation And Single Source Cleanup"
+gsd-sdk query phase.add "Safe Business Query Contract And Policy"
+```
+
+检查命令：
+
+```bash
+rg -n "Phase 62|Query Foundation|Safe Business Query" .planning/ROADMAP.md .planning/STATE.md
+find .planning/phases -maxdepth 1 -type d -name '62-*' -print | sort
+```
+
+### 关键证据或命令
+
+`rg` 显示 `.planning/ROADMAP.md` 同时存在：
+
+- `### Phase 62: Query Foundation And Single Source Cleanup`
+- `### Phase 62: Safe Business Query Contract And Policy`
+
+`find` 显示同时存在两个 `62-*` 目录。
+
+### 当前判断 / 根因
+
+当前判断是 GSD phase-add 工具在本仓库当前 milestone complete / next-step 状态下没有正确从已写入 roadmap 的最新 phase 递增编号，导致第二次仍按 Phase 62 生成。未进一步排查 GSD SDK 内部实现。
+
+### 已做处理
+
+- 删除本次误建的多余空 phase 目录。
+- 将 roadmap 修正为一个 Phase 62：`Business Query And Drilldown Foundation`。
+- 明确裁决：Business Query 主线是一个 phase 内的 5 个 plan，不拆成 5 个 phase。
+- 同步更新 `.planning/STATE.md` 的 Current Position 和 Roadmap Evolution。
+
+### 剩余问题和下次继续排查入口
+
+后续在已完成 milestone 上连续新增多个 phase 时，不要盲信 `phase.add` 连续调用结果；每次新增后先检查 `.planning/ROADMAP.md` 和 `.planning/phases/` 编号。如果需要批量新增 phase，应手动核对或先修复 GSD SDK 的 phase-number calculation。
+
+## 2026-07-09 — Phase 62 plan revision 检查命令误触发裸 `pytest`
+
+### 问题现象
+
+在 Phase 62 planning artifact 复核时，一条 `rg` 检查命令的 pattern 中包含 Markdown 反引号文本 ``bare `pytest```。Shell 将反引号内容当作 command substitution，意外执行了裸 `pytest`，命中了 MOCA 已知的本机 Python 3.9 入口问题。
+
+### 如何检测 / 复现
+
+触发命令形态：
+
+```bash
+rg -n "BQ-TBD|62-TBD|## Open Questions$|<automated>.*npm --prefix frontend run e2e|bare `pytest`|python -m pytest" .planning/phases/62-business-query-and-drilldown-foundation || true
+```
+
+关键输出：
+
+```text
+ImportError while loading conftest '/Users/ming/projects/MOCA/tests/conftest.py'.
+ImportError: cannot import name 'UTC' from 'datetime' (.../Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+```
+
+### 当前判断 / 根因
+
+这是检查命令写法错误，不是 Phase 62 plans 或项目测试失败。裸 `pytest` 结果在 MOCA 中无效，不能作为验证证据。
+
+### 已做处理
+
+- 将该输出标记为无效验证结果。
+- 后续检查避免在 shell 双引号 pattern 中使用反引号文本；需要匹配反引号时改用单引号或转义。
+- Phase 62 PLAN 文件结构验证仍以 `gsd-sdk query frontmatter.validate ...` 和 `gsd-sdk query verify.plan-structure ...` 的结果为准。
+
+### 剩余问题和下次继续排查入口
+
+无 Phase 62 实现问题遗留。以后写包含 Markdown 反引号的 shell pattern 时，先改成单引号包裹或删除反引号，避免再次绕过项目虚拟环境入口。

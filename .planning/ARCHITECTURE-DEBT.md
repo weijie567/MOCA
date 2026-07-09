@@ -193,6 +193,22 @@
 
 > 以下为 2026-07-02 代码走查中发现的**设计层面缺陷**与后续处理状态。ID-01/ID-03 已通过三层契约拆分落地；ID-04 的档位 A 已通过 Phase 43 落地；ID-02 仍未修复。
 
+## 2026-07-09 — direct-response intent 缺少专用最终回复模板 ✅
+
+**子系统**：Agent Graph / 意图识别 / final_response
+
+**问题现象 / 根因**：本地 UI 验证发现 `small_talk` 这类 direct-response intent 在没有 recommendation draft / RAG evidence 时，会落到 `final_response._completed_response()` 的通用政策建议文案，导致 `你好` 返回“建议按已检索到的政策依据处理”。另一个相关缺口是无 ID 的订单聚合统计请求（如 `当前有多少订单`）不属于当前单订单查询能力，但缺少 deterministic unsupported guard，可能被归入 `order_status_inquiry` 并触发 slot gate 要求订单号。
+
+**影响**：用户会误以为系统已经检索了政策证据，或误以为订单总数统计只是缺少订单号；trace 虽然可见没有进入 RAG / investigate，但最终回复文案和真实执行路径不一致，削弱 Agent Console 的可解释性。
+
+**处理状态**：✅ 已修复验证。`contextual_intent_resolve` 新增 standalone small-talk guard 和 unsupported aggregate order-count guard；`final_response` 新增 direct-response 模板，分别处理 `small_talk`、通用 `unsupported` 和 `unsupported_reason=aggregate_order_query`。新增节点级和 graph 级回归测试，确认这两类请求直接走 `contextual_intent_resolve -> final_response`，不进入 slot gate / clarification gate，也不再使用默认政策建议话术。
+
+**证据**：`src/agent/nodes/contextual_intent_resolve.py`、`src/agent/nodes/final_response.py`、`tests/agent/test_nodes/test_contextual_intent_resolve.py`、`tests/agent/test_nodes/test_final_response.py`、`tests/agent/test_graph.py`；本地 live API run `3b4cb7ef-e9b3-4383-8785-7916f74e39cc`（`你好`）和 `b078fd8f-9d90-428f-924d-feeee2b90920`（`当前有多少订单`）均返回直接说明并只经过 `receive_request,safety_pre_route,session_context_load,contextual_intent_resolve,final_response`。
+
+**验证**：`uv run ruff check src/agent/nodes/contextual_intent_resolve.py src/agent/nodes/final_response.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_final_response.py tests/agent/test_graph.py` → pass；`uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_final_response.py tests/agent/test_graph.py -q --tb=short` → `78 passed, 31 warnings`；`docker compose up --build -d` 后 API / frontend / postgres healthy，live API 验证通过。
+
+**剩余风险**：🟡 本次只修正未支持能力的表达与路由，不实现订单总数统计。若后续要支持聚合统计，需要新增独立 intent、只读统计 tool、租户/角色权限、范围参数和 eval；不得复用单订单查询 slot gate。
+
 ## ID-01 关键词候选覆盖 LLM 语义判断 ✅
 
 **原问题/根因**：`resolve_intent_precedence` 旧实现（`intent_policy.py`）在 LLM 已给出主/次意图后，又用纯字符串包含（`"投诉"/"升级"/"申诉"/"reply"` 等）扫原始 query 往候选表里追加意图，再按优先级排序选赢家。关键词不理解否定/反问/引用。
@@ -375,6 +391,14 @@
 **范围**：短期/会话记忆、thread summary、ContextAssembler、记忆边界与 fail-closed。
 **已 ship**：v1.1 Memory Foundation V2、v1.7 短期记忆统一。
 **在册探索**：Phase 999.1「评估 mem0 作为 MemoryContextService 背后可选 backend」。
+
+## 2026-07-09 — Redis 运行时依赖从当前实现降级为瓶颈后可选方案 ✅已修复验证
+
+- **问题现象/根因**：当前源码没有 Redis client 使用路径，session memory、checkpoint、RAG、trace/replay、approval/action draft 均以 PostgreSQL 为权威源；但 `docker-compose.yml`、`.env.example`、`src/config.py`、`pyproject.toml` 和 README 仍把 Redis 表现为当前运行依赖。这会造成启动链路多一个无功能服务，也会误导后续实现者把 Redis 视为 memory/checkpoint authority。
+- **影响**：本地启动需要等待 Redis healthy，即使产品功能不使用它；作品集/README 技术栈也会夸大当前实现。更重要的是，若保留“已配置即已使用”的信号，后续 memory/cache 改动可能绕过 PostgreSQL CAS / replay / approval authority 边界。
+- **处理状态**：✅ 已修复验证。移除 Compose Redis service、API `depends_on.redis` 和 `REDIS_URL` 注入；移除 `.env.example` 的 `REDIS_URL`、`src.config.Settings.redis_url` 和 `pyproject.toml` 的 `redis` 依赖；同步 README、`docs/current-implementation-map.md`、`docs/architecture-overview.md`、`docs/contract-spec.md` 与 `docs/evaluation.md`。Redis 现在仅作为“量化瓶颈出现后”的 future option：非权威 TTL hot cache、rate limit、short lock、SSE buffer 或 worker hint，且必须 PostgreSQL fallback。
+- **证据**：本条提交文件 `docker-compose.yml`、`.env.example`、`src/config.py`、`pyproject.toml`、`uv.lock`、`README.md`、`docs/current-implementation-map.md`、`docs/architecture-overview.md`、`docs/contract-spec.md`、`docs/evaluation.md`。
+- **剩余风险**：🟡 历史 planning / milestone artifact 中仍有 Redis 作为早期架构候选或未来选项的记录，未批量重写；当前事实文档已改为无 Redis runtime dependency。若未来重新引入 Redis，必须先给出量化瓶颈证据，并补 cache miss / Redis unavailable / stale cache / TTL / tenant-scope 回归。
 
 ## Phase 59 Plan 01 — approval-resume terminal finalizer 共享基础已落地 ✅
 
@@ -1559,3 +1583,109 @@
 
 **剩余风险**
 - ⚠️ duplicate static allowlist 仍存在；post-Phase 61 cleanup 前，新增 investigate tool 必须同时更新 catalog、planner allowlist 与 tests。
+
+## 2026-07-09 — Phase 61 `aggregate_order_query` legacy fallback 文案残留 ✅已修复验证
+
+**子系统**
+- 意图识别 / Final Response UX
+
+**问题 / 根因**
+- Phase 61 当前主路径已经把“当前/现在有多少订单”识别为 `business_metric_query`，并在缺少时间范围时进入 clarification，而不是 unsupported。
+- `src/agent/nodes/final_response.py` 仍保留 legacy `routing_hints.unsupported_reason == "aggregate_order_query"` 分支，文案仍说“当前控制台还不支持统计订单总数”，与新的 metric contract 和前端 safe reason label（缺少时间范围）不一致。
+- 用户本地截图主要由旧 Docker 镜像触发，但该残留 fallback 会让 legacy 状态再次产生同类误导。
+
+**影响**
+- 用户会误以为订单数统计能力整体未实现，而实际缺的是时间范围槽位。
+- 前端 timeline/details 可能显示“缺少时间范围”，聊天气泡却说“不支持统计订单总数”，造成 UX 口径冲突。
+
+**处理状态**
+- ✅ 已将 legacy aggregate-order fallback 改为时间范围澄清：“要统计订单数，请选择时间范围：今天、本周、本月、本季度、今年，或指定起止时间。”
+- ✅ 已更新 final response 单测，锁定不再出现“不支持统计订单总数”和“具体订单号”提示。
+- ✅ 已重建 Docker API 镜像，并用真实 `/api/v1/agent-runs` smoke 验证“现在有多少订单”返回时间范围澄清。
+
+**证据 / 验证**
+- 文件：`src/agent/nodes/final_response.py`、`tests/agent/test_nodes/test_final_response.py`
+- 本地问题记录：`.planning/LOCAL-VALIDATION-ISSUES.md` 2026-07-09 “Docker 旧镜像导致 Phase 61 指标查询 UI 仍显示‘不支持统计订单总数’”
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_final_response.py::test_final_response_handles_legacy_aggregate_order_query_as_time_clarification tests/agent/test_nodes/test_contextual_intent_resolve.py::test_aggregate_order_count_request_routes_to_metric_intent_without_llm -q --tb=short` → `2 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_slot_resolution_gate.py::test_slot_resolution_gate_order_count_current_requires_time_not_order_id tests/agent/test_graph.py::test_metric_order_count_missing_time_routes_to_clarification_without_tool_call tests/agent/test_graph.py::test_aggregate_order_count_routes_to_metric_clarification_without_tool_call -q --tb=short` → `3 passed, 3 warnings`
+- Docker API smoke：`final_response="要统计业务指标，请选择时间范围：今天、本周、本月、本季度、今年，或指定起止时间。"`
+
+**剩余风险**
+- 🟡 `aggregate_order_query` 作为 legacy safe reason / fallback key 仍存在；当前未发现主路径 setter。若后续要完全删除该 alias，需要同步清理 API safe reason allowlist、frontend reason label 和 legacy final-response test。
+
+## 2026-07-09 — Phase 61 metric clarification follow-up 续接缺口 ✅已修复验证
+
+**子系统**
+- 意图识别 / slot resolution / 工具调用
+
+**问题 / 根因**
+- Phase 61 支持 `business_metric_query` 后，“当前/现在有多少订单”会正确澄清时间范围，但同一 thread 下一轮只回答“本周”时没有被识别为 `metric_time_range` answer。
+- 根因是 pending flow 续接只识别 identifier-like answer（订单号/退款单号/工单号），没有 metric time answer 分支；并且 pending flow 只传候选槽位，没有显式携带上一轮已解析的 metric active slots。
+- metric 槽齐后 `investigate` 仍可能进入 LLM planner；如果 planner 选择 `search_policy`，metric answer 会走偏到 policy/RAG/recommendation 状态。
+- metric tool result 还会继承 policy insufficient-evidence draft，导致 API run `final_status` 与 metric answer 不一致。
+
+**影响**
+- 用户在同一个对话中按系统要求回答“本周/本月/今年”仍被要求补业务背景，破坏 clarification UX。
+- 指标查询可能不稳定地依赖 planner，而不是确定性只读 metric tool。
+- API Run Info 可能显示 `insufficient_evidence`，但聊天气泡实际已经给出 metric answer。
+
+**处理状态**
+- ✅ `receive_request` 的 active flow projection 增加上一轮已解析 `resolved_slots`。
+- ✅ `contextual_intent_resolve` 新增 pending metric time answer 续接，确定性识别“今天/本周/本月/本季度/今年”。
+- ✅ `slot_resolution_gate` 对 `answered_pending_metric_time_range` 合并 active flow metric slots 与当前时间范围。
+- ✅ `investigate` 对 `business_metric_query` 优先使用 deterministic `query_business_metric` planner，避免 LLM planner 误选 `search_policy`。
+- ✅ metric intent 不再生成 policy insufficient-evidence recommendation draft，真实 API status 与 metric answer 一致为 `completed`。
+
+**证据 / 验证**
+- 文件：`src/agent/nodes/receive_request.py`、`src/agent/nodes/contextual_intent_resolve.py`、`src/agent/nodes/slot_resolution_gate.py`、`src/agent/nodes/investigate.py`
+- 测试：`tests/agent/test_nodes/test_contextual_intent_resolve.py`、`tests/agent/test_nodes/test_slot_resolution_gate.py`、`tests/agent/test_nodes/test_investigate.py`、`tests/agent/test_graph.py`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py::test_contextual_intent_resolve_pending_metric_time_answer_uses_same_thread_flow tests/agent/test_nodes/test_slot_resolution_gate.py::test_slot_resolution_gate_merges_pending_metric_time_answer_with_active_flow tests/agent/test_graph.py::test_metric_time_followup_reuses_pending_order_count_flow tests/agent/test_graph.py::test_complete_metric_query_routes_through_slot_gate_investigate_and_final_response tests/agent/test_nodes/test_final_response.py::test_metric_count_response_is_number_first_with_scope_time_filter_freshness -q --tb=short` → 通过
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_receive_request.py tests/agent/test_nodes/test_contextual_intent_resolve.py::test_contextual_intent_resolve_pending_slot_identifier_uses_same_thread_state_only tests/agent/test_nodes/test_contextual_intent_resolve.py::test_pending_required_slot_ambiguous_reply_reasks_for_slot tests/agent/test_required_slots.py::test_metric_slot_policy_locks_metric_ids_and_candidate_hints_do_not_satisfy tests/agent/test_nodes/test_investigate.py::test_deterministic_fallback_calls_metric_tool_from_complete_active_slots tests/agent/test_nodes/test_investigate.py::test_deterministic_fallback_stops_metric_query_with_incomplete_active_slots tests/agent/test_nodes/test_investigate.py::test_metric_result_accumulates_under_business_metric_fact -q --tb=short` → `22 passed, 1 warning`
+- Docker API smoke：同一 `thread_id` 先问“现在有多少订单”，再答“本周”，第二轮返回 `3（订单数）... this_week ...` 且 `status=completed`。
+
+**剩余风险**
+- 🟡 当前 follow-up 只覆盖预设时间范围；自定义自然语言时间区间仍需单独 parser / test。
+- 🟡 这次修复保留 `business_metric_query` 使用 `read_status` operation 的 Phase 61 MVP 妥协；未来引入 `read_metric` 时需要重新检查 route/planner/status 口径。
+
+## 2026-07-09 — Phase 62-66 覆盖矩阵补齐项（源码级硬编码审查）⚠️待规划落地
+
+**子系统**
+- 工具调用 / RAG / 记忆 / 意图识别 / 状态机 / 前后端契约 / 本地配置
+
+**问题 / 根因**
+- 源码级硬编码审查确认，Phase 62-66 的 roadmap 方向能覆盖大多数已发现的 hardcoding debt，但仍需要在各 phase 的 PLAN.md 中显式锁定具体补齐项，否则容易在执行时只做局部清理。
+- 另有一类跨 DB/API/frontend/service writer 的状态机单一事实源与 DB CHECK 约束问题，不自然归入 Phase 62-66，需要新增 phase 或在 Phase 65 后明确扩展范围。
+
+**影响**
+- 若 Phase 62 未锁定 business query / metric registry / business id resolver / time policy，`business_metric_query` 可能继续沿用多处硬编码 parser、metric id、status、time preset，新增 list/detail/drilldown 时继续扩大分叉。
+- 若 Phase 63 未拆分 risk severity 与 risk disposition，`manual_review` / `blocked` 等处置结果仍可能混入 `risk_level`，action taxonomy 也会继续在 `risk_gate`、`action_draft`、`intent_policy` 多处复制。
+- 若 Phase 64 只做命名整理而不统一 RAG label registry，`manual_review_sensitive` 这类标签仍可能在 builder / verifier / routing / metrics 之间被过滤或解释不一致。
+- 若 Phase 65 只做 console 文案，不做 event / response_kind / tool name / graph node / frontend payload registry 或 parity 测试，后续新增工具、节点、响应类型仍会漏改前端或 replay validator。
+- 若 Phase 66 只清单点 demo 常量，不处理 fixture/settings 边界，magic dates、demo IDs、local DB/port、investigate max_iterations、demo adapter role/scope 副本仍会作为隐性环境假设留存。
+- 若不新增状态机 registry phase，`AgentRun.final_status`、`ActionDraft.status`、API schema、frontend types、DB CHECK / migration 之间仍缺少统一约束与漂移测试。
+
+**处理状态**
+- ⚠️ 已完成源码级审查和 phase 归属裁决，尚未进入 Phase 62-66 任一 PLAN.md。
+- ⚠️ Phase 62 必须覆盖：metric id / resource / status / time preset registry，metric parser parity，`query_business_metric` service/tool contract 的 `current_snapshot` 边界，business id resolver，`business_query` schema、field/sort/status/time/limit/cursor allowlist，`last_query_spec` / `last_answer_context` / `result_cursor`。
+- ⚠️ Phase 63 必须覆盖：risk severity vs risk disposition 拆分，action taxonomy / canonical action type，money/risk extraction 假设，evidence-required / action-bound intent routing registry。
+- ⚠️ Phase 64 必须覆盖：RAG risk label registry，尤其 `manual_review_sensitive` 在 builder / verifier / routing / metrics / recommendation 之间的单一事实源和 parity 测试。
+- ⚠️ Phase 65 必须覆盖：tool name / event_family / tool label registry，trace event type 与 DB CHECK / replay validator parity，response_kind / SSE payload / frontend type contract，graph node label 与 safe reason label parity。
+- ⚠️ Phase 66 必须覆盖：demo seed constants、test magic dates、local config / port / DB defaults、demo action status residue、investigate iteration settings、demo authz role/scope 副本。
+- ⚠️ 建议新增 Phase 67：State Machine Registry And DB Constraint Hardening。若 Phase 62 被规划成完整 business query mainline，则原先的 Business Query Production Hardening 不单独开新 phase；若 Phase 62 执行时被缩成 foundation MVP，再考虑在 Phase 67 之后新增 business query coverage expansion。
+
+**证据 / 验证**
+- Roadmap phase 边界：`.planning/ROADMAP.md` Phase 62-66。
+- 当前状态：`.planning/STATE.md` 显示 Phase 62 为当前待规划焦点，Phase 63-66 已注册待规划。
+- 已核实代码证据包括：
+  - `src/business/schemas.py`、`src/agent/schemas.py`、`src/agent/routing.py`、`src/business/service.py`、`src/tools/catalog.py`、`src/agent/nodes/contextual_intent_resolve.py`、`src/agent/nodes/slot_resolution_gate.py` 的 metric / time / status / parser 重复。
+  - `src/agent/rag_context/builder.py`、`src/agent/rag_context/metrics.py`、`src/agent/rag_context/verifier.py`、`src/agent/rag_context/routing.py` 的 RAG risk label 重复与 `manual_review_sensitive` 发散风险。
+  - `src/agent/nodes/risk_gate.py`、`src/agent/nodes/action_draft.py`、`src/agent/intent_policy.py` 的 action taxonomy / risk vocabulary 重复。
+  - `src/tools/catalog.py`、`src/agent/nodes/investigate_planner.py`、`src/agent/events.py`、`frontend/src/components/timeline/TimelineStep.tsx` 的 tool name / event family / label 重复。
+  - `src/replay/validators.py`、`src/db/models.py`、`src/db/migrations/versions/010_replay_event_v3.py`、`src/db/migrations/versions/017_tool_policy_events.py` 的 trace event type 多源维护。
+  - `src/api/schemas/agent_runs.py`、`frontend/src/types/events.ts`、`src/db/models.py`、`src/actions/schemas.py` 的 run/action 状态多源维护。
+- 本条为审查记录，未运行测试；后续 phase planning / implementation 中的验证命令必须使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`。
+
+**剩余风险**
+- 🔴 Phase 62-66 尚未生成 PLAN.md；上述补齐项目前只是审查裁决，未被任务化。
+- 🔴 状态机 registry / DB CHECK / API / frontend parity 不属于现有 Phase 62-66 的明确成功标准，建议新增 Phase 67 或在 Phase 65 后追加专门 phase。
+- 🟡 Phase 62 若只落 foundation 而不覆盖生产 drilldown/list/detail/cursor/UI/eval，则还需要后续 business query coverage expansion phase。
