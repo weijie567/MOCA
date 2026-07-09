@@ -284,7 +284,7 @@ class ToolPolicyEngine:
         for descriptor in self._catalog.descriptors():
             is_available = available.get(descriptor.name, True)
             decisions.append(
-                self._visibility_decision(descriptor, caller=caller, runtime_available=is_available)
+                self._visibility_decision(descriptor, caller=caller, ctx=ctx, runtime_available=is_available)
             )
         return decisions
 
@@ -293,6 +293,7 @@ class ToolPolicyEngine:
         descriptor: ToolDescriptor,
         *,
         caller: str,
+        ctx: ToolCallContext,
         runtime_available: bool = True,
     ) -> ToolPolicyDecision:
         reason_codes: list[str] = []
@@ -311,6 +312,11 @@ class ToolPolicyEngine:
             visible = False
             if "hidden_by_policy" not in reason_codes:
                 reason_codes.append("caller_not_allowed")
+
+        if descriptor.required_permission not in ctx.permissions:
+            visible = False
+            if "missing_permission" not in reason_codes:
+                reason_codes.append("missing_permission")
 
         if not reason_codes:
             reason_codes.append("visible")

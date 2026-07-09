@@ -13,6 +13,7 @@ INVESTIGATE_ALLOWED_TOOL_NAMES = frozenset(
         "get_ticket",
         "get_logistics",
         "get_merchant_risk",
+        "query_business_metric",
         "search_policy",
         "search_sop",
         "search_case_memory",

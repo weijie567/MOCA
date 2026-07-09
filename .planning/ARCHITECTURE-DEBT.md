@@ -1534,3 +1534,28 @@
 
 **剩余风险**
 - 🟡 若后续 metric operation taxonomy 需要在 API/SSE/trace 上与 `read_status` 明确区分，应由 post-Phase 61 contract cleanup 或单独 plan 引入 `read_metric`，并同步更新 intent/risk/task-plan/final-response 测试。
+
+## 2026-07-09 — Phase 61 Plan 03 — ToolCatalog 与 investigate planner allowlist 漂移风险 ⚠️修复但验证有缺口
+
+**子系统**
+- 工具调用 / Agent Graph investigate planner
+
+**问题 / 根因**
+- `src/tools/catalog.py` 已是 graph-facing tool declaration 单一来源，但 `src/agent/nodes/investigate_planner.py` 仍保留独立 `INVESTIGATE_ALLOWED_TOOL_NAMES` 静态 allowlist。
+- 61-03 新增 `query_business_metric` 时，如果只更新 catalog，planner 会看到/需要 metric tool contract，但结构化 planner 校验仍可能拒绝该工具，形成 catalog 与 planner 可调用工具集漂移。
+
+**影响**
+- 新增只读工具时容易出现「ToolPlatform 可见但 planner output schema 拒绝」的运行时断裂。
+- 这类漂移会绕过单一 catalog contract，增加后续工具扩展的维护成本。
+
+**处理状态**
+- ⚠️ 本 plan 已把 `query_business_metric` 同步加入 `INVESTIGATE_ALLOWED_TOOL_NAMES`，并用 `tests/tools/test_tool_platform.py` 更新 metric-inclusive allowlist/dispatch regression。
+- ⚠️ 仍未移除 duplicate static allowlist；更彻底的修复应由 post-Phase 61 tool contract cleanup 将 planner allowlist 从 `ToolCatalog.investigate_tool_names(...)` 派生，或增加强一致性测试覆盖 planner allowlist 与 catalog 的双向一致。
+
+**证据 / 验证**
+- 文件：`src/tools/catalog.py`、`src/agent/nodes/investigate_planner.py`、`tests/tools/test_tool_platform.py`
+- Phase / commit：61-03 Task 1 GREEN（本条所在提交）
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/integration/test_auth.py tests/platform/test_trusted_context_factory.py tests/tools/test_catalog.py tests/tools/test_tool_platform.py -q --tb=short` → `128 passed, 1 warning`
+
+**剩余风险**
+- ⚠️ duplicate static allowlist 仍存在；post-Phase 61 cleanup 前，新增 investigate tool 必须同时更新 catalog、planner allowlist 与 tests。

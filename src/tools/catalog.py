@@ -138,6 +138,108 @@ _SEARCH_POLICY_OUTPUT_SCHEMA: dict[str, Any] = {
     "required": ["retrieval_status", "best_score", "threshold", "summary"],
     "additionalProperties": False,
 }
+_BUSINESS_METRIC_ID_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "enum": [
+        "order_count",
+        "refund_case_count",
+        "pending_ticket_count",
+        "coupon_record_count",
+        "merchant_refund_rate",
+    ],
+}
+_BUSINESS_METRIC_TIME_PRESET_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "enum": ["today", "this_week", "this_month", "this_quarter", "this_year", "current_snapshot"],
+}
+_BUSINESS_METRIC_STATUS_FILTER_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": {"type": "string", "minLength": 1},
+}
+_BUSINESS_METRIC_SCOPE_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "tenant_id": {"type": "string", "minLength": 1},
+        "merchant_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "scope_label": {"type": "string", "minLength": 1},
+    },
+    "required": ["tenant_id", "merchant_ids", "scope_label"],
+    "additionalProperties": False,
+}
+_BUSINESS_METRIC_TIME_RANGE_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "start_at": _NULLABLE_STRING_SCHEMA,
+        "end_at": _NULLABLE_STRING_SCHEMA,
+        "preset": {"type": ["string", "null"]},
+        "timezone": {"type": "string", "minLength": 1},
+    },
+    "required": ["start_at", "end_at", "preset", "timezone"],
+    "additionalProperties": False,
+}
+_BUSINESS_METRIC_FILTERS_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "merchant_id": _NULLABLE_STRING_SCHEMA,
+        "status_filter": _BUSINESS_METRIC_STATUS_FILTER_SCHEMA,
+    },
+    "required": ["merchant_id", "status_filter"],
+    "additionalProperties": False,
+}
+_BUSINESS_METRIC_FRESHNESS_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "data_freshness_at": _NULLABLE_STRING_SCHEMA,
+        "computed_at": {"type": "string", "minLength": 1},
+        "source_system": {"type": "string", "minLength": 1},
+    },
+    "required": ["data_freshness_at", "computed_at", "source_system"],
+    "additionalProperties": False,
+}
+_BUSINESS_METRIC_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "metric_id": _BUSINESS_METRIC_ID_SCHEMA,
+        "status": {
+            "type": "string",
+            "enum": ["ok", "permission_denied", "invalid_request", "non_computable"],
+        },
+        "value": {"type": ["number", "null"]},
+        "rate": {"type": ["number", "null"]},
+        "numerator": {"type": ["integer", "null"]},
+        "denominator": {"type": ["integer", "null"]},
+        "unit": {"type": "string", "minLength": 1},
+        "display_value": {"type": "string", "minLength": 1},
+        "scope": _BUSINESS_METRIC_SCOPE_OUTPUT_SCHEMA,
+        "time_range": _BUSINESS_METRIC_TIME_RANGE_OUTPUT_SCHEMA,
+        "filters": _BUSINESS_METRIC_FILTERS_OUTPUT_SCHEMA,
+        "freshness": _BUSINESS_METRIC_FRESHNESS_OUTPUT_SCHEMA,
+        "formula": {"type": "string", "minLength": 1},
+        "caveats": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "no_leak_status": {
+            "type": "string",
+            "enum": ["not_applicable", "scope_denied_no_existence_leak"],
+        },
+    },
+    "required": [
+        "metric_id",
+        "status",
+        "value",
+        "rate",
+        "numerator",
+        "denominator",
+        "unit",
+        "display_value",
+        "scope",
+        "time_range",
+        "filters",
+        "freshness",
+        "formula",
+        "caveats",
+        "no_leak_status",
+    ],
+    "additionalProperties": False,
+}
 _CASE_MEMORY_REF_ARRAY_SCHEMA: dict[str, Any] = {"type": "array", "items": {"type": "object"}}
 _CASE_MEMORY_ITEM_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -398,6 +500,30 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
         event_family="tool_call_*",
         resource_type="merchant_risk",
         executor="business",
+    ),
+    _ToolDeclaration(
+        name="query_business_metric",
+        kind="read",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "metric_id": _BUSINESS_METRIC_ID_SCHEMA,
+                "time_preset": _BUSINESS_METRIC_TIME_PRESET_SCHEMA,
+                "start_at": {"type": "string", "minLength": 1},
+                "end_at": {"type": "string", "minLength": 1},
+                "merchant_id": {"type": "string", "minLength": 1},
+                "status_filter": _BUSINESS_METRIC_STATUS_FILTER_SCHEMA,
+            },
+            "required": ["metric_id"],
+            "additionalProperties": False,
+        },
+        output_schema=_BUSINESS_METRIC_OUTPUT_SCHEMA,
+        side_effect="read_only",
+        caller_allowlist=("investigate",),
+        event_family="tool_call_*",
+        resource_type="business_metric",
+        executor="business",
+        description="Compute scoped read-only business metrics from authorized MOCA business records.",
     ),
     _ToolDeclaration(
         name="search_policy",

@@ -97,6 +97,7 @@ Merchant scope derivation：
 - `admin`：
   - `merchant_scope = {"merchant_ids": ["*"]}`。
 - `merchant_scope=["*"]` 只能来自可信服务端对 `admin` role 的判断，不得来自 LLM、request body、frontend payload、checkpoint state、memory、RAG、tool args 或 ordinary approval chat。
+- Phase 61 metric reads add trusted OAuth scope `metrics:read`, mapped by `TrustedContextFactory` to `tool:query_business_metric`. For legacy `merchant`, this scope is compatibility-only and remains own-bound to the derived merchant scope; it does not create a broader analytics role.
 
 Server override rules：
 
@@ -113,6 +114,7 @@ Business data access rules：
 - Cross-tenant resources must not leak existence. API paths return 404 for cross-tenant not-found/no-leak cases.
 - Same-tenant out-of-merchant-scope business resources must return 403 at API layer.
 - Service/tool paths such as `BusinessFactResultV1.permission_denied` must not reveal whether the underlying resource exists.
+- Phase 61 no-existence-leak metric scope rule: `business_metric_query` / `query_business_metric` may only use trusted `ToolCallContext.tenant_id` and `merchant_scope`; tool args such as `tenant_id`, `merchant_scope`, or wildcard scope must not widen authority. Unauthorized merchant metric requests return a safe denial without confirming whether that merchant exists.
 
 Required interim guards until target merchant binding lands in later phases：
 
@@ -356,7 +358,7 @@ BusinessToolService facade signature:
 - `BusinessToolService.fetch_context(slots, intent, ToolCallContext) -> BusinessContextV1`。
 - `BusinessToolService.get_order(...) -> BusinessFactResultV1`、`get_refund_case(...) -> BusinessFactResultV1`、`get_ticket(...) -> BusinessFactResultV1` 等 per-resource reads may sit behind `invoke_tool` but must project to the same result contract.
 - `BusinessToolService.invoke_tool(name: str, args: dict, ctx: ToolCallContext) -> ToolResultV2`。
-- 读工具：order/refund/ticket/logistics/merchant risk。
+- 读工具：order/refund/ticket/logistics/merchant risk/business metric。
 - 当前 adapter：本地 demo DB。
 - 未来 adapter：真实订单、工单、退款、物流、商家系统。
 
@@ -395,7 +397,8 @@ class BusinessFactResultV1(BaseModel):
 
 Business fact result rules：
 
-- `BusinessFactResultV1` is the stable per-resource fact contract for order/refund/ticket/logistics/merchant risk reads.
+- `BusinessFactResultV1` is the stable per-resource fact contract for order/refund/ticket/logistics/merchant risk/business metric reads.
+- Metric reads return typed `business_metric` facts for the locked Phase 61 MVP metric set and must include formula, time range, freshness, scope, filters, numerator/denominator when relevant, and caveats. Coupon counts are MOCA demo `issue_coupon` action draft/record counts, not verified external coupon-delivery success.
 - `permission_denied` must not reveal whether the underlying resource exists.
 - `stale` / `unavailable` in approval/action-bound paths must route to fail-closed or manual review.
 - `business_fact_refs` are not policy `EvidenceRefV1` and cannot satisfy policy evidence requirements.
@@ -1276,7 +1279,7 @@ class BusinessFactRefV1(BaseModel):
     schema_version: Literal["business_fact_ref.v1"] = "business_fact_ref.v1"
     tenant_id: str
     source_system: str
-    resource_type: Literal["order", "refund_case", "ticket", "logistics", "merchant_risk"]
+    resource_type: Literal["order", "refund_case", "ticket", "logistics", "merchant_risk", "business_metric"]
     resource_id: str
     resource_version: str | None = None
     data_freshness_at: datetime | None = None
@@ -1397,6 +1400,7 @@ Catalog / platform rules：
 | `get_ticket` | `read` | `read_only` | `tool:get_ticket` | `investigate` | `tool_call_*` | `ticket` | Phase 9 实现时按 registry 落地 |
 | `get_logistics` | `read` | `read_only` | `tool:get_logistics` | `investigate` | `tool_call_*` | `logistics` | Phase 9 实现时按 registry 落地 |
 | `get_merchant_risk` | `read` | `read_only` | `tool:get_merchant_risk` | `investigate` | `tool_call_*` | `merchant_risk` | Phase 9 实现时按 registry 落地 |
+| `query_business_metric` | `read` | `read_only` | `tool:query_business_metric` | `investigate` | `tool_call_*` | `business_metric` | strict `business_metric_query` input and metric result output schema |
 | `search_policy` | `retrieval` | `retrieval` | `tool:search_policy` | `investigate` | `rag_retrieval_*` | `null` | Phase 9 实现时按 registry 落地 |
 | `search_sop` | `retrieval` | `retrieval` | `tool:search_sop` | `investigate` | `rag_retrieval_*` | `null` | Phase 9 实现时按 registry 落地 |
 | `search_case_memory` | `retrieval` | `retrieval` | `tool:search_case_memory` | `investigate` | `rag_retrieval_*` | `null` | Phase 9 实现时按 registry 落地 |

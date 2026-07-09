@@ -26,6 +26,7 @@ SCOPE_TO_TOOL_PERMISSION = {
     "refunds:read": "tool:get_refund_case",
     "tickets:read": "tool:get_ticket",
     "knowledge:read": "tool:search_policy",
+    "metrics:read": "tool:query_business_metric",
 }
 
 

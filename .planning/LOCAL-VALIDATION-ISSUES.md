@@ -19734,3 +19734,42 @@ Warning: STATE.md field "Last Activity Description" not found — update skipped
 ### 剩余问题和下次继续排查入口
 
 剩余问题是 GSD 工具链债务，不影响 v2.1 产品代码或归档文件真实性。后续若要修工具，从 `gsd-sdk query milestone.complete` 的参数转发和 `gsd-tools.cjs milestone complete` 的 `STATE.md` 字段写入逻辑开始排查。
+
+## 2026-07-09：Phase 61-03 Task 1 ToolPolicy visibility helper 漏传 ctx
+
+### 问题现象
+
+实现 `query_business_metric` 可见性权限检查后，Task 1 focused verification 失败，所有调用 `ToolPolicyEngine.visibility_decisions(...)` 的 ToolPlatform 测试都在 `_visibility_decision(...)` 内抛出 `NameError: name 'ctx' is not defined`。
+
+### 如何检测 / 复现
+
+运行 61-03 Task 1 focused command：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/integration/test_auth.py tests/platform/test_trusted_context_factory.py tests/tools/test_catalog.py tests/tools/test_tool_platform.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败摘要：
+
+```text
+FAILED tests/tools/test_tool_platform.py::test_visible_tools_matches_catalog_investigate_allowlist
+NameError: name 'ctx' is not defined
+```
+
+同批次共 8 个 ToolPlatform / ToolPolicy visibility tests 失败，根因相同。
+
+### 当前判断 / 根因
+
+实现时在 `_visibility_decision(...)` 内新增 `descriptor.required_permission not in ctx.permissions` 判断，但 helper signature 没有接收 `ctx`，调用方也未传入。属于 61-03 Task 1 实现引入的普通代码 bug，不是测试环境问题。
+
+### 已做处理
+
+- 将 `ctx: ToolCallContext` 加入 `_visibility_decision(...)` 参数。
+- `visibility_decisions(...)` 调用 helper 时传入当前 trusted `ctx`。
+- 重跑同一 focused command，结果：`128 passed, 1 warning`。warning 是既有 `LangChainPendingDeprecationWarning`。
+
+### 剩余问题和下次继续排查入口
+
+当前问题已修复。后续若调整 ToolPolicy visibility，需要同时覆盖 caller、runtime availability、permission 三类条件，避免 visibility helper 与 runtime auth helper 参数漂移。
