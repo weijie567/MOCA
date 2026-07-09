@@ -20676,22 +20676,22 @@ git diff -- .planning/STATE.md .planning/ROADMAP.md
 无产品实现问题遗留。后续 Phase 62 plan 完成时，调用这些 GSD handlers 后必须检查 `.planning/STATE.md` / `.planning/ROADMAP.md` diff；若再次错算，应优先修 GSD SDK handler 或在执行摘要中明确记录手动 metadata 修正。
 ## 2026-07-09 — Phase 62-03 business_query catalog schema helper import 失败
 
-**问题现象**  
+**问题现象**
 Task 2 GREEN 第一次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/business/test_business_query_schemas.py -q --tb=short` 时，测试 collection 阶段失败，`src/tools/catalog.py` import 抛出 `AttributeError: 'BusinessQueryFieldDescriptor' object has no attribute 'field_id'`。
 
-**如何检测/复现**  
+**如何检测/复现**
 运行上述 MOCA 安全 pytest 命令即可在 import `src.tools.catalog` 时复现。
 
-**关键证据或命令**  
+**关键证据或命令**
 `src/tools/catalog.py` 的 `_BUSINESS_QUERY_INPUT_PROPERTIES["group_by"]` 生成逻辑误把 `BusinessQueryFieldDescriptor` 字段名写成 `descriptor.field_id`；真实 registry descriptor 字段是 `id`。
 
-**当前判断/根因**  
+**当前判断/根因**
 这是 62-03 Task 2 新增 catalog schema helper 时的实现错误，不是 pytest 环境问题；collection 失败发生在业务测试执行前。
 
-**已做处理**  
+**已做处理**
 将 `descriptor.field_id` 修正为 `descriptor.id`，随后重跑 focused suite：`103 passed, 1 warning`。
 
-**剩余问题和下次继续排查入口**  
+**剩余问题和下次继续排查入口**
 无产品遗留。若后续 schema helper 再扩展字段，应优先用 registry descriptor dataclass 字段名或新增小型 schema-helper 单元测试避免 import-time 失败。
 
 ## 2026-07-09 — Phase 62-04 business_query runtime 接入后 ToolPlatform 输出校验失败
@@ -20875,3 +20875,23 @@ pytest 摘要显示：`AssertionError: assert 'denied' == 'allowed'`。随后检
 
 **剩余问题和下次继续排查入口**
 无产品遗留。后续写 ToolPlatform denial 回归时先区分 policy denial（不会 dispatch）和 domain denial（dispatch 后由 BusinessFactService fail closed），避免测试目标混淆。
+
+## 2026-07-10 — Phase 62 closeout `phase.complete` 误判为 milestone last phase
+
+**问题现象**
+Phase 62 已完成 7/7 plans、UAT、security、validation 后运行 `gsd-sdk query phase.complete "62"`。命令成功更新 `.planning/ROADMAP.md` / `.planning/STATE.md`，但返回 `next_phase:null`、`is_last_phase:true`，并把 `.planning/STATE.md` 改为 `status: milestone_complete`。这与当前 roadmap 中已注册 Phase 63-66、以及用户要求 Phase 62 后继续自动执行 Phase 63/64 不一致。
+
+**如何检测/复现**
+运行 `gsd-sdk query phase.complete "62"` 后，再运行 `gsd-sdk query roadmap.analyze` 并查看 `.planning/STATE.md`。
+
+**关键证据或命令**
+`phase.complete` 输出：`{"completed_phase":"62","plans_executed":"7/7","next_phase":null,"is_last_phase":true,...}`。随后 `gsd-sdk query roadmap.analyze` 只识别 Phase 61，`phase_count:1`，没有识别 ROADMAP 中 `## Next` 下的 Phase 62-66 注册段落。
+
+**当前判断/根因**
+GSD roadmap analyzer / phase.complete handler 只读取当前 milestone 的标准 phase 区块，未把 MOCA 当前 `## Next` 下注册的 Phase 62-66 纳入 next-phase 计算；因此 closeout 自动 transition 误判 milestone complete。
+
+**已做处理**
+保留 `phase.complete` 对 Phase 62 的 completion 更新，手动将 `.planning/STATE.md` 调整为 Phase 63 READY TO PLAN，并将 `.planning/ROADMAP.md` Next 文案改为 Phase 63 planning；Phase 62 UAT/security/validation artifacts 保持为完成状态。
+
+**剩余问题和下次继续排查入口**
+无产品实现遗留。后续 Phase 63/64 closeout 后仍需核对 `phase.complete` 是否识别后续注册 phase；若仍误判，继续手动修正 planning metadata 并考虑修复 GSD roadmap analyzer 对 `## Next` 注册 phase 的识别。
