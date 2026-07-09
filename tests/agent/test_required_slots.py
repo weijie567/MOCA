@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from src.agent.intent_policy import SLOT_POLICY_REGISTRY, SlotInheritanceContext
 import src.agent.routing as routing_module
 from src.agent.routing import (
+    BUSINESS_DEMO_TIMEZONE,
     detect_slot_invalidations,
     missing_required_slots,
     resolve_slots_for_completeness,
@@ -369,6 +370,155 @@ def test_required_slots_mismatch_fails_closed():
 
 def _slot_resolution(state: dict) -> dict:
     return routing_module.resolve_slots_with_provenance(state)
+
+
+def _metric_state(**overrides) -> dict:
+    state = {
+        "primary_intent": "business_metric_query",
+        "requested_operation": "read_status",
+        "required_slots": {"all_of": ["metric_id"], "any_of": [], "optional": []},
+        "run_started_at": "2026-07-09T04:30:00+00:00",
+        "extracted_slots": {},
+        "candidate_slots": {},
+        "session_memory": {"continuity_claimed": False},
+    }
+    state.update(overrides)
+    return state
+
+
+def test_metric_slot_policy_locks_metric_ids_and_candidate_hints_do_not_satisfy() -> None:
+    candidate_only = _metric_state(candidate_slots={"metric_id": "order_count", "metric_time_preset": "today"})
+    unsupported = _metric_state(extracted_slots={"metric_id": "gross_margin"})
+
+    candidate_result = _slot_resolution(candidate_only)
+    unsupported_result = _slot_resolution(unsupported)
+
+    assert candidate_result["resolved_slots"] == {}
+    assert candidate_result["missing_required_slots"] == [{"all_of": ["metric_id"]}]
+    assert route_after_slot_resolution(candidate_only) == "clarification_gate"
+
+    assert unsupported_result["resolved_slots"] == {}
+    assert unsupported_result["missing_required_slots"] == [{"all_of": ["metric_id"]}]
+    assert "unsupported_metric_id" in unsupported_result["slot_resolution_trace"]["reason_codes"]
+
+
+def test_metric_time_presets_use_business_demo_timezone_boundaries() -> None:
+    assert str(BUSINESS_DEMO_TIMEZONE) == "Asia/Shanghai"
+
+    cases = [
+        ("today", "2026-07-09T00:00:00+08:00", "2026-07-10T00:00:00+08:00"),
+        ("this_week", "2026-07-06T00:00:00+08:00", "2026-07-13T00:00:00+08:00"),
+        ("this_month", "2026-07-01T00:00:00+08:00", "2026-08-01T00:00:00+08:00"),
+        ("this_quarter", "2026-07-01T00:00:00+08:00", "2026-10-01T00:00:00+08:00"),
+        ("this_year", "2026-01-01T00:00:00+08:00", "2027-01-01T00:00:00+08:00"),
+    ]
+
+    for preset, start, end in cases:
+        state = _metric_state(extracted_slots={"metric_id": "refund_case_count", "metric_time_preset": preset})
+        result = _slot_resolution(state)
+
+        assert result["resolved_slots"]["metric_time_range_start"] == start
+        assert result["resolved_slots"]["metric_time_range_end"] == end
+        assert result["resolved_slots"]["resource_type"] == "refund_case"
+        assert result["route_decision"] == "investigate"
+
+
+def test_metric_explicit_time_range_is_inclusive_start_exclusive_end_and_validated() -> None:
+    valid = _metric_state(
+        extracted_slots={
+            "metric_id": "coupon_record_count",
+            "metric_time_range_start": "2026-07-01",
+            "metric_time_range_end": "2026-07-08",
+        }
+    )
+    reversed_range = _metric_state(
+        extracted_slots={
+            "metric_id": "refund_case_count",
+            "metric_time_range_start": "2026-07-08",
+            "metric_time_range_end": "2026-07-01",
+        }
+    )
+    future_range = _metric_state(
+        extracted_slots={
+            "metric_id": "order_count",
+            "metric_time_range_start": "2026-07-10",
+            "metric_time_range_end": "2026-07-11",
+        }
+    )
+
+    valid_result = _slot_resolution(valid)
+    reversed_result = _slot_resolution(reversed_range)
+    future_result = _slot_resolution(future_range)
+
+    assert valid_result["resolved_slots"]["metric_time_range_start"] == "2026-07-01T00:00:00+08:00"
+    assert valid_result["resolved_slots"]["metric_time_range_end"] == "2026-07-08T00:00:00+08:00"
+    assert valid_result["route_decision"] == "investigate"
+
+    assert reversed_result["missing_required_slots"] == [{"all_of": ["metric_time_range"]}]
+    assert "invalid_metric_time_range" in reversed_result["slot_resolution_trace"]["reason_codes"]
+    assert future_result["missing_required_slots"] == [{"all_of": ["metric_time_range"]}]
+    assert "future_metric_time_range" in future_result["slot_resolution_trace"]["reason_codes"]
+
+
+def test_metric_conditional_completeness_for_snapshot_event_and_rate_metrics() -> None:
+    pending_ticket = _metric_state(extracted_slots={"metric_id": "pending_ticket_count"})
+    current_orders = _metric_state(extracted_slots={"metric_id": "order_count", "metric_time_preset": "current_snapshot"})
+    merchant_rate_missing = _metric_state(extracted_slots={"metric_id": "merchant_refund_rate"})
+    merchant_rate_complete = _metric_state(
+        extracted_slots={"metric_id": "merchant_refund_rate", "merchant_id": "merchant-a", "metric_time_preset": "this_month"}
+    )
+
+    pending_result = _slot_resolution(pending_ticket)
+    current_orders_result = _slot_resolution(current_orders)
+    merchant_missing_result = _slot_resolution(merchant_rate_missing)
+    merchant_complete_result = _slot_resolution(merchant_rate_complete)
+
+    assert pending_result["resolved_slots"]["metric_id"] == "pending_ticket_count"
+    assert pending_result["resolved_slots"]["resource_type"] == "ticket"
+    assert pending_result["resolved_slots"]["metric_time_preset"] == "current_snapshot"
+    assert pending_result["resolved_slots"]["status_filter"] == ["open", "in_progress"]
+    assert pending_result["route_decision"] == "investigate"
+
+    assert current_orders_result["resolved_slots"]["metric_id"] == "order_count"
+    assert current_orders_result["resolved_slots"]["resource_type"] == "order"
+    assert current_orders_result["missing_required_slots"] == [{"all_of": ["metric_time_range"]}]
+    assert "metric_time_range_required" in current_orders_result["slot_resolution_trace"]["reason_codes"]
+
+    assert merchant_missing_result["missing_required_slots"] == [
+        {"all_of": ["merchant_filter"]},
+        {"all_of": ["metric_time_range"]},
+    ]
+    assert merchant_complete_result["resolved_slots"]["resource_type"] == "merchant_metric"
+    assert merchant_complete_result["route_decision"] == "investigate"
+
+
+def test_metric_status_filters_are_metric_specific_and_never_arbitrary_text() -> None:
+    accepted_order_status = _metric_state(
+        extracted_slots={"metric_id": "order_count", "metric_time_preset": "today", "status_filter": "paid"}
+    )
+    rejected_order_status = _metric_state(
+        extracted_slots={"metric_id": "order_count", "metric_time_preset": "today", "status_filter": "cancelled"}
+    )
+    rejected_rate_status = _metric_state(
+        extracted_slots={
+            "metric_id": "merchant_refund_rate",
+            "merchant_id": "merchant-a",
+            "metric_time_preset": "today",
+            "status_filter": "approved",
+        }
+    )
+
+    accepted_result = _slot_resolution(accepted_order_status)
+    rejected_order_result = _slot_resolution(rejected_order_status)
+    rejected_rate_result = _slot_resolution(rejected_rate_status)
+
+    assert accepted_result["resolved_slots"]["status_filter"] == "paid"
+    assert accepted_result["route_decision"] == "investigate"
+    assert "status_filter" not in rejected_order_result["resolved_slots"]
+    assert rejected_order_result["missing_required_slots"] == [{"all_of": ["metric_status_filter"]}]
+    assert "unsupported_metric_status_filter" in rejected_order_result["slot_resolution_trace"]["reason_codes"]
+    assert "status_filter" not in rejected_rate_result["resolved_slots"]
+    assert rejected_rate_result["missing_required_slots"] == [{"all_of": ["metric_status_filter"]}]
 
 
 def test_slot_resolution_trace_records_explicit_current_turn_slot():

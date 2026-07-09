@@ -83,6 +83,21 @@ def _state(**overrides: Any) -> dict[str, Any]:
     return state
 
 
+def _metric_state(query: str, **overrides: Any) -> dict[str, Any]:
+    state = _state(
+        primary_intent="business_metric_query",
+        required_slots={"all_of": ["metric_id"], "any_of": [], "optional": []},
+        user_query=query,
+        normalized_query=query,
+        candidate_slots={},
+        run_started_at="2026-07-09T04:30:00+00:00",
+        session_memory={"continuity_claimed": False},
+        llm_outputs={"contextual_intent_resolve": {"raw": {"primary_intent": "business_metric_query"}}},
+    )
+    state.update(overrides)
+    return state
+
+
 def _spy_context_assembler(monkeypatch: pytest.MonkeyPatch) -> list[PromptAssembly]:
     assemblies: list[PromptAssembly] = []
     original = slot_resolution_gate_module.ContextAssembler.assemble
@@ -189,6 +204,65 @@ async def test_slot_resolution_gate_candidate_only_input_does_not_satisfy_requir
     assert result["slot_resolution_trace"]["resolved_slots"] == {}
     assert result["slot_resolution_trace"]["route_decision"] == "clarification_gate"
     assert "missing_required_slots" in result["slot_resolution_trace"]["reason_codes"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "metric_id", "preset", "resource_type"),
+    [
+        ("今天有多少退款单", "refund_case_count", "today", "refund_case"),
+        ("本周补偿券发了多少", "coupon_record_count", "this_week", "action_draft"),
+    ],
+)
+async def test_slot_resolution_gate_deterministically_extracts_locked_metric_prompts(
+    monkeypatch,
+    query,
+    metric_id,
+    preset,
+    resource_type,
+) -> None:
+    fake_llm = CapturingLLM(_slot_response())
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: fake_llm)
+
+    result = await slot_resolution_gate_module.slot_resolution_gate(_metric_state(query))
+
+    assert result["extracted_slots"]["metric_id"] == metric_id
+    assert result["active_slots"]["metric_id"] == metric_id
+    assert result["active_slots"]["metric_time_preset"] == preset
+    assert result["active_slots"]["resource_type"] == resource_type
+    assert result["missing_required_slots"] == []
+    assert result["slot_resolution_trace"]["route_decision"] == "investigate"
+    assert "deterministic_metric_slot_parser" in result["slot_resolution_trace"]["reason_codes"]
+
+
+@pytest.mark.asyncio
+async def test_slot_resolution_gate_accepts_pending_ticket_current_snapshot_without_time_range(monkeypatch) -> None:
+    fake_llm = CapturingLLM(_slot_response())
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: fake_llm)
+
+    result = await slot_resolution_gate_module.slot_resolution_gate(_metric_state("待处理工单有多少"))
+
+    assert result["active_slots"]["metric_id"] == "pending_ticket_count"
+    assert result["active_slots"]["metric_time_preset"] == "current_snapshot"
+    assert result["active_slots"]["resource_type"] == "ticket"
+    assert result["active_slots"]["status_filter"] == ["open", "in_progress"]
+    assert result["missing_required_slots"] == []
+    assert result["slot_resolution_trace"]["route_decision"] == "investigate"
+
+
+@pytest.mark.asyncio
+async def test_slot_resolution_gate_order_count_current_requires_time_not_order_id(monkeypatch) -> None:
+    fake_llm = CapturingLLM(_slot_response(order_id="ORD-SHOULD-NOT-MATTER"))
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: fake_llm)
+
+    result = await slot_resolution_gate_module.slot_resolution_gate(_metric_state("当前有多少订单"))
+
+    assert result["active_slots"]["metric_id"] == "order_count"
+    assert result["active_slots"]["resource_type"] == "order"
+    assert "order_id" not in result["active_slots"]
+    assert result["missing_required_slots"] == [{"all_of": ["metric_time_range"]}]
+    assert "metric_time_range_required" in result["slot_resolution_trace"]["reason_codes"]
+    assert result["slot_resolution_trace"]["route_decision"] == "clarification_gate"
 
 
 @pytest.mark.asyncio
