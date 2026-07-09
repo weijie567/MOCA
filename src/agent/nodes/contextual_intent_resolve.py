@@ -28,7 +28,7 @@ from src.agent.intent_policy import (
 from src.agent.prompts import CLASSIFY_INTENT_SYSTEM
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
 from src.agent.routing import normalize_expected_slot_type, route_after_contextual_intent
-from src.agent.state import AgentState, business_query_context_binding
+from src.agent.state import AgentState, trusted_business_query_context_binding
 from src.business.query.registry import BUSINESS_QUERY_REGISTRY
 from src.business.query.schemas import BusinessQuerySpec
 from src.config import settings
@@ -890,7 +890,8 @@ def _trusted_business_query_drilldown_context(state: AgentState) -> dict[str, An
         return None
     if expected_context.get("purpose") != "business_query_drilldown":
         return None
-    if expected_context.get("context_binding") != business_query_context_binding(state):
+    current_binding = trusted_business_query_context_binding(state)
+    if current_binding is None or expected_context.get("context_binding") != current_binding:
         return None
     try:
         spec = BusinessQuerySpec.model_validate(last_query_spec)

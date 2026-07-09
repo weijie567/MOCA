@@ -5,7 +5,7 @@ import pytest
 import src.agent.nodes.receive_request as receive_request_module
 from src.agent.nodes.receive_request import receive_request
 from src.agent.schemas import RequiredSlotExpression
-from src.agent.state import AgentState
+from src.agent.state import AgentState, business_query_context_binding
 
 
 @pytest.mark.asyncio
@@ -233,13 +233,14 @@ def test_agent_state_declares_business_query_drilldown_fields():
         "result_cursor",
         "expected_slot_type",
         "expected_slot_context",
+        "business_query_context_binding",
     ):
         assert field in annotations
 
 
 @pytest.mark.asyncio
 async def test_receive_request_preserves_safe_business_query_drilldown_context(base_state):
-    binding = receive_request_module.business_query_context_binding(base_state)
+    binding = business_query_context_binding(base_state)
     drilldown_context = {
         "schema_version": "business_query_answer_context.v1",
         "query_spec": {
@@ -266,6 +267,7 @@ async def test_receive_request_preserves_safe_business_query_drilldown_context(b
             "purpose": "business_query_drilldown",
             "context_binding": binding,
         },
+        "business_query_context_binding": binding,
         "business_context": {"facts": {"business_query": {"raw_rows": ["SHOULD_RESET"]}}},
         "tool_results": [{"raw_args": "SHOULD_RESET"}],
     }
@@ -293,7 +295,7 @@ async def test_receive_request_preserves_safe_business_query_drilldown_context(b
 
 @pytest.mark.asyncio
 async def test_receive_request_clears_business_query_drilldown_context_on_binding_mismatch(base_state):
-    original_binding = receive_request_module.business_query_context_binding(base_state)
+    original_binding = business_query_context_binding(base_state)
     changed_user_state = {
         **base_state,
         "user_id": "different-user",
@@ -313,6 +315,7 @@ async def test_receive_request_clears_business_query_drilldown_context_on_bindin
             "context_binding": original_binding,
         },
     }
+    changed_user_state["business_query_context_binding"] = business_query_context_binding(changed_user_state)
 
     result = await receive_request(changed_user_state)
 

@@ -19,7 +19,11 @@ from src.agent.nodes.investigate_planner import (
     parse_investigate_planner_decision,
 )
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE, INVESTIGATE_PLANNER_SYSTEM
-from src.agent.state import AgentState, business_query_context_binding
+from src.agent.state import (
+    AgentState,
+    business_query_context_binding_from_trusted_context,
+    trusted_business_query_context_binding,
+)
 from src.business.schemas import BusinessMetricQueryInput
 from src.business.query.registry import BUSINESS_QUERY_REGISTRY
 from src.business.query.schemas import BusinessQueryResultV1, BusinessQuerySpec, metric_input_to_business_query
@@ -224,6 +228,8 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
     max_attempts = int(configurable.get("max_attempts", 1))
     deadline_at = configurable.get("deadline_at")
 
+    trusted_context = _trusted_context_from_config(configurable)
+    current_business_query_binding = _business_query_context_binding_for_turn(state, trusted_context)
     context: dict[str, Any] = {
         "base_slots": _case_slots(state),
         "discovered_slots": {},
@@ -243,12 +249,12 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         "planner_errors": [],
         "planner_fallback_count": 0,
         "business_query_context_update": None,
+        "business_query_context_binding": current_business_query_binding,
     }
     termination_reason = "no_more_useful_tools"
     calls_executed = 0
 
     # Build visibility context and get ToolViewV1 entries for planner.
-    trusted_context = _trusted_context_from_config(configurable)
     visibility_ctx = _build_visibility_context(trusted_context, configurable, state)
     visibility_caller = visibility_ctx.caller_node
     tool_views = await tool_platform.visible_tools(
@@ -371,7 +377,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             projection=outcome.projection,
         )
         _accumulate_tool_result(context, descriptor, tool_name, result, prompt_summary, outcome.projection)
-        _record_business_query_drilldown_context(state, context, tool_name, args, result)
+        _record_business_query_drilldown_context(context, tool_name, args, result)
         if result.status == "unavailable":
             context["unusable"].add(tool_name)
         if result.status not in TERMINAL_STATUSES:
@@ -425,6 +431,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         "recommendation_draft": _terminal_recommendation_draft(state, context),
         "termination_reason": termination_reason,
         "trace_steps": trace_steps,
+        "business_query_context_binding": current_business_query_binding,
     }
     if isinstance(context.get("business_query_context_update"), dict):
         update.update(context["business_query_context_update"])
@@ -1001,17 +1008,20 @@ def _business_fact_payload_for_context(
 
 
 def _record_business_query_drilldown_context(
-    state: AgentState,
     context: dict[str, Any],
     tool_name: str,
     args: dict[str, Any],
     result: ToolResultV2,
 ) -> None:
+    context_binding = context.get("business_query_context_binding")
+    if not isinstance(context_binding, str):
+        context["business_query_context_update"] = _clear_business_query_drilldown_context()
+        return
     if tool_name == _METRIC_TOOL_NAME:
         if result.status not in FACT_STATUSES:
             context["business_query_context_update"] = _clear_business_query_drilldown_context()
             return
-        update = _metric_business_query_drilldown_context_update(state, args, result)
+        update = _metric_business_query_drilldown_context_update(args, result, context_binding)
         if update is not None:
             context["business_query_context_update"] = update
         return
@@ -1020,11 +1030,20 @@ def _record_business_query_drilldown_context(
     if result.status not in FACT_STATUSES:
         context["business_query_context_update"] = _clear_business_query_drilldown_context()
         return
-    update = _business_query_drilldown_context_update(state, result)
+    update = _business_query_drilldown_context_update(result, context_binding)
     context["business_query_context_update"] = update or _clear_business_query_drilldown_context()
 
 
-def _business_query_drilldown_context_update(state: AgentState, result: ToolResultV2) -> dict[str, Any] | None:
+def _business_query_context_binding_for_turn(state: AgentState, trusted_context: TrustedContext | None) -> str | None:
+    if trusted_context is not None:
+        return business_query_context_binding_from_trusted_context(trusted_context)
+    return trusted_business_query_context_binding(state)
+
+
+def _business_query_drilldown_context_update(
+    result: ToolResultV2,
+    context_binding: str,
+) -> dict[str, Any] | None:
     business_query = _safe_business_query_result(result)
     if business_query is None or business_query.answer_context is None:
         return None
@@ -1044,7 +1063,7 @@ def _business_query_drilldown_context_update(state: AgentState, result: ToolResu
         "expected_slot_context": {
             "schema_version": "business_query_expected_slot_context.v1",
             "purpose": "business_query_drilldown",
-            "context_binding": business_query_context_binding(state),
+            "context_binding": context_binding,
             "operation": business_query.operation,
             "resource": business_query.resource,
             "allowed_drilldowns": list(business_query.answer_context.allowed_drilldowns),
@@ -1054,9 +1073,9 @@ def _business_query_drilldown_context_update(state: AgentState, result: ToolResu
 
 
 def _metric_business_query_drilldown_context_update(
-    state: AgentState,
     args: dict[str, Any],
     result: ToolResultV2,
+    context_binding: str,
 ) -> dict[str, Any] | None:
     try:
         metric_args = dict(args)
@@ -1077,7 +1096,7 @@ def _metric_business_query_drilldown_context_update(
         "expected_slot_context": {
             "schema_version": "business_query_expected_slot_context.v1",
             "purpose": "business_query_drilldown",
-            "context_binding": business_query_context_binding(state),
+            "context_binding": context_binding,
             "operation": query_spec.operation,
             "resource": query_spec.resource,
             "allowed_drilldowns": list(answer_context["allowed_drilldowns"]),

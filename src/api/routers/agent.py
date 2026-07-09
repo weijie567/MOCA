@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Request, Security
 from langgraph.errors import GraphInterrupt
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.state import business_query_context_binding_from_trusted_context
 from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
 from src.api.routers.agent_runs import (
     APPROVAL_NOT_EXECUTABLE,
@@ -255,7 +256,10 @@ def _trusted_graph_config(trusted_context: TrustedContext) -> dict[str, Any]:
 def _legacy_agent_state_identity(trusted_context: TrustedContext) -> dict[str, str | None]:
     identity = project_to_legacy_agent_state_identity(trusted_context)
     legacy_keys = ("tenant_id", "user_id", "role", "thread_id", "current_run_id")
-    return {key: identity[key] for key in legacy_keys}
+    return {
+        **{key: identity[key] for key in legacy_keys},
+        "business_query_context_binding": business_query_context_binding_from_trusted_context(trusted_context),
+    }
 
 
 def _is_graph_interrupt(exc: Exception) -> bool:

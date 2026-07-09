@@ -30,6 +30,7 @@ from src.agent.routing import (
     route_after_safety,
     route_after_slot_resolution,
 )
+from src.agent.state import business_query_context_binding_from_trusted_context
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import (
     ClaimVerificationBundleV1,
@@ -79,13 +80,45 @@ GRAPH_TEST_TENANT_ID = "11111111-1111-1111-1111-111111111111"
 GRAPH_TEST_USER_ID = "22222222-2222-2222-2222-222222222222"
 
 
-def _state(query: str, thread_id: str = "graph-test-thread") -> dict:
+def _business_query_binding_for_graph_state(
+    *,
+    thread_id: str,
+    merchant_ids: list[str] | None = None,
+    session_id: str | None = None,
+) -> str:
+    trusted_context = TrustedContext(
+        tenant_id=GRAPH_TEST_TENANT_ID,
+        user_id=GRAPH_TEST_USER_ID,
+        role="support",
+        permissions=[],
+        merchant_scope=MerchantScopeV1(merchant_ids=merchant_ids or ["merchant-primary"]),
+        session_id=session_id,
+        thread_id=thread_id,
+        run_id="graph-state-binding",
+        trace_id="graph-trace",
+        locale=None,
+    )
+    return business_query_context_binding_from_trusted_context(trusted_context)
+
+
+def _state(
+    query: str,
+    thread_id: str = "graph-test-thread",
+    *,
+    merchant_ids: list[str] | None = None,
+    session_id: str | None = None,
+) -> dict:
     return {
         "user_query": query,
         "thread_id": thread_id,
         "tenant_id": GRAPH_TEST_TENANT_ID,
         "user_id": GRAPH_TEST_USER_ID,
         "role": "support_agent",
+        "business_query_context_binding": _business_query_binding_for_graph_state(
+            thread_id=thread_id,
+            merchant_ids=merchant_ids,
+            session_id=session_id,
+        ),
     }
 
 
@@ -95,18 +128,21 @@ def _config(
     thread_id: str = "graph-test-thread",
     session: Any = None,
     investigate_planner: Any | None = None,
+    merchant_ids: list[str] | None = None,
+    session_id: str | None = None,
 ) -> dict:
     async def event_emitter(**payload):
         events.append(payload)
 
     permissions = [f"tool:{descriptor.name}" for descriptor in ToolCatalog().descriptors()]
+    merchant_scope = MerchantScopeV1(merchant_ids=merchant_ids or ["merchant-primary"])
     trusted_context = TrustedContext(
         tenant_id=GRAPH_TEST_TENANT_ID,
         user_id=GRAPH_TEST_USER_ID,
         role="support",
         permissions=permissions,
-        merchant_scope=MerchantScopeV1(merchant_ids=["merchant-primary"]),
-        session_id=None,
+        merchant_scope=merchant_scope,
+        session_id=session_id,
         thread_id=thread_id,
         run_id=str(uuid4()),
         trace_id="graph-trace",
@@ -122,7 +158,8 @@ def _config(
         "investigate_planner": investigate_planner or _GraphInvestigatePlanner(),
         "policy_knowledge_service": FakeGraphPolicyKnowledgeService(),
         "permissions": permissions,
-        "merchant_scope": {"merchant_ids": ["merchant-primary"]},
+        "merchant_scope": merchant_scope.model_dump(mode="json"),
+        "session_id": session_id,
         "trace_id": "graph-trace",
     }
     return {"configurable": configurable}
@@ -1079,6 +1116,69 @@ async def test_business_query_drilldown_followup_reuses_same_thread_answer_conte
         second_state["llm_outputs"]["contextual_intent_resolve"]["classification_trace"]["reason_codes"]
         == ["business_query_drilldown_field_request"]
     )
+
+
+def _assert_business_query_drilldown_context_cleared(state: dict[str, Any]) -> None:
+    assert state["last_query_spec"] is None
+    assert state["last_answer_context"] is None
+    assert state["result_cursor"] is None
+    assert state["expected_slot_context"] is None
+
+
+@pytest.mark.asyncio
+async def test_business_query_drilldown_context_clears_when_trusted_scope_changes_same_checkpoint_thread(
+    monkeypatch,
+):
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots(None)))
+    monkeypatch.setattr(contextual_intent_resolve_module, "_get_llm", lambda: FakeLLM(_intent("unsupported")))
+    tool_platform = FakeGraphToolPlatform()
+    events: list[dict[str, Any]] = []
+    thread_id = "business-query-drilldown-scope-change-thread"
+    graph = build_graph(MemorySaver())
+
+    first_state = await graph.ainvoke(
+        _state("本周多少订单？", thread_id, merchant_ids=["merchant-primary"]),
+        _config(tool_platform, events, thread_id=thread_id, merchant_ids=["merchant-primary"]),
+    )
+
+    assert first_state["expected_slot_context"]["purpose"] == "business_query_drilldown"
+    assert first_state["last_query_spec"]["resource"] == "order"
+
+    second_state = await graph.ainvoke(
+        _state("订单号是多少？", thread_id, merchant_ids=["merchant-secondary"]),
+        _config(tool_platform, events, thread_id=thread_id, merchant_ids=["merchant-secondary"]),
+    )
+
+    _assert_business_query_drilldown_context_cleared(second_state)
+    assert [call[0] for call in tool_platform.calls] == ["query_business_metric"]
+
+
+@pytest.mark.asyncio
+async def test_business_query_drilldown_context_clears_when_trusted_session_changes_same_checkpoint_thread(
+    monkeypatch,
+):
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots(None)))
+    monkeypatch.setattr(contextual_intent_resolve_module, "_get_llm", lambda: FakeLLM(_intent("unsupported")))
+    tool_platform = FakeGraphToolPlatform()
+    events: list[dict[str, Any]] = []
+    thread_id = "business-query-drilldown-session-change-thread"
+    graph = build_graph(MemorySaver())
+
+    first_state = await graph.ainvoke(
+        _state("本周多少订单？", thread_id, session_id="session-primary"),
+        _config(tool_platform, events, thread_id=thread_id, session_id="session-primary"),
+    )
+
+    assert first_state["expected_slot_context"]["purpose"] == "business_query_drilldown"
+    assert first_state["last_query_spec"]["resource"] == "order"
+
+    second_state = await graph.ainvoke(
+        _state("订单号是多少？", thread_id, session_id="session-secondary"),
+        _config(tool_platform, events, thread_id=thread_id, session_id="session-secondary"),
+    )
+
+    _assert_business_query_drilldown_context_cleared(second_state)
+    assert [call[0] for call in tool_platform.calls] == ["query_business_metric"]
 
 
 @pytest.mark.asyncio

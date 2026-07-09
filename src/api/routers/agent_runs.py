@@ -26,6 +26,7 @@ from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
 from src.agent.rag_claim_summary import build_rag_claim_summary
 from src.agent.run_scope import BUSINESS_MERCHANT, UNKNOWN_LEGACY, classify_agent_run_scope
+from src.agent.state import business_query_context_binding_from_trusted_context
 from src.agent.trace import build_trace_summary, update_agent_run_status, write_agent_run, write_agent_steps
 from src.api.services.agent_run_memory import (
     finalize_completed_agent_run_memory,
@@ -129,7 +130,10 @@ def _trusted_graph_config(trusted_context: TrustedContext) -> dict[str, Any]:
 def _legacy_agent_state_identity(trusted_context: TrustedContext) -> dict[str, str | None]:
     identity = project_to_legacy_agent_state_identity(trusted_context)
     legacy_keys = ("tenant_id", "user_id", "role", "thread_id", "current_run_id")
-    return {key: identity[key] for key in legacy_keys}
+    return {
+        **{key: identity[key] for key in legacy_keys},
+        "business_query_context_binding": business_query_context_binding_from_trusted_context(trusted_context),
+    }
 
 
 @router.post("", response_model=ApiResponse)

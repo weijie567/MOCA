@@ -214,6 +214,15 @@ async def test_contextual_intent_resolve_business_query_drilldown_field_request_
     def fail_llm():
         raise AssertionError("LLM should not be called for a safe business query drilldown reply")
 
+    binding = business_query_context_binding(
+        {
+            **base_state,
+            "thread_id": "thread-drilldown",
+            "tenant_id": "tenant-drilldown",
+            "user_id": "user-drilldown",
+            "role": "support",
+        }
+    )
     state = {
         **base_state,
         "user_query": "订单号是多少？",
@@ -221,6 +230,7 @@ async def test_contextual_intent_resolve_business_query_drilldown_field_request_
         "tenant_id": "tenant-drilldown",
         "user_id": "user-drilldown",
         "role": "support",
+        "business_query_context_binding": binding,
         "last_query_spec": {
             "operation": "aggregate",
             "resource": "order",
@@ -248,15 +258,7 @@ async def test_contextual_intent_resolve_business_query_drilldown_field_request_
         "expected_slot_context": {
             "schema_version": "business_query_expected_slot_context.v1",
             "purpose": "business_query_drilldown",
-            "context_binding": business_query_context_binding(
-                {
-                    **base_state,
-                    "thread_id": "thread-drilldown",
-                    "tenant_id": "tenant-drilldown",
-                    "user_id": "user-drilldown",
-                    "role": "support",
-                }
-            ),
+            "context_binding": binding,
             "operation": "aggregate",
             "resource": "order",
             "allowed_drilldowns": ["list"],

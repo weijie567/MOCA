@@ -70,6 +70,7 @@ class AgentState(TypedDict, total=False):
     tenant_id: str
     user_id: str
     role: str
+    business_query_context_binding: str | None
     active_slots: ActiveSlots
     active_slot_metadata: dict[str, Any] | None
     last_intent: str | None
@@ -208,7 +209,39 @@ def business_query_context_binding(state: Mapping[str, Any]) -> str:
     return f"sha256:{hashlib.sha256(serialized.encode('utf-8')).hexdigest()}"
 
 
+def business_query_context_binding_from_trusted_context(trusted_context: Any) -> str:
+    """Fingerprint canonical TrustedContext identity/scope without exposing raw values in AgentState."""
+
+    payload = {
+        "tenant_id": _binding_value(_trusted_context_value(trusted_context, "tenant_id")),
+        "user_id": _binding_value(_trusted_context_value(trusted_context, "user_id")),
+        "role": _binding_value(_trusted_context_value(trusted_context, "role")),
+        "thread_id": _binding_value(_trusted_context_value(trusted_context, "thread_id")),
+        "session_id": _binding_value(_trusted_context_value(trusted_context, "session_id")),
+        "merchant_scope": _binding_value(_trusted_context_value(trusted_context, "merchant_scope")),
+    }
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"sha256:{hashlib.sha256(serialized.encode('utf-8')).hexdigest()}"
+
+
+def trusted_business_query_context_binding(state: Mapping[str, Any]) -> str | None:
+    """Return the trusted per-turn binding hash carried in AgentState, if present."""
+
+    binding = state.get("business_query_context_binding")
+    if isinstance(binding, str) and binding.startswith("sha256:"):
+        return binding
+    return None
+
+
+def _trusted_context_value(trusted_context: Any, key: str) -> Any:
+    if isinstance(trusted_context, Mapping):
+        return trusted_context.get(key)
+    return getattr(trusted_context, key, None)
+
+
 def _binding_value(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return _binding_value(value.model_dump(mode="json"))
     if isinstance(value, Mapping):
         return {str(key): _binding_value(value[key]) for key in sorted(value)}
     if isinstance(value, (list, tuple, set, frozenset)):

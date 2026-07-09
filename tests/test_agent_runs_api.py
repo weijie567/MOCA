@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.main import app
 from src.agent.merchant_context import project_target_merchant_context
 from src.agent.run_scope import BUSINESS_MERCHANT
+from src.agent.state import business_query_context_binding_from_trusted_context
 from src.agent.trace import write_agent_run
 from src.api.services import agent_run_memory as agent_run_memory_service
 from src.api.routers.agent_runs import (
@@ -2164,6 +2165,11 @@ async def test_agent_run_stream_graph_config_contains_canonical_trusted_context(
     assert trusted_context.trace_id == configurable["trace_id"]
     assert "current_run_id" not in trusted_context.model_dump()
     assert input_state["current_run_id"] == legacy_identity["current_run_id"]
+    assert input_state["business_query_context_binding"] == business_query_context_binding_from_trusted_context(
+        trusted_context
+    )
+    assert "merchant_scope" not in input_state
+    assert "session_id" not in input_state
     assert configurable["permissions"] == trusted_context.permissions
     assert configurable["merchant_scope"] == trusted_context.merchant_scope.model_dump(mode="json")
 
@@ -2925,6 +2931,11 @@ async def test_agent_chat_only_token_invokes_legacy_chat_with_no_tool_permission
     legacy_identity = project_to_legacy_agent_state_identity(trusted_context)
     assert config["configurable"]["permissions"] == []
     assert input_state["current_run_id"] == legacy_identity["current_run_id"]
+    assert input_state["business_query_context_binding"] == business_query_context_binding_from_trusted_context(
+        trusted_context
+    )
+    assert "merchant_scope" not in input_state
+    assert "session_id" not in input_state
     assert config["configurable"]["permissions"] == trusted_context.permissions
     assert config["configurable"]["merchant_scope"] == trusted_context.merchant_scope.model_dump(mode="json")
     assert "conversation_thread_id" in config["configurable"]

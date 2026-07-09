@@ -4,8 +4,14 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from langchain_core.runnables import RunnableConfig
+
 from src.agent.intent_policy import INTENT_POLICY_REGISTRY, SLOT_POLICY_REGISTRY
-from src.agent.state import AgentState, business_query_context_binding
+from src.agent.state import (
+    AgentState,
+    business_query_context_binding_from_trusted_context,
+    trusted_business_query_context_binding,
+)
 
 
 def _now_iso() -> str:
@@ -55,7 +61,7 @@ def _resolved_slots_from_state(state: AgentState) -> dict[str, Any]:
     return {key: value for key, value in trace_slots.items() if value not in (None, "", [])}
 
 
-def _project_business_query_drilldown_context(state: AgentState) -> dict[str, Any]:
+def _project_business_query_drilldown_context(state: AgentState, current_binding: str | None) -> dict[str, Any]:
     """Preserve only same-context safe answer metadata for possible drilldown.
 
     Invalidation table:
@@ -72,7 +78,7 @@ def _project_business_query_drilldown_context(state: AgentState) -> dict[str, An
         return _clear_business_query_drilldown_context()
     if expected_context.get("purpose") != "business_query_drilldown":
         return _clear_business_query_drilldown_context()
-    if expected_context.get("context_binding") != business_query_context_binding(state):
+    if current_binding is None or expected_context.get("context_binding") != current_binding:
         return _clear_business_query_drilldown_context()
     return {
         "last_query_spec": state.get("last_query_spec"),
@@ -81,6 +87,14 @@ def _project_business_query_drilldown_context(state: AgentState) -> dict[str, An
         "expected_slot_type": state.get("expected_slot_type") if isinstance(state.get("expected_slot_type"), str) else None,
         "expected_slot_context": expected_context,
     }
+
+
+def _business_query_context_binding_from_config(config: RunnableConfig | None) -> str | None:
+    configurable = (config or {}).get("configurable") or {}
+    trusted_context = configurable.get("trusted_context")
+    if trusted_context is None:
+        return None
+    return business_query_context_binding_from_trusted_context(trusted_context)
 
 
 def _clear_business_query_drilldown_context() -> dict[str, Any]:
@@ -93,11 +107,12 @@ def _clear_business_query_drilldown_context() -> dict[str, Any]:
     }
 
 
-async def receive_request(state: AgentState) -> dict:
+async def receive_request(state: AgentState, config: RunnableConfig | None = None) -> dict:
     """Reset per-turn state so checkpointed graph context cannot leak stale context."""
     started_at = _now_iso()
     active_flow_state = _project_active_flow_state(state)
-    drilldown_context = _project_business_query_drilldown_context(state)
+    current_binding = _business_query_context_binding_from_config(config) or trusted_business_query_context_binding(state)
+    drilldown_context = _project_business_query_drilldown_context(state, current_binding)
     trace_steps = [
         {
             "node": "receive_request",
@@ -112,6 +127,7 @@ async def receive_request(state: AgentState) -> dict:
 
     return {
         "user_query": state.get("user_query"),
+        "business_query_context_binding": current_binding,
         "normalized_query": None,
         "current_intent": None,
         "intent_confidence": None,
