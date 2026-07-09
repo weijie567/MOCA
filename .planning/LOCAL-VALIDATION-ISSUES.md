@@ -19815,3 +19815,89 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/t
 ### 剩余问题和下次继续排查入口
 
 `tests/agent/test_graph.py` 在 61-04 开始前已有未提交脏改；本次只把 61-04 新增 metric graph/routing 覆盖提交进计划切片，保留既有脏改不回滚。后续若整理 pre-existing graph tests，需要单独处理该工作树状态。
+
+## 2026-07-09：Phase 61-05 Playwright/live E2E 本地环境与验证入口问题
+
+### 问题现象
+
+执行 61-05 前端与 live E2E 验证时，连续遇到几类本地环境/入口问题：
+
+- 用户启动前的 zsh glob 检查 `git status --short -- ... playwright.config.*` 因文件尚不存在失败，报 `zsh: no matches found: playwright.config.*`。
+- 在 `frontend/` 目录下误用 `npm run test -- --run frontend/src/hooks/useAgentRun.test.ts`，Vitest 找不到文件；正确路径应为 `src/hooks/useAgentRun.test.ts` 或直接跑计划命令 `npm run test -- --run`。
+- 首次 `npm install --save-dev @playwright/test` 无输出卡住并被中断；`npx playwright install chromium` 下载超时/卡住。
+- 3000 端口被 Docker 占用，Playwright 默认 dev server 不能使用 3000。
+- mobile Playwright 手测发现 timeline 面板会遮挡聊天发送按钮。
+- Vitest 默认扫描到 `frontend/e2e/agent-console.spec.ts` 后，以 Vitest 执行 Playwright spec 报错。
+- 默认 live E2E 指向 Docker 8000 时，8000 上不是当前 worktree 后端，SSE timeline 未包含本计划新增的 safe `response_kind` 投影。
+- 使用当前 worktree 后端跑完整 live prompt matrix 时，`slot_resolution_gate` 进入真实 LLM/provider 路径：带本机 SOCKS proxy 时触发 `Using SOCKS proxy, but the 'socksio' package is not installed`；去掉 proxy 后第二条 prompt 在 15 秒断言窗口内仍停在 provider 调用阶段。
+- 排查过程中我误用了一次裸 `python` 做只读环境探测，因未进入项目环境报 `ModuleNotFoundError: No module named 'pydantic'`；该结果按项目规则视为无效入口。
+
+### 如何检测 / 复现
+
+关键复现命令包括：
+
+```bash
+git status --short -- ... playwright.config.*
+cd frontend && npm run test -- --run frontend/src/hooks/useAgentRun.test.ts
+cd frontend && npm run e2e
+cd frontend && npm run e2e:live
+UV_CACHE_DIR=/tmp/uv-cache uv run uvicorn src.api.main:app --host 127.0.0.1 --port 8011
+```
+
+误用的无效入口：
+
+```bash
+python - <<'PY'
+from src.config import settings
+print(bool(settings.dashscope_api_key))
+PY
+```
+
+### 关键证据或命令
+
+- `lsof -nP -iTCP:3000 -sTCP:LISTEN` 显示 Docker 进程占用 3000。
+- `lsof -nP -iTCP:8000 -sTCP:LISTEN` 显示 Docker 进程占用 8000。
+- `curl -sS -m 5 http://127.0.0.1:8000/health` 返回 healthy，但该进程不是当前 worktree 新代码。
+- 正确环境入口重跑：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+from src.config import settings
+print("dashscope_api_key_set=", bool(settings.dashscope_api_key))
+print("llm_timeout_seconds=", settings.llm_timeout_seconds)
+PY
+```
+
+结果显示 `dashscope_api_key_set=True`，`llm_timeout_seconds=90`。
+
+### 当前判断 / 根因
+
+这些问题主要是本地验证环境和命令入口问题，不是 61-05 产品逻辑的直接失败：
+
+- zsh 未加引号的 glob 在文件不存在时会提前失败。
+- 前端测试路径从 `frontend/` 目录运行时不应带 `frontend/` 前缀。
+- Playwright 浏览器下载受网络影响；本机已有 Chrome，可用 `channel: chrome`。
+- 端口 3000/8000 已由 Docker 占用，live 验证若直接用 8000 会打到旧服务。
+- 完整 live prompt matrix 依赖真实 LLM provider，受本机 proxy 依赖和 provider 延迟影响；默认本地命令需要先稳定验证真实 `/api/v1/agent-runs` SSE smoke。
+- 裸 `python` 未使用项目 `.venv`，命中 PATH 污染，不能作为验证结论。
+
+### 已做处理
+
+- Playwright 默认 dev server 改为 3100，避开 Docker 3000。
+- Playwright 配置使用系统 Chrome channel，避免阻塞在 Chromium 下载。
+- `frontend/.gitignore` 忽略 `playwright-report/` 和 `test-results/`。
+- 修复 mobile layout：移动端允许页面自然滚动，避免 timeline panel 遮挡聊天输入区。
+- 将 `frontend` 的 Vitest 脚本限定到 `src`，避免误执行 Playwright spec。
+- live Playwright 默认在没有 `MOCA_E2E_API_URL` 时启动当前 worktree 后端到 8011，并清理 proxy 环境变量；`cd frontend && npm run e2e:live` 现在执行真实 SSE smoke。
+- 完整 5-prompt live matrix 保留为可选用例，需要显式设置 `MOCA_E2E_FULL_LIVE=1` 并确保 provider 环境稳定。
+- 裸 `python` 探测已用 `UV_CACHE_DIR=/tmp/uv-cache uv run python ...` 重跑，结果有效。
+
+### 剩余问题和下次继续排查入口
+
+`cd frontend && npm run e2e:live` 当前通过 1 个真实 SSE smoke，并跳过需要 provider 条件的完整 live matrix。若要验证完整 live matrix，先确保当前 worktree 后端运行在 8011 或设置 `MOCA_E2E_API_URL`，再执行：
+
+```bash
+cd frontend && MOCA_E2E_FULL_LIVE=1 npm run e2e:live
+```
+
+如果仍卡在 `slot_resolution_gate`，从 provider 网络/proxy、`socksio` 依赖、`DASHSCOPE_API_KEY` 可用性、以及 `settings.llm_timeout_seconds` 开始排查。裸 `pytest`、裸 `python -m pytest`、裸 `python` 的验证结果均不要作为 MOCA 结论。
