@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createRun, decideApproval, getApproval, getRunStatus, parseApprovalDecisionContext } from '@/lib/api'
-import type { ApprovalDecisionContextV1 } from '@/lib/api'
+import {
+  createRun,
+  decideApproval,
+  getApproval,
+  getRunStatus,
+  isTerminalApprovalStatus,
+  parseApprovalDecisionContext,
+  shouldReplaceApprovalDecisionContext,
+} from '@/lib/api'
+import type { ApprovalDecisionContextV1, ApprovalRecord, ApprovalSubmissionOutcome } from '@/lib/api'
 import { connectToRunEvents } from '@/lib/sse'
 import type { ChatMessage, RunStatus, SseEvent } from '@/types/events'
 
@@ -43,6 +51,8 @@ const TERMINAL_STATUSES = new Set<AgentRunStatus>([
   'degraded',
   'failed',
   'error',
+  'manual_review',
+  'refused',
 ])
 
 function normalizeStatus(status: string | null | undefined): AgentRunStatus {
@@ -50,6 +60,16 @@ function normalizeStatus(status: string | null | undefined): AgentRunStatus {
   if (status === 'interrupted') return 'waiting_approval'
   if (status === 'error') return 'failed'
   return status as AgentRunStatus
+}
+
+type NonSuccessStatus = Extract<AgentRunStatus, 'failed' | 'error' | 'manual_review' | 'refused' | 'rejected'>
+
+function isNonSuccessStatus(status: AgentRunStatus): status is NonSuccessStatus {
+  return ['failed', 'error', 'manual_review', 'refused', 'rejected'].includes(status)
+}
+
+function assistantMessageStatus(status: AgentRunStatus): ChatMessage['status'] {
+  return isNonSuccessStatus(status) ? 'error' : 'completed'
 }
 
 function createThreadId() {
@@ -128,6 +148,10 @@ function runStatusFromEvent(currentStatus: AgentRunStatus, event: SseEvent): Age
   if (event.event_type === 'approval_required' || event.status === 'waiting_approval' || event.status === 'interrupted') {
     return 'waiting_approval'
   }
+  const payloadStatus = normalizeStatus(event.payload?.final_status)
+  if (event.event_type === 'error' && ['manual_review', 'refused'].includes(payloadStatus)) {
+    return payloadStatus
+  }
   if (event.event_type === 'error' || event.status === 'failed' || event.status === 'error') {
     return 'failed'
   }
@@ -173,16 +197,20 @@ function withRecoveredTerminalStep(
     })
   }
 
-  if (status === 'failed' || status === 'error') {
+  if (isNonSuccessStatus(status)) {
     return upsertTimelineEvent(steps, {
       event_type: 'error',
       run_id: runId,
       step_index: nextStepIndex(steps),
       node_name: 'error',
-      status: 'failed',
+      status: status === 'failed' || status === 'error' ? 'failed' : status,
       message: '执行遇到问题，请重试',
       timestamp: new Date().toISOString(),
-      payload: { error_message: errorMessage ?? DEFAULT_ERROR_MESSAGE },
+      payload: {
+        error_message: errorMessage ?? finalResponse ?? DEFAULT_ERROR_MESSAGE,
+        final_response: finalResponse ?? undefined,
+        final_status: status,
+      },
     })
   }
 
@@ -240,10 +268,10 @@ export function useAgentRun() {
           messages: finalResponse
             ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
                 content: finalResponse,
-                status: 'completed',
+                status: assistantMessageStatus(recoveredStatus),
                 runId,
               })
-            : recoveredStatus === 'failed'
+            : isNonSuccessStatus(recoveredStatus)
               ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
                   content: DEFAULT_ERROR_MESSAGE,
                   status: 'error',
@@ -252,7 +280,7 @@ export function useAgentRun() {
               : current.messages,
           finalResponse: finalResponse ?? current.finalResponse,
           activeAssistantMessageId: TERMINAL_STATUSES.has(recoveredStatus) ? null : current.activeAssistantMessageId,
-          error: recoveredStatus === 'failed' ? DEFAULT_ERROR_MESSAGE : null,
+          error: isNonSuccessStatus(recoveredStatus) ? finalResponse ?? DEFAULT_ERROR_MESSAGE : null,
         }
       })
     } catch {
@@ -304,10 +332,10 @@ export function useAgentRun() {
                 messages: finalResponse
                   ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
                       content: finalResponse,
-                      status: 'completed',
+                      status: assistantMessageStatus(nextStatus),
                       runId,
                     })
-                  : nextStatus === 'failed'
+                  : isNonSuccessStatus(nextStatus)
                     ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
                         content: DEFAULT_ERROR_MESSAGE,
                         status: 'error',
@@ -319,7 +347,7 @@ export function useAgentRun() {
                   TERMINAL_STATUSES.has(nextStatus) && nextStatus !== 'waiting_approval'
                     ? null
                     : current.activeAssistantMessageId,
-                error: nextStatus === 'failed' ? DEFAULT_ERROR_MESSAGE : null,
+                error: isNonSuccessStatus(nextStatus) ? finalResponse ?? DEFAULT_ERROR_MESSAGE : null,
               }
             })
 
@@ -352,11 +380,26 @@ export function useAgentRun() {
               return current
             }
             const nextStatus = runStatusFromEvent(current.status, event)
-            const approvalId = event.payload?.approval_id ?? current.approvalId
             const incomingContext = parseApprovalDecisionContext(event.payload?.decision_context)
-            const approvalContext = incomingContext && incomingContext.run_id === runId
-              ? incomingContext
-              : current.approvalContext
+            const envelopeApprovalId = event.payload?.approval_id
+            const contextEnvelopeMatches = Boolean(
+              incomingContext
+              && incomingContext.run_id === runId
+              && (!envelopeApprovalId || envelopeApprovalId === incomingContext.approval_id),
+            )
+            const replaceApprovalContext = Boolean(
+              incomingContext
+              && contextEnvelopeMatches
+              && shouldReplaceApprovalDecisionContext(current.approvalContext, incomingContext),
+            )
+            const approvalContext = replaceApprovalContext ? incomingContext : current.approvalContext
+            const approvalId = replaceApprovalContext ? incomingContext?.approval_id ?? null : current.approvalId
+            const isApprovalEvent = event.event_type === 'approval_required' || nextStatus === 'waiting_approval'
+            const approvalContextFresh = replaceApprovalContext
+              ? true
+              : isApprovalEvent && !incomingContext
+                ? false
+                : current.approvalContextFresh
             const finalResponse = event.payload?.final_response ?? current.finalResponse
             const errorMessage = event.payload?.error_message ?? current.error ?? DEFAULT_ERROR_MESSAGE
 
@@ -370,10 +413,10 @@ export function useAgentRun() {
             const messages = event.payload?.final_response
               ? updateAssistantMessage(current.messages, assistantMessageId, {
                   content: event.payload.final_response,
-                  status: 'completed',
+                  status: assistantMessageStatus(nextStatus),
                   runId,
                 })
-              : nextStatus === 'failed'
+              : isNonSuccessStatus(nextStatus)
                 ? updateAssistantMessage(current.messages, assistantMessageId, {
                     content: errorMessage,
                     status: 'error',
@@ -388,13 +431,13 @@ export function useAgentRun() {
               messages,
               approvalId,
               approvalContext,
-              approvalContextFresh: incomingContext?.run_id === runId,
+              approvalContextFresh,
               finalResponse,
               activeAssistantMessageId:
-                event.event_type === 'final_response' || nextStatus === 'failed'
+                event.event_type === 'final_response' || TERMINAL_STATUSES.has(nextStatus)
                   ? null
                   : current.activeAssistantMessageId,
-              error: nextStatus === 'failed' ? errorMessage : null,
+              error: isNonSuccessStatus(nextStatus) ? errorMessage : null,
             }
           })
         },
@@ -487,60 +530,130 @@ export function useAgentRun() {
     [attachStream, clearPolling, stopStream, threadId],
   )
 
-  const approveRun = useCallback(async () => {
-    if (!state.approvalContext || !state.approvalContextFresh || !state.runId) return
-    try {
-      const latest = await getApproval(state.approvalContext.approval_id)
+  const applyAuthoritativeApproval = useCallback((approval: ApprovalRecord) => {
+    setState((current) => ({
+      ...current,
+      approvalId: approval.id,
+      approvalContext: approval.decision_context,
+      approvalContextFresh: approval.decision_context !== null,
+    }))
+  }, [])
+
+  const recoverApprovalAfterSubmission = useCallback(
+    async (
+      approvalId: string,
+      runId: string,
+      unresolvedKind: 'stale' | 'ambiguous',
+    ): Promise<ApprovalSubmissionOutcome> => {
+      const latest = await getApproval(approvalId)
       if (!latest.success) {
-        setState((current) => ({ ...current, approvalContextFresh: false, error: latest.error.message }))
-        return
+        setState((current) => ({
+          ...current,
+          approvalContextFresh: false,
+          error: unresolvedKind === 'ambiguous'
+            ? '提交结果未确认，正在查询最新状态。请勿重复提交。'
+            : '审批已更新，请刷新后重新决定。',
+        }))
+        return unresolvedKind === 'ambiguous'
+          ? { kind: 'ambiguous', approval: null }
+          : { kind: 'stale', approval: null }
+      }
+
+      applyAuthoritativeApproval(latest.data)
+      if (latest.data.decision_context === null && isTerminalApprovalStatus(latest.data.status)) {
+        setState((current) => ({
+          ...current,
+          status: latest.data.status === 'approved' ? 'running' : 'rejected',
+          error: null,
+        }))
+        startPolling(runId)
+        return { kind: 'reconciled', approval: latest.data }
+      }
+      setState((current) => ({
+        ...current,
+        error: unresolvedKind === 'ambiguous'
+          ? '提交结果未确认，正在查询最新状态。请勿重复提交。'
+          : '审批已更新，请基于最新内容重新决定。',
+      }))
+      return { kind: unresolvedKind, approval: latest.data }
+    },
+    [applyAuthoritativeApproval, startPolling],
+  )
+
+  const approveRun = useCallback(async (): Promise<ApprovalSubmissionOutcome> => {
+    if (!state.approvalContext || !state.runId) return { kind: 'unavailable', approval: null }
+    if (!state.approvalContextFresh) return { kind: 'stale', approval: null }
+    const approvalId = state.approvalContext.approval_id
+    try {
+      const latest = await getApproval(approvalId)
+      if (!latest.success) {
+        setState((current) => ({ ...current, approvalContextFresh: false, error: '审批不可用，请刷新后重试。' }))
+        return { kind: 'unavailable', approval: null }
+      }
+      applyAuthoritativeApproval(latest.data)
+      if (!latest.data.decision_context) {
+        if (isTerminalApprovalStatus(latest.data.status)) {
+          startPolling(state.runId)
+          return { kind: 'reconciled', approval: latest.data }
+        }
+        return { kind: 'unavailable', approval: null }
       }
       const frozen = latest.data.decision_context
       const result = await decideApproval(frozen, { decision_type: 'approve' })
       if (!result.success) {
-        await getApproval(frozen.approval_id)
-        setState((current) => ({
-          ...current,
-          approvalContextFresh: false,
-          error: result.error?.message ?? '审批提交失败',
-        }))
-        return
+        if (result.error.code === 'NETWORK_ERROR') {
+          return recoverApprovalAfterSubmission(frozen.approval_id, state.runId, 'ambiguous')
+        }
+        if (result.error.code === 'HTTP_409' || result.error.code === 'CONFLICT') {
+          return recoverApprovalAfterSubmission(frozen.approval_id, state.runId, 'stale')
+        }
+        setState((current) => ({ ...current, approvalContextFresh: false, error: '审批提交失败，请刷新后重试。' }))
+        return { kind: 'unavailable', approval: null }
       }
-      setState((current) => ({ ...current, status: 'running', error: null }))
+      setState((current) => ({ ...current, status: 'running', approvalContextFresh: false, error: null }))
       startPolling(state.runId)
+      return { kind: 'submitted' }
     } catch {
-      if (state.approvalContext) await getApproval(state.approvalContext.approval_id)
-      setState((current) => ({
-        ...current,
-        approvalContextFresh: false,
-        error: '提交结果未确认，正在查询最新状态。请勿重复提交。',
-      }))
+      setState((current) => ({ ...current, approvalContextFresh: false, error: '审批提交失败，请刷新后重试。' }))
+      return { kind: 'unavailable', approval: null }
     }
-  }, [startPolling, state.approvalContext, state.approvalContextFresh, state.runId])
+  }, [applyAuthoritativeApproval, recoverApprovalAfterSubmission, startPolling, state.approvalContext, state.approvalContextFresh, state.runId])
 
   const rejectRun = useCallback(
-    async (reason: string) => {
-      if (!state.approvalContext || !state.approvalContextFresh || !state.runId || !reason.trim()) return
+    async (reason: string): Promise<ApprovalSubmissionOutcome> => {
+      if (!state.approvalContext || !state.runId || !reason.trim()) return { kind: 'unavailable', approval: null }
+      if (!state.approvalContextFresh) return { kind: 'stale', approval: null }
+      const approvalId = state.approvalContext.approval_id
       try {
-        const latest = await getApproval(state.approvalContext.approval_id)
+        const latest = await getApproval(approvalId)
         if (!latest.success) {
-          setState((current) => ({ ...current, approvalContextFresh: false, error: latest.error.message }))
-          return
+          setState((current) => ({ ...current, approvalContextFresh: false, error: '审批不可用，请刷新后重试。' }))
+          return { kind: 'unavailable', approval: null }
+        }
+        applyAuthoritativeApproval(latest.data)
+        if (!latest.data.decision_context) {
+          if (isTerminalApprovalStatus(latest.data.status)) {
+            startPolling(state.runId)
+            return { kind: 'reconciled', approval: latest.data }
+          }
+          return { kind: 'unavailable', approval: null }
         }
         const frozen = latest.data.decision_context
         const result = await decideApproval(frozen, { decision_type: 'reject', reason })
         if (!result.success) {
-          await getApproval(frozen.approval_id)
-          setState((current) => ({
-            ...current,
-            approvalContextFresh: false,
-            error: result.error?.message ?? '审批提交失败',
-          }))
-          return
+          if (result.error.code === 'NETWORK_ERROR') {
+            return recoverApprovalAfterSubmission(frozen.approval_id, state.runId, 'ambiguous')
+          }
+          if (result.error.code === 'HTTP_409' || result.error.code === 'CONFLICT') {
+            return recoverApprovalAfterSubmission(frozen.approval_id, state.runId, 'stale')
+          }
+          setState((current) => ({ ...current, approvalContextFresh: false, error: '审批提交失败，请刷新后重试。' }))
+          return { kind: 'unavailable', approval: null }
         }
         setState((current) => ({
           ...current,
           status: 'rejected',
+          approvalContextFresh: false,
           messages: updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
             content: `审批已拒绝：${reason}`,
             status: 'error',
@@ -549,16 +662,13 @@ export function useAgentRun() {
           error: reason,
         }))
         startPolling(state.runId)
+        return { kind: 'submitted' }
       } catch {
-        if (state.approvalContext) await getApproval(state.approvalContext.approval_id)
-        setState((current) => ({
-          ...current,
-          approvalContextFresh: false,
-          error: '提交结果未确认，正在查询最新状态。请勿重复提交。',
-        }))
+        setState((current) => ({ ...current, approvalContextFresh: false, error: '审批提交失败，请刷新后重试。' }))
+        return { kind: 'unavailable', approval: null }
       }
     },
-    [startPolling, state.approvalContext, state.approvalContextFresh, state.runId],
+    [applyAuthoritativeApproval, recoverApprovalAfterSubmission, startPolling, state.approvalContext, state.approvalContextFresh, state.runId],
   )
 
   const reset = useCallback(() => {

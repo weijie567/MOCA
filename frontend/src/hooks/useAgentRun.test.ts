@@ -1,34 +1,57 @@
-import { act, render, renderHook, screen } from '@testing-library/react'
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
+import fixture from '@contracts/fixtures/approval_decision_context_v1.json'
 import { createElement } from 'react'
 import { DetailsPanel } from '@/components/details/DetailsPanel'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TimelineStep } from '@/components/timeline/TimelineStep'
-import { createRun } from '@/lib/api'
+import { createRun, decideApproval, getApproval, getRunStatus, parseApprovalDecisionContext } from '@/lib/api'
+import type { ApprovalRecord } from '@/lib/api'
 import { connectToRunEvents } from '@/lib/sse'
 import type { SseEvent } from '@/types/events'
 import { useAgentRun } from './useAgentRun'
 
-vi.mock('@/lib/api', () => ({
-  createRun: vi.fn(),
-  decideApproval: vi.fn(),
-  getPendingApprovals: vi.fn().mockResolvedValue({ success: true, data: { approvals: [], total: 0 } }),
-  getApproval: vi.fn(),
-  parseApprovalDecisionContext: vi.fn((value: unknown) => {
-    if (typeof value !== 'object' || value === null) return null
-    return (value as { schema_version?: string }).schema_version === 'approval_decision_context.v1' ? value : null
-  }),
-  getRunEvidence: vi.fn().mockResolvedValue({ success: true, data: { evidence: [] } }),
-  getRunStatus: vi.fn(),
-  getRunTrace: vi.fn().mockResolvedValue({ success: true, data: { run_id: 'run-1', steps: [], timeline: [] } }),
-}))
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  return {
+    ...actual,
+    createRun: vi.fn(),
+    decideApproval: vi.fn(),
+    getPendingApprovals: vi.fn().mockResolvedValue({ success: true, data: { approvals: [], total: 0 } }),
+    getApproval: vi.fn(),
+    getRunEvidence: vi.fn().mockResolvedValue({ success: true, data: { evidence: [] } }),
+    getRunStatus: vi.fn(),
+    getRunTrace: vi.fn().mockResolvedValue({ success: true, data: { run_id: 'run-1', steps: [], timeline: [] } }),
+  }
+})
 
 vi.mock('@/lib/sse', () => ({
   connectToRunEvents: vi.fn(),
 }))
 
 const createRunMock = vi.mocked(createRun)
+const decideApprovalMock = vi.mocked(decideApproval)
+const getApprovalMock = vi.mocked(getApproval)
+const getRunStatusMock = vi.mocked(getRunStatus)
 const connectToRunEventsMock = vi.mocked(connectToRunEvents)
 let streamCallbacks: Map<string, Parameters<typeof connectToRunEvents>[1]>
+const approvalContext = parseApprovalDecisionContext({ ...fixture, run_id: 'run-1' })!
+const approvalRecord: ApprovalRecord = {
+  id: approvalContext.approval_id,
+  run_id: approvalContext.run_id,
+  status: 'pending',
+  requested_by: 'requester',
+  proposed_action: approvalContext.proposed_action,
+  risk_level: approvalContext.risk_level,
+  risk_rule_ref: approvalContext.risk_rule_ref,
+  risk_reason: approvalContext.risk_reason,
+  decision: null,
+  reason: null,
+  decided_by: null,
+  decided_at: null,
+  expires_at: approvalContext.expires_at,
+  created_at: approvalContext.created_at,
+  decision_context: approvalContext,
+}
 
 function createMemoryStorage(): Storage {
   const items = new Map<string, string>()
@@ -75,6 +98,12 @@ describe('useAgentRun thread lifecycle', () => {
       success: true,
       data: { run_id: 'run-1', status: 'running' },
     })
+    getRunStatusMock.mockResolvedValue({
+      success: true,
+      data: { run_id: 'run-1', final_status: 'running', final_response: null },
+    })
+    getApprovalMock.mockResolvedValue({ success: true, data: approvalRecord })
+    decideApprovalMock.mockResolvedValue({ success: true, data: {} })
     connectToRunEventsMock.mockImplementation((runId, callbacks) => {
       streamCallbacks.set(runId, callbacks)
       return new AbortController()
@@ -414,6 +443,160 @@ describe('useAgentRun thread lifecycle', () => {
       content: 'done',
       status: 'completed',
     })
+  })
+
+  it('keeps a recovered backend error response visibly non-success after reconnect', async () => {
+    const safeFailure = '操作草稿未能安全创建，请稍后重试或转人工处理。'
+    getRunStatusMock.mockResolvedValueOnce({
+      success: true,
+      data: { run_id: 'run-1', final_status: 'error', final_response: safeFailure },
+    })
+    const { result } = renderHook(() => useAgentRun())
+
+    await act(async () => {
+      await result.current.submitQuery('create draft')
+    })
+    act(() => {
+      streamCallbacks.get('run-1')?.onError(new Error('disconnect'))
+    })
+
+    await waitFor(() => expect(result.current.state.status).toBe('failed'))
+    expect(result.current.state.messages[1]).toMatchObject({
+      content: safeFailure,
+      status: 'error',
+    })
+    expect(result.current.state.finalResponse).toBe(safeFailure)
+  })
+
+  it('keeps polling error responses non-success after an approval submission', async () => {
+    vi.useFakeTimers()
+    const safeFailure = '授权后草稿创建失败，请转人工处理。'
+    const { result, unmount } = renderHook(() => useAgentRun())
+    try {
+      await act(async () => {
+        await result.current.submitQuery('approve draft')
+      })
+      act(() => {
+        streamCallbacks.get('run-1')?.onEvent(event({
+          event_type: 'approval_required',
+          status: 'waiting_approval',
+          payload: { approval_id: approvalContext.approval_id, decision_context: approvalContext },
+        }))
+      })
+      await act(async () => {
+        expect(await result.current.approveRun()).toEqual({ kind: 'submitted' })
+      })
+      getRunStatusMock.mockResolvedValueOnce({
+        success: true,
+        data: { run_id: 'run-1', final_status: 'error', final_response: safeFailure },
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000)
+      })
+
+      expect(result.current.state.status).toBe('failed')
+      expect(result.current.state.messages[1]).toMatchObject({ content: safeFailure, status: 'error' })
+    } finally {
+      unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects stale and cross-identity same-run approval SSE contexts', async () => {
+    const { result } = renderHook(() => useAgentRun())
+    await act(async () => {
+      await result.current.submitQuery('approval context')
+    })
+    const newer = {
+      ...approvalContext,
+      request_version: approvalContext.request_version + 2,
+      level_version: approvalContext.level_version + 1,
+      assignment_version: approvalContext.assignment_version + 1,
+    }
+    act(() => {
+      const callback = streamCallbacks.get('run-1')
+      callback?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: { approval_id: approvalContext.approval_id, decision_context: approvalContext },
+      }))
+      callback?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: { approval_id: newer.approval_id, decision_context: newer },
+      }))
+      callback?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: { approval_id: approvalContext.approval_id, decision_context: approvalContext },
+      }))
+      callback?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: {
+          approval_id: newer.approval_id,
+          decision_context: {
+            ...newer,
+            assignment_id: '00000000-0000-0000-0000-000000000099',
+            request_version: newer.request_version + 1,
+          },
+        },
+      }))
+    })
+
+    expect(result.current.state.approvalContext).toEqual(newer)
+    expect(result.current.state.approvalId).toBe(newer.approval_id)
+    expect(result.current.state.approvalContextFresh).toBe(true)
+
+    act(() => {
+      streamCallbacks.get('run-1')?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: { approval_id: newer.approval_id },
+      }))
+    })
+    expect(result.current.state.approvalContext).toEqual(newer)
+    expect(result.current.state.approvalContextFresh).toBe(false)
+  })
+
+  it('reconciles a committed approval after a lost POST response without replay', async () => {
+    const terminalApproval: ApprovalRecord = {
+      ...approvalRecord,
+      status: 'approved',
+      decision: 'approve',
+      decided_at: new Date().toISOString(),
+      decision_context: null,
+    }
+    getApprovalMock
+      .mockResolvedValueOnce({ success: true, data: approvalRecord })
+      .mockResolvedValueOnce({ success: true, data: terminalApproval })
+    decideApprovalMock.mockResolvedValueOnce({
+      success: false,
+      data: null,
+      error: { code: 'NETWORK_ERROR', message: 'response lost' },
+    })
+    const { result } = renderHook(() => useAgentRun())
+
+    await act(async () => {
+      await result.current.submitQuery('approve after lost response')
+    })
+    act(() => {
+      streamCallbacks.get('run-1')?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: { approval_id: approvalContext.approval_id, decision_context: approvalContext },
+      }))
+    })
+    let outcome
+    await act(async () => {
+      outcome = await result.current.approveRun()
+    })
+
+    expect(outcome).toEqual({ kind: 'reconciled', approval: terminalApproval })
+    expect(decideApprovalMock).toHaveBeenCalledTimes(1)
+    expect(getApprovalMock).toHaveBeenCalledTimes(2)
+    expect(result.current.state.approvalContext).toBeNull()
+    expect(result.current.state.approvalContextFresh).toBe(false)
   })
 })
 

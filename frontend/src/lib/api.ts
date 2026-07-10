@@ -34,6 +34,36 @@ export interface ApprovalDecisionContextV1 {
   created_at: string
 }
 
+const APPROVAL_CONTEXT_IDENTITY_FIELDS = [
+  'schema_version',
+  'tenant_ref',
+  'approval_id',
+  'run_id',
+  'thread_id',
+  'level_id',
+  'assignment_id',
+  'action_payload_hash',
+  'safety_snapshot_ref',
+  'safety_snapshot_hash',
+] as const
+
+const APPROVAL_CONTEXT_CLOCK_FIELDS = [
+  'revision',
+  'request_version',
+  'level_version',
+  'assignment_version',
+] as const
+
+export function shouldReplaceApprovalDecisionContext(
+  current: ApprovalDecisionContextV1 | null,
+  incoming: ApprovalDecisionContextV1,
+): boolean {
+  if (!current) return true
+  if (APPROVAL_CONTEXT_IDENTITY_FIELDS.some((field) => current[field] !== incoming[field])) return false
+  if (APPROVAL_CONTEXT_CLOCK_FIELDS.some((field) => incoming[field] < current[field])) return false
+  return APPROVAL_CONTEXT_CLOCK_FIELDS.some((field) => incoming[field] > current[field])
+}
+
 export type ApprovalDecideInput =
   | { decision_type: 'accept' | 'approve' | 'ignore'; reason?: string }
   | { decision_type: 'reject'; reason: string }
@@ -86,7 +116,7 @@ export function serializeApprovalDecision(
 }
 
 export interface ApprovalRecord {
-  decision_context: ApprovalDecisionContextV1
+  decision_context: ApprovalDecisionContextV1 | null
   id: string
   run_id: string
   status: string
@@ -101,6 +131,19 @@ export interface ApprovalRecord {
   decided_at: string | null
   expires_at: string
   created_at: string
+}
+
+export type DecidableApprovalRecord = ApprovalRecord & { decision_context: ApprovalDecisionContextV1 }
+
+export type ApprovalSubmissionOutcome =
+  | { kind: 'submitted' }
+  | { kind: 'reconciled'; approval: ApprovalRecord }
+  | { kind: 'stale'; approval: ApprovalRecord | null }
+  | { kind: 'ambiguous'; approval: ApprovalRecord | null }
+  | { kind: 'unavailable'; approval: null }
+
+export function isTerminalApprovalStatus(status: string): boolean {
+  return ['approved', 'rejected', 'cancelled', 'expired', 'superseded'].includes(status)
 }
 
 export function setAuthToken(token: string | null) {
@@ -260,7 +303,7 @@ export async function decideApproval(context: ApprovalDecisionContextV1, input: 
 export async function getPendingApprovals() {
   const result = await apiFetch<{ approvals: ApprovalRecord[]; total: number }>('/approvals')
   if (!result.success) return result
-  const approvals = result.data.approvals.flatMap((record) => {
+  const approvals: DecidableApprovalRecord[] = result.data.approvals.flatMap((record) => {
     const context = parseApprovalDecisionContext(record.decision_context)
     return context ? [{ ...record, decision_context: context }] : []
   })
@@ -273,6 +316,12 @@ export async function getPendingApprovals() {
 export async function getApproval(approvalId: string) {
   const result = await apiFetch<ApprovalRecord>(`/approvals/${approvalId}`)
   if (!result.success) return result
+  if (result.data.decision_context === null) {
+    if (result.data.status === 'pending') {
+      return { success: false, data: null, error: { code: 'INVALID_RESPONSE', message: '审批信息不完整，请刷新后再决定。' } } as const
+    }
+    return result
+  }
   const context = parseApprovalDecisionContext(result.data.decision_context)
   if (!context) return { success: false, data: null, error: { code: 'INVALID_RESPONSE', message: '审批信息不完整，请刷新后再决定。' } } as const
   return { success: true, data: { ...result.data, decision_context: context } } as const

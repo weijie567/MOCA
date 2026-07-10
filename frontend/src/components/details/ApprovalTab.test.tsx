@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import fixture from '@contracts/fixtures/approval_decision_context_v1.json'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { decideApproval, getApproval, getPendingApprovals, parseApprovalDecisionContext } from '@/lib/api'
-import type { ApprovalRecord } from '@/lib/api'
+import type { ApprovalRecord, DecidableApprovalRecord } from '@/lib/api'
 import { ApprovalTab } from './ApprovalTab'
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -16,7 +16,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 })
 
 const decisionContext = parseApprovalDecisionContext(fixture)!
-const record: ApprovalRecord = {
+const record: DecidableApprovalRecord = {
   id: fixture.approval_id,
   run_id: fixture.run_id,
   status: 'pending',
@@ -32,6 +32,13 @@ const record: ApprovalRecord = {
   expires_at: fixture.expires_at,
   created_at: fixture.created_at,
   decision_context: decisionContext,
+}
+const terminalRecord: ApprovalRecord = {
+  ...record,
+  status: 'approved',
+  decision: 'approve',
+  decided_at: '2026-07-10T08:00:00Z',
+  decision_context: null,
 }
 
 describe('ApprovalTab decision safety', () => {
@@ -84,5 +91,50 @@ describe('ApprovalTab decision safety', () => {
     expect(decideApproval).toHaveBeenCalledTimes(1)
     expect(decideApproval).toHaveBeenCalledWith(decisionContext, { decision_type: 'approve' })
     resolveDecision?.({ success: true, data: {} })
+  })
+
+  it.each([
+    ['stale', { kind: 'stale', approval: record } as const, '审批已更新，请查看最新内容后重新决定。'],
+    ['ambiguous', { kind: 'ambiguous', approval: record } as const, '提交结果未确认，已查询最新状态。请勿重复提交。'],
+    ['unavailable', { kind: 'unavailable', approval: null } as const, '审批不可用或已更新，请返回列表并刷新。'],
+  ])('does not announce success when the active callback returns %s', async (_kind, outcome, expectedMessage) => {
+    const onApprove = vi.fn().mockResolvedValue(outcome)
+    render(
+      <ApprovalTab
+        approvalId={fixture.approval_id}
+        canApprove
+        status="waiting_approval"
+        onApprove={onApprove}
+      />,
+    )
+    await waitFor(() => expect((screen.getByRole('button', { name: '批准' }) as HTMLButtonElement).disabled).toBe(false))
+
+    fireEvent.click(screen.getByRole('button', { name: '批准' }))
+    fireEvent.click(screen.getAllByRole('button', { name: '批准' }).at(-1)!)
+
+    await screen.findByText(expectedMessage)
+    expect(screen.queryByText('审批决定已提交，正在同步运行状态。')).toBeNull()
+    expect(onApprove).toHaveBeenCalledTimes(1)
+  })
+
+  it('reconciles committed-but-response-lost direct submission without replay', async () => {
+    vi.mocked(getApproval)
+      .mockResolvedValueOnce({ success: true, data: record })
+      .mockResolvedValueOnce({ success: true, data: terminalRecord })
+    vi.mocked(decideApproval).mockResolvedValueOnce({
+      success: false,
+      data: null,
+      error: { code: 'NETWORK_ERROR', message: 'response lost' },
+    })
+    render(<ApprovalTab approvalId={null} canApprove status="waiting_approval" />)
+    await waitFor(() => expect((screen.getByRole('button', { name: '批准' }) as HTMLButtonElement).disabled).toBe(false))
+
+    fireEvent.click(screen.getByRole('button', { name: '批准' }))
+    fireEvent.click(screen.getAllByRole('button', { name: '批准' }).at(-1)!)
+
+    await screen.findByText('服务器已确认审批通过，正在同步运行状态。')
+    expect(decideApproval).toHaveBeenCalledTimes(1)
+    expect(getApproval).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText('提交结果未确认，已查询最新状态。请勿重复提交。')).toBeNull()
   })
 })

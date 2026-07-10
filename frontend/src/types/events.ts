@@ -9,6 +9,8 @@ export type RunStatus =
   | 'degraded'
   | 'failed'
   | 'error'
+  | 'manual_review'
+  | 'refused'
   | 'disconnected'
 
 export type SseEventType =
@@ -82,6 +84,7 @@ export interface SseEventPayload {
   }
   error_code?: string
   error_message?: string
+  final_status?: string
 }
 
 export interface SseEvent {

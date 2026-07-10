@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { DemoRole } from '@/hooks/useAuth'
+import type { ApprovalSubmissionOutcome } from '@/lib/api'
 import type { SseEvent } from '@/types/events'
 import { ApprovalTab } from './ApprovalTab'
 import { BusinessQueryResultTab } from './BusinessQueryResultTab'
@@ -18,14 +19,14 @@ interface DetailsPanelProps {
   role: DemoRole
   status: string
   steps?: SseEvent[]
-  approveRun?: () => void | Promise<void>
-  rejectRun?: (reason: string) => void | Promise<void>
+  approveRun?: () => Promise<ApprovalSubmissionOutcome>
+  rejectRun?: (reason: string) => Promise<ApprovalSubmissionOutcome>
 }
 
 function statusVariant(status: string) {
   if (status === 'completed') return 'success'
-  if (status === 'waiting_approval' || status === 'interrupted' || status === 'degraded') return 'warning'
-  if (status === 'failed' || status === 'error' || status === 'rejected') return 'destructive'
+  if (status === 'waiting_approval' || status === 'interrupted' || status === 'degraded' || status === 'manual_review') return 'warning'
+  if (status === 'failed' || status === 'error' || status === 'rejected' || status === 'refused') return 'destructive'
   if (status === 'idle') return 'secondary'
   return 'default'
 }

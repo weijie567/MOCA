@@ -11,8 +11,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
-import { decideApproval, getApproval, getPendingApprovals } from '@/lib/api'
-import type { ApprovalRecord } from '@/lib/api'
+import { decideApproval, getApproval, getPendingApprovals, isTerminalApprovalStatus } from '@/lib/api'
+import type { ApprovalRecord, ApprovalSubmissionOutcome } from '@/lib/api'
 
 interface ApprovalTabProps {
   approvalId: string | null
@@ -20,8 +20,8 @@ interface ApprovalTabProps {
   riskLevel?: string | null
   canApprove: boolean
   status: string
-  onApprove?: () => void | Promise<void>
-  onReject?: (reason: string) => void | Promise<void>
+  onApprove?: () => Promise<ApprovalSubmissionOutcome>
+  onReject?: (reason: string) => Promise<ApprovalSubmissionOutcome>
 }
 
 type PendingDecision = 'approve' | 'reject' | null
@@ -37,6 +37,12 @@ function actionEntries(proposedAction?: Record<string, unknown> | null) {
   return Object.entries(proposedAction).filter(([, value]) => value !== null && value !== undefined && value !== '')
 }
 
+function reconciledApprovalMessage(approval: ApprovalRecord) {
+  if (approval.status === 'approved') return '服务器已确认审批通过，正在同步运行状态。'
+  if (approval.status === 'rejected') return '服务器已确认审批驳回。'
+  return `服务器已确认审批终态：${approval.status}。`
+}
+
 export function ApprovalTab({
   approvalId,
   canApprove,
@@ -49,6 +55,8 @@ export function ApprovalTab({
   const [activeApproval, setActiveApproval] = useState<ApprovalRecord | null>(null)
   const [loadingList, setLoadingList] = useState(false)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [detailRefresh, setDetailRefresh] = useState(0)
+  const [contextInvalidated, setContextInvalidated] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [pendingDecision, setPendingDecision] = useState<PendingDecision>(null)
@@ -98,6 +106,7 @@ export function ApprovalTab({
     }
     let active = true
     setLoadingDetail(true)
+    setContextInvalidated(true)
     setActiveApproval(null)
     void getApproval(selectedApprovalId).then((result) => {
       if (!active) return
@@ -107,61 +116,100 @@ export function ApprovalTab({
         return
       }
       setActiveApproval(result.data)
+      setContextInvalidated(false)
       setLoadError(null)
     })
     return () => { active = false }
-  }, [canApprove, selectedApprovalId])
+  }, [canApprove, detailRefresh, selectedApprovalId])
 
   async function confirmDecision() {
-    if (!activeApproval || !pendingDecision || submitting) return
+    if (!activeApproval?.decision_context || !pendingDecision || submitting) return
     const frozenContext = structuredClone(activeApproval.decision_context)
     setSubmitting(true)
     setStatusMessage(null)
+    let outcome: ApprovalSubmissionOutcome = { kind: 'unavailable', approval: null }
     try {
       if (pendingDecision === 'approve') {
         if (activeApproval.id === approvalId && onApprove) {
-          await onApprove()
-          await loadPendingApprovals()
+          outcome = await onApprove()
         } else {
           const result = await decideApproval(frozenContext, { decision_type: 'approve' })
-          if (!result.success) throw new Error(result.error.code)
-          await loadPendingApprovals()
+          if (result.success) {
+            outcome = { kind: 'submitted' }
+          } else {
+            const latest = await getApproval(frozenContext.approval_id)
+            if (latest.success && latest.data.decision_context === null && isTerminalApprovalStatus(latest.data.status)) {
+              outcome = { kind: 'reconciled', approval: latest.data }
+            } else if (result.error.code === 'NETWORK_ERROR') {
+              outcome = { kind: 'ambiguous', approval: latest.success ? latest.data : null }
+            } else if (result.error.code === 'HTTP_409' || result.error.code === 'CONFLICT') {
+              outcome = { kind: 'stale', approval: latest.success ? latest.data : null }
+            }
+          }
         }
       } else if (activeApproval.id === approvalId && onReject) {
-        await onReject(reason)
-        await loadPendingApprovals()
+        outcome = await onReject(reason)
       } else {
         const result = await decideApproval(frozenContext, { decision_type: 'reject', reason })
-        if (!result.success) throw new Error(result.error.code)
-        await loadPendingApprovals()
+        if (result.success) {
+          outcome = { kind: 'submitted' }
+        } else {
+          const latest = await getApproval(frozenContext.approval_id)
+          if (latest.success && latest.data.decision_context === null && isTerminalApprovalStatus(latest.data.status)) {
+            outcome = { kind: 'reconciled', approval: latest.data }
+          } else if (result.error.code === 'NETWORK_ERROR') {
+            outcome = { kind: 'ambiguous', approval: latest.success ? latest.data : null }
+          } else if (result.error.code === 'HTTP_409' || result.error.code === 'CONFLICT') {
+            outcome = { kind: 'stale', approval: latest.success ? latest.data : null }
+          }
+        }
       }
-      setStatusMessage('审批决定已提交，正在同步运行状态。')
-      setPendingDecision(null)
-      setReason('')
-    } catch (error) {
-      const code = error instanceof Error ? error.message : ''
-      setPendingDecision(null)
-      setActiveApproval(null)
-      if (code === 'NETWORK_ERROR') {
-        setStatusMessage('提交结果未确认，正在查询最新状态。请勿重复提交。')
-      } else if (code === 'HTTP_409' || code === 'CONFLICT') {
-        setStatusMessage('审批已更新，请查看最新内容后重新决定。')
-      } else {
-        setLoadError('审批不可用或已更新，请返回列表并刷新。')
-      }
-      await getApproval(frozenContext.approval_id)
-    } finally {
-      setSubmitting(false)
+    } catch {
+      outcome = { kind: 'unavailable', approval: null }
     }
+
+    if (outcome.kind === 'submitted') {
+      setContextInvalidated(true)
+      setStatusMessage('审批决定已提交，正在同步运行状态。')
+      await loadPendingApprovals()
+    } else if (outcome.kind === 'reconciled') {
+      setContextInvalidated(true)
+      setActiveApproval(outcome.approval)
+      setStatusMessage(reconciledApprovalMessage(outcome.approval))
+      await loadPendingApprovals()
+    } else if (outcome.kind === 'stale') {
+      setContextInvalidated(true)
+      setActiveApproval(outcome.approval)
+      setStatusMessage('审批已更新，请查看最新内容后重新决定。')
+    } else if (outcome.kind === 'ambiguous') {
+      setContextInvalidated(true)
+      setActiveApproval(outcome.approval)
+      setStatusMessage('提交结果未确认，已查询最新状态。请勿重复提交。')
+    } else {
+      setContextInvalidated(true)
+      setActiveApproval(null)
+      setLoadError('审批不可用或已更新，请返回列表并刷新。')
+    }
+    setPendingDecision(null)
+    setReason('')
+    setSubmitting(false)
   }
 
   const context = activeApproval?.decision_context
   const expired = context ? Date.parse(context.expires_at) <= Date.now() : true
   const canApproveDecision = Boolean(
-    context && activeApproval?.status === 'pending' && !expired && context.allowed_decision_types.includes('approve'),
+    context
+    && !contextInvalidated
+    && activeApproval?.status === 'pending'
+    && !expired
+    && context.allowed_decision_types.includes('approve'),
   )
   const canRejectDecision = Boolean(
-    context && activeApproval?.status === 'pending' && !expired && context.allowed_decision_types.includes('reject'),
+    context
+    && !contextInvalidated
+    && activeApproval?.status === 'pending'
+    && !expired
+    && context.allowed_decision_types.includes('reject'),
   )
 
   return (
@@ -208,7 +256,10 @@ export function ApprovalTab({
                 className={`w-full rounded-md border p-3 text-left text-body transition-colors ${
                   activeApproval?.id === approval.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40'
                 }`}
-                onClick={() => setSelectedApprovalId(approval.id)}
+                onClick={() => {
+                  setSelectedApprovalId(approval.id)
+                  setDetailRefresh((current) => current + 1)
+                }}
                 aria-pressed={selectedApprovalId === approval.id}
               >
                 <div className="flex items-center justify-between gap-3">

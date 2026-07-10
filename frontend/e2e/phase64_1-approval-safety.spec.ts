@@ -44,6 +44,17 @@ function approvalRecord(context: DecisionContext) {
   }
 }
 
+function terminalApprovalRecord(context: DecisionContext) {
+  return {
+    ...approvalRecord(context),
+    status: 'approved',
+    decision: 'approve',
+    decided_by: 'phase64-reviewer',
+    decided_at: '2026-07-10T08:00:00Z',
+    decision_context: null,
+  }
+}
+
 async function mockAuth(page: Page) {
   await page.route('**/api/v1/auth/demo-token', async (route) => {
     await route.fulfill({
@@ -82,7 +93,10 @@ async function mockApprovalApi(
     state.detailReads += 1
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ success: true, data: approvalRecord(context) }),
+      body: JSON.stringify({
+        success: true,
+        data: state.cleared ? terminalApprovalRecord(context) : approvalRecord(context),
+      }),
     })
   })
 
@@ -90,6 +104,7 @@ async function mockApprovalApi(
     state.decideCalls += 1
     state.capturedBodies.push(route.request().postDataJSON() as Record<string, unknown>)
     if (scenario === 'ambiguous') {
+      state.cleared = true
       await route.abort('connectionfailed')
       return
     }
@@ -197,14 +212,14 @@ test.describe('Phase 64.1 mocked approval safety', () => {
     await expect(page.getByRole('button', { name: '批准', exact: true }).first()).toBeDisabled()
   })
 
-  test('ambiguous submit queries latest state without automatic replay', async ({ page }) => {
+  test('committed submit with a lost response reconciles terminal state without replay', async ({ page }) => {
     const state = await mockApprovalApi(page, 'ambiguous')
     await openApprovalTab(page)
 
     await page.getByRole('button', { name: '批准', exact: true }).first().click()
     await page.getByRole('dialog').getByRole('button', { name: '批准', exact: true }).click()
 
-    await expect(page.getByText('提交结果未确认，正在查询最新状态。请勿重复提交。')).toBeVisible()
+    await expect(page.getByText('服务器已确认审批通过，正在同步运行状态。')).toBeVisible()
     expect(state.decideCalls).toBe(1)
     expect(state.detailReads).toBeGreaterThanOrEqual(2)
   })
