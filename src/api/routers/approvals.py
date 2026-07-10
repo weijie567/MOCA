@@ -114,7 +114,11 @@ async def decide_approval(
     except ApprovalTransitionError as exc:
         raise _approval_http_error(exc) from exc
     if context is None:
-        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
+        terminal_request = await service.get_request(approval_uuid, user.tenant_id)
+        if terminal_request is None:
+            raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
+        _assert_approval_scope(user, terminal_request)
+        raise _approval_http_error(ApprovalTransitionError("approval_conflict"))
 
     approval = context.request
     _assert_approval_scope(user, approval)
