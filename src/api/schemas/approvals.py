@@ -6,6 +6,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticCustomError
 
+from src.approvals.schemas import ApprovalDecisionContextV1
+
 
 class DecideRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -49,6 +51,7 @@ class ApprovalInfoRequest(BaseModel):
 
 
 class ApprovalResponse(BaseModel):
+    decision_context: ApprovalDecisionContextV1 | None = None
     id: str
     run_id: str
     thread_id: str

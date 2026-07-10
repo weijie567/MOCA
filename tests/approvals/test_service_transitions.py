@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -769,3 +771,16 @@ def test_create_request_rejects_missing_risk_context_before_persistence(seeded_s
             requested_by=requested_by,
             risk_level=None,  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.asyncio
+async def test_decision_context_matches_shared_fixture_shape(session: AsyncSession, seeded_session):
+    request, _level, _assignment = await _approval_bundle(session, seeded_session)
+
+    context = await ApprovalService(session).project_decision_context(request.id, request.tenant_id)
+    fixture = json.loads(Path("contracts/fixtures/approval_decision_context_v1.json").read_text())
+
+    assert context is not None
+    assert set(context.model_dump(mode="json")) == set(fixture)
+    assert context.approval_id == request.id
+    assert context.allowed_decision_types == ["accept", "approve", "edit", "respond", "reject", "ignore"]

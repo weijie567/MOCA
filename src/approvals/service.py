@@ -22,6 +22,8 @@ from src.approvals.events import (
 from src.approvals.policy import ApprovalPolicy, ApprovalPolicyError
 from src.approvals.repository import ApprovalRepository, ApprovalRepositoryConflict
 from src.approvals.schemas import (
+    APPROVAL_ALLOWED_DECISION_TYPES,
+    ApprovalDecisionContextV1,
     ApprovalDecisionCommand,
     ApprovalDecisionResult,
     ApprovalInfoCommand,
@@ -57,6 +59,36 @@ class ApprovalDecisionContext:
     request: ApprovalRequest
     level: ApprovalLevel
     assignment: ApprovalAssignment
+
+    def project(self) -> ApprovalDecisionContextV1:
+        return ApprovalDecisionContextV1(
+            approval_id=self.request.id,
+            tenant_ref=str(self.request.tenant_id),
+            run_id=self.request.run_id,
+            thread_id=self.request.thread_id,
+            status=self.request.status,
+            allowed_decision_types=list(APPROVAL_ALLOWED_DECISION_TYPES),
+            level_id=self.level.id,
+            assignment_id=self.assignment.id,
+            request_version=self.request.version,
+            level_version=self.level.version,
+            assignment_version=self.assignment.version,
+            revision=self.request.revision,
+            action_payload_hash=self.request.action_payload_hash,
+            safety_snapshot_ref=self.request.safety_snapshot_ref,
+            safety_snapshot_hash=self.request.safety_snapshot_hash,
+            proposed_action=self._safe_proposed_action(self.request.proposed_action),
+            risk_level=self.request.risk_level,
+            risk_rule_ref=self.request.risk_rule_ref,
+            risk_reason=self.request.risk_reason,
+            expires_at=self.request.expires_at,
+            created_at=self.request.created_at,
+        )
+
+    @staticmethod
+    def _safe_proposed_action(value: dict[str, Any]) -> dict[str, Any]:
+        safe_fields = ("action_id", "action_type", "target_type", "target_id", "amount", "currency", "reason")
+        return {field: value[field] for field in safe_fields if value.get(field) is not None}
 
 
 @dataclass(frozen=True)
@@ -193,6 +225,12 @@ class ApprovalService:
         if assignment is None:
             raise ApprovalTransitionError("approval_conflict")
         return ApprovalDecisionContext(request=request, level=level, assignment=assignment)
+
+    async def project_decision_context(
+        self, approval_id: UUID, tenant_id: UUID
+    ) -> ApprovalDecisionContextV1 | None:
+        context = await self.get_decision_context(approval_id, tenant_id)
+        return context.project() if context is not None else None
 
     async def decide(self, command: ApprovalDecisionCommand) -> ApprovalDecisionResult:
         try:

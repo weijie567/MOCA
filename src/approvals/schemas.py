@@ -16,6 +16,7 @@ PROPOSED_ACTION_SCHEMA_VERSION = "proposed_action.v1"
 APPROVAL_RESULT_SCHEMA_VERSION = "approval_result.v1"
 RISK_DECISION_SCHEMA_VERSION = "risk_decision.v1"
 AUTO_ALLOWED_ACTION_BINDING_SCHEMA_VERSION = "auto_allowed_action_binding.v1"
+APPROVAL_DECISION_CONTEXT_SCHEMA_VERSION = "approval_decision_context.v1"
 
 ApprovalDecisionType = Literal["accept", "approve", "edit", "respond", "reject", "ignore"]
 ApprovalRequestStatus = Literal[
@@ -27,6 +28,44 @@ ApprovalRequestStatus = Literal[
     "expired",
     "cancelled",
 ]
+
+APPROVAL_ALLOWED_DECISION_TYPES: tuple[ApprovalDecisionType, ...] = (
+    "accept",
+    "approve",
+    "edit",
+    "respond",
+    "reject",
+    "ignore",
+)
+
+
+class ApprovalDecisionContextV1(BaseModel):
+    """Complete immutable binding a client must echo when deciding."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["approval_decision_context.v1"] = APPROVAL_DECISION_CONTEXT_SCHEMA_VERSION
+    approval_id: UUID
+    tenant_ref: str = Field(min_length=1)
+    run_id: UUID
+    thread_id: str = Field(min_length=1)
+    status: ApprovalRequestStatus
+    allowed_decision_types: list[ApprovalDecisionType] = Field(min_length=1)
+    level_id: UUID
+    assignment_id: UUID
+    request_version: int = Field(ge=1)
+    level_version: int = Field(ge=1)
+    assignment_version: int = Field(ge=1)
+    revision: int = Field(ge=1)
+    action_payload_hash: str = Field(min_length=1)
+    safety_snapshot_ref: str = Field(min_length=1)
+    safety_snapshot_hash: str = Field(min_length=1)
+    proposed_action: dict[str, Any]
+    risk_level: str = Field(min_length=1)
+    risk_rule_ref: str | None = None
+    risk_reason: str | None = None
+    expires_at: datetime
+    created_at: datetime
 
 
 class RiskDecisionV1(BaseModel):

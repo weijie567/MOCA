@@ -101,7 +101,10 @@ async def decide_approval(
         await session.refresh(approval)
         return ApiResponse(
             success=True,
-            data=_to_response(approval, result=retry_result).model_dump(mode="json"),
+            data=_to_response(
+                approval,
+                result=retry_result,
+            ).model_dump(mode="json"),
             trace_id=getattr(request.state, "trace_id", None),
         )
 
@@ -156,7 +159,11 @@ async def decide_approval(
         await session.commit()
     return ApiResponse(
         success=True,
-        data=_to_response(approval, result=result).model_dump(mode="json"),
+        data=_to_response(
+            approval,
+            result=result,
+            decision_context=context.project(),
+        ).model_dump(mode="json"),
         trace_id=getattr(request.state, "trace_id", None),
     )
 
@@ -203,7 +210,10 @@ async def attach_approval_info(
     await session.commit()
     return ApiResponse(
         success=True,
-        data=_to_response(approval, result=result).model_dump(mode="json"),
+        data=_to_response(
+            approval,
+            result=result,
+        ).model_dump(mode="json"),
         trace_id=getattr(request.state, "trace_id", None),
     )
 
@@ -216,13 +226,15 @@ async def get_approval(
     user: User = Security(get_current_user, scopes=["approvals:review"]),
 ) -> ApiResponse:
     _assert_approval_reviewer(user)
-    approval = await ApprovalService(session).get_request(_parse_approval_id(approval_id), user.tenant_id)
-    if not approval:
+    service = ApprovalService(session)
+    context = await service.get_decision_context(_parse_approval_id(approval_id), user.tenant_id)
+    if not context:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
+    approval = context.request
     _assert_approval_scope(user, approval)
     return ApiResponse(
         success=True,
-        data=_to_response(approval).model_dump(mode="json"),
+        data=_to_response(approval, decision_context=context.project()).model_dump(mode="json"),
         trace_id=getattr(request.state, "trace_id", None),
     )
 
@@ -234,9 +246,15 @@ async def list_pending_approvals(
     user: User = Security(get_current_user, scopes=["approvals:review"]),
 ) -> ApiResponse:
     _assert_approval_reviewer(user)
-    approvals = await ApprovalService(session).list_pending_requests(user.tenant_id)
+    service = ApprovalService(session)
+    approvals = await service.list_pending_requests(user.tenant_id)
     approvals = [approval for approval in approvals if _approval_scope_allowed(user, approval)]
-    payload = ApprovalListResponse(approvals=[_to_response(approval) for approval in approvals], total=len(approvals))
+    responses = []
+    for approval in approvals:
+        context = await service.get_decision_context(approval.id, user.tenant_id)
+        if context is not None:
+            responses.append(_to_response(approval, decision_context=context.project()))
+    payload = ApprovalListResponse(approvals=responses, total=len(responses))
     return ApiResponse(
         success=True, data=payload.model_dump(mode="json"), trace_id=getattr(request.state, "trace_id", None)
     )
@@ -971,8 +989,9 @@ def _parse_approval_id(approval_id: str) -> UUID:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"}) from exc
 
 
-def _to_response(approval, *, result=None) -> ApprovalResponse:
+def _to_response(approval, *, result=None, decision_context=None) -> ApprovalResponse:
     return ApprovalResponse(
+        decision_context=decision_context,
         id=str(approval.id),
         run_id=str(approval.run_id),
         thread_id=approval.thread_id,

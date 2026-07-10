@@ -34,7 +34,7 @@ from src.api.services.agent_run_memory import (
 )
 from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse
 from src.api.schemas.common import ApiResponse
-from src.approvals.schemas import ApprovalRequestCreateCommand
+from src.approvals.schemas import APPROVAL_ALLOWED_DECISION_TYPES, ApprovalRequestCreateCommand
 from src.approvals.service import ApprovalService, ApprovalTransitionError
 from src.auth.permissions import get_current_user
 from src.business.query.projection import safe_business_query_api_payload
@@ -53,7 +53,6 @@ router = APIRouter(tags=["agent-runs"])
 
 ADMIN_RUN_VISIBILITY_ROLES = {"admin"}
 SSE_HEARTBEAT_SECONDS = 15.0
-APPROVAL_ALLOWED_DECISION_TYPES = ["accept", "approve", "edit", "respond", "reject", "ignore"]
 APPROVAL_NOT_EXECUTABLE = "APPROVAL_NOT_EXECUTABLE"
 RUN_CONVERSATION_MESSAGE_MISSING = "RUN_CONVERSATION_MESSAGE_MISSING"
 _TARGET_CONTEXT_KEY = "target" + "_merchant_context"
@@ -841,9 +840,13 @@ async def _create_approval_wait_payload_from_interrupt(
         interrupt_data=interrupt_data,
     )
     try:
-        result = await ApprovalService(session).create_request(command)
+        service = ApprovalService(session)
+        result = await service.create_request(command)
+        decision_context = await service.project_decision_context(result.approval_id, user.tenant_id)
     except ApprovalTransitionError as exc:
         raise ApprovalInterruptValidationError([exc.code]) from exc
+    if decision_context is None:
+        raise ApprovalInterruptValidationError(["approval_decision_context"])
 
     revision_ref = {
         "approval_id": str(result.approval_id),
@@ -882,7 +885,8 @@ async def _create_approval_wait_payload_from_interrupt(
         "claim_verification_summary": _json_safe(result.claim_verification_summary),
         "risk_decision_ref": result.risk_decision_ref,
         "risk_decision_summary": _risk_decision_summary(result.risk_decision),
-        "allowed_decision_types": APPROVAL_ALLOWED_DECISION_TYPES,
+        "allowed_decision_types": list(APPROVAL_ALLOWED_DECISION_TYPES),
+        "decision_context": decision_context.model_dump(mode="json"),
     }
 
 
