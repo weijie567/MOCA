@@ -23,6 +23,7 @@ from src.approvals.snapshot_service import compute_action_payload_hash
 from src.common.canonical_hash import CanonicalHashError
 from src.db.models import ActionSafetySnapshot, AgentRun, ApprovalRequest, AutoActionCapability
 from src.knowledge.schemas import EvidenceRefV1
+from src.platform.trusted_context import MerchantScopeV1
 from src.tools.contracts import BusinessFactRefV1
 
 _IDEMPOTENCY_CONFLICTS = {"idempotency_key_conflict", "idempotency_binding_conflict"}
@@ -89,6 +90,7 @@ class ActionService:
         action_payload_hash: str | None = None,
         safety_snapshot_ref: str | None = None,
         safety_snapshot_hash: str | None = None,
+        merchant_scope: MerchantScopeV1 | dict[str, Any] | list[str] | None = None,
         target_merchant_id: str | None = None,
         target_merchant_ref: dict[str, Any] | None = None,
         business_fact_refs: list[dict[str, Any]] | None = None,
@@ -142,6 +144,7 @@ class ActionService:
                     action_payload_hash=action_payload_hash,
                     safety_snapshot_ref=safety_snapshot_ref,
                     safety_snapshot_hash=safety_snapshot_hash,
+                    merchant_scope=merchant_scope,
                     target_merchant_id=target_merchant_id,
                     target_merchant_ref=target_merchant_ref,
                     business_fact_refs=business_fact_refs,
@@ -264,6 +267,7 @@ class ActionService:
         action_payload_hash: str,
         safety_snapshot_ref: str,
         safety_snapshot_hash: str,
+        merchant_scope: MerchantScopeV1 | dict[str, Any] | list[str] | None,
         target_merchant_id: str | None,
         target_merchant_ref: dict[str, Any] | None,
         business_fact_refs: list[dict[str, Any]] | None,
@@ -323,6 +327,7 @@ class ActionService:
                 action_payload_hash=action_payload_hash,
                 safety_snapshot_ref=safety_snapshot_ref,
                 safety_snapshot_hash=safety_snapshot_hash,
+                merchant_scope=merchant_scope,
                 requested_binding=requested_binding,
                 auto_action_capability_ref=auto_action_capability_ref,
                 auto_allowed_binding=auto_allowed_binding,
@@ -388,6 +393,7 @@ class ActionService:
         action_payload_hash: str,
         safety_snapshot_ref: str,
         safety_snapshot_hash: str,
+        merchant_scope: MerchantScopeV1 | dict[str, Any] | list[str] | None,
         requested_binding: dict[str, Any],
         auto_action_capability_ref: str | None,
         auto_allowed_binding: dict[str, Any] | None,
@@ -413,6 +419,7 @@ class ActionService:
                 tenant_id=tenant_id,
                 actor_id=actor_id,
                 run_id=run_id,
+                merchant_scope=merchant_scope,
                 target_merchant_id=target_merchant_id,
                 canonical_action=action_type,
                 action_payload_hash=action_payload_hash,
@@ -750,6 +757,7 @@ async def create_coupon_grant_draft(
     action_payload_hash: str | None = None,
     safety_snapshot_ref: str | None = None,
     safety_snapshot_hash: str | None = None,
+    merchant_scope: MerchantScopeV1 | dict[str, Any] | list[str] | None = None,
     target_merchant_id: str | None = None,
     target_merchant_ref: dict[str, Any] | None = None,
     business_fact_refs: list[dict[str, Any]] | None = None,
@@ -776,6 +784,7 @@ async def create_coupon_grant_draft(
         action_payload_hash=action_payload_hash,
         safety_snapshot_ref=safety_snapshot_ref,
         safety_snapshot_hash=safety_snapshot_hash,
+        merchant_scope=merchant_scope,
         target_merchant_id=target_merchant_id,
         target_merchant_ref=target_merchant_ref,
         business_fact_refs=business_fact_refs,

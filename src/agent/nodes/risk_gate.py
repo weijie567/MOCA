@@ -13,7 +13,9 @@ import yaml
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 
+from src.actions.capabilities import AutoActionCapabilityService, CapabilityMintError
 from src.agent.context import ContextAssembler, PromptAssembly
 from src.agent.context.session_memory_bundle import load_session_prompt_context
 from src.agent.prompts import ASSESS_RISK_SYSTEM
@@ -34,10 +36,11 @@ from src.approvals.snapshot_service import (
 )
 from src.approvals.snapshots import build_action_safety_snapshot
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
-from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1, TargetMerchantBindingV1
+from src.approvals.schemas import RiskDecisionV1, TargetMerchantBindingV1
 from src.approvals.schemas import TrustedApprovalResultV1
 from src.config import settings
 from src.knowledge.schemas import ClaimVerificationBundleV1, EvidenceRefV1, canonical_evidence_projection
+from src.platform.trusted_context import TrustedContext
 from src.tools.contracts import BusinessFactRefV1
 
 RISK_RULES_PATH = Path("rules/risk_rules.yaml")
@@ -806,29 +809,6 @@ def _approval_idempotency_key(
     return _stable_idempotency_key("approval", raw_material)
 
 
-def _auto_allowed_idempotency_key(
-    *,
-    state: AgentState,
-    proposed_action: dict[str, Any],
-    action_payload_hash: str,
-    safety_snapshot_hash: str,
-    risk_decision_ref: str,
-) -> str:
-    raw_material = ":".join(
-        [
-            "auto_allowed",
-            str(state.get("tenant_id") or ""),
-            str(state.get("current_run_id") or ""),
-            str(proposed_action.get("action_type") or ""),
-            str(proposed_action.get("target_id") or ""),
-            action_payload_hash,
-            safety_snapshot_hash,
-            risk_decision_ref,
-        ]
-    )
-    return _stable_idempotency_key("auto_allowed", raw_material)
-
-
 def _approval_plan(
     *,
     assessment: dict[str, Any],
@@ -862,38 +842,6 @@ def _approval_plan(
         "claim_verification_summary": claim_verification_summary,
         "allowed_decision_types": APPROVAL_DECISION_TYPES,
     }
-
-
-def _auto_allowed_binding(
-    *,
-    state: AgentState,
-    target_merchant_ref: TargetMerchantBindingV1,
-    business_fact_refs: list[BusinessFactRefV1],
-    verified_evidence_refs: list[EvidenceRefV1],
-    claim_verification_summary: dict[str, Any] | None,
-    action_payload_hash: str,
-    safety_snapshot_ref: str,
-    safety_snapshot_hash: str,
-    risk_decision_ref: str,
-    idempotency_key: str,
-) -> AutoAllowedActionBindingV1 | None:
-    try:
-        return AutoAllowedActionBindingV1(
-            tenant_id=str(state.get("tenant_id") or ""),
-            run_id=str(state.get("current_run_id") or ""),
-            target_merchant_id=target_merchant_ref.target_merchant_id,
-            action_payload_hash=action_payload_hash,
-            safety_snapshot_ref=safety_snapshot_ref,
-            safety_snapshot_hash=safety_snapshot_hash,
-            risk_decision_ref=risk_decision_ref,
-            idempotency_key=idempotency_key,
-            business_fact_refs=business_fact_refs,
-            verified_evidence_refs=verified_evidence_refs,
-            claim_verification_ref=None,
-            claim_verification_summary=claim_verification_summary,
-        )
-    except ValidationError:
-        return None
 
 
 def _is_auto_allowed_assessment(assessment: dict[str, Any]) -> bool:
@@ -934,6 +882,7 @@ def _phase34_fail_closed_result(
         "claim_verification_ref": None,
         "claim_verification_summary": None,
         "approval_idempotency_key": None,
+        "auto_action_capability": None,
         "auto_allowed_binding": None,
         "auto_allowed": False,
         "action_payload_hash": None,
@@ -944,7 +893,7 @@ def _phase34_fail_closed_result(
     }
 
 
-def _attach_phase34_binding_state(
+async def _attach_phase34_binding_state(
     *,
     state: AgentState,
     result: dict[str, Any],
@@ -955,6 +904,8 @@ def _attach_phase34_binding_state(
     safety_snapshot_ref: str,
     safety_snapshot_hash: str,
     evidence_refs: list[EvidenceRefV1],
+    session: Any | None,
+    trusted_context: TrustedContext | None,
 ) -> dict[str, Any]:
     business_fact_refs = _business_fact_refs_from_state(state)
     target_merchant_ref = _target_merchant_binding(
@@ -997,27 +948,37 @@ def _attach_phase34_binding_state(
         risk_decision=risk_decision,
         approval_idempotency_key=approval_idempotency_key,
     )
-    auto_allowed_binding: dict[str, Any] | None = None
+    auto_action_capability: dict[str, Any] | None = None
     if _is_auto_allowed_assessment(assessment):
-        binding = _auto_allowed_binding(
-            state=state,
-            target_merchant_ref=target_merchant_ref,
-            business_fact_refs=business_fact_refs,
-            verified_evidence_refs=evidence_refs,
-            claim_verification_summary=claim_summary,
-            action_payload_hash=action_payload_hash,
-            safety_snapshot_ref=safety_snapshot_ref,
-            safety_snapshot_hash=safety_snapshot_hash,
-            risk_decision_ref=risk_decision_ref,
-            idempotency_key=_auto_allowed_idempotency_key(
-                state=state,
-                proposed_action=proposed_action,
-                action_payload_hash=action_payload_hash,
-                safety_snapshot_hash=safety_snapshot_hash,
-                risk_decision_ref=risk_decision_ref,
-            ),
-        )
-        auto_allowed_binding = binding.model_dump(mode="json") if binding else None
+        if session is None or trusted_context is None:
+            return _phase34_fail_closed_result(
+                result,
+                assessment,
+                reason="Trusted capability mint context is unavailable.",
+            )
+        try:
+            async with session.begin_nested():
+                grant = await AutoActionCapabilityService(session).mint(
+                    tenant_id=UUID(trusted_context.tenant_id),
+                    actor_id=UUID(trusted_context.user_id),
+                    run_id=UUID(trusted_context.run_id),
+                    merchant_scope=trusted_context.merchant_scope,
+                    target_merchant_id=target_merchant_ref.target_merchant_id,
+                    canonical_action=str(proposed_action.get("action_type") or ""),
+                    action_payload_hash=action_payload_hash,
+                    safety_snapshot_ref=safety_snapshot_ref,
+                    safety_snapshot_hash=safety_snapshot_hash,
+                    risk_decision_ref=risk_decision_ref,
+                    risk_decision=risk_decision,
+                    risk_disposition=str(assessment.get("risk_disposition") or ""),
+                )
+            auto_action_capability = grant.model_dump(mode="json")
+        except (CapabilityMintError, SQLAlchemyError, TypeError, ValueError) as exc:
+            return _phase34_fail_closed_result(
+                result,
+                assessment,
+                reason=f"Auto-action capability could not be minted: {exc}",
+            )
 
     return {
         **result,
@@ -1036,8 +997,30 @@ def _attach_phase34_binding_state(
         "risk_decision": risk_decision.model_dump(mode="json"),
         "approval_idempotency_key": approval_idempotency_key,
         "approval_plan": approval_plan,
-        "auto_allowed_binding": auto_allowed_binding,
+        "auto_action_capability": auto_action_capability,
+        "auto_allowed_binding": None,
+        "auto_allowed": auto_action_capability is not None,
     }
+
+
+def _trusted_capability_context(
+    state: AgentState,
+    config: RunnableConfig | None,
+) -> TrustedContext | None:
+    raw_context = (config or {}).get("configurable", {}).get("trusted_context")
+    if raw_context is None:
+        return None
+    try:
+        trusted = TrustedContext.model_validate(raw_context)
+    except ValidationError:
+        return None
+    if (
+        trusted.tenant_id != str(state.get("tenant_id") or "")
+        or trusted.user_id != str(state.get("user_id") or "")
+        or trusted.run_id != str(state.get("current_run_id") or "")
+    ):
+        return None
+    return trusted
 
 
 def _allow_ephemeral_snapshot_binding(state: AgentState, config: RunnableConfig | None) -> bool:
@@ -1141,7 +1124,7 @@ async def _attach_snapshot_binding(
                 "retrieval_config_version": _retrieval_config_version(evidence_refs),
                 "evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs],
             }
-            return _attach_phase34_binding_state(
+            return await _attach_phase34_binding_state(
                 state=state,
                 result=snapshot_result,
                 proposed_action=proposed_action,
@@ -1151,6 +1134,8 @@ async def _attach_snapshot_binding(
                 safety_snapshot_ref=snapshot.snapshot_ref,
                 safety_snapshot_hash=snapshot.immutable_hash,
                 evidence_refs=evidence_refs,
+                session=None,
+                trusted_context=None,
             )
         if session is None:
             raise ActionSafetySnapshotPersistenceError("session unavailable for snapshot persistence")
@@ -1199,6 +1184,7 @@ async def _attach_snapshot_binding(
             "claim_verification_ref": None,
             "claim_verification_summary": None,
             "approval_idempotency_key": None,
+            "auto_action_capability": None,
             "auto_allowed_binding": None,
             "auto_allowed": False,
             "safety_snapshot_verified": False,
@@ -1220,7 +1206,7 @@ async def _attach_snapshot_binding(
         "retrieval_config_version": _retrieval_config_version(evidence_refs),
         "evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs],
     }
-    return _attach_phase34_binding_state(
+    return await _attach_phase34_binding_state(
         state=state,
         result=snapshot_result,
         proposed_action=proposed_action,
@@ -1230,6 +1216,8 @@ async def _attach_snapshot_binding(
         safety_snapshot_ref=snapshot.safety_snapshot_ref,
         safety_snapshot_hash=snapshot.safety_snapshot_hash,
         evidence_refs=evidence_refs,
+        session=session,
+        trusted_context=_trusted_capability_context(state, config),
     )
 
 

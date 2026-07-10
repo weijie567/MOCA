@@ -273,18 +273,10 @@ def _auto_allowed_route_state() -> dict[str, Any]:
             ],
             "blocked_claims": [],
         },
-        "auto_allowed_binding": {
-            "schema_version": "auto_allowed_action_binding.v1",
-            "tenant_id": GRAPH_TEST_TENANT_ID,
-            "run_id": run_id,
-            "target_merchant_id": target_merchant_id,
-            "action_payload_hash": action_payload_hash,
-            "safety_snapshot_ref": safety_snapshot_ref,
-            "safety_snapshot_hash": safety_snapshot_hash,
-            "risk_decision_ref": risk_decision_ref,
-            "idempotency_key": "auto:test",
-            "business_fact_refs": [business_fact_ref],
-            "verified_evidence_refs": [evidence_ref],
+        "auto_action_capability": {
+            "schema_version": "auto_action_capability_ref.v1",
+            "capability_ref": "aac_abcdefghijklmnopqrstuvwxyz0123456789",
+            "expires_at": "2026-07-10T12:00:00Z",
         },
     }
 

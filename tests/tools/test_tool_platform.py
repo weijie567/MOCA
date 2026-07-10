@@ -32,6 +32,7 @@ from src.tools.contracts import (
     ToolCallContext,
 )
 from src.tools.policy import (
+    AUTO_ACTION_CAPABILITY_DISPATCH_REASON,
     TOOL_POLICY_CORE_REASON_CODES,
     ToolPolicyEngine,
     project_prompt_safe_input_schema,
@@ -816,6 +817,96 @@ def test_runtime_auth_declarative_gates_preserve_multi_denial_reason_order() -> 
         "safety_snapshot_required",
         "idempotency_required",
     ]
+
+
+def _auto_capability_runtime_args(*, target_merchant_id: str = "M-ALLOWED") -> dict[str, Any]:
+    return {
+        "action_type": "issue_coupon",
+        "payload": {"action_type": "issue_coupon", "target_id": "RF-1"},
+        "action_payload_hash": "sha256:" + "a" * 64,
+        "safety_snapshot_ref": "snapshot:auto-capability",
+        "safety_snapshot_hash": "sha256:" + "b" * 64,
+        "target_merchant_id": target_merchant_id,
+        "auto_action_capability_ref": "aac_" + "x" * 43,
+    }
+
+
+def test_runtime_auth_allows_only_bounded_capability_dispatch_without_general_permission() -> None:
+    decision = ToolPolicyEngine().runtime_auth(
+        tool_name="create_coupon_grant_draft",
+        args=_auto_capability_runtime_args(),
+        ctx=_ctx(
+            caller_node="action_draft",
+            permissions=[],
+            merchant_scope=MerchantScopeV1(merchant_ids=["M-ALLOWED"]),
+            idempotency_key="auto-capability-idempotency",
+            safety_snapshot_ref="snapshot:auto-capability",
+        ),
+        availability_map={"create_coupon_grant_draft": True},
+    )
+
+    assert decision.decision == "allowed"
+    assert decision.reason_codes == [AUTO_ACTION_CAPABILITY_DISPATCH_REASON]
+    assert decision.required_scopes == []
+    assert decision.matched_scope is None
+    assert decision.resource_scope_binding == {"target_merchant_id": "M-ALLOWED"}
+
+
+@pytest.mark.parametrize(
+    ("args_patch", "ctx_patch"),
+    [
+        ({"auto_action_capability_ref": None}, {}),
+        ({"auto_action_capability_ref": "aac_short"}, {}),
+        ({}, {"caller_node": "investigate"}),
+        ({}, {"approval_ref": "approval-request"}),
+        ({"approval_request_id": "approval-request"}, {}),
+    ],
+)
+def test_runtime_auth_capability_dispatch_cannot_impersonate_permission(
+    args_patch: dict[str, Any],
+    ctx_patch: dict[str, Any],
+) -> None:
+    args = {**_auto_capability_runtime_args(), **args_patch}
+    context = {
+        "caller_node": "action_draft",
+        "permissions": [],
+        "merchant_scope": MerchantScopeV1(merchant_ids=["M-ALLOWED"]),
+        "idempotency_key": "auto-capability-idempotency",
+        "safety_snapshot_ref": "snapshot:auto-capability",
+        **ctx_patch,
+    }
+
+    decision = ToolPolicyEngine().runtime_auth(
+        tool_name="create_coupon_grant_draft",
+        args=args,
+        ctx=_ctx(**context),
+        availability_map={"create_coupon_grant_draft": True},
+    )
+
+    assert decision.decision == "denied"
+    assert "missing_permission" in decision.reason_codes
+
+
+def test_runtime_auth_capability_dispatch_denies_out_of_scope_target_merchant() -> None:
+    decision = ToolPolicyEngine().runtime_auth(
+        tool_name="create_coupon_grant_draft",
+        args=_auto_capability_runtime_args(target_merchant_id="M-DENIED"),
+        ctx=_ctx(
+            caller_node="action_draft",
+            permissions=[],
+            merchant_scope=MerchantScopeV1(merchant_ids=["M-ALLOWED"]),
+            idempotency_key="auto-capability-idempotency",
+            safety_snapshot_ref="snapshot:auto-capability",
+        ),
+        availability_map={"create_coupon_grant_draft": True},
+    )
+
+    assert decision.decision == "denied"
+    assert decision.reason_codes == ["scope_denied"]
+    assert decision.resource_scope_binding == {
+        "target_merchant_id": "M-DENIED",
+        "_scope_denied": True,
+    }
 
 
 @pytest.mark.asyncio

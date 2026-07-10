@@ -118,9 +118,9 @@ async def _assert_no_drafts_for_run(session: AsyncSession, run_id: UUID) -> None
     assert rows == []
 
 
-def _assert_auto_allowed_binding_required(result: dict[str, Any]) -> None:
+def _assert_auto_action_capability_required(result: dict[str, Any]) -> None:
     assert result["status"] == "error"
-    assert result["error"]["error_code"] == "AUTO_ALLOWED_BINDING_REQUIRED"
+    assert result["error"]["error_code"] == "AUTO_ACTION_CAPABILITY_REQUIRED"
     assert result["error"]["retryable"] is False
 
 
@@ -340,7 +340,7 @@ async def test_create_coupon_grant_draft_rejects_pending_high_risk_snapshot_when
         **_binding_kwargs(request, approval_request_id=None),
     )
 
-    _assert_auto_allowed_binding_required(result)
+    _assert_auto_action_capability_required(result)
     await _assert_no_drafts_for_run(session, request.run_id)
 
 
@@ -396,7 +396,7 @@ async def test_create_coupon_grant_draft_requires_explicit_approval_id_when_matc
         **_binding_kwargs(request, approval_request_id=None),
     )
 
-    _assert_auto_allowed_binding_required(omitted)
+    _assert_auto_action_capability_required(omitted)
     await _assert_no_drafts_for_run(session, request.run_id)
 
     supplied = await create_coupon_grant_draft(
@@ -415,7 +415,7 @@ async def test_create_coupon_grant_draft_requires_explicit_approval_id_when_matc
 
 
 @pytest.mark.asyncio
-async def test_create_coupon_grant_draft_rejects_bare_snapshot_without_auto_allowed_binding(
+async def test_create_coupon_grant_draft_rejects_bare_snapshot_without_auto_action_capability(
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
@@ -471,7 +471,7 @@ async def test_create_coupon_grant_draft_rejects_bare_snapshot_without_auto_allo
         risk_decision=command.risk_decision.model_dump(mode="json") if command.risk_decision else None,
     )
 
-    _assert_auto_allowed_binding_required(result)
+    _assert_auto_action_capability_required(result)
     await _assert_no_drafts_for_run(session, run_id)
 
 
@@ -641,6 +641,7 @@ async def test_action_executor_emits_safe_action_draft_created_event(
     assert event.resource_refs["safety_snapshot_hash"] == request.safety_snapshot_hash
     assert event.redacted_payload == {
         "action_type": "issue_coupon",
+        "authorization_source": "approval",
         "execution_mode": "demo",
         "external_side_effect": False,
         "draft_outcome": {

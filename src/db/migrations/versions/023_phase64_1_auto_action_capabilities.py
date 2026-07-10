@@ -41,6 +41,7 @@ def upgrade() -> None:
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("actor_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("run_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("merchant_scope_hash", sa.String(length=128), nullable=False),
         sa.Column("target_merchant_id", sa.String(length=128), nullable=False),
         sa.Column("canonical_action", sa.String(length=64), nullable=False),
         sa.Column("action_payload_hash", sa.String(length=128), nullable=False),

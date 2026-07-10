@@ -537,15 +537,17 @@ async def test_execute_action_auto_action_capability_invokes_only_draft_tool(mon
     state["risk_assessment"] = {"approval_required": False}
     state["approval_result"] = None
     state["auto_action_capability"] = _auto_action_capability(state)
-    permissions_before = list(_trusted_config(state)["configurable"]["permissions"])
+    config = _trusted_config(state, permissions=[])
+    permissions_before = list(config["configurable"]["permissions"])
 
-    result = await action_draft_module.action_draft(state, _trusted_config(state))
+    result = await action_draft_module.action_draft(state, config)
 
     assert result["draft_outcome"]["status"] == "not_executed_demo"
     _, kwargs = create_draft.await_args
     assert kwargs["approval_request_id"] is None
     assert kwargs["auto_action_capability_ref"] == state["auto_action_capability"]["capability_ref"]
-    assert _trusted_config(state)["configurable"]["permissions"] == permissions_before
+    assert kwargs["merchant_scope"] == config["configurable"]["trusted_context"]["merchant_scope"]
+    assert config["configurable"]["permissions"] == permissions_before == []
 
 
 @pytest.mark.asyncio

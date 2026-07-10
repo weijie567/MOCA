@@ -97,11 +97,12 @@ def test_phase34_final_response_production_has_no_execution_positive_wording() -
         assert phrase not in source
 
 
-def test_phase34_route_after_risk_uses_strict_auto_allowed_binding_validator() -> None:
+def test_phase34_route_after_risk_requires_opaque_auto_action_capability() -> None:
     source = _source(GRAPH_PATH)
 
-    assert "AutoAllowedActionBindingV1" in source
-    assert 'return "action_draft" if _auto_allowed_binding_ready(state) else "final_response"' in source
+    assert "AutoActionCapabilityRefV1" in source
+    assert 'return "action_draft" if _auto_action_capability_ready(state) else "final_response"' in source
+    assert "AutoAllowedActionBindingV1" not in source
     assert "approval_required" in source
 
 

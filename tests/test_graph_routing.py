@@ -23,8 +23,8 @@ from src.agent.routing import (
 )
 from src.agent.schemas import IntentResultV3, RiskAssessment
 from src.approvals.snapshot_service import compute_action_payload_hash
-from src.approvals.schemas import AutoAllowedActionBindingV1
 from src.db.models import ActionSafetySnapshot
+from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.contracts import BusinessFactRefV1
 from tests.approvals.test_service_transitions import _create_run, _evidence_ref
 from tests.architecture.graph_baseline import graph_conditional_edge_mappings
@@ -157,21 +157,12 @@ def _approval_plan_payload(state: dict) -> dict:
     }
 
 
-def _auto_allowed_binding_payload(state: dict) -> dict:
-    return AutoAllowedActionBindingV1(
-        tenant_id=state["tenant_id"],
-        run_id=state["current_run_id"],
-        target_merchant_id=state["target_merchant_id"],
-        action_payload_hash=state["action_payload_hash"],
-        safety_snapshot_ref=state["safety_snapshot_ref"],
-        safety_snapshot_hash=state["safety_snapshot_hash"],
-        risk_decision_ref=state["risk_decision_ref"],
-        idempotency_key="auto_allowed:test-key",
-        business_fact_refs=state["business_fact_refs"],
-        verified_evidence_refs=state["verified_evidence_refs"],
-        claim_verification_ref=None,
-        claim_verification_summary={"overall_status": "verified", "safe_support_ref_count": 1},
-    ).model_dump(mode="json")
+def _auto_action_capability_payload() -> dict:
+    return {
+        "schema_version": "auto_action_capability_ref.v1",
+        "capability_ref": "aac_" + "x" * 43,
+        "expires_at": "2026-07-10T00:05:00Z",
+    }
 
 
 def _risk_route_state(**overrides) -> dict:
@@ -581,13 +572,13 @@ def test_route_after_risk_fails_closed_when_approval_plan_hash_mismatches_state(
     assert route_after_risk(state) == "final_response"
 
 
-def test_route_after_risk_routes_auto_allowed_only_with_exact_binding():
+def test_route_after_risk_routes_auto_allowed_only_with_opaque_capability_ref():
     state = _risk_route_state(risk_assessment={"approval_required": False, "risk_level": "low"})
-    state["auto_allowed_binding"] = _auto_allowed_binding_payload(state)
+    state["auto_action_capability"] = _auto_action_capability_payload()
 
     assert route_after_risk(state) == "action_draft"
 
-    state["auto_allowed_binding"]["safety_snapshot_hash"] = "sha256:" + "9" * 64
+    state["auto_action_capability"]["capability_ref"] = "client-asserted-binding"
     assert route_after_risk(state) == "final_response"
 
 
@@ -751,7 +742,7 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_dra
                 "missing_info": [],
             },
             "business_context": {
-                "refund_case": {"id": "RF-TEST-001", "merchant_id": "merchant-1", "requested_amount": "100.00"},
+                "refund_case": {"id": "RF-TEST-001", "merchant_id": "merchant-1", "requested_amount": "50.00"},
                 "business_fact_refs": [
                     _business_fact_ref_payload(str(tenant_id), resource_id="RF-TEST-001"),
                 ],
@@ -772,19 +763,35 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_dra
         }
     result = await risk_module.risk_gate(
         input_state,
-        {"configurable": {"session": session}},
+        {
+            "configurable": {
+                "session": session,
+                "trusted_context": TrustedContext(
+                    tenant_id=str(tenant_id),
+                    user_id=str(user_id),
+                    role="support",
+                    permissions=[],
+                    merchant_scope=MerchantScopeV1(merchant_ids=["merchant-1"]),
+                    thread_id="auto-allowed-snapshot",
+                    run_id=str(run_id),
+                    trace_id="trace-auto-allowed-snapshot",
+                ).model_dump(mode="json"),
+            }
+        },
     )
 
     snapshot = (
         await session.execute(select(ActionSafetySnapshot).where(ActionSafetySnapshot.run_id == UUID(str(run_id))))
     ).scalar_one()
 
-    assert result["auto_allowed"] is True
+    assert result["auto_allowed"] is True, result.get("risk_assessment")
     assert result["action_payload_hash"] == snapshot.action_payload_hash
     assert result["safety_snapshot_ref"] == snapshot.snapshot_ref
     assert result["safety_snapshot_hash"] == snapshot.immutable_hash
     assert result["safety_snapshot_verified"] is True
-    assert result["auto_allowed_binding"]["schema_version"] == "auto_allowed_action_binding.v1"
+    assert result["auto_action_capability"]["schema_version"] == "auto_action_capability_ref.v1"
+    assert result["auto_action_capability"]["capability_ref"].startswith("aac_")
+    assert result["auto_allowed_binding"] is None
     assert route_after_risk({**input_state, **result}) == "action_draft"
 
 

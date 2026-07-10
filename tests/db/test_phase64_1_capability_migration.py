@@ -21,6 +21,7 @@ EXPECTED_COLUMNS = {
     "tenant_id",
     "actor_id",
     "run_id",
+    "merchant_scope_hash",
     "target_merchant_id",
     "canonical_action",
     "action_payload_hash",

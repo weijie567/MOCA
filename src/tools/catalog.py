@@ -740,7 +740,7 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
                 "claim_verification_summary": {"type": "object"},
                 "risk_decision_ref": {"type": "string", "minLength": 1},
                 "risk_decision": {"type": "object"},
-                "auto_allowed_binding": {"type": "object"},
+                "auto_action_capability_ref": {"type": "string", "minLength": 32},
             },
             "required": [
                 "action_type",

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from src.agent.context import PromptAssembly
 from src.agent.nodes import risk_gate as risk_gate_module
-from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1
+from src.approvals.schemas import RiskDecisionV1
 from src.tools.contracts import BusinessFactRefV1
 from tests.agent.conftest import FakeLLM
 
@@ -286,7 +286,10 @@ async def test_no_action_recommendations_never_propose_action(monkeypatch, base_
 
 
 @pytest.mark.asyncio
-async def test_actionable_recommendation_still_proposes_action(monkeypatch, base_state):
+async def test_actionable_recommendation_without_trusted_mint_context_fails_closed(
+    monkeypatch,
+    base_state,
+):
     monkeypatch.setattr(
         risk_gate_module,
         "_get_llm",
@@ -311,7 +314,10 @@ async def test_actionable_recommendation_still_proposes_action(monkeypatch, base
 
     result = await risk_gate_module.risk_gate(state)
 
-    assert result["proposed_action"]["action_type"] == "issue_coupon"
+    assert result["proposed_action"] is None
+    assert result["auto_action_capability"] is None
+    assert result["auto_allowed"] is False
+    assert "Trusted capability mint context is unavailable" in result["risk_assessment"]["risk_reason"]
     assert _CANONICAL_NODE in result["llm_outputs"]
     _assert_no_current_run_legacy_identity(result)
 
@@ -613,7 +619,10 @@ async def test_phase63_manual_review_disposition_does_not_bind_proposed_action(m
 
 
 @pytest.mark.asyncio
-async def test_phase34_auto_allowed_path_validates_durable_binding(monkeypatch, base_state):
+async def test_phase34_auto_allowed_path_does_not_construct_graph_binding(
+    monkeypatch,
+    base_state,
+):
     tenant_id = base_state["tenant_id"]
     monkeypatch.setattr(
         risk_gate_module,
@@ -640,15 +649,11 @@ async def test_phase34_auto_allowed_path_validates_durable_binding(monkeypatch, 
 
     result = await risk_gate_module.risk_gate(state)
 
-    binding = AutoAllowedActionBindingV1.model_validate(result["auto_allowed_binding"])
-    assert binding.target_merchant_id == "merchant-1"
-    assert binding.action_payload_hash == result["action_payload_hash"]
-    assert binding.safety_snapshot_ref == result["safety_snapshot_ref"]
-    assert binding.safety_snapshot_hash == result["safety_snapshot_hash"]
-    assert binding.risk_decision_ref == result["risk_decision_ref"]
-    assert binding.idempotency_key != result["approval_idempotency_key"]
-    assert binding.business_fact_refs[0].resource_id == "RF-1001"
-    assert binding.verified_evidence_refs[0].evidence_id == "refund-policy/chunk-001@v3"
+    assert result["auto_allowed_binding"] is None
+    assert result["auto_action_capability"] is None
+    assert result["auto_allowed"] is False
+    assert result["proposed_action"] is None
+    assert "Trusted capability mint context is unavailable" in result["risk_assessment"]["risk_reason"]
     assert result["trace_steps"][-1]["node"] == _CANONICAL_NODE
     _assert_no_current_run_legacy_identity(result)
 

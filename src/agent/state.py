@@ -175,6 +175,7 @@ class AgentState(TypedDict, total=False):
     claim_verification_ref: str | None
     claim_verification_summary: dict[str, Any] | None
     approval_idempotency_key: str | None
+    auto_action_capability: dict[str, Any] | None
     auto_allowed_binding: dict[str, Any] | None
     action_draft: dict[str, Any] | None
     draft_outcome: dict[str, Any] | None

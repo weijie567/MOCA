@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import re
 from typing import Any
 
+from src.actions.capabilities import AUTO_ACTION_CAPABILITY_HANDLER, is_opaque_capability_ref
 from src.platform.trusted_context import MerchantScopeV1
 from src.tools.catalog import ToolCatalog, ToolDescriptor
 from src.tools.contracts import (
@@ -37,6 +38,7 @@ TOOL_POLICY_RUNTIME_ONLY_REASON_CODES: frozenset[str] = frozenset({
 })
 
 TOOL_POLICY_EXTENSION_REASON_PATTERN = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
+AUTO_ACTION_CAPABILITY_DISPATCH_REASON = "auto_action_capability.pending_verification"
 
 # Schema shape keys retained during prompt-safe projection.
 _PROMPT_SAFE_SCHEMA_KEYS: set[str] = {
@@ -72,6 +74,7 @@ _INTERNAL_SCHEMA_KEYS: set[str] = {
 _RESOURCE_BINDING_KEYS: set[str] = {
     "tenant_id",
     "merchant_id",
+    "target_merchant_id",
     "order_id",
     "order_no",
     "refund_id",
@@ -123,8 +126,30 @@ def _denies_permission(
     ctx: ToolCallContext,
     resource_scope_binding: dict[str, Any],
 ) -> bool:
-    del args, resource_scope_binding
+    del resource_scope_binding
+    if _is_auto_action_capability_dispatch(descriptor, args, ctx):
+        return False
     return descriptor.required_permission not in ctx.permissions
+
+
+def _is_auto_action_capability_dispatch(
+    descriptor: ToolDescriptor,
+    args: dict[str, Any],
+    ctx: ToolCallContext,
+) -> bool:
+    """Allow only the fixed draft handler to reach authoritative capability verification."""
+
+    return (
+        descriptor.name == AUTO_ACTION_CAPABILITY_HANDLER
+        and descriptor.executor == "action"
+        and descriptor.exposure == "node_only"
+        and descriptor.kind == "write"
+        and descriptor.side_effect == "write"
+        and ctx.caller_node == "action_draft"
+        and ctx.approval_ref is None
+        and not args.get("approval_request_id")
+        and is_opaque_capability_ref(args.get("auto_action_capability_ref"))
+    )
 
 
 def _denies_side_effect(
@@ -420,18 +445,20 @@ class ToolPolicyEngine:
             )
 
         resource_scope_binding = self._build_resource_binding(args, ctx)
+        capability_dispatch = _is_auto_action_capability_dispatch(descriptor, args, ctx)
         reason_codes = [
             gate.reason_code
             for gate in self._runtime_auth_gates
             if gate.denies(descriptor, args, ctx, resource_scope_binding)
         ]
+        required_scopes = [] if capability_dispatch else [descriptor.required_permission]
 
         if reason_codes:
             return self._denied_decision(
                 tool_name=tool_name,
                 caller=ctx.caller_node,
                 reason_codes=reason_codes,
-                required_scopes=[descriptor.required_permission],
+                required_scopes=required_scopes,
                 resource_scope_binding=resource_scope_binding,
                 runtime_available=True,
             )
@@ -441,9 +468,9 @@ class ToolPolicyEngine:
             caller=ctx.caller_node,
             decision_stage="runtime_auth",
             decision="allowed",
-            reason_codes=["visible"],
-            required_scopes=[descriptor.required_permission],
-            matched_scope=descriptor.required_permission,
+            reason_codes=[AUTO_ACTION_CAPABILITY_DISPATCH_REASON] if capability_dispatch else ["visible"],
+            required_scopes=required_scopes,
+            matched_scope=None if capability_dispatch else descriptor.required_permission,
             policy_version=self._policy_version,
             data_classification="internal",
             resource_scope_binding=resource_scope_binding,
@@ -492,8 +519,8 @@ class ToolPolicyEngine:
             if value is None:
                 continue
 
-            # Explicit merchant_id must be checked against scope
-            if key == "merchant_id":
+            # Explicit merchant targets must be checked against trusted scope.
+            if key in {"merchant_id", "target_merchant_id"}:
                 binding[key] = value
                 merchant_scope = ctx.merchant_scope
                 try:
@@ -514,7 +541,7 @@ class ToolPolicyEngine:
                 binding["requires_domain_scope_check"] = True
                 continue
 
-            if key != "merchant_id":
+            if key not in {"merchant_id", "target_merchant_id"}:
                 binding[key] = value
 
         if scope_denied:

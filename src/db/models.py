@@ -1239,6 +1239,7 @@ class AutoActionCapability(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     actor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    merchant_scope_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     target_merchant_id: Mapped[str] = mapped_column(String(128), nullable=False)
     canonical_action: Mapped[str] = mapped_column(String(64), nullable=False)
     action_payload_hash: Mapped[str] = mapped_column(String(128), nullable=False)

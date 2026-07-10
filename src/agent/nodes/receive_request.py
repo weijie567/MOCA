@@ -217,6 +217,7 @@ async def receive_request(state: AgentState, config: RunnableConfig | None = Non
         "claim_verification_ref": None,
         "claim_verification_summary": None,
         "approval_idempotency_key": None,
+        "auto_action_capability": None,
         "auto_allowed_binding": None,
         "action_draft": None,
         "draft_outcome": None,

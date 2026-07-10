@@ -6,11 +6,12 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
+from src.actions.capabilities import AutoActionCapabilityRefV1
 from src.actions.schemas import DraftOutcomeV1
 from src.agent.routing import _has_allowed_action_recommendation
 from src.agent.safety.taxonomy import ActionResolution, resolve_action_text
 from src.agent.state import AgentState
-from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1, TargetMerchantBindingV1, TrustedApprovalResultV1
+from src.approvals.schemas import RiskDecisionV1, TargetMerchantBindingV1, TrustedApprovalResultV1
 from src.knowledge.schemas import ClaimVerificationBundleV1, EvidenceRefV1
 from src.platform.context_projections import project_to_tool_context
 from src.platform.trusted_context import TrustedContext
@@ -283,46 +284,15 @@ def _approval_phase34_binding_matches(state: AgentState, trusted: TrustedApprova
     return _phase34_binding_matches(state_binding, trusted_binding)
 
 
-def _trusted_auto_allowed_binding(
-    state: AgentState,
-    trusted_context: TrustedContext | None,
-) -> dict[str, Any] | None:
-    raw_binding = state.get("auto_allowed_binding")
-    if not isinstance(raw_binding, dict):
+def _auto_action_capability_ref(state: AgentState) -> str | None:
+    raw_capability = state.get("auto_action_capability")
+    if not isinstance(raw_capability, dict):
         return None
     try:
-        trusted = AutoAllowedActionBindingV1.model_validate(raw_binding)
+        capability = AutoActionCapabilityRefV1.model_validate(raw_capability)
     except ValidationError:
         return None
-    if not trusted.risk_decision_ref:
-        return None
-    expected_tenant_id = trusted_context.tenant_id if trusted_context is not None else str(state.get("tenant_id") or "")
-    expected_run_id = trusted_context.run_id if trusted_context is not None else str(state.get("current_run_id") or "")
-    if str(trusted.tenant_id) != expected_tenant_id or str(trusted.run_id) != expected_run_id:
-        return None
-    try:
-        state_binding = _state_phase34_binding(state)
-        trusted_binding = {
-            "target_merchant_id": trusted.target_merchant_id,
-            "target_merchant_ref": state_binding["target_merchant_ref"],
-            "business_fact_refs": _canonical_business_fact_refs(trusted.business_fact_refs),
-            "verified_evidence_refs": _canonical_evidence_refs(trusted.verified_evidence_refs),
-            "claim_verification_ref": trusted.claim_verification_ref,
-            "claim_verification_summary": _json_safe(trusted.claim_verification_summary),
-            "risk_decision_ref": trusted.risk_decision_ref,
-            "risk_decision": state_binding["risk_decision"],
-        }
-    except (TypeError, ValueError, ValidationError):
-        return None
-    if not _phase34_binding_matches(state_binding, trusted_binding):
-        return None
-    if (
-        trusted.action_payload_hash != state.get("action_payload_hash")
-        or trusted.safety_snapshot_ref != state.get("safety_snapshot_ref")
-        or trusted.safety_snapshot_hash != state.get("safety_snapshot_hash")
-    ):
-        return None
-    return _json_safe(raw_binding)
+    return capability.capability_ref
 
 
 def _phase34_binding_matches(left: dict[str, Any], right: dict[str, Any]) -> bool:
@@ -364,7 +334,7 @@ def _state_phase34_binding(state: AgentState) -> dict[str, Any]:
     }
 
 
-def _phase34_tool_args(state: AgentState, auto_allowed_binding: dict[str, Any] | None) -> dict[str, Any]:
+def _phase34_tool_args(state: AgentState, auto_action_capability_ref: str | None) -> dict[str, Any]:
     args = {
         "target_merchant_id": state.get("target_merchant_id"),
         "target_merchant_ref": _contract_json_safe(state.get("target_merchant_ref")),
@@ -375,8 +345,8 @@ def _phase34_tool_args(state: AgentState, auto_allowed_binding: dict[str, Any] |
         "risk_decision_ref": state.get("risk_decision_ref"),
         "risk_decision": _contract_json_safe(state.get("risk_decision")),
     }
-    if auto_allowed_binding is not None:
-        args["auto_allowed_binding"] = auto_allowed_binding
+    if auto_action_capability_ref is not None:
+        args["auto_action_capability_ref"] = auto_action_capability_ref
     return {key: value for key, value in args.items() if value is not None}
 
 
@@ -463,7 +433,7 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
     configurable = config.get("configurable") or {}
     trusted_context = _trusted_context_from_config(configurable)
     approval_accepted = _approval_result_is_action_authorizing(state, approval, trusted_context)
-    auto_allowed_binding = None if approval_accepted else _trusted_auto_allowed_binding(state, trusted_context)
+    auto_action_capability_ref = None if approval_accepted else _auto_action_capability_ref(state)
 
     if risk.get("approval_required") and not approval_accepted:
         return {
@@ -478,14 +448,14 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
         }
-    if not approval_accepted and auto_allowed_binding is None:
+    if not approval_accepted and auto_action_capability_ref is None:
         return {
             "action_result": {
                 "status": "error",
                 "data": {},
                 "error": {
-                    "error_code": "AUTO_ALLOWED_BINDING_REQUIRED",
-                    "message": "No-approval action draft requires a durable auto-allowed binding",
+                    "error_code": "AUTO_ACTION_CAPABILITY_REQUIRED",
+                    "message": "No-approval action draft requires a server-minted capability",
                     "retryable": False,
                 },
             },
@@ -534,7 +504,7 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
         deadline_at=configurable.get("deadline_at"),
         attempt=1,
         max_attempts=1,
-        idempotency_key=f"action_draft_{run_id}_{approval_id or 'auto_allowed'}",
+        idempotency_key=f"action_draft_{run_id}_{approval_id or 'auto_capability'}",
         approval_ref=approval_id,
         safety_snapshot_ref=state.get("safety_snapshot_ref")
         or approval.get("safety_snapshot_ref")
@@ -556,7 +526,7 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
         "action_payload_hash": action_payload_hash,
         "safety_snapshot_ref": safety_snapshot_ref,
         "safety_snapshot_hash": safety_snapshot_hash,
-        **_phase34_tool_args(state, auto_allowed_binding),
+        **_phase34_tool_args(state, auto_action_capability_ref),
     }
     if approval_id:
         args["approval_request_id"] = approval_id

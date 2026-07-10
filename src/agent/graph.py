@@ -20,6 +20,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy
 from pydantic import ValidationError
 
+from src.actions.capabilities import AutoActionCapabilityRefV1
 from src.agent.nodes.approval_gate import approval_gate
 from src.agent.nodes.action_draft import action_draft
 from src.agent.nodes.clarification_gate import clarification_gate
@@ -46,10 +47,7 @@ from src.agent.routing import (
     route_after_slot_resolution,
 )
 from src.agent.state import AgentState
-from src.approvals.schemas import AutoAllowedActionBindingV1
 from src.approvals.schemas import TrustedApprovalResultV1
-from src.knowledge.schemas import EvidenceRefV1
-from src.tools.contracts import BusinessFactRefV1
 
 # 1 retry = 2 total attempts per D-10a.
 _llm_retry = RetryPolicy(max_attempts=2)
@@ -86,7 +84,7 @@ def route_after_risk(state: AgentState) -> str:
     if risk.get("approval_required") is True:
         return "approval_gate" if _approval_plan_ready(state, approval_plan) else "final_response"
     if risk.get("approval_required") is False:
-        return "action_draft" if _auto_allowed_binding_ready(state) else "final_response"
+        return "action_draft" if _auto_action_capability_ready(state) else "final_response"
     return "final_response"
 
 
@@ -190,58 +188,15 @@ def _approval_plan_ready(state: AgentState, approval_plan: dict[str, Any]) -> bo
     return True
 
 
-def _auto_allowed_binding_ready(state: AgentState) -> bool:
-    raw_binding = state.get("auto_allowed_binding")
-    if not raw_binding:
+def _auto_action_capability_ready(state: AgentState) -> bool:
+    raw_capability = state.get("auto_action_capability")
+    if not raw_capability:
         return False
     try:
-        binding = AutoAllowedActionBindingV1.model_validate(raw_binding)
+        AutoActionCapabilityRefV1.model_validate(raw_capability)
     except ValidationError:
-        return False
-    if not binding.target_merchant_id or not binding.business_fact_refs or not binding.verified_evidence_refs:
-        return False
-    expected = {
-        "tenant_id": str(state.get("tenant_id") or ""),
-        "run_id": str(state.get("current_run_id") or ""),
-        "target_merchant_id": str(state.get("target_merchant_id") or ""),
-        "action_payload_hash": str(state.get("action_payload_hash") or ""),
-        "safety_snapshot_ref": str(state.get("safety_snapshot_ref") or ""),
-        "safety_snapshot_hash": str(state.get("safety_snapshot_hash") or ""),
-        "risk_decision_ref": str(state.get("risk_decision_ref") or ""),
-    }
-    actual = {
-        "tenant_id": binding.tenant_id,
-        "run_id": binding.run_id,
-        "target_merchant_id": binding.target_merchant_id,
-        "action_payload_hash": binding.action_payload_hash,
-        "safety_snapshot_ref": binding.safety_snapshot_ref,
-        "safety_snapshot_hash": binding.safety_snapshot_hash,
-        "risk_decision_ref": binding.risk_decision_ref,
-    }
-    if actual != expected:
-        return False
-    if [ref.model_dump(mode="json") for ref in binding.business_fact_refs] != _canonical_business_fact_refs(state):
-        return False
-    if [ref.model_dump(mode="json") for ref in binding.verified_evidence_refs] != _canonical_evidence_refs(state):
         return False
     return True
-
-
-def _canonical_business_fact_refs(state: AgentState) -> list[dict[str, Any]]:
-    try:
-        return [
-            BusinessFactRefV1.model_validate(ref).model_dump(mode="json")
-            for ref in state.get("business_fact_refs") or []
-        ]
-    except ValidationError:
-        return []
-
-
-def _canonical_evidence_refs(state: AgentState) -> list[dict[str, Any]]:
-    try:
-        return [EvidenceRefV1.model_validate(ref).model_dump(mode="json") for ref in state.get("verified_evidence_refs") or []]
-    except ValidationError:
-        return []
 
 
 def _trusted_approval_result(state: AgentState) -> TrustedApprovalResultV1 | None:

@@ -31,6 +31,7 @@ def _capability_api():
         CapabilityMintError,
         CapabilityVerificationError,
         capability_ref_digest,
+        compute_merchant_scope_hash,
         compute_risk_decision_hash,
     )
     from src.db.models import AutoActionCapability
@@ -42,6 +43,7 @@ def _capability_api():
         "mint_error": CapabilityMintError,
         "verification_error": CapabilityVerificationError,
         "ref_digest": capability_ref_digest,
+        "merchant_scope_hash": compute_merchant_scope_hash,
         "risk_hash": compute_risk_decision_hash,
         "model": AutoActionCapability,
     }
@@ -132,6 +134,7 @@ async def _capability_context(
     tenant_id = seeded_session["tenant"].id
     actor_id = seeded_session["users"]["cs_zhang"].id
     target_merchant_id = str(seeded_session["merchant"].id)
+    merchant_scope = {"merchant_ids": [target_merchant_id]}
     run_id = await _create_run(
         session,
         tenant_id=tenant_id,
@@ -196,6 +199,7 @@ async def _capability_context(
         "tenant_id": tenant_id,
         "actor_id": actor_id,
         "run_id": run_id,
+        "merchant_scope": merchant_scope,
         "target_merchant_id": target_merchant_id,
         "canonical_action": "issue_coupon",
         "action_payload_hash": action_payload_hash,
@@ -215,6 +219,7 @@ async def _capability_context(
         "actor_id": actor_id,
         "run_id": run_id,
         "target_merchant_id": target_merchant_id,
+        "merchant_scope": merchant_scope,
         "target_merchant_ref": target_merchant_ref,
         "business_fact_refs": [business_fact_ref],
         "verified_evidence_refs": [_evidence_ref(tenant_id=tenant_id)],
@@ -241,6 +246,7 @@ def _draft_kwargs(context: dict[str, Any], **overrides: Any) -> dict[str, Any]:
         "action_payload_hash": context["action_payload_hash"],
         "safety_snapshot_ref": context["snapshot_ref"],
         "safety_snapshot_hash": context["snapshot_hash"],
+        "merchant_scope": context["merchant_scope"],
         "target_merchant_id": context["target_merchant_id"],
         "target_merchant_ref": context["target_merchant_ref"],
         "business_fact_refs": context["business_fact_refs"],
@@ -280,6 +286,7 @@ async def test_mint_persists_hashed_opaque_short_lived_capability_and_exact_bind
     assert row.tenant_id == context["tenant_id"]
     assert row.actor_id == context["actor_id"]
     assert row.run_id == context["run_id"]
+    assert row.merchant_scope_hash == api["merchant_scope_hash"](context["merchant_scope"])
     assert row.target_merchant_id == context["target_merchant_id"]
     assert row.canonical_action == "issue_coupon"
     assert row.action_payload_hash == context["action_payload_hash"]
@@ -299,6 +306,7 @@ async def test_mint_persists_hashed_opaque_short_lived_capability_and_exact_bind
     ("override", "value"),
     [
         ("actor_id", uuid4()),
+        ("merchant_scope", {"merchant_ids": ["merchant-out-of-scope"]}),
         ("canonical_action", "approve_refund"),
         ("risk_disposition", "manual_review"),
         ("handler", "execute_coupon_grant"),
@@ -365,6 +373,7 @@ async def test_mint_rejects_non_deterministic_allow_risk_decisions(
         ("tenant_id", lambda _ctx: str(uuid4())),
         ("user_id", lambda _ctx: str(uuid4())),
         ("run_id", lambda _ctx: str(uuid4())),
+        ("merchant_scope", lambda _ctx: {"merchant_ids": ["merchant-out-of-scope"]}),
         ("target_merchant_id", lambda _ctx: "merchant-other"),
         ("action_type", lambda _ctx: "approve_refund"),
         ("action_payload_hash", lambda _ctx: "sha256:" + "0" * 64),
@@ -408,6 +417,7 @@ async def test_handler_mismatch_is_rejected_before_consume(session: AsyncSession
                 tenant_id=context["tenant_id"],
                 actor_id=context["actor_id"],
                 run_id=context["run_id"],
+                merchant_scope=context["merchant_scope"],
                 target_merchant_id=context["target_merchant_id"],
                 canonical_action="issue_coupon",
                 action_payload_hash=context["action_payload_hash"],

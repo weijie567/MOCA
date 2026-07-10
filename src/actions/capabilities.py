@@ -5,16 +5,18 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+import re
 import secrets
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.approvals.schemas import RiskDecisionV1
 from src.db.models import ActionSafetySnapshot, AgentRun, AutoActionCapability
+from src.platform.trusted_context import MerchantScopeV1
 from src.repositories.action_draft_repo import ActionDraftRepository
 
 
@@ -23,6 +25,7 @@ AUTO_ACTION_CAPABILITY_REF_SCHEMA_VERSION = "auto_action_capability_ref.v1"
 AUTO_ACTION_CAPABILITY_KEY_VERSION = "opaque_ref_sha256.v1"
 AUTO_ACTION_CAPABILITY_HANDLER = "create_coupon_grant_draft"
 AUTO_ACTION_CAPABILITY_TTL = timedelta(minutes=5)
+_AUTO_ACTION_CAPABILITY_REF_PATTERN = re.compile(r"^aac_[A-Za-z0-9_-]+$")
 
 
 class CapabilityMintError(ValueError):
@@ -43,7 +46,7 @@ class AutoActionCapabilityRefV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["auto_action_capability_ref.v1"] = AUTO_ACTION_CAPABILITY_REF_SCHEMA_VERSION
-    capability_ref: str
+    capability_ref: str = Field(min_length=32, pattern=r"^aac_[A-Za-z0-9_-]+$")
     expires_at: datetime
 
 
@@ -59,6 +62,29 @@ class VerifiedAutoActionCapability(BaseModel):
 def capability_ref_digest(capability_ref: str) -> str:
     raw_ref = str(capability_ref or "")
     return f"sha256:{hashlib.sha256(raw_ref.encode('utf-8')).hexdigest()}"
+
+
+def is_opaque_capability_ref(value: Any) -> bool:
+    """Return whether a raw value is shaped for authoritative service verification."""
+
+    return (
+        isinstance(value, str)
+        and len(value) >= 32
+        and _AUTO_ACTION_CAPABILITY_REF_PATTERN.fullmatch(value) is not None
+    )
+
+
+def compute_merchant_scope_hash(
+    merchant_scope: MerchantScopeV1 | dict[str, Any] | list[str],
+) -> str:
+    scope = _merchant_scope(merchant_scope)
+    encoded = json.dumps(
+        scope.model_dump(mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def compute_risk_decision_hash(risk_decision: dict[str, Any] | RiskDecisionV1) -> str:
@@ -89,6 +115,7 @@ class AutoActionCapabilityService:
         tenant_id: UUID,
         actor_id: UUID,
         run_id: UUID,
+        merchant_scope: MerchantScopeV1 | dict[str, Any] | list[str],
         target_merchant_id: str,
         canonical_action: str,
         action_payload_hash: str,
@@ -115,6 +142,13 @@ class AutoActionCapabilityService:
             or ttl > AUTO_ACTION_CAPABILITY_TTL
         ):
             raise CapabilityMintError("Auto-action capability mint prerequisites are invalid")
+
+        try:
+            trusted_scope = _merchant_scope(merchant_scope)
+        except ValueError as exc:
+            raise CapabilityMintError("Trusted merchant scope is invalid") from exc
+        if not trusted_scope.allows(merchant_id=merchant_id):
+            raise CapabilityMintError("Target merchant is outside trusted merchant scope")
 
         try:
             trusted_risk = (
@@ -175,6 +209,7 @@ class AutoActionCapabilityService:
             tenant_id=tenant_uuid,
             actor_id=actor_uuid,
             run_id=run_uuid,
+            merchant_scope_hash=compute_merchant_scope_hash(trusted_scope),
             target_merchant_id=merchant_id,
             canonical_action=action,
             action_payload_hash=action_payload_hash,
@@ -197,6 +232,7 @@ class AutoActionCapabilityService:
         tenant_id: UUID,
         actor_id: UUID,
         run_id: UUID,
+        merchant_scope: MerchantScopeV1 | dict[str, Any] | list[str],
         target_merchant_id: str,
         canonical_action: str,
         action_payload_hash: str,
@@ -242,15 +278,23 @@ class AutoActionCapabilityService:
             expected_tenant_id = _as_uuid_for_verify(tenant_id)
             expected_actor_id = _as_uuid_for_verify(actor_id)
             expected_run_id = _as_uuid_for_verify(run_id)
+            trusted_scope = _merchant_scope(merchant_scope)
+            merchant_scope_hash = compute_merchant_scope_hash(trusted_scope)
         except (ValueError, CapabilityVerificationError) as exc:
             raise CapabilityVerificationError(
                 "AUTO_ACTION_CAPABILITY_MISMATCH",
                 "Auto-action capability binding is invalid",
             ) from exc
+        if not trusted_scope.allows(merchant_id=str(target_merchant_id or "")):
+            raise CapabilityVerificationError(
+                "AUTO_ACTION_CAPABILITY_MISMATCH",
+                "Auto-action capability binding is invalid",
+            )
         expected = (
             expected_tenant_id,
             expected_actor_id,
             expected_run_id,
+            merchant_scope_hash,
             str(target_merchant_id or ""),
             str(canonical_action or ""),
             str(action_payload_hash or ""),
@@ -264,6 +308,7 @@ class AutoActionCapabilityService:
             capability.tenant_id,
             capability.actor_id,
             capability.run_id,
+            capability.merchant_scope_hash,
             capability.target_merchant_id,
             capability.canonical_action,
             capability.action_payload_hash,
@@ -315,6 +360,16 @@ def _as_uuid_for_mint(value: UUID | str) -> UUID:
         return UUID(str(value))
     except (TypeError, ValueError) as exc:
         raise CapabilityMintError("Capability identity is invalid") from exc
+
+
+def _merchant_scope(
+    value: MerchantScopeV1 | dict[str, Any] | list[str],
+) -> MerchantScopeV1:
+    if isinstance(value, MerchantScopeV1):
+        return value
+    if isinstance(value, list):
+        return MerchantScopeV1(merchant_ids=value)
+    return MerchantScopeV1.model_validate(value)
 
 
 def _as_uuid_for_verify(value: UUID | str) -> UUID:

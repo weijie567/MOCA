@@ -15,6 +15,10 @@ SHIM_PATH = ROOT / "src" / "agent" / "nodes" / "execute_action.py"
 CATALOG_PATH = ROOT / "src" / "tools" / "catalog.py"
 GRAPH_PATH = ROOT / "src" / "agent" / "graph.py"
 POLICY_PATH = ROOT / "src" / "tools" / "policy.py"
+CAPABILITY_PATH = ROOT / "src" / "actions" / "capabilities.py"
+ACTION_SERVICE_PATH = ROOT / "src" / "actions" / "service.py"
+RISK_GATE_PATH = ROOT / "src" / "agent" / "nodes" / "risk_gate.py"
+ACTION_EXECUTOR_PATH = ROOT / "src" / "tools" / "executors" / "action.py"
 SOURCE_ROOTS = (
     ROOT / "src" / "actions",
     ROOT / "src" / "agent",
@@ -52,6 +56,20 @@ def _import_targets(path: Path) -> list[str]:
             imports.append(node.module)
             imports.extend(f"{node.module}.{alias.name}" for alias in node.names)
     return imports
+
+
+def _attribute_call_sites(attribute: str) -> list[str]:
+    sites: list[str] = []
+    for path in sorted((ROOT / "src").glob("**/*.py")):
+        tree = ast.parse(_source(path))
+        if any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == attribute
+            for node in ast.walk(tree)
+        ):
+            sites.append(str(path.relative_to(ROOT)))
+    return sites
 
 
 def test_action_draft_node_is_canonical_entrypoint() -> None:
@@ -107,6 +125,52 @@ def test_create_coupon_grant_draft_is_node_only_for_action_draft() -> None:
     assert _side_effect_allowed("execute_action", descriptor) is False
     assert 'caller_allowlist=("action_draft",)' in _source(CATALOG_PATH)
     assert 'caller_node == "action_draft"' in _source(POLICY_PATH)
+
+
+def test_capability_mint_and_consume_have_single_trusted_call_sites() -> None:
+    assert _attribute_call_sites("mint") == ["src/agent/nodes/risk_gate.py"]
+    assert _attribute_call_sites("lock_and_verify_for_draft") == ["src/actions/service.py"]
+    assert _attribute_call_sites("mark_consumed") == ["src/actions/service.py"]
+
+
+def test_graph_nodes_carry_only_opaque_capability_ref_not_trusted_binding_dict() -> None:
+    risk_source = _source(RISK_GATE_PATH)
+    draft_source = _source(NODE_PATH)
+
+    assert "AutoActionCapabilityService(session).mint" in risk_source
+    assert '"auto_action_capability"' in risk_source
+    assert "AutoActionCapabilityRefV1.model_validate" in draft_source
+    assert 'args["auto_action_capability_ref"]' in draft_source
+    assert "AutoAllowedActionBindingV1" not in risk_source
+    assert "AutoAllowedActionBindingV1" not in draft_source
+
+
+def test_capability_is_fixed_to_demo_draft_handler_without_permission_widening() -> None:
+    capability_source = _source(CAPABILITY_PATH)
+    service_source = _source(ACTION_SERVICE_PATH)
+    executor_source = _source(ACTION_EXECUTOR_PATH)
+    catalog_source = _source(CATALOG_PATH)
+    policy_source = _source(POLICY_PATH)
+
+    assert 'AUTO_ACTION_CAPABILITY_HANDLER = "create_coupon_grant_draft"' in capability_source
+    assert "lock_and_verify_for_draft" in service_source
+    assert 'auto_action_capability_ref=args.get("auto_action_capability_ref")' in executor_source
+    assert '"auto_action_capability_ref": {"type": "string", "minLength": 32}' in catalog_source
+    assert '"auto_allowed_binding": {"type": "object"}' not in catalog_source
+    assert 'descriptor.name == AUTO_ACTION_CAPABILITY_HANDLER' in policy_source
+    assert 'ctx.caller_node == "action_draft"' in policy_source
+    assert 'ctx.approval_ref is None' in policy_source
+    assert 'not args.get("approval_request_id")' in policy_source
+    assert 'is_opaque_capability_ref(args.get("auto_action_capability_ref"))' in policy_source
+    assert '"target_merchant_id"' in policy_source
+    combined = "\n".join(
+        (capability_source, service_source, policy_source, _source(RISK_GATE_PATH), _source(NODE_PATH))
+    )
+    assert "permissions.append(" not in combined
+    assert "permissions.extend(" not in combined
+    assert "permissions.update(" not in combined
+    assert "production" not in capability_source.casefold()
+    assert "external_side_effect" not in capability_source
 
 
 def test_graph_registers_canonical_action_draft_node_only() -> None:
