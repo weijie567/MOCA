@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -7,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import ActionDraft
+from src.db.models import ActionDraft, AutoActionCapability
 
 
 class ActionDraftRepository:
@@ -113,6 +114,48 @@ class ActionDraftRepository:
         ):
             raise ValueError("idempotency_binding_conflict")
         return draft, inserted_id is not None
+
+    async def create_capability(self, **values: Any) -> AutoActionCapability:
+        capability = AutoActionCapability(**values)
+        self.session.add(capability)
+        await self.session.flush()
+        return capability
+
+    async def lock_capability_by_opaque_ref(self, opaque_ref: str) -> AutoActionCapability | None:
+        stmt = (
+            select(AutoActionCapability)
+            .where(AutoActionCapability.opaque_ref == opaque_ref)
+            .with_for_update()
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def get_draft_by_id(self, draft_id: UUID, tenant_id: UUID) -> ActionDraft | None:
+        stmt = select(ActionDraft).where(
+            ActionDraft.id == draft_id,
+            ActionDraft.tenant_id == tenant_id,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def mark_capability_expired(self, capability: AutoActionCapability) -> None:
+        capability.status = "expired"
+        capability.consumed_at = None
+        capability.resulting_draft_id = None
+        capability.idempotency_key = None
+        await self.session.flush()
+
+    async def mark_capability_consumed(
+        self,
+        capability: AutoActionCapability,
+        *,
+        draft_id: UUID,
+        idempotency_key: str,
+        consumed_at: datetime,
+    ) -> None:
+        capability.status = "consumed"
+        capability.consumed_at = consumed_at
+        capability.resulting_draft_id = draft_id
+        capability.idempotency_key = idempotency_key
+        await self.session.flush()
 
     async def get_by_run(self, run_id: UUID, tenant_id: UUID) -> list[ActionDraft]:
         stmt = select(ActionDraft).where(

@@ -1175,6 +1175,95 @@ class ActionDraft(TimestampMixin, Base):
 Index("ix_action_drafts_tenant_target_merchant", ActionDraft.tenant_id, ActionDraft.target_merchant_id)
 
 
+class AutoActionCapability(Base):
+    """Opaque, one-use authority for the sole durable demo draft handler."""
+
+    __tablename__ = "auto_action_capabilities"
+    __table_args__ = (
+        UniqueConstraint("opaque_ref", name="uq_auto_action_capabilities_opaque_ref"),
+        UniqueConstraint("nonce", name="uq_auto_action_capabilities_nonce"),
+        CheckConstraint(
+            "status IN ('issued', 'consumed', 'expired', 'revoked')",
+            name="ck_auto_action_capabilities_status",
+        ),
+        CheckConstraint("expires_at > issued_at", name="ck_auto_action_capabilities_expiry"),
+        CheckConstraint(
+            "handler = 'create_coupon_grant_draft'",
+            name="ck_auto_action_capabilities_handler",
+        ),
+        CheckConstraint("risk_disposition = 'allow'", name="ck_auto_action_capabilities_risk_disposition"),
+        CheckConstraint(
+            "((status = 'consumed' AND consumed_at IS NOT NULL "
+            "AND resulting_draft_id IS NOT NULL AND idempotency_key IS NOT NULL) "
+            "OR (status <> 'consumed' AND consumed_at IS NULL "
+            "AND resulting_draft_id IS NULL AND idempotency_key IS NULL))",
+            name="ck_auto_action_capabilities_consumption_state",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id"],
+            ["tenants.id"],
+            name="fk_auto_action_capabilities_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["actor_id"],
+            ["users.id"],
+            name="fk_auto_action_capabilities_actor",
+        ),
+        ForeignKeyConstraint(
+            ["run_id"],
+            ["agent_runs.id"],
+            name="fk_auto_action_capabilities_run",
+        ),
+        ForeignKeyConstraint(
+            ["resulting_draft_id"],
+            ["action_drafts.id"],
+            name="fk_auto_action_capabilities_draft",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    schema_version: Mapped[str] = mapped_column(
+        String(48),
+        nullable=False,
+        default="auto_action_capability.v1",
+        server_default="auto_action_capability.v1",
+    )
+    key_version: Mapped[str] = mapped_column(
+        String(48),
+        nullable=False,
+        default="opaque_ref_sha256.v1",
+        server_default="opaque_ref_sha256.v1",
+    )
+    opaque_ref: Mapped[str] = mapped_column(String(96), nullable=False)
+    nonce: Mapped[str] = mapped_column(String(64), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    actor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    target_merchant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    canonical_action: Mapped[str] = mapped_column(String(64), nullable=False)
+    action_payload_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    safety_snapshot_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    safety_snapshot_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    risk_decision_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    risk_decision_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    risk_disposition: Mapped[str] = mapped_column(String(32), nullable=False)
+    handler: Mapped[str] = mapped_column(String(64), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="issued", server_default="issued")
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resulting_draft_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    idempotency_key: Mapped[str | None] = mapped_column(String(256))
+
+
+Index("ix_auto_action_capabilities_tenant_run", AutoActionCapability.tenant_id, AutoActionCapability.run_id)
+Index(
+    "ix_auto_action_capabilities_status_expiry",
+    AutoActionCapability.status,
+    AutoActionCapability.expires_at,
+)
+
+
 class AgentStep(TimestampMixin, Base):
     """One row per graph node traversal. Records node-level trace. Per D-05c."""
 

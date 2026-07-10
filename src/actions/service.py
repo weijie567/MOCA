@@ -9,14 +9,19 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.actions.capabilities import (
+    AUTO_ACTION_CAPABILITY_HANDLER,
+    AutoActionCapabilityService,
+    CapabilityVerificationError,
+)
 from src.actions.drafts import ActionDraftStore
 from src.actions.schemas import ActionDraftV2Data, DraftOutcomeV1
 from src.agent.events import emit_event
 from src.agent.run_scope import BUSINESS_MERCHANT, UNKNOWN_LEGACY
-from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1, TargetMerchantBindingV1
+from src.approvals.schemas import RiskDecisionV1, TargetMerchantBindingV1
 from src.approvals.snapshot_service import compute_action_payload_hash
 from src.common.canonical_hash import CanonicalHashError
-from src.db.models import ActionSafetySnapshot, AgentRun, ApprovalRequest
+from src.db.models import ActionSafetySnapshot, AgentRun, ApprovalRequest, AutoActionCapability
 from src.knowledge.schemas import EvidenceRefV1
 from src.tools.contracts import BusinessFactRefV1
 
@@ -40,6 +45,9 @@ class _ValidatedActionBinding:
     risk_decision_ref: str | None = None
     risk_decision: dict[str, Any] | None = None
     auto_allowed_binding_ref: str | None = None
+    authorization_source: str = "approval"
+    capability: AutoActionCapability | None = None
+    capability_already_consumed: bool = False
 
 
 def _tool_success(data: dict[str, Any]) -> dict[str, Any]:
@@ -57,9 +65,16 @@ def _tool_error(error_code: str, message: str, retryable: bool) -> dict[str, Any
 class ActionService:
     """Business owner for durable action draft creation."""
 
-    def __init__(self, session: AsyncSession, *, draft_store: ActionDraftStore | None = None) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        draft_store: ActionDraftStore | None = None,
+        capability_service: AutoActionCapabilityService | None = None,
+    ) -> None:
         self.session = session
         self.draft_store = draft_store or ActionDraftStore(session)
+        self.capability_service = capability_service or AutoActionCapabilityService(session)
 
     async def create_coupon_grant_draft(
         self,
@@ -82,14 +97,15 @@ class ActionService:
         claim_verification_summary: dict[str, Any] | None = None,
         risk_decision_ref: str | None = None,
         risk_decision: dict[str, Any] | None = None,
+        auto_action_capability_ref: str | None = None,
         auto_allowed_binding: dict[str, Any] | None = None,
         thread_id: str | None = None,
         trace_id: str | None = None,
     ) -> dict[str, Any]:
-        del user_id
         try:
             run_uuid = UUID(run_id)
             tenant_uuid = UUID(tenant_id)
+            actor_uuid = UUID(user_id)
             approval_uuid = UUID(approval_request_id) if approval_request_id else None
         except (AttributeError, TypeError, ValueError):
             return _tool_error("INVALID_REQUEST", "Action draft request is invalid", retryable=False)
@@ -119,8 +135,10 @@ class ActionService:
             async with self.session.begin_nested():
                 binding = await self._validate_action_binding(
                     tenant_id=tenant_uuid,
+                    actor_id=actor_uuid,
                     run_id=run_uuid,
                     approval_request_id=approval_uuid,
+                    action_type=action_type,
                     action_payload_hash=action_payload_hash,
                     safety_snapshot_ref=safety_snapshot_ref,
                     safety_snapshot_hash=safety_snapshot_hash,
@@ -132,6 +150,7 @@ class ActionService:
                     claim_verification_summary=claim_verification_summary,
                     risk_decision_ref=risk_decision_ref,
                     risk_decision=risk_decision,
+                    auto_action_capability_ref=auto_action_capability_ref,
                     auto_allowed_binding=auto_allowed_binding,
                 )
                 if isinstance(binding, dict):
@@ -175,6 +194,23 @@ class ActionService:
                     lifecycle_status="active",
                     retention_policy="phase14_demo_draft",
                 )
+                if binding.capability is not None:
+                    if binding.capability_already_consumed:
+                        if (
+                            binding.capability.resulting_draft_id != draft.id
+                            or binding.capability.idempotency_key != draft.idempotency_key
+                        ):
+                            return _tool_error(
+                                "AUTO_ACTION_CAPABILITY_REPLAY",
+                                "Auto-action capability retry identity is invalid",
+                                retryable=False,
+                            )
+                    else:
+                        await self.capability_service.mark_consumed(
+                            binding.capability,
+                            draft_id=draft.id,
+                            idempotency_key=draft.idempotency_key,
+                        )
                 draft_outcome = _draft_outcome_from_draft(draft)
                 draft.draft_outcome = draft_outcome
                 if created:
@@ -189,6 +225,7 @@ class ActionService:
                         action_payload_hash=action_payload_hash,
                         safety_snapshot_hash=safety_snapshot_hash,
                         draft_outcome=draft_outcome,
+                        authorization_source=binding.authorization_source,
                     )
             return _tool_success(
                 {
@@ -203,6 +240,8 @@ class ActionService:
                     "action_result": _compat_action_result(draft, draft_outcome),
                 }
             )
+        except CapabilityVerificationError as exc:
+            return _tool_error(exc.error_code, str(exc), retryable=False)
         except ValueError as exc:
             if str(exc) in _IDEMPOTENCY_CONFLICTS:
                 return _tool_error(
@@ -218,8 +257,10 @@ class ActionService:
         self,
         *,
         tenant_id: UUID,
+        actor_id: UUID,
         run_id: UUID,
         approval_request_id: UUID | None,
+        action_type: str,
         action_payload_hash: str,
         safety_snapshot_ref: str,
         safety_snapshot_hash: str,
@@ -231,6 +272,7 @@ class ActionService:
         claim_verification_summary: dict[str, Any] | None,
         risk_decision_ref: str | None,
         risk_decision: dict[str, Any] | None,
+        auto_action_capability_ref: str | None,
         auto_allowed_binding: dict[str, Any] | None,
     ) -> _ValidatedActionBinding | dict[str, Any]:
         snapshot = (
@@ -273,13 +315,16 @@ class ActionService:
                 retryable=False,
             )
         if approval_request_id is None:
-            validated = self._validate_auto_allowed_binding(
+            validated = await self._validate_auto_action_capability(
                 tenant_id=tenant_id,
+                actor_id=actor_id,
                 run_id=run_id,
+                action_type=action_type,
                 action_payload_hash=action_payload_hash,
                 safety_snapshot_ref=safety_snapshot_ref,
                 safety_snapshot_hash=safety_snapshot_hash,
                 requested_binding=requested_binding,
+                auto_action_capability_ref=auto_action_capability_ref,
                 auto_allowed_binding=auto_allowed_binding,
             )
             if isinstance(validated, dict):
@@ -333,78 +378,64 @@ class ActionService:
             **requested_binding,
         )
 
-    def _validate_auto_allowed_binding(
+    async def _validate_auto_action_capability(
         self,
         *,
         tenant_id: UUID,
+        actor_id: UUID,
         run_id: UUID,
+        action_type: str,
         action_payload_hash: str,
         safety_snapshot_ref: str,
         safety_snapshot_hash: str,
         requested_binding: dict[str, Any],
+        auto_action_capability_ref: str | None,
         auto_allowed_binding: dict[str, Any] | None,
     ) -> _ValidatedActionBinding | dict[str, Any]:
-        if not auto_allowed_binding:
+        if auto_allowed_binding is not None or not auto_action_capability_ref:
             return _tool_error(
-                "AUTO_ALLOWED_BINDING_REQUIRED",
-                "No-approval action draft requires a durable auto-allowed binding",
+                "AUTO_ACTION_CAPABILITY_REQUIRED",
+                "No-approval action draft requires a server-minted capability",
+                retryable=False,
+            )
+        risk_decision_ref = requested_binding.get("risk_decision_ref")
+        risk_decision = requested_binding.get("risk_decision")
+        target_merchant_id = requested_binding.get("target_merchant_id")
+        if not risk_decision_ref or risk_decision is None or not target_merchant_id:
+            return _tool_error(
+                "AUTO_ACTION_CAPABILITY_MISMATCH",
+                "Auto-action capability binding is invalid",
                 retryable=False,
             )
         try:
-            trusted = AutoAllowedActionBindingV1.model_validate(auto_allowed_binding)
-        except ValueError:
+            verified = await self.capability_service.lock_and_verify_for_draft(
+                capability_ref=auto_action_capability_ref,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                run_id=run_id,
+                target_merchant_id=target_merchant_id,
+                canonical_action=action_type,
+                action_payload_hash=action_payload_hash,
+                safety_snapshot_ref=safety_snapshot_ref,
+                safety_snapshot_hash=safety_snapshot_hash,
+                risk_decision_ref=risk_decision_ref,
+                risk_decision=risk_decision,
+                handler=AUTO_ACTION_CAPABILITY_HANDLER,
+            )
+        except CapabilityVerificationError as exc:
             return _tool_error(
-                "AUTO_ALLOWED_BINDING_MISMATCH",
-                "Auto-allowed action binding is invalid",
+                exc.error_code,
+                str(exc),
                 retryable=False,
             )
-        trusted_payload = trusted.model_dump(mode="json")
-        risk_decision_ref = str(trusted.risk_decision_ref or "")
-        if not risk_decision_ref:
-            return _tool_error(
-                "AUTO_ALLOWED_BINDING_MISMATCH",
-                "Auto-allowed action binding is invalid",
-                retryable=False,
-            )
-        expected = {
-            "tenant_id": str(tenant_id),
-            "run_id": str(run_id),
-            "target_merchant_id": requested_binding.get("target_merchant_id"),
-            "action_payload_hash": action_payload_hash,
-            "safety_snapshot_ref": safety_snapshot_ref,
-            "safety_snapshot_hash": safety_snapshot_hash,
-            "risk_decision_ref": requested_binding.get("risk_decision_ref"),
-            "business_fact_refs": requested_binding.get("business_fact_refs") or [],
-            "verified_evidence_refs": requested_binding.get("verified_evidence_refs") or [],
-            "claim_verification_ref": requested_binding.get("claim_verification_ref"),
-            "claim_verification_summary": requested_binding.get("claim_verification_summary"),
-        }
-        actual = {key: trusted_payload.get(key) for key in expected}
-        if actual != expected:
-            return _tool_error(
-                "AUTO_ALLOWED_BINDING_MISMATCH",
-                "Auto-allowed action binding is invalid",
-                retryable=False,
-            )
-        risk_decision = requested_binding.get("risk_decision")
-        if (
-            risk_decision is None
-            or risk_decision.get("tenant_id") != str(tenant_id)
-            or risk_decision.get("run_id") != str(run_id)
-            or risk_decision.get("action_payload_hash") != action_payload_hash
-            or risk_decision.get("approval_required") is not False
-            or risk_decision_ref != requested_binding.get("risk_decision_ref")
-        ):
-            return _tool_error(
-                "AUTO_ALLOWED_BINDING_MISMATCH",
-                "Auto-allowed action binding is invalid",
-                retryable=False,
-            )
-        revision_marker = f"auto_allowed:{risk_decision_ref}"
+        revision_marker = f"auto_action_capability:{verified.capability.id}"
         return _ValidatedActionBinding(
             revision_marker=revision_marker,
             approval_revision_ref=revision_marker,
             auto_allowed_binding_ref=revision_marker,
+            authorization_source="auto_allow_capability",
+            capability=verified.capability,
+            capability_already_consumed=verified.already_consumed,
             **requested_binding,
         )
 
@@ -421,6 +452,7 @@ class ActionService:
         action_payload_hash: str,
         safety_snapshot_hash: str,
         draft_outcome: dict[str, Any],
+        authorization_source: str,
     ) -> None:
         await emit_event(
             self.session,
@@ -438,6 +470,7 @@ class ActionService:
             },
             redacted_payload={
                 "action_type": action_type,
+                "authorization_source": authorization_source,
                 "execution_mode": "demo",
                 "external_side_effect": False,
                 "draft_outcome": DraftOutcomeV1.model_validate(draft_outcome).model_dump(mode="json"),
@@ -491,7 +524,7 @@ async def _ensure_run_scope_matches_target(
     run.scope_classification = BUSINESS_MERCHANT
     run.target_merchant_id = requested_target_merchant_id
     run.target_merchant_ref = requested_binding["target_merchant_ref"]
-    run.scope_source = "auto_allowed_action_binding_v1"
+    run.scope_source = "auto_action_capability.v1"
     run.scope_reason_codes = []
     await session.flush()
     return True, None
@@ -725,6 +758,7 @@ async def create_coupon_grant_draft(
     claim_verification_summary: dict[str, Any] | None = None,
     risk_decision_ref: str | None = None,
     risk_decision: dict[str, Any] | None = None,
+    auto_action_capability_ref: str | None = None,
     auto_allowed_binding: dict[str, Any] | None = None,
     thread_id: str | None = None,
     trace_id: str | None = None,
@@ -750,6 +784,7 @@ async def create_coupon_grant_draft(
         claim_verification_summary=claim_verification_summary,
         risk_decision_ref=risk_decision_ref,
         risk_decision=risk_decision,
+        auto_action_capability_ref=auto_action_capability_ref,
         auto_allowed_binding=auto_allowed_binding,
         thread_id=thread_id,
         trace_id=trace_id,
