@@ -21236,6 +21236,26 @@ pending list 使用 `DecidableApprovalRecord`，non-success status helper 改为
 **剩余问题和下次继续排查入口**
 本条无剩余阻塞。后续改 approval recovery 时先跑三份 frontend unit contract，再跑 desktop/mobile `phase64_1-approval-safety.spec.ts`；必须同时断言 stale 不可立即重试、terminal 可收敛、ambiguous 不重放 POST。
 
+## 2026-07-10 — Phase 64.1 code-review terminal approval 重复决定状态码回归
+
+**问题现象**
+code-review fix 最终 backend 聚合在 100% 时出现唯一失败：`tests/test_approval_integration.py::test_idempotent_approve_does_not_duplicate_action_draft` 的第二次 approve 预期稳定 409，实际返回 404；聚合结果为 `1 failed, 449 passed, 13 warnings in 396.29s`。
+
+**如何检测/复现**
+运行本轮跨层聚合 pytest，或单独运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_integration.py::test_idempotent_approve_does_not_duplicate_action_draft -q --tb=short`。
+
+**关键证据或命令**
+第一次 approve 已将 request/level/assignment 转为 terminal；修复后的 nonlocking `get_decision_context()` 对 terminal request 返回 `None`，decide router 原先把该值直接映射为 NOT_FOUND。定向修复回归（重复 decide、跨租户 no-existence-leak、terminal GET）为 `3 passed`；完整 `tests/test_approval_integration.py tests/test_approval_api.py` 为 `45 passed, 11 warnings in 118.00s`，相关 Ruff 通过。
+
+**当前判断/根因**
+这是 terminal GET nullable-context 合同与 mutation endpoint 错误映射之间的兼容回归，不是 request 真不存在。读取端需要对 terminal record 返回 200/null context；决定端则必须区分 scoped request 已存在但冲突（409）与 absent/cross-tenant（404），不能用同一个 `context is None` 推断。
+
+**已做处理**
+decide router 在 context 为 null 时用 tenant-scoped `get_request()` 复核：不存在继续 404；存在则先执行原 scope check，再返回稳定 approval conflict 409。未放宽版本/hash/assignment 校验，未暴露跨租户存在性，也未重放决定。
+
+**剩余问题和下次继续排查入口**
+本条无剩余阻塞。后续修改 terminal GET 或 retry/recovery 合同时，必须成对运行 terminal GET、重复 decide、跨租户 no-existence-leak 三类测试，避免 read/null 与 mutation/conflict 语义再次混用。
+
 ## 2026-07-10 — Phase 64.1-06 最终矩阵、architecture guard 与全量门禁事故
 
 **问题现象**
