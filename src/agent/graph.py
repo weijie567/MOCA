@@ -38,6 +38,7 @@ from src.agent.nodes.session_context_load import session_context_load
 from src.agent.nodes.slot_resolution_gate import slot_resolution_gate
 from src.agent.routing import (
     _has_allowed_action_recommendation,
+    route_after_action_draft,
     route_after_claim_verify,
     route_after_contextual_intent,
     route_after_investigate,
@@ -327,7 +328,14 @@ def build_graph(checkpointer: AsyncPostgresSaver):
             "final_response": "final_response",
         },
     )
-    builder.add_edge("action_draft", "final_response")
+    builder.add_conditional_edges(
+        "action_draft",
+        route_after_action_draft,
+        {
+            "final_response": "final_response",
+            "terminal_error": "final_response",
+        },
+    )
     builder.add_edge("final_response", END)
 
     return builder.compile(checkpointer=checkpointer)

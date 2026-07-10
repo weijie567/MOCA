@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+from src.actions.schemas import DraftOutcomeV1
 from src.agent.intent_policy import (
     ACTION_EVIDENCE_OPERATIONS,
     INTENT_POLICY_REGISTRY,
@@ -29,6 +32,35 @@ RAG_CONTEXT_STATUSES = set(SCHEMA_RAG_CONTEXT_STATUSES)
 _RAG_CONTEXT_UNSAFE_REASON_CODES = {"unauthorized", "stale", "conflict", "invalid_hash", "invalid_scope", "build_error"}
 _RAG_CONTEXT_ROUTES = {"recommendation_generation", "clarification_gate", "final_response"}
 _CLAIM_VERIFY_ROUTES = {"risk_gate", "final_response"}
+_ACTION_DRAFT_ROUTES = {"final_response", "terminal_error"}
+ACTION_DRAFT_TERMINAL_ERROR_CODE = "ACTION_DRAFT_TERMINAL_FAILED"
+ACTION_DRAFT_TERMINAL_SAFE_MESSAGE = "操作草稿未能安全创建，请稍后重试或转人工处理。"
+_ACTION_DRAFT_AUTH_ERROR_CODES = {
+    "APPROVAL_REQUIRED",
+    "AUTO_ACTION_CAPABILITY_EXPIRED",
+    "AUTO_ACTION_CAPABILITY_INVALID",
+    "AUTO_ACTION_CAPABILITY_REPLAY",
+    "AUTO_ACTION_CAPABILITY_REQUIRED",
+    "CALLER_NOT_ALLOWED",
+    "MISSING_TRUSTED_CONTEXT",
+    "NOT_APPROVED",
+    "PERMISSION_REQUIRED",
+    "POLICY_DENIED",
+    "SCOPE_DENIED",
+    "SIDE_EFFECT_BLOCKED",
+    "VERIFIER_NOT_ALLOW",
+}
+_ACTION_DRAFT_PERSISTENCE_ERROR_CODES = {
+    "ACTION_DRAFT_FAILED",
+    "DRAFT_CREATION_FAILED",
+    "EXECUTOR_ERROR",
+    "TOOL_UNAVAILABLE",
+}
+_ACTION_DRAFT_OUTCOME_ERROR_CODES = {
+    "INVALID_ACTION_RESPONSE",
+    "INVALID_DRAFT_OUTCOME",
+    "INVALID_EXECUTOR_RESPONSE",
+}
 SAFETY_ROUTES = {"session_context_load", "clarification_gate", "final_response"}
 CONTEXTUAL_INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "slot_resolution_gate"}
 INTENT_ROUTES = CONTEXTUAL_INTENT_ROUTES
@@ -76,6 +108,158 @@ _BROAD_INVALIDATION_MARKERS = (
     "different one",
     "another one",
 )
+
+
+class ActionDraftTerminalV1(BaseModel):
+    """Canonical post-draft terminal decision shared by graph and API projections."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["action_draft_terminal.v1"] = "action_draft_terminal.v1"
+    applies: bool
+    status: Literal["not_applicable", "completed", "error"]
+    final_status: Literal["completed", "error"]
+    route_key: Literal["final_response", "terminal_error"]
+    reason_code: str | None = None
+    error_code: str | None = None
+    safe_message: str | None = None
+    draft_id: str | None = None
+
+
+def project_action_draft_terminal(state: AgentState, *, require_action: bool = False) -> ActionDraftTerminalV1:
+    """Validate one durable demo draft or return a stable fail-closed terminal."""
+    if not require_action and not _action_draft_terminal_expected(state):
+        return ActionDraftTerminalV1(
+            applies=False,
+            status="not_applicable",
+            final_status="completed",
+            route_key="final_response",
+        )
+
+    raw_outcome = state.get("draft_outcome")
+    try:
+        outcome = DraftOutcomeV1.model_validate(raw_outcome)
+    except ValidationError:
+        outcome = None
+    if outcome is None:
+        failure_reason = "draft_outcome_invalid"
+    else:
+        draft_id = str(outcome.draft_id or "").strip()
+        if not draft_id:
+            failure_reason = "draft_identity_invalid"
+        else:
+            action_draft = _safe_mapping(state.get("action_draft"))
+            if not _durable_action_draft_identity_matches(state, action_draft, outcome):
+                failure_reason = "draft_identity_invalid"
+            elif not _critical_action_draft_audit_present(state):
+                failure_reason = "critical_audit_missing"
+            else:
+                return ActionDraftTerminalV1(
+                    applies=True,
+                    status="completed",
+                    final_status="completed",
+                    route_key="final_response",
+                    draft_id=draft_id,
+                )
+
+    action_error_code = _action_result_error_code(state.get("action_result"))
+    if action_error_code is not None:
+        failure_reason = _action_error_reason_code(action_error_code)
+    return _failed_action_draft_terminal(failure_reason)
+
+
+def route_after_action_draft(state: AgentState) -> str:
+    """Route only validated durable demo drafts to a completed response."""
+    route = project_action_draft_terminal(state, require_action=True).route_key
+    return route if route in _ACTION_DRAFT_ROUTES else "terminal_error"
+
+
+def _action_draft_terminal_expected(state: AgentState) -> bool:
+    if any(state.get(field) is not None for field in ("action_result", "action_draft", "draft_outcome")):
+        return True
+    approval = _safe_mapping(state.get("approval_result"))
+    decision_type = approval.get("decision_type") or approval.get("decision")
+    if decision_type in {"accept", "approve"} and approval.get("status") in {None, "approved"}:
+        return True
+    if state.get("auto_action_capability") and state.get("proposed_action"):
+        return True
+    risk = _safe_mapping(state.get("risk_assessment"))
+    return bool(
+        state.get("proposed_action")
+        and risk.get("approval_required") is False
+        and risk.get("risk_disposition") == "allow"
+    )
+
+
+def _action_result_error_code(value: Any) -> str | None:
+    action_result = _safe_mapping(value)
+    if action_result.get("status") != "error":
+        return None
+    error = _safe_mapping(action_result.get("error"))
+    return str(error.get("error_code") or error.get("code") or "ACTION_DRAFT_FAILED")
+
+
+def _action_error_reason_code(error_code: str) -> str:
+    if error_code in _ACTION_DRAFT_AUTH_ERROR_CODES or error_code.startswith("AUTO_ACTION_CAPABILITY_"):
+        return "authorization_failed"
+    if error_code in _ACTION_DRAFT_OUTCOME_ERROR_CODES:
+        return "draft_outcome_invalid"
+    if error_code in _ACTION_DRAFT_PERSISTENCE_ERROR_CODES:
+        return "draft_persistence_failed"
+    return "draft_tool_failed"
+
+
+def _failed_action_draft_terminal(reason_code: str) -> ActionDraftTerminalV1:
+    return ActionDraftTerminalV1(
+        applies=True,
+        status="error",
+        final_status="error",
+        route_key="terminal_error",
+        reason_code=reason_code,
+        error_code=ACTION_DRAFT_TERMINAL_ERROR_CODE,
+        safe_message=ACTION_DRAFT_TERMINAL_SAFE_MESSAGE,
+    )
+
+
+def _durable_action_draft_identity_matches(
+    state: AgentState,
+    action_draft: dict[str, Any],
+    outcome: DraftOutcomeV1,
+) -> bool:
+    if (
+        action_draft.get("schema_version") != "action_draft.v2"
+        or action_draft.get("status") != "draft_created"
+        or action_draft.get("execution_mode") != "demo"
+        or action_draft.get("lifecycle_status") != "active"
+        or str(action_draft.get("draft_id") or "") != str(outcome.draft_id)
+        or state.get("execution_mode") != "demo"
+    ):
+        return False
+    tenant_id = str(state.get("tenant_id") or "")
+    run_id = str(state.get("current_run_id") or "")
+    if not tenant_id or not run_id:
+        return False
+    if {str(action_draft.get("tenant_id") or ""), str(outcome.tenant_id or "")} != {tenant_id}:
+        return False
+    if {str(action_draft.get("run_id") or ""), str(outcome.run_id or "")} != {run_id}:
+        return False
+    try:
+        nested_outcome = DraftOutcomeV1.model_validate(action_draft.get("draft_outcome"))
+    except ValidationError:
+        return False
+    return (
+        nested_outcome.model_dump(mode="json") == outcome.model_dump(mode="json")
+        and str(nested_outcome.draft_id or "") == str(action_draft.get("draft_id") or "")
+    )
+
+
+def _critical_action_draft_audit_present(state: AgentState) -> bool:
+    for raw_step in reversed(state.get("trace_steps") or []):
+        step = _safe_mapping(raw_step)
+        if step.get("node") != "action_draft":
+            continue
+        return step.get("status") == "completed" and step.get("tool_name") == "create_coupon_grant_draft"
+    return False
 
 
 def route_after_contextual_intent(state: AgentState) -> str:

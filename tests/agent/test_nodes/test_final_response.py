@@ -38,6 +38,41 @@ def _draft_outcome(draft_id: str, *, external_side_effect: bool = False) -> dict
     }
 
 
+def _durable_draft_projection(base_state: dict, draft_id: str, *, external_side_effect: bool = False) -> dict:
+    run_id = str(base_state.get("current_run_id") or f"run-{draft_id}")
+    outcome = _draft_outcome(draft_id, external_side_effect=external_side_effect)
+    outcome.update(
+        {
+            "tenant_id": str(base_state["tenant_id"]),
+            "run_id": run_id,
+            "created_at": "2026-07-10T05:00:00Z",
+        }
+    )
+    return {
+        "current_run_id": run_id,
+        "action_draft": {
+            "schema_version": "action_draft.v2",
+            "tenant_id": str(base_state["tenant_id"]),
+            "run_id": run_id,
+            "draft_id": draft_id,
+            "status": "draft_created",
+            "execution_mode": "demo",
+            "lifecycle_status": "active",
+            "draft_outcome": outcome,
+        },
+        "draft_outcome": outcome,
+        "execution_mode": "demo",
+        "action_result": {"status": "draft_created", "data": {"draft_id": draft_id}, "error": {}},
+        "trace_steps": [
+            {
+                "node": "action_draft",
+                "status": "completed",
+                "tool_name": "create_coupon_grant_draft",
+            }
+        ],
+    }
+
+
 def _assert_draft_created_not_executed(text: str, draft_id: str) -> None:
     assert draft_id in text
     assert "草稿" in text
@@ -273,9 +308,7 @@ async def test_final_response_mentions_approved_action_draft(base_state):
         },
         "risk_assessment": {"approval_required": True, "risk_reason": "Compensation amount exceeds threshold"},
         "approval_result": {"decision": "approve"},
-        "action_draft": {"draft_id": "draft-001", "status": "draft_created"},
-        "draft_outcome": _draft_outcome("draft-001"),
-        "action_result": {"status": "draft_created", "data": {"draft_id": "draft-001"}, "error": {}},
+        **_durable_draft_projection(base_state, "draft-001"),
     }
 
     result = await final_response(state)
@@ -306,8 +339,7 @@ async def test_final_response_trusts_allowed_claim_bundle_over_legacy_allow_fiel
         "verifier_status": "verified",
         "verifier_reason_codes": [],
         "approval_result": {"decision": "approve"},
-        "action_draft": {"draft_id": "draft-compat-001", "status": "draft_created"},
-        "draft_outcome": _draft_outcome("draft-compat-001"),
+        **_durable_draft_projection(base_state, "draft-compat-001"),
         "action_result": {"status": "draft_created", "data": {"draft_id": "draft-compat-001"}, "error": {}},
     }
 
@@ -365,10 +397,12 @@ async def test_final_response_mentions_action_failure_after_approval(base_state)
 @pytest.mark.asyncio
 async def test_final_response_refuses_completed_projection_without_critical_action_draft_audit(base_state):
     draft_id = "draft-missing-audit"
+    run_id = "run-missing-audit"
     outcome = _draft_outcome(draft_id)
-    outcome.update({"tenant_id": base_state["tenant_id"], "run_id": base_state["current_run_id"]})
+    outcome.update({"tenant_id": base_state["tenant_id"], "run_id": run_id})
     state = {
         **base_state,
+        "current_run_id": run_id,
         "recommendation_draft": {
             "recommended_action": "issue_coupon",
             "reasoning_summary": "符合补偿规则。",
@@ -378,7 +412,7 @@ async def test_final_response_refuses_completed_projection_without_critical_acti
         "action_draft": {
             "schema_version": "action_draft.v2",
             "tenant_id": base_state["tenant_id"],
-            "run_id": base_state["current_run_id"],
+            "run_id": run_id,
             "draft_id": draft_id,
             "status": "draft_created",
             "execution_mode": "demo",
@@ -409,9 +443,7 @@ async def test_final_response_mentions_direct_action_without_approval(base_state
         },
         "risk_assessment": {"approval_required": False},
         "approval_result": None,
-        "action_draft": {"draft_id": "draft-002", "status": "draft_created"},
-        "draft_outcome": _draft_outcome("draft-002"),
-        "action_result": {"status": "draft_created", "data": {"draft_id": "draft-002"}, "error": {}},
+        **_durable_draft_projection(base_state, "draft-002"),
     }
 
     result = await final_response(state)
@@ -452,8 +484,7 @@ async def test_final_response_rejects_side_effecting_draft_outcome_as_success(ba
         },
         "risk_assessment": {"approval_required": False},
         "approval_result": None,
-        "action_draft": {"draft_id": "draft-side-effect", "status": "draft_created"},
-        "draft_outcome": _draft_outcome("draft-side-effect", external_side_effect=True),
+        **_durable_draft_projection(base_state, "draft-side-effect", external_side_effect=True),
         "action_result": {"status": "success", "data": {"draft_id": "draft-side-effect"}, "error": {}},
     }
 
@@ -475,9 +506,7 @@ async def test_final_response_demo_draft_paths_have_no_external_success_wording(
             },
             "risk_assessment": {"approval_required": True},
             "approval_result": {"decision": "approve"},
-            "action_draft": {"draft_id": "draft-approved", "status": "draft_created"},
-            "draft_outcome": _draft_outcome("draft-approved"),
-            "action_result": {"status": "draft_created", "data": {"draft_id": "draft-approved"}, "error": {}},
+            **_durable_draft_projection(base_state, "draft-approved"),
         },
         {
             **base_state,
@@ -488,15 +517,15 @@ async def test_final_response_demo_draft_paths_have_no_external_success_wording(
             },
             "risk_assessment": {"approval_required": False},
             "approval_result": None,
-            "action_draft": {"draft_id": "draft-auto", "status": "draft_created"},
-            "draft_outcome": _draft_outcome("draft-auto"),
-            "action_result": {"status": "draft_created", "data": {"draft_id": "draft-auto"}, "error": {}},
+            **_durable_draft_projection(base_state, "draft-auto"),
         },
     ]
 
     for state in states:
         result = await final_response(state)
 
+        assert "草稿已创建" in result["final_response"]
+        assert result["llm_outputs"]["final_response"]["final_status"] == "completed"
         assert not any(phrase in result["final_response"] for phrase in FORBIDDEN_DEMO_SUCCESS_PHRASES)
 
 

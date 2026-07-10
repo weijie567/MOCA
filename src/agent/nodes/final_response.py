@@ -5,6 +5,7 @@ from typing import Any
 
 from src.agent.graph_vocabulary import project_trace_step_for_contract
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
+from src.agent.routing import project_action_draft_terminal
 from src.agent.state import AgentState
 from src.business.query.projection import business_query_response_text, safe_business_query_metadata
 
@@ -1130,6 +1131,25 @@ async def final_response(state: AgentState) -> dict:
                 "final_response": _metric_llm_output(response_text, metric),
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+        }
+    action_terminal = project_action_draft_terminal(state)
+    if action_terminal.applies and action_terminal.status == "error":
+        response_text = _decorate_deferred_response(str(action_terminal.safe_message), state)
+        return {
+            "final_response": response_text,
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "final_response": {
+                    "response_text": response_text,
+                    "evidence_citations": [],
+                    "final_status": action_terminal.final_status,
+                    "mode": "deterministic-template",
+                    "approval_context": None,
+                    "error_code": action_terminal.error_code,
+                    "reason_code": action_terminal.reason_code,
+                },
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
         }
     verification = _verification_route_payload(state)
     if verification is not None:

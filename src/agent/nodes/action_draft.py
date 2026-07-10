@@ -462,7 +462,6 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
         }
 
-    session = configurable["session"]
     if trusted_context is None:
         return {
             "action_result": {
@@ -476,6 +475,14 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
         }
+    session = configurable.get("session")
+    if session is None:
+        return _non_executable_action_result(
+            state,
+            started_at,
+            code="ACTION_DRAFT_SESSION_REQUIRED",
+            message="Action draft persistence is unavailable",
+        )
     run_id = approval.get("run_id") or trusted_context.run_id
     approval_id = approval.get("approval_id")
     action_resolution = resolve_action_text(proposed.get("action_type"))
@@ -531,7 +538,15 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
     if approval_id:
         args["approval_request_id"] = approval_id
 
-    tool_result = await _invoke_action_tool(configurable, session, args, tool_ctx)
+    try:
+        tool_result = await _invoke_action_tool(configurable, session, args, tool_ctx)
+    except Exception:
+        return _non_executable_action_result(
+            state,
+            started_at,
+            code="ACTION_DRAFT_TOOL_FAILED",
+            message="Action draft creation failed",
+        )
     update, status = _draft_update_from_tool_result(tool_result)
 
     return {
