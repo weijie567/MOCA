@@ -40,6 +40,14 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **EVAL-02**: The UX regression set covers role/scope cases for support, manager, and admin metric queries.
 - [x] **EVAL-03**: Local validation documents the expected Agent Console behavior for v2.2 demo flows.
 
+### Runtime Safety And Approval Contract Repair
+
+- [ ] **SC-64.1-1**: Every actionable recommendation, including Chinese and English variants, resolves through the canonical action taxonomy before material claims and routing; unknown, ambiguous, and schema-invalid candidates fail closed.
+- [ ] **SC-64.1-2**: One deterministic backend evaluator covers configured high-, medium-, and low-risk rules, and LLM/config failures cannot downgrade risk or auto-allow an unproven action.
+- [ ] **SC-64.1-3**: Approval list/get/SSE/decide share one versioned decision-context contract that the frontend echoes without inference; stale, mismatched, cross-scope, and ambiguous outcomes fail closed.
+- [ ] **SC-64.1-4**: Auto-allowed demo draft creation requires a durable server-minted, one-use capability bound to trusted scope, actor, action, hashes, risk decision, expiry, and the sole permitted handler.
+- [ ] **SC-64.1-5**: End-to-end safety and terminal-state tests prove denied, stale, malformed, unsupported, authorization, draft, and audit failures cannot create an unauthorized draft or report successful completion.
+
 ## Future Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -87,12 +95,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVAL-01 | Phase 61 | Complete |
 | EVAL-02 | Phase 61 | Complete |
 | EVAL-03 | Phase 61 | Complete |
+| SC-64.1-1 | Phase 64.1 | Pending |
+| SC-64.1-2 | Phase 64.1 | Pending |
+| SC-64.1-3 | Phase 64.1 | Pending |
+| SC-64.1-4 | Phase 64.1 | Pending |
+| SC-64.1-5 | Phase 64.1 | Pending |
 
 **Coverage:**
-- v2.2 requirements: 18 total
-- Mapped to phases: 18
+- v2.2 requirements: 23 total
+- Mapped to phases: 23
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-09*
-*Last updated: 2026-07-09 after Phase 61 completion*
+*Last updated: 2026-07-10 for Phase 64.1 planning*

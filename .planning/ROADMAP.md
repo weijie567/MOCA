@@ -11,14 +11,14 @@
 ## Current Planning State
 
 **Active milestone:** v2.2 Product Experience Fixes
-**Status:** Phase 64 complete
-**Scope:** Fix concrete Agent Console and agent-response UX pain points without weakening the v2.1 safety, evidence, tool, memory, or approval contracts.
+**Status:** Phase 64 complete; Phase 64.1 ready to plan
+**Scope:** Complete the product-experience work and close source-audit gaps across runtime safety, evidence/replay/memory integrity, trace/SSE reliability, operation contracts, reproducible validation, lifecycle/data integrity, LLM runtime ownership, retrieval governance, and service boundaries without weakening accepted v2.1 contracts.
 
 ## Current Milestone: v2.2 Product Experience Fixes
 
-**Goal:** Fix concrete user-facing experience problems in the Agent Console while preserving the v2.1 subsystem boundaries.
+**Goal:** Deliver trustworthy product behavior and a maintainable Agent platform by combining the original Console/response improvements with explicit, source-backed hardening phases for every confirmed P1/P2 audit finding.
 
-**Requirements:** `.planning/REQUIREMENTS.md` — 18 requirements, all mapped.
+**Requirements:** `.planning/REQUIREMENTS.md` — the 18 original Phase 61 requirements remain mapped; Phase 62-71 requirements are finalized during their phase planning and must trace to the roadmap criteria below.
 
 ### Phase 61: Product Experience Fixes
 
@@ -45,33 +45,9 @@ Plans:
 - [x] 61-04 Agent Graph Metric Integration — route complete metric queries through investigate/tool/final_response and project safe SSE metadata.
 - [x] 61-05 Console UX And Regression Validation — timeline polish, Phase 61 golden set, Playwright E2E, and local validation records.
 
-## Last Completed Milestone: v2.1 Core Subsystem Hardening
-
-**Status:** shipped 2026-07-08
-**Scope:** Phases 37-60 plus inserted Phase 48.1
-**Plans:** 87/87 complete
-**Requirements:** 24/24 complete
-**Audit:** `.planning/milestones/v2.1-MILESTONE-AUDIT.md` — `passed` / `archive_ready`
-
-**Delivered:**
-
-- Consolidated ToolPlatform declarations, runtime output-schema validation, failure handling, policy gates, and legacy manager cleanup.
-- Decoupled intent recognition and preserved multi-intent utterances through bounded `TaskPlan` semantics without weakening the single-intent route contract.
-- Rebuilt memory layering around Case Working Context, thread-case M:N linkage, session-context boundaries, reviewed case precedent generation, explicit preference-only long-term memory, and memory compatibility cleanup.
-- Migrated `investigate` to a bounded read-only ReAct loop and completed the canonical 15-node Agent Graph cutover with legacy runtime route/name cleanup.
-- Aligned recommendation/RAG claim fail-closed behavior, canonical `risk_gate`/`approval_gate` behavior, and approval-resume terminal memory finalization.
-- Closed archive evidence gaps with formal verification, Nyquist validation, UAT, security signoff, and a passed v2.1 milestone audit.
-
-**Accepted follow-ups:**
-
-- Phase 49 bounded ReAct replay parent-operation identity remains an accepted limitation for a future replay/event hardening milestone if needed.
-- Historical legacy graph-name references remain accepted only as historical/test/documentation refs after Phase 58 cleanup.
-- Legacy `/api/v1/agent/chat` background `memory_write` compatibility remains outside the current `agent-runs` frontend lifecycle.
-- GSD tooling/reporting debt: `gsd-sdk query init.milestone-op` can report missing legacy audit agents even when the main orchestrator can run `gsd-integration-checker`.
-
 ## Next
 
-Phase 64 is complete. Next step is Phase 65 planning.
+Phase 64 is complete. The source-level architecture audit inserted urgent Phases 64.1 and 64.2; next step is Phase 64.1 planning.
 
 ### Phase 62: Business Query And Drilldown Foundation
 
@@ -137,67 +113,239 @@ Plans:
 
 **Closeout:** code review clean, UAT 4/4 passed, `threats_open: 0`, and `nyquist_compliant: true`.
 
-### Phase 65: Trace Event And Console Label Consistency
+### Phase 64.1: Runtime Safety And Approval Contract Repair (INSERTED)
 
-**Goal:** Add consistency checks and registry boundaries for trace event types, node labels, tool labels, safe reasons, and console display labels so new runtime concepts do not silently degrade in replay/API/frontend surfaces.
-**Requirements**: TBD during Phase 65 planning.
+**Goal:** Repair the confirmed cross-layer safety breaks between recommendation generation, deterministic risk evaluation, approval APIs, frontend approval handling, and auto-allowed action drafting so every actionable recommendation is normalized, risk-classified, authorized, and auditable before it can reach an action draft or a successful final response.
+**Requirements**: SC-64.1-1, SC-64.1-2, SC-64.1-3, SC-64.1-4, SC-64.1-5
 **Depends on:** Phase 64
-**Plans:** 0 plans
+**Plans:** 6 plans
+
+**Audit findings owned:** Chinese/English actionable recommendations can bypass action claims and `risk_gate`; medium-risk rules disappear in fallback and can become low/auto-allowed; the frontend approval payload cannot satisfy the backend decision schema; normal auto-allowed runs lack a narrowly authorized draft capability; action-draft failures can be hidden by a successful final response.
+
+**Scope boundaries:** This phase owns actionable-recommendation canonicalization, deterministic risk-rule parity and fail-closed fallback, the versioned approval decision contract across backend/API/SSE/frontend, narrowly bound auto-action capability issuance, and end-to-end safety-route verification. It does not redesign the general operation/tool gateway assigned to Phase 66, centralize provider/model policy assigned to Phase 69, change evidence/memory semantics assigned to Phase 64.2, or add a production external side-effect executor.
 
 **Success criteria:**
-1. Trace event type registration, replay validators, and DB CHECK constraints have explicit consistency tests or a documented migration workflow.
-2. Node/tool/safe-reason labels have a clear backend/frontend ownership model with fallback behavior covered by tests.
-3. Console Timeline/Details behavior remains stable when new tool names, node names, response kinds, or safe reasons are added.
+1. Every actionable recommendation, including Chinese and English variants, resolves through the canonical action taxonomy before material-claim generation and routing; node-local keyword sets no longer decide whether risk or approval handling runs.
+2. One deterministic backend rule model evaluates configured high-, medium-, and low-risk rules; invalid, timed-out, unavailable, or schema-invalid LLM risk output cannot downgrade risk and falls closed to manual review or required approval.
+3. Approval list/get/SSE/decide flows share one versioned decision-context contract containing the required decision type, lifecycle versions, revision, and integrity hashes; the frontend can construct a valid request from returned data and stale or mismatched decisions fail closed.
+4. Auto-allowed draft creation uses only a server-minted capability bound to trusted tenant, actor, run, canonical action, payload hash, risk decision, merchant scope, and permitted draft handler; it cannot broaden general tool permissions.
+5. End-to-end safety-matrix tests prove canonicalization -> claim verification -> deterministic risk -> approval or trusted auto-allow -> action draft behavior, and prove denied, stale, malformed, unsupported, or draft-failure paths cannot report successful completion or create a draft.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 65 to break down)
+- [ ] 64.1-01-PLAN.md — Canonical action candidate and fail-closed routing
+- [ ] 64.1-02-PLAN.md — Deterministic risk rule parity and fallback
+- [ ] 64.1-03-PLAN.md — Versioned approval decision contract across backend/API/SSE/frontend
+- [ ] 64.1-04-PLAN.md — Durable bounded auto-action capability
+- [ ] 64.1-05-PLAN.md — Conditional post-draft terminal integrity
+- [ ] 64.1-06-PLAN.md — End-to-end matrix, architecture guards, and closeout gates
+
+### Phase 64.2: Evidence Identity Immutable Replay And Memory Provenance (INSERTED)
+
+**Goal:** Make evidence, replay, Case Working Context, and memory identity trustworthy across ingestion, retrieval, agent projection, persistence, review, and replay so failed observations cannot become verified facts and historical decisions can be reconstructed from immutable, canonically identified source material.
+**Requirements**: TBD during Phase 64.2 planning.
+**Depends on:** Phase 64.1
+**Plans:** 0 plans
+
+**Audit findings owned:** Failed or denied tool summaries can enter CWC `verified_facts`; evidence IDs are not recomputed at trust boundaries; re-ingestion replaces old evidence rows while replay stores only mutable refs; session-memory candidate hashes have multiple algorithms; reviewed case-memory refs lose real scope/status/provenance; duplicate and expired pending memory lifecycle behavior lacks enforceable invariants.
+
+**Scope boundaries:** This phase owns verified-fact promotion rules, canonical evidence identity validation, immutable evidence/document/chunk version references required for replay, one shared memory-candidate identity algorithm, reviewed-memory scope/status/provenance preservation, and correctness-critical duplicate/pending-review lifecycle handling. It does not optimize embedding recall or reranking, redesign PII vocabulary governance assigned to Phase 70, redesign operation dispatch assigned to Phase 66, or perform the broad AgentState/service decomposition assigned to Phase 71.
+
+**Success criteria:**
+1. Only successful authoritative tool or retrieval results with validated canonical references can enter CWC `verified_facts`; unavailable, denied, stale, malformed, partial, and error observations remain typed observations/errors and cannot enter reviewed case memory.
+2. Evidence identity has one canonical computation and validation path shared by ingestion, retrieval, agent state, APIs, memory, and replay; forged or mismatched aliases are rejected without existence leakage.
+3. Replay references resolve the exact immutable document, chunk, evidence content, version, scope, and integrity hash used by the original run after re-ingestion, correction, supersession, or tombstoning, with migration/backfill and compatibility reads covered.
+4. Memory candidate hashing has one owner consumed by nodes, services, events, stores, deduplication, and review flows; reviewed records preserve real tenant/merchant scope, source status, review decision, source/run provenance, and correction lineage.
+5. Database constraints, idempotent writes, and lifecycle tests prevent concurrent duplicate candidates or reviews and define deterministic expiry, rejection, correction, and tombstone behavior for stale pending records without silently merging distinct identities.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 64.2; expected slices: fact promotion, canonical evidence identity, immutable replay storage, memory provenance/deduplication, and migration/UAT/parity gates)
+
+### Phase 65: Trace Event And Console Label Consistency
+
+**Goal:** Make runtime observability trustworthy end to end: canonical trace/event vocabulary must match what production nodes actually emit, persist, replay, project through SSE/API, and render in the Console, while failures are redacted and database/event lifecycles remain bounded.
+**Requirements**: TBD during Phase 65 planning.
+**Depends on:** Phase 64.2
+**Plans:** 0 plans
+
+**Audit findings owned:** LLM event types are registered but production calls do not emit them; two SSE paths expose raw exceptions; long streams retain request-scoped DB sessions; audit/event persistence failures can be silently discarded; backend/replay/DB/frontend labels remain separate facts.
+
+**Scope boundaries:** This phase owns trace/SSE/runtime audit reliability and label parity. It may instrument current LLM call sites, but it does not redesign operation dispatch (Phase 66), CI/config profiles (Phase 67), lifecycle/relational constraints (Phase 68), or provider/model/retry policy in the central LLM gateway (Phase 69).
+
+**Success criteria:**
+1. Trace event types, node/tool/safe-reason/response-kind labels, DB constraints, replay validators, API projections, and frontend labels have one canonical ownership model plus parity or migration tests.
+2. Every production LLM call path emits correlated `llm_call_started`, `llm_call_completed`, or `llm_call_failed` events with redacted metadata and available timing, model, and usage fields; registry-only placeholders are insufficient.
+3. SSE and streaming error envelopes expose stable safe reason codes and request IDs, never raw exceptions, provider/SQL details, credentials, secrets, or internal object representations.
+4. Long-running LLM/SSE work does not hold a request-scoped DB transaction or connection for the entire stream; persistence uses explicit short lifecycle boundaries covered by interruption/error tests.
+5. Tool, action, approval, and lifecycle event-persistence failures have explicit reliability semantics; safety/audit-critical events cannot be silently discarded, and intentional best-effort diagnostics are named, bounded, and observable.
+6. Console Timeline/Details renders canonical and unknown future labels safely, preserves historical-event readability, and never infers security meaning from display text.
+7. Backend integration, replay, SSE-contract, and frontend tests prove emitted -> persisted -> projected -> rendered parity for success, denial, interruption, timeout, and failure paths.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 65; expected slices: event/label ownership, production LLM emission, safe SSE/session lifecycle, audit reliability, and backend/frontend parity gates)
 
 ### Phase 66: Unified Operation Contract And Tool Gateway
 
-**Goal:** Reduce the LLM-facing tool surface to controlled operation contracts, so natural language is translated into typed operation specs and backend-owned dispatch handles concrete business, knowledge, and action handlers with permission, safety, projection, audit, and replay boundaries.
+**Goal:** Replace planner-visible concrete-tool coupling with versioned, typed operation contracts whose backend-owned registry dispatches only supported business, knowledge, and action capabilities through existing permission, scope, safety, projection, audit, and replay boundaries.
 **Requirements**: TBD during Phase 66 planning.
 **Depends on:** Phase 65
 **Plans:** 0 plans
 
+**Audit findings owned:** The planner returns concrete tool strings; planner/catalog/event/policy/frontend names have multiple owners; BusinessQuery advertises schema-valid runtime-impossible operation/resource pairs; KnowledgeSearch exposes filters the runtime ignores or narrows; refund actions can be persisted through a coupon-named capability; legacy metric calculation remains as a second business-rule truth.
+
+**Scope boundaries:** This phase owns operation/capability truth and compatibility migration. It does not add production external side effects, expand the product surface merely to satisfy a registry, centralize LLM provider/runtime policy (Phase 69), or perform broad state/service decomposition (Phase 71).
+
 **Success criteria:**
-1. LLM/planner-facing contracts are expressed as stable operation specs rather than ad hoc concrete tool names wherever a controlled operation family exists.
-2. Business read operations route through `business_query`; exact-id compatibility tools such as `get_order`, `get_refund_case`, and `get_ticket` are either backend handlers/wrappers or explicitly justified as remaining LLM-visible.
-3. Knowledge/RAG retrieval and action draft/execute paths have separate controlled operation schemas and cannot be collapsed into a generic unsafe executor.
-4. ToolCatalog, planner allowlists, event families, policy checks, projection, and frontend labels consume the same operation/tool registry or have parity tests that fail on drift.
-5. Legacy concrete tool names have a compatibility and migration plan that preserves audit/replay identity without expanding the LLM-visible surface.
+1. A canonical versioned operation registry owns every operation ID, family, typed input/output schema, runtime-enabled status, handler, permission/scope policy, risk/approval policy, projection, and event/replay identity.
+2. LLM/planner-facing choices use typed operation specs rather than ad hoc concrete tool names wherever an operation family exists; any remaining visible compatibility tool is individually justified and parity-tested.
+3. Every advertised operation/resource/filter combination has a registered runtime compiler or handler, and every handler is either advertised or explicitly backend-only; schema-valid/runtime-impossible requests fail the parity gate.
+4. BusinessQuery and KnowledgeSearch expose only filters, sorts, fields, and operation/resource pairs the backend enforces; schema-only capability claims are implemented or removed.
+5. Canonical action types map to semantically correct capabilities and permissions; refund actions no longer masquerade as coupon-grant operations, while drafting and external execution remain separate safety boundaries.
+6. Dispatch remains fail-closed through trusted scope, permissions, schema validation, side-effect/approval/snapshot/idempotency gates, safe projection, audit, and replay; no raw-SQL, generic repository, or arbitrary-call executor is exposed to the LLM.
+7. Legacy tool names and duplicate metric paths receive explicit compatibility/deprecation or removal treatment that preserves historical audit/replay readability and prevents a second business-rule source of truth.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 66 to break down)
+- [ ] TBD (run /gsd-plan-phase 66; expected slices: operation registry, business/knowledge capability parity, action capability mapping, compatibility migration, and end-to-end policy/projection/replay gates)
 
 ### Phase 67: Dev Test And Config Hygiene
 
-**Goal:** Reduce long-term validation and environment maintenance cost by consolidating test fixtures, demo constants, local configuration defaults, and developer-environment hardcoded values that are not covered by the business-query, safety, RAG, trace-label, or operation-gateway phases.
+**Goal:** Make the repository reproducibly verifiable in CI and local development, with explicit environment profiles and safe production startup guards instead of hidden localhost, demo, credential, fixture, or frontend assumptions.
 **Requirements**: TBD during Phase 67 planning.
 **Depends on:** Phase 66
 **Plans:** 0 plans
 
+**Audit findings owned:** CI has no PostgreSQL/pgvector service and no frontend gate; DB-dependent tests assume a local privileged database; an architecture guard rejects legal current dependencies; Docker/install inputs are not fully pinned; demo authentication and default secrets are unsafe outside the declared local-demo profile.
+
+**Scope boundaries:** This phase owns reproducible validation and environment/config hygiene. It does not choose a production hosting platform, provision a cloud secret manager, rewrite business behavior, redesign schemas unrelated to validation, or absorb operation/state/service-boundary work owned by Phases 66, 68, and 71.
+
 **Success criteria:**
-1. Test magic dates and demo business identifiers use shared fixtures/constants where that reduces brittleness without obscuring test intent.
-2. E2E and frontend tests avoid unnecessary exact backend-copy assertions while still locking user-visible behavior.
-3. Local config defaults such as dev DB credentials, ports, API URLs, and investigate iteration limits have clear ownership and documented override paths.
-4. Demo-only defaults such as action draft retention policy are either renamed/isolated as demo scope or documented as intentional non-production defaults.
+1. CI provisions the required PostgreSQL extensions/database, runs migrations, and executes backend tests only through `uv run ...` or a verified repository `.venv`, never bare system Python/pytest.
+2. CI includes deterministic frontend install plus lint, type/build, unit, and bounded API/Console contract or E2E smoke gates; frontend regressions cannot ship behind backend-only green checks.
+3. Architecture tests describe current intended boundaries precisely and fail on real forbidden dependencies, not legal broad-prefix imports; obsolete guards are migrated with source-backed rationale.
+4. Dev/test/demo/production profiles have explicit ownership, and non-demo startup rejects default JWT secrets, passwordless demo-token access, unsafe credentials, or other demo-only security defaults.
+5. Database URLs, ports, frontend API URLs, origins, model/investigate limits, retention values, and similar settings have documented override paths and no conflicting duplicate owners.
+6. Repeated magic dates, tenant/business identifiers, and demo fixtures use shared deterministic factories/constants where this reduces brittleness without hiding test intent.
+7. Docker/local onboarding and CI use compatible pinned setup and validation commands, with a clean-environment artifact proving the documented workflow works from scratch.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 67 to break down)
+- [ ] TBD (run /gsd-plan-phase 67; expected slices: self-contained backend CI, frontend/contract gates, architecture-test repair, environment security profiles, and reproducible local/Docker validation)
 
 ### Phase 68: State Machine Registry And DB Constraint Hardening
 
-**Goal:** Establish explicit state-machine ownership and DB/API/frontend consistency checks for run, action, approval, memory, and replay lifecycle states so status values cannot drift across service writers, migrations, replay validators, and Console surfaces.
+**Goal:** Give lifecycle states and tenant-owned relationships enforceable canonical contracts across service, database, API, replay, and frontend surfaces, with safe migrations for state, foreign-key, uniqueness, and soft-delete lifecycle drift.
 **Requirements**: TBD during Phase 68 planning.
 **Depends on:** Phase 67
 **Plans:** 0 plans
 
+**Audit findings owned:** Lifecycle values are distributed strings; state parity is not enforced across service/DB/API/replay/frontend; tenant-parent consistency relies on repository convention; tenant-owned business identifiers are globally unique; soft-delete and sequence/index uniqueness can conflict with future records.
+
+**Scope boundaries:** This phase owns lifecycle-state and relational-integrity hardening. It does not redesign immutable evidence/replay or memory provenance already owned by Phase 64.2, implement memory retrieval quality (Phase 70), decompose AgentState/services (Phase 71), or introduce new product lifecycle states without separate requirements.
+
 **Success criteria:**
-1. AgentRun, ActionDraft, Approval, memory, replay, and related lifecycle state values have a documented canonical owner or explicit deferral.
-2. High-risk status fields have registry/schema-backed parity across service writers, API schemas, frontend types, replay validators, and tests.
-3. DB CHECK constraints and migrations are added where safe, or compatibility exceptions are documented with migration-backed regression tests.
-4. Legacy/demo-only status values are migrated, renamed, isolated, or documented so they cannot silently become production state-machine values.
-5. Cross-surface parity tests fail when a new state is added without the corresponding DB/API/frontend/replay handling.
+1. AgentRun, ActionDraft, Approval, memory, replay, and other in-scope lifecycle values and allowed transitions have canonical registry/schema owners consumed by every service writer.
+2. Service transitions, API schemas, frontend types/rendering, replay validators, and tests remain in parity; adding a state or transition without every required consumer fails a guard.
+3. Safe DB CHECK constraints and migration-backed transition/invariant tests enforce high-risk state fields with explicit compatibility treatment for historical/demo-only values.
+4. Audited tenant-parent relationships, including order/refund/ticket and knowledge/memory children, use tenant-consistent composite keys/FKs or an equivalently enforceable DB invariant rather than repository convention alone.
+5. Tenant-owned external/business identifiers use tenant-scoped uniqueness where reuse is valid, with migration preflight scans/backfills that fail safely on contaminated or ambiguous rows.
+6. Soft-delete/tombstone rows and sequence/index uniqueness have an explicit lifecycle so deleted history remains auditable without blocking legitimate future records or silently reusing conflicting identities.
+7. Migration, rollback/compatibility, DB-backed repository, cross-tenant negative, API, replay, and frontend tests prove invalid states and cross-tenant relationships are rejected without breaking historical reads.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 68 to break down)
+- [ ] TBD (run /gsd-plan-phase 68; expected slices: lifecycle registry, cross-surface parity, DB state constraints, tenant relational integrity, uniqueness/soft-delete migrations, and DB/API/replay/frontend gates)
+
+### Phase 69: LLM Runtime Gateway And Observability
+
+**Goal:** Replace node-local LLM client construction with one backend-owned runtime gateway so model selection, structured-output invocation, timeout, retry, fallback, usage accounting, safe failure handling, and trace emission follow one testable contract across all Agent nodes.
+**Requirements**: TBD during Phase 69 planning.
+**Depends on:** Phase 68
+**Plans:** 0 plans
+
+**Audit findings owned:** Multiple nodes construct provider clients locally; model/timeout/retry/fallback policy is scattered; production LLM events lack a central emitter; usage/cost and cancellation are not consistently observable; provider failures can interact differently with safety-critical callers.
+
+**Scope boundaries:** This phase owns production LLM invocation policy and observability for Agent nodes. It does not redesign prompts/business policy, tool/operation dispatch (Phase 66), memory ranking (Phase 70), or grant models authority over permissions, risk disposition, approval, or execution.
+
+**Success criteria:**
+1. Production Agent nodes no longer construct provider clients locally; one composition/runtime boundary creates clients and injects an explicit interface.
+2. Each LLM call purpose has a typed policy for provider/model, structured-output schema, temperature, timeout, bounded retry, fallback eligibility, and token/cost budget.
+3. Every production invocation emits correlated started/completed/failed events with run/node/call identity, model, latency, usage, and safe reason fields compatible with replay and Console projections.
+4. Safety-critical calls fail closed when providers time out, structured output is invalid, or allowed fallbacks fail; retry/fallback cannot turn unknown decisions into allow/low-risk outcomes.
+5. Raw prompts, credentials, provider payloads, sensitive data, and unrestricted outputs are excluded from logs/events by default, with explicit bounded diagnostics where needed.
+6. Development/demo/production runtime configuration is validated; unsupported provider/model combinations and insecure production defaults fail at startup.
+7. Provider-independent tests cover success, timeout, malformed structured output, bounded retry, allowed/forbidden fallback, usage accounting, redaction, cancellation, and event parity without live network access.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 69; expected slices: runtime interface/composition, call-purpose policies, event/usage observability, fail-closed fallback, config/redaction, and provider-independent tests)
+
+### Phase 70: Memory Retrieval Quality And Governance
+
+**Goal:** Make reviewed memory retrieval accurate, explainable, and lifecycle-safe by unifying retrieval contracts, metadata/text/vector behavior, filters, ranking, diagnostics, PII vocabulary, and tombstone enforcement without widening memory into policy, business-fact, approval, action, or replay authority.
+**Requirements**: TBD during Phase 70 planning.
+**Depends on:** Phase 69
+**Plans:** 0 plans
+
+**Audit findings owned:** Production case-memory retrieval does not use the available vector path; advertised filters can be ignored or narrowed; lexical fallbacks lack corresponding indexing; PII markers, terminology, and tombstone lifecycle rules have multiple owners; retrieval quality and false positives lack a deterministic evaluation owner.
+
+**Scope boundaries:** This phase owns long-term preference and reviewed case-memory retrieval, query embedding, hybrid ranking, filter parity, prompt-safe projection, diagnostics/evals, PII vocabulary, and tombstone exclusion. It does not redo evidence/replay identity or candidate-hash fixes from Phase 64.2, auto-approve memories, create new authority classes, or substitute memory for canonical policy/business facts.
+
+**Success criteria:**
+1. Long-term and case-memory retrieval use typed request/result contracts whose advertised filters are enforced by runtime queries, with parity tests preventing schema-only or ignored filters.
+2. Query embeddings are generated and used when vector retrieval is enabled; deterministic metadata/text fallback remains available, and similarity never replaces tenant/scope/review/expiry/tombstone gates.
+3. Hybrid candidate generation and reranking have bounded top-k, thresholds, tie-breaking, prompt limits, and diagnostics explaining which path and filters produced each memory.
+4. Retrieval enforces trusted tenant/scope, memory kind/source, approved review status, non-expired state, PII policy, and active tombstone/deletion rules across text, vector, cached, and fallback paths.
+5. Prompt-facing projections preserve canonical identity and provenance while keeping memory contextual-only and unable to become verified evidence, policy authority, approval authority, or executable action input.
+6. PII patterns, memory terminology, tombstone vocabulary, and retrieval exclusion reasons have canonical owners or generated parity guards rather than divergent service/API/test copies.
+7. A deterministic evaluation suite measures relevant-hit coverage, false positives, no-result behavior, scope isolation, tombstone exclusion, vector-unavailable fallback, and bounded latency/query cost.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 70; expected slices: contract/filter parity, embedding/hybrid retrieval, ranking/diagnostics, lifecycle/PII/tombstone governance, prompt-safe projection, and deterministic evaluation)
+
+### Phase 71: Agent State And Service Boundary Decomposition
+
+**Goal:** Decompose the oversized Agent state and orchestration modules into typed lifecycle-owned state slices and explicit application/domain boundaries so graph behavior, reset/merge rules, dependency direction, persistence, and API/SSE responsibilities remain understandable and independently testable.
+**Requirements**: TBD during Phase 71 planning.
+**Depends on:** Phase 70
+**Plans:** 0 plans
+
+**Audit findings owned:** `AgentState` mixes durable and ephemeral state with many opaque dictionaries; `investigate` mixes planning, tool dispatch, business-query drilldown, result normalization, and conversation concerns; agent-run routes mix HTTP/SSE/graph/persistence/finalization; knowledge/memory domains import Agent implementation concerns; several services have unclear ownership boundaries.
+
+**Scope boundaries:** This phase owns state lifecycle ownership, typed substate/view contracts, node adapters, graph merge/reset rules, investigate decomposition, agent-run lifecycle separation, dependency direction, and characterization/architecture tests. It does not add product features, new intents/tools, change safety semantics, replace LangGraph, or silently change public/checkpoint/replay contracts without explicit migration.
+
+**Mandatory module responsibility matrix:** Before implementation, Phase 71 must inventory `src/agent/state.py`, `src/agent/nodes/investigate.py`, `src/api/routers/agent_runs.py`, `src/business/service.py`, `src/agent/nodes/risk_gate.py`, `src/agent/nodes/final_response.py`, `src/knowledge/service.py`, `src/memory/case_memory.py`, and `src/db/models.py`. For each module, the matrix must record current responsibilities, canonical owners, allowed dependency direction, and a source-backed `KEEP`, `SPLIT`, `MOVE`, `DELETE`, or named-phase `DEFER` decision. File length alone is not a split criterion; confirmed multi-owner authority without an explicit retained-boundary rationale is not acceptable.
+
+**Success criteria:**
+1. Every AgentState field has one documented lifecycle, writer, reader/router set, reset/merge rule, persistence target, and canonical type; guards fail on unregistered keys or undocumented aliases.
+2. High-churn state domains use typed substate/view contracts and explicit adapters instead of arbitrary whole-state dictionaries while trusted identity/permissions remain sourced from run configuration.
+3. Each node declares and tests its required input view and bounded output patch; turn/run reset, checkpoint restoration, parallel merge, and terminal persistence behavior are covered.
+4. `investigate` is separated into bounded planner/orchestrator, business-query/drilldown, tool-result normalization, and terminal-decision components without changing the approved read-only loop or ToolPlatform policy gates.
+5. Agent-run HTTP handling, SSE projection, graph coordination, lifecycle persistence, and terminal finalization have explicit ownership so streaming does not control domain transactions or duplicate completion logic.
+6. Dependency rules prevent business, knowledge, memory, safety, and tool domains from importing Agent node/router implementation details; a composition root wires application ports to adapters and architecture tests enforce direction.
+7. Characterization/compatibility tests prove unchanged graph topology/routing, approval resume, action safety bindings, SSE/API payloads, replay/checkpoint identity, and user-visible responses before legacy paths or state aliases are removed.
+8. The mandatory module responsibility matrix covers every audit-named high-complexity module and leaves no confirmed multi-owner module without an implemented boundary decision or an explicit named-phase deferral with evidence, remaining risk, and a verification entry point.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 71; expected slices: mandatory module responsibility matrix, state inventory/contracts, typed views/node patches, investigate and service decomposition, API/SSE lifecycle separation, dependency-direction enforcement, and compatibility/characterization gates)
+
+---
+
+## Last Completed Milestone: v2.1 Core Subsystem Hardening
+
+**Status:** shipped 2026-07-08
+**Scope:** Phases 37-60 plus inserted Phase 48.1
+**Plans:** 87/87 complete
+**Requirements:** 24/24 complete
+**Audit:** `.planning/milestones/v2.1-MILESTONE-AUDIT.md` — `passed` / `archive_ready`
+
+**Delivered:**
+
+- Consolidated ToolPlatform declarations, runtime output-schema validation, failure handling, policy gates, and legacy manager cleanup.
+- Decoupled intent recognition and preserved multi-intent utterances through bounded `TaskPlan` semantics without weakening the single-intent route contract.
+- Rebuilt memory layering around Case Working Context, thread-case M:N linkage, session-context boundaries, reviewed case precedent generation, explicit preference-only long-term memory, and memory compatibility cleanup.
+- Migrated `investigate` to a bounded read-only ReAct loop and completed the canonical 15-node Agent Graph cutover with legacy runtime route/name cleanup.
+- Aligned recommendation/RAG claim fail-closed behavior, canonical `risk_gate`/`approval_gate` behavior, and approval-resume terminal memory finalization.
+- Closed archive evidence gaps with formal verification, Nyquist validation, UAT, security signoff, and a passed v2.1 milestone audit.
+
+**Accepted follow-ups:**
+
+- Phase 49 bounded ReAct replay parent-operation identity remains an accepted limitation for a future replay/event hardening milestone if needed.
+- Historical legacy graph-name references remain accepted only as historical/test/documentation refs after Phase 58 cleanup.
+- Legacy `/api/v1/agent/chat` background `memory_write` compatibility remains outside the current `agent-runs` frontend lifecycle.
+- GSD tooling/reporting debt: `gsd-sdk query init.milestone-op` can report missing legacy audit agents even when the main orchestrator can run `gsd-integration-checker`.
