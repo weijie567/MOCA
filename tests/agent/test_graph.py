@@ -896,7 +896,11 @@ async def test_happy_path_policy_qa_uses_investigate_manager(monkeypatch):
     assert final_state["current_intent"] == "policy_qa"
     assert final_state["recommendation_draft"]["evidence_refs"]
     nodes = [step["node"] for step in final_state["trace_steps"]]
-    assert final_state["risk_assessment"] is None
+    assert final_state["risk_assessment"]["risk_level"] == "low"
+    assert final_state["risk_assessment"]["risk_severity"] == "low"
+    assert final_state["risk_assessment"]["risk_disposition"] == "allow"
+    assert final_state["risk_assessment"]["approval_required"] is False
+    assert final_state["risk_assessment"]["rule_ref"] == "LR-01"
     assert "session_memory_load" not in nodes
     assert "investigate" in nodes
     assert "claim_verify" in nodes
@@ -967,7 +971,11 @@ async def test_planner_cannot_bypass_router_approval_or_action_path(monkeypatch)
     assert final_state.get("proposed_action") is None
     assert final_state.get("approval_result") is None
     assert final_state.get("action_result") is None
-    assert final_state["risk_assessment"] is None
+    assert final_state["risk_assessment"]["risk_level"] == "low"
+    assert final_state["risk_assessment"]["risk_severity"] == "low"
+    assert final_state["risk_assessment"]["risk_disposition"] == "allow"
+    assert final_state["risk_assessment"]["approval_required"] is False
+    assert final_state["risk_assessment"]["rule_ref"] == "LR-01"
     assert final_state["final_response"]
 
 
