@@ -179,6 +179,8 @@ def test_action_resolution_exposes_stable_branching_fields() -> None:
         "disposition",
         "matched_alias",
         "match_kind",
+        "match_provenance",
+        "schema_valid",
     ]
 
     full_refund = resolve_action_text("full refund")
@@ -190,6 +192,8 @@ def test_action_resolution_exposes_stable_branching_fields() -> None:
     assert full_refund.disposition is None
     assert full_refund.matched_alias == "full refund"
     assert full_refund.match_kind == "alias"
+    assert full_refund.match_provenance == "registry_alias"
+    assert full_refund.schema_valid is True
 
     assert rejected.raw_value == "拒绝"
     assert rejected.executable_action_type is None
@@ -199,3 +203,44 @@ def test_action_resolution_exposes_stable_branching_fields() -> None:
 
     with pytest.raises(FrozenInstanceError):
         full_refund.executable_action_type = "issue_coupon"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    ("raw_action", "canonical_action"),
+    [
+        ("issue coupon", "issue_coupon"),
+        ("请给用户补偿", "issue_coupon"),
+        ("full refund", "full_refund"),
+        ("请全额退款", "full_refund"),
+        ({"action_type": "部分退款"}, "partial_refund"),
+    ],
+)
+def test_action_candidate_resolves_multilingual_and_structured_values(
+    raw_action: object,
+    canonical_action: str,
+) -> None:
+    resolution = resolve_action_text(raw_action)
+
+    assert resolution.executable_action_type == canonical_action
+    assert resolution.schema_valid is True
+    assert resolution.match_provenance in {"registry_alias", "canonical", "structured_registry_alias"}
+    assert resolution.disposition is None
+
+
+@pytest.mark.parametrize(
+    ("raw_action", "match_kind"),
+    [
+        ("refund and issue coupon", "ambiguous"),
+        ("delete the customer account", "unknown"),
+        ({"action_type": "refund", "unexpected": True}, "schema_invalid"),
+        (["refund"], "schema_invalid"),
+        ("approve APR-1", "hard_negative"),
+    ],
+)
+def test_unresolved_action_candidates_fail_closed(raw_action: object, match_kind: str) -> None:
+    resolution = resolve_action_text(raw_action)
+
+    assert resolution.executable_action_type is None
+    assert resolution.disposition == "manual_review"
+    assert resolution.match_kind == match_kind
+    assert resolution.schema_valid is (match_kind != "schema_invalid")

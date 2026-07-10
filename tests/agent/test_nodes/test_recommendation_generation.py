@@ -299,6 +299,56 @@ async def test_canonical_recommendation_generation_writes_canonical_identity_onl
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("raw_action", "canonical_action"),
+    [("issue coupon", "issue_coupon"), ("请给用户补偿", "issue_coupon"), ("全额退款", "full_refund")],
+)
+async def test_generation_resolves_action_candidate_before_material_claims(
+    monkeypatch, base_state, raw_action, canonical_action
+):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    monkeypatch.setattr(
+        recommendation_generation_module,
+        "_get_llm",
+        lambda: FakeLLM({**_draft(), "recommended_action": raw_action}),
+    )
+
+    result = await recommendation_generation_module.recommendation_generation(
+        {**base_state, **_retrieval_state(evidence=[evidence])},
+        _config(),
+    )
+
+    candidate = result["canonical_action"]
+    assert candidate["executable_action_type"] == canonical_action
+    assert candidate["schema_valid"] is True
+    assert any(claim["claim_type"] == "action_recommendation" for claim in result["material_claims"])
+    assert result["recommendation_draft"]["canonical_action"] == candidate
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw_action", ["delete account", "refund and issue coupon"])
+async def test_generation_marks_unresolved_action_for_manual_review_without_action_claim(
+    monkeypatch, base_state, raw_action
+):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    monkeypatch.setattr(
+        recommendation_generation_module,
+        "_get_llm",
+        lambda: FakeLLM({**_draft(), "recommended_action": raw_action}),
+    )
+
+    result = await recommendation_generation_module.recommendation_generation(
+        {**base_state, **_retrieval_state(evidence=[evidence])},
+        _config(),
+    )
+
+    assert result["canonical_action"]["executable_action_type"] is None
+    assert result["canonical_action"]["disposition"] == "manual_review"
+    assert result["risk_signals"] == ["manual_review_required"]
+    assert all(claim["claim_type"] != "action_recommendation" for claim in result["material_claims"])
+
+
+@pytest.mark.asyncio
 async def test_canonical_recommendation_generation_insufficient_evidence_identity(monkeypatch, base_state):
     class ExplodingLLM:
         def with_structured_output(self, schema):

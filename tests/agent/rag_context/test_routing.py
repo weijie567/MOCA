@@ -239,6 +239,24 @@ def test_route_after_recommendation_sends_claims_and_actions_to_claim_verify() -
     )
 
 
+def test_route_after_recommendation_fails_closed_for_unresolved_canonical_action() -> None:
+    from src.agent.routing import route_after_recommendation
+
+    state = {
+        "canonical_action": {
+            "raw_value": "delete account",
+            "executable_action_type": None,
+            "disposition": "manual_review",
+            "matched_alias": None,
+            "match_kind": "unknown",
+            "match_provenance": "unresolved",
+            "schema_valid": True,
+        },
+        "risk_signals": ["manual_review_required"],
+    }
+    assert route_after_recommendation(state) == "claim_verify"
+
+
 @pytest.mark.parametrize(
     ("state", "expected_route"),
     [

@@ -320,6 +320,24 @@ def test_route_after_recommendation_routes_actionable_draft_to_claim_verify():
     assert route_after_recommendation(state) == "claim_verify"
 
 
+@pytest.mark.parametrize("match_kind", ["unknown", "ambiguous", "schema_invalid", "hard_negative"])
+def test_route_after_recommendation_never_completes_unresolved_action_candidate(match_kind):
+    state = {
+        "canonical_action": {
+            "raw_value": "unsafe candidate",
+            "executable_action_type": None,
+            "disposition": "manual_review",
+            "matched_alias": None,
+            "match_kind": match_kind,
+            "match_provenance": "unresolved",
+            "schema_valid": match_kind != "schema_invalid",
+        },
+        "risk_signals": ["manual_review_required"],
+    }
+
+    assert route_after_recommendation(state) == "claim_verify"
+
+
 def test_route_after_recommendation_prefers_backend_nested_verifier_route():
     state = {
         "rag_verification": {
