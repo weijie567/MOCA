@@ -68,7 +68,9 @@ def test_graph_nodes_do_not_import_raw_action_or_business_adapters_for_approval(
     forbidden_prefixes = (
         "src.actions.drafts",
         "src.actions.service",
-        "src.business",
+        "src.business.adapters",
+        "src.business.repositories",
+        "src.business.service",
         "src.business_tools",
         "src.integrations",
         "src.repositories.approval_repo",

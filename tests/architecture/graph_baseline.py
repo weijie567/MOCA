@@ -54,6 +54,8 @@ FORBIDDEN_MAIN_CHAIN_REGISTERED_NODES = frozenset(
     {"slot_extraction", "normalize_input", "memory_write", "trace_close", "action_execution"}
 )
 
+CURRENT_CONTROL_ROUTE_KEYS = frozenset({"terminal_error"})
+
 CURRENT_CONDITIONAL_EDGE_BASELINE = {
     ("safety_pre_route", "route_after_safety"): {
         "session_context_load": "session_context_load",
@@ -100,6 +102,10 @@ CURRENT_CONDITIONAL_EDGE_BASELINE = {
         "risk_gate": "risk_gate",
         "action_draft": "action_draft",
         "final_response": "final_response",
+    },
+    ("action_draft", "route_after_action_draft"): {
+        "final_response": "final_response",
+        "terminal_error": "final_response",
     },
 }
 
@@ -412,6 +418,7 @@ def graph_router_route_values() -> dict[str, frozenset[str]]:
         "route_after_rag_context",
         "route_after_recommendation",
         "route_after_claim_verify",
+        "route_after_action_draft",
     }
     graph_router_names = {"route_after_risk", "route_after_approval"}
     return {

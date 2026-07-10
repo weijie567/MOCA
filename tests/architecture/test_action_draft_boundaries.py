@@ -19,6 +19,7 @@ CAPABILITY_PATH = ROOT / "src" / "actions" / "capabilities.py"
 ACTION_SERVICE_PATH = ROOT / "src" / "actions" / "service.py"
 RISK_GATE_PATH = ROOT / "src" / "agent" / "nodes" / "risk_gate.py"
 ACTION_EXECUTOR_PATH = ROOT / "src" / "tools" / "executors" / "action.py"
+ACTION_REPOSITORY_PATH = ROOT / "src" / "repositories" / "action_draft_repo.py"
 SOURCE_ROOTS = (
     ROOT / "src" / "actions",
     ROOT / "src" / "agent",
@@ -129,8 +130,10 @@ def test_create_coupon_grant_draft_is_node_only_for_action_draft() -> None:
 
 def test_capability_mint_and_consume_have_single_trusted_call_sites() -> None:
     assert _attribute_call_sites("mint") == ["src/agent/nodes/risk_gate.py"]
+    assert _attribute_call_sites("create_capability") == ["src/actions/capabilities.py"]
     assert _attribute_call_sites("lock_and_verify_for_draft") == ["src/actions/service.py"]
     assert _attribute_call_sites("mark_consumed") == ["src/actions/service.py"]
+    assert "AutoActionCapability(**values)" in _source(ACTION_REPOSITORY_PATH)
 
 
 def test_graph_nodes_carry_only_opaque_capability_ref_not_trusted_binding_dict() -> None:

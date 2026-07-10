@@ -12,6 +12,7 @@ from src.agent import graph_vocabulary
 from tests.architecture.graph_baseline import (
     CURRENT_ACTIVE_GRAPH_NODES_BASELINE,
     CURRENT_CONDITIONAL_EDGE_BASELINE,
+    CURRENT_CONTROL_ROUTE_KEYS,
     FORBIDDEN_MAIN_CHAIN_REGISTERED_NODES,
     MIGRATION_MODE_LEGACY_NODE_MAP,
     TARGET_CANONICAL_GRAPH_NODES,
@@ -260,7 +261,7 @@ def test_final_no_debt_gate_is_marked_phase58_scope() -> None:
         for route_value in route_values
     }
     assert router_values.isdisjoint(LEGACY_GRAPH_NAMES)
-    assert router_values <= TARGET_CANONICAL_GRAPH_NODES
+    assert router_values <= TARGET_CANONICAL_GRAPH_NODES | CURRENT_CONTROL_ROUTE_KEYS
 
     current_node_entries = {
         entry.legacy_name

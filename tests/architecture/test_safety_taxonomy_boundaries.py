@@ -8,6 +8,7 @@ import src.agent.safety.taxonomy as taxonomy
 
 ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_TAXONOMY_PATH = ROOT / "src" / "agent" / "safety" / "taxonomy.py"
+RISK_GATE_PATH = ROOT / "src" / "agent" / "nodes" / "risk_gate.py"
 MIGRATED_CALLER_PATHS = (
     ROOT / "src" / "agent" / "nodes" / "risk_gate.py",
     ROOT / "src" / "agent" / "nodes" / "action_draft.py",
@@ -104,6 +105,23 @@ def test_no_local_canonical_action_type_functions_outside_taxonomy_owner() -> No
                 violations.append((_relative(path), node.name))
 
     assert violations == []
+
+
+def test_deterministic_risk_registry_has_one_agent_node_owner() -> None:
+    evaluator_sites: list[tuple[str, str]] = []
+    loader_sites: list[tuple[str, str]] = []
+    for path in sorted((ROOT / "src" / "agent" / "nodes").glob("*.py")):
+        for node in ast.walk(_tree(path)):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            if node.name == "_deterministic_risk_assessment":
+                evaluator_sites.append((_relative(path), node.name))
+            if node.name == "_load_risk_rules":
+                loader_sites.append((_relative(path), node.name))
+
+    assert evaluator_sites == [("src/agent/nodes/risk_gate.py", "_deterministic_risk_assessment")]
+    assert loader_sites == [("src/agent/nodes/risk_gate.py", "_load_risk_rules")]
+    assert 'RISK_RULES_PATH = Path("rules/risk_rules.yaml")' in _source(RISK_GATE_PATH)
 
 
 def test_no_local_pre_route_or_compensation_alias_tuples_outside_taxonomy_owner() -> None:
