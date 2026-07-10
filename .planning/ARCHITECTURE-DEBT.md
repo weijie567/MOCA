@@ -2134,3 +2134,13 @@
 - **证据**：Phase 62 Plan 06 Task 1；文件 `src/business/query/projection.py`、`src/tools/projection.py`、`src/agent/nodes/final_response.py`、`src/api/routers/agent_runs.py`、`src/api/schemas/agent_runs.py`、`tests/tools/test_projection.py`、`tests/agent/test_nodes/test_final_response.py`、`tests/test_agent_runs_api.py`。
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_projection.py tests/agent/test_nodes/test_final_response.py tests/test_agent_runs_api.py -q --tb=short` → `124 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/business/query/projection.py src/business/query/__init__.py src/tools/projection.py src/agent/nodes/final_response.py src/api/routers/agent_runs.py src/api/schemas/agent_runs.py tests/tools/test_projection.py tests/agent/test_nodes/test_final_response.py tests/test_agent_runs_api.py` → 通过。
 - **剩余风险**：🟡 frontend Timeline/Details 对 `business_query_answer` 的展示仍按计划留给 62-07；Phase 65 仍需处理全局 response-kind / tool-label / console-label registry parity。
+
+## 2026-07-10 — Phase 64.1 Plan 01 推荐动作 canonicalization 与 fail-closed 路由 ✅已修复验证
+
+- **子系统**：意图识别 / safety taxonomy / recommendation routing
+- **问题现象 / 根因**：`recommendation_generation` 维护本地 `_ACTIONABLE_RECOMMENDATIONS` 并用 substring 判定 action claim；中英文别名、多个动作同时出现、未知值和结构异常值没有统一 typed candidate，router 也无法区分“普通无动作建议”和“未解析的潜在动作”。
+- **影响**：LLM 输出可绕过 Phase 63 taxonomy；未知、歧义或 malformed action candidate 可能进入普通 material claim / final response 路径，无法证明风险判断消费的是 canonical action identity。
+- **处理状态**：✅ `ActionResolution` 增加 registry provenance 与 schema validity；shared resolver 支持 canonical/中英文 alias/严格结构化输入，并对 approval-chat hard negative、unknown、ambiguous、schema-invalid 值稳定返回 `manual_review`。推荐节点在 material claim 之前写入 `canonical_action`，只有 canonical executable action 才生成 action claim；未解析候选写入 `manual_review_required`。router 消费 typed candidate，把未解析候选送入 claim/risk fail-closed 链，不走普通完成分支。本地 actionable set 已删除。
+- **证据**：Phase 64.1 Plan 01；`src/agent/safety/taxonomy.py`、`src/agent/state.py`、`src/agent/nodes/recommendation_generation.py`、`src/agent/routing.py`；RED commit `80cd526`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_safety_taxonomy.py tests/agent/test_nodes/test_recommendation_generation.py tests/agent/rag_context/test_routing.py tests/test_graph_routing.py -q --tb=short` → `226 passed, 1 warning`；对应 `uv run ruff check` → 通过。
+- **剩余风险**：🟡 本 plan 只修 canonical candidate 与 recommendation/claim routing；deterministic risk parity、approval contract、capability 和 terminal propagation 分别由 64.1-02 至 64.1-05 完成，最终 architecture guard/full matrix 由 64.1-06 收口。

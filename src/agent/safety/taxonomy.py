@@ -20,6 +20,8 @@ class ActionResolution:
     disposition: str | None
     matched_alias: str | None
     match_kind: str
+    match_provenance: str
+    schema_valid: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +65,7 @@ _EXECUTABLE_ACTION_DESCRIPTORS: tuple[ExecutableActionDescriptor, ...] = (
             {
                 "issue_coupon",
                 "coupon",
+                "issue coupon",
                 "compensation",
                 "compensate",
                 "补偿",
@@ -235,11 +238,54 @@ class SafetyTaxonomyRegistry:
         return self._pre_route_alias_groups
 
     def resolve_action_text(self, value: Any) -> ActionResolution:
+        structured = isinstance(value, Mapping)
+        if structured:
+            if set(value) != {"action_type"} or not isinstance(value.get("action_type"), str):
+                return ActionResolution(
+                    raw_value=str(value),
+                    executable_action_type=None,
+                    disposition="manual_review",
+                    matched_alias=None,
+                    match_kind="schema_invalid",
+                    match_provenance="invalid_structure",
+                    schema_valid=False,
+                )
+            value = value["action_type"]
+        elif not isinstance(value, str) and value is not None:
+            return ActionResolution(
+                raw_value=str(value),
+                executable_action_type=None,
+                disposition="manual_review",
+                matched_alias=None,
+                match_kind="schema_invalid",
+                match_provenance="invalid_structure",
+                schema_valid=False,
+            )
+
         raw_value = str(value or "")
         text = raw_value.strip()
         lowered = text.lower()
         if not text:
-            return ActionResolution(raw_value=raw_value, executable_action_type=None, disposition=None, matched_alias=None, match_kind="none")
+            return ActionResolution(
+                raw_value=raw_value,
+                executable_action_type=None,
+                disposition="manual_review",
+                matched_alias=None,
+                match_kind="unknown",
+                match_provenance="unresolved",
+                schema_valid=True,
+            )
+
+        if _approval_chat_hard_negative(text):
+            return ActionResolution(
+                raw_value=raw_value,
+                executable_action_type=None,
+                disposition="manual_review",
+                matched_alias=None,
+                match_kind="hard_negative",
+                match_provenance="approval_chat_guard",
+                schema_valid=True,
+            )
 
         if lowered in self._executable_actions:
             return ActionResolution(
@@ -248,6 +294,8 @@ class SafetyTaxonomyRegistry:
                 disposition=None,
                 matched_alias=lowered,
                 match_kind="exact",
+                match_provenance="canonical",
+                schema_valid=True,
             )
         if lowered in self._dispositions:
             return ActionResolution(
@@ -256,6 +304,8 @@ class SafetyTaxonomyRegistry:
                 disposition=lowered,
                 matched_alias=lowered,
                 match_kind="disposition",
+                match_provenance="canonical_disposition",
+                schema_valid=True,
             )
 
         for disposition, alias in self._ordered_disposition_aliases:
@@ -266,24 +316,53 @@ class SafetyTaxonomyRegistry:
                     disposition=disposition,
                     matched_alias=alias,
                     match_kind="disposition",
+                    match_provenance="registry_disposition_alias",
+                    schema_valid=True,
                 )
 
-        for action_type, alias in self._ordered_action_aliases:
-            if _alias_matches(lowered, alias):
+        matches = [
+            (action_type, alias, lowered.find(alias.strip().lower()))
+            for action_type, alias in self._ordered_action_aliases
+            if _alias_matches(lowered, alias)
+        ]
+        if matches:
+            longest_match = max(matches, key=lambda item: len(item[1]))
+            _, longest_alias, longest_start = longest_match
+            longest_end = longest_start + len(longest_alias)
+            independent_action_types = {
+                action_type
+                for action_type, alias, start in matches
+                if start < longest_start or start + len(alias) > longest_end
+            }
+            if independent_action_types:
                 return ActionResolution(
                     raw_value=raw_value,
-                    executable_action_type=action_type,
-                    disposition=None,
-                    matched_alias=alias,
-                    match_kind="alias" if alias != action_type else "exact",
+                    executable_action_type=None,
+                    disposition="manual_review",
+                    matched_alias=None,
+                    match_kind="ambiguous",
+                    match_provenance="multiple_registry_aliases",
+                    schema_valid=True,
                 )
+            action_type, alias, _ = longest_match
+            return ActionResolution(
+                raw_value=raw_value,
+                executable_action_type=action_type,
+                disposition=None,
+                matched_alias=alias,
+                match_kind="alias" if alias != action_type else "exact",
+                match_provenance="structured_registry_alias" if structured else "registry_alias",
+                schema_valid=True,
+            )
 
         return ActionResolution(
             raw_value=raw_value,
             executable_action_type=None,
             disposition="manual_review",
             matched_alias=None,
-            match_kind="default",
+            match_kind="unknown",
+            match_provenance="unresolved",
+            schema_valid=True,
         )
 
     def detect_pre_route_action_request(self, text: str) -> PreRouteActionMatch | None:

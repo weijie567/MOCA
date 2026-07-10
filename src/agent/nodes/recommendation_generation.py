@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
 
@@ -17,6 +18,7 @@ from src.agent.prompts import GENERATE_RECOMMENDATION_SYSTEM
 from src.agent.rag_context.risk_labels import filter_safe_evidence_risk_labels
 from src.agent.routing import _partial_rag_context_can_generate
 from src.agent.schemas import RecommendationDraft
+from src.agent.safety.taxonomy import resolve_action_text
 from src.agent.state import AgentState
 from src.agent.working_state import project_working_state
 from src.config import settings
@@ -31,13 +33,6 @@ from src.tools.contracts import BusinessFactRefV1
 
 logger = logging.getLogger(__name__)
 _TRUNCATION_MARKER = " [truncated]"
-_ACTIONABLE_RECOMMENDATIONS = {
-    "issue_coupon",
-    "approve_refund",
-    "full_refund",
-    "partial_refund",
-    "compensation",
-}
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -241,14 +236,18 @@ async def recommendation_generation(state: AgentState, config: RunnableConfig = 
                         evidence_models,
                     )
             draft["citation_validation"] = validation.model_dump()
+            action_resolution = resolve_action_text(draft.get("recommended_action"))
+            canonical_action = asdict(action_resolution)
+            draft["canonical_action"] = canonical_action
             material_claims = _material_claims_from_draft(draft, cited_evidence_ids, state)
             material_claim_payloads = [claim.model_dump(mode="json") for claim in material_claims]
             draft["material_claims"] = material_claim_payloads
             validated_refs = _validated_evidence_refs(cited_evidence_ids, evidence_by_id)
             merged_refs = _merge_evidence_refs(None, validated_refs)
             outputs = {**(state.get("llm_outputs") or {}), "recommendation_generation": draft}
-            return {
+            node_result = {
                 "recommendation_draft": draft,
+                "canonical_action": canonical_action,
                 "material_claims": material_claim_payloads,
                 "llm_outputs": outputs,
                 "evidence_refs": merged_refs,
@@ -264,6 +263,9 @@ async def recommendation_generation(state: AgentState, config: RunnableConfig = 
                     )
                 ],
             }
+            if action_resolution.executable_action_type is None:
+                node_result["risk_signals"] = ["manual_review_required"]
+            return node_result
         except (ValidationError, ValueError, TimeoutError) as exc:
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             last_error = str(exc)
@@ -616,7 +618,7 @@ def _material_claims_from_draft(
         )
     ]
     business_refs = _business_fact_refs_from_state(state)
-    if _is_actionable_recommendation(draft.get("recommended_action")):
+    if _is_actionable_recommendation(draft.get("canonical_action")):
         if business_refs:
             claims.append(
                 MaterialClaimV1(
@@ -654,14 +656,15 @@ def _claim_risk_hints(draft: dict[str, Any], state: AgentState) -> list[str]:
     requested_operation = state.get("requested_operation")
     if isinstance(requested_operation, str) and requested_operation:
         hints.append(f"requested_operation:{requested_operation}")
-    if _is_actionable_recommendation(draft.get("recommended_action")):
+    if _is_actionable_recommendation(draft.get("canonical_action")):
         hints.append("action_recommendation")
     return _unique_text(hints)
 
 
 def _is_actionable_recommendation(action: Any) -> bool:
-    action_text = str(action or "").casefold()
-    return any(token in action_text for token in _ACTIONABLE_RECOMMENDATIONS)
+    if isinstance(action, dict) and "executable_action_type" in action:
+        return isinstance(action.get("executable_action_type"), str)
+    return resolve_action_text(action).executable_action_type is not None
 
 
 def _get_value(value: Any, key: str) -> Any:

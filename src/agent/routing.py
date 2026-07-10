@@ -847,9 +847,20 @@ def _route_after_recommendation(state: AgentState) -> str:
     route = _recommendation_verification_route(state)
     if route is not None and route != "allow":
         return "final_response"
+    if _has_unresolved_canonical_action(state):
+        return "claim_verify"
     if _has_material_claims(state) or _has_proposed_action(state) or _has_user_visible_claims(state):
         return "claim_verify"
     return "final_response"
+
+
+def _has_unresolved_canonical_action(state: AgentState) -> bool:
+    candidate = state.get("canonical_action")
+    return (
+        isinstance(candidate, dict)
+        and candidate.get("executable_action_type") is None
+        and candidate.get("disposition") in {"manual_review", "blocked"}
+    )
 
 
 def _route_after_claim_verify(state: AgentState) -> str:

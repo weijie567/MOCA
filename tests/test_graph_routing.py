@@ -30,7 +30,12 @@ from tests.approvals.test_service_transitions import _create_run, _evidence_ref
 from tests.architecture.graph_baseline import graph_conditional_edge_mappings
 
 
-VALID_INVESTIGATE_KEYS = {"final_response", "clarification_gate", "recommendation_generation"}
+VALID_INVESTIGATE_KEYS = {
+    "final_response",
+    "clarification_gate",
+    "recommendation_generation",
+    "rag_context_build",
+}
 ACTION_HASH = "sha256:" + "1" * 64
 SNAPSHOT_HASH = "sha256:" + "2" * 64
 PHASE58_ROUTING_TEST_FILES = (
