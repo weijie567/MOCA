@@ -557,6 +557,75 @@ describe('useAgentRun thread lifecycle', () => {
     })
     expect(result.current.state.approvalContext).toEqual(newer)
     expect(result.current.state.approvalContextFresh).toBe(false)
+
+    const cachedContext = result.current.state.approvalContext
+    act(() => {
+      streamCallbacks.get('run-1')?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: {
+          approval_id: newer.approval_id,
+          decision_context: { ...newer, proposed_action: { ...newer.proposed_action } },
+        },
+      }))
+    })
+    expect(result.current.state.approvalContext).toBe(cachedContext)
+    expect(result.current.state.approvalContextFresh).toBe(true)
+  })
+
+  it('revalidates an exact authoritative GET after freshness invalidation before submitting', async () => {
+    const { result } = renderHook(() => useAgentRun())
+    await act(async () => {
+      await result.current.submitQuery('approval context')
+    })
+    act(() => {
+      const callback = streamCallbacks.get('run-1')
+      callback?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: { approval_id: approvalContext.approval_id, decision_context: approvalContext },
+      }))
+      callback?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: { approval_id: approvalContext.approval_id },
+      }))
+    })
+    expect(result.current.state.approvalContextFresh).toBe(false)
+
+    await act(async () => {
+      expect(await result.current.approveRun()).toEqual({ kind: 'submitted' })
+    })
+
+    expect(decideApprovalMock).toHaveBeenCalledTimes(1)
+    expect(decideApprovalMock).toHaveBeenCalledWith(approvalContext, { decision_type: 'approve' })
+  })
+
+  it('does not submit a strictly newer or payload-changed GET context before review', async () => {
+    const { result } = renderHook(() => useAgentRun())
+    await act(async () => {
+      await result.current.submitQuery('approval context')
+    })
+    act(() => {
+      streamCallbacks.get('run-1')?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: { approval_id: approvalContext.approval_id, decision_context: approvalContext },
+      }))
+    })
+    const newerContext = { ...approvalContext, request_version: approvalContext.request_version + 1 }
+    getApprovalMock.mockResolvedValueOnce({
+      success: true,
+      data: { ...approvalRecord, decision_context: newerContext },
+    })
+
+    await act(async () => {
+      expect(await result.current.approveRun()).toMatchObject({ kind: 'stale' })
+    })
+
+    expect(decideApprovalMock).not.toHaveBeenCalled()
+    expect(result.current.state.approvalContext).toEqual(newerContext)
+    expect(result.current.state.approvalContextFresh).toBe(false)
   })
 
   it('reconciles a committed approval after a lost POST response without replay', async () => {

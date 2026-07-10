@@ -3,6 +3,7 @@ import fixture from '@contracts/fixtures/approval_decision_context_v1.json'
 import {
   apiFetch,
   getApproval,
+  isExactApprovalDecisionContext,
   parseApprovalDecisionContext,
   serializeApprovalDecision,
   setAuthToken,
@@ -115,6 +116,24 @@ describe('approval decision context v1', () => {
         request_version: current.request_version + 1,
       })).toBe(false)
     }
+  })
+
+  it('revalidates only an exact context independently from monotonic replacement', () => {
+    const current = parseApprovalDecisionContext(fixture)!
+    const reorderedPayload = Object.fromEntries(Object.entries(current.proposed_action).reverse())
+
+    expect(isExactApprovalDecisionContext(current, { ...current, proposed_action: reorderedPayload })).toBe(true)
+    expect(isExactApprovalDecisionContext(current, { ...current, status: 'approved' })).toBe(false)
+    expect(isExactApprovalDecisionContext(current, {
+      ...current,
+      allowed_decision_types: [...current.allowed_decision_types].reverse(),
+    })).toBe(false)
+    expect(isExactApprovalDecisionContext(current, {
+      ...current,
+      proposed_action: { ...current.proposed_action, amount: '999.00' },
+    })).toBe(false)
+    expect(isExactApprovalDecisionContext(current, { ...current, request_version: current.request_version + 1 })).toBe(false)
+    expect(isExactApprovalDecisionContext(current, { ...current, action_payload_hash: 'sha256:changed' })).toBe(false)
   })
 
   it('accepts terminal approval detail with null context but rejects pending null context', async () => {

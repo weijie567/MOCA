@@ -64,6 +64,28 @@ export function shouldReplaceApprovalDecisionContext(
   return APPROVAL_CONTEXT_CLOCK_FIELDS.some((field) => incoming[field] > current[field])
 }
 
+function exactJsonValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((item, index) => exactJsonValue(item, right[index]))
+  }
+  if (!isRecord(left) || !isRecord(right)) return false
+  const leftKeys = Object.keys(left).sort()
+  const rightKeys = Object.keys(right).sort()
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key, index) => key === rightKeys[index] && exactJsonValue(left[key], right[key]))
+}
+
+export function isExactApprovalDecisionContext(
+  current: ApprovalDecisionContextV1 | null,
+  incoming: ApprovalDecisionContextV1,
+): boolean {
+  return current !== null && exactJsonValue(current, incoming)
+}
+
 export type ApprovalDecideInput =
   | { decision_type: 'accept' | 'approve' | 'ignore'; reason?: string }
   | { decision_type: 'reject'; reason: string }
