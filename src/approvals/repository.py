@@ -56,6 +56,18 @@ class ApprovalRepository:
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def get_current_level(self, request_id: UUID) -> ApprovalLevel | None:
+        stmt = (
+            select(ApprovalLevel)
+            .where(
+                ApprovalLevel.approval_request_id == request_id,
+                ApprovalLevel.status == "pending",
+                ApprovalLevel.deleted_at.is_(None),
+            )
+            .order_by(ApprovalLevel.level_number.asc())
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def lock_assignment(self, assignment_id: UUID, level_id: UUID) -> ApprovalAssignment | None:
         stmt = (
             select(ApprovalAssignment)
@@ -78,6 +90,18 @@ class ApprovalRepository:
             )
             .order_by(ApprovalAssignment.created_at.asc())
             .with_for_update()
+        )
+        return (await self.session.execute(stmt)).scalars().first()
+
+    async def get_assignment_by_level(self, level_id: UUID) -> ApprovalAssignment | None:
+        stmt = (
+            select(ApprovalAssignment)
+            .where(
+                ApprovalAssignment.approval_level_id == level_id,
+                ApprovalAssignment.status == "pending",
+                ApprovalAssignment.deleted_at.is_(None),
+            )
+            .order_by(ApprovalAssignment.created_at.asc())
         )
         return (await self.session.execute(stmt)).scalars().first()
 

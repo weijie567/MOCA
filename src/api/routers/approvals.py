@@ -163,7 +163,7 @@ async def decide_approval(
         data=_to_response(
             approval,
             result=result,
-            decision_context=context.project(),
+            decision_context=None,
         ).model_dump(mode="json"),
         trace_id=getattr(request.state, "trace_id", None),
     )
@@ -228,14 +228,23 @@ async def get_approval(
 ) -> ApiResponse:
     _assert_approval_reviewer(user)
     service = ApprovalService(session)
-    context = await service.get_decision_context(_parse_approval_id(approval_id), user.tenant_id)
-    if not context:
+    approval_uuid = _parse_approval_id(approval_id)
+    approval = await service.get_request(approval_uuid, user.tenant_id)
+    if approval is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
-    approval = context.request
     _assert_approval_scope(user, approval)
+    decision_context = None
+    if approval.status == "pending":
+        try:
+            context = await service.get_decision_context(approval_uuid, user.tenant_id)
+        except ApprovalTransitionError as exc:
+            raise _approval_http_error(exc) from exc
+        if context is None:
+            raise _approval_http_error(ApprovalTransitionError("approval_conflict"))
+        decision_context = context.project()
     return ApiResponse(
         success=True,
-        data=_to_response(approval, decision_context=context.project()).model_dump(mode="json"),
+        data=_to_response(approval, decision_context=decision_context).model_dump(mode="json"),
         trace_id=getattr(request.state, "trace_id", None),
     )
 
@@ -251,10 +260,13 @@ async def list_pending_approvals(
     approvals = await service.list_pending_requests(user.tenant_id)
     approvals = [approval for approval in approvals if _approval_scope_allowed(user, approval)]
     responses = []
-    for approval in approvals:
-        context = await service.get_decision_context(approval.id, user.tenant_id)
-        if context is not None:
-            responses.append(_to_response(approval, decision_context=context.project()))
+    try:
+        for approval in approvals:
+            context = await service.get_decision_context(approval.id, user.tenant_id)
+            if context is not None:
+                responses.append(_to_response(approval, decision_context=context.project()))
+    except ApprovalTransitionError as exc:
+        raise _approval_http_error(exc) from exc
     payload = ApprovalListResponse(approvals=responses, total=len(responses))
     return ApiResponse(
         success=True, data=payload.model_dump(mode="json"), trace_id=getattr(request.state, "trace_id", None)

@@ -209,19 +209,12 @@ class ApprovalService:
         request = await self.get_request(approval_id, tenant_id)
         if request is None:
             return None
-        level = await self.repository.lock_current_level(request.id)
+        if request.status != "pending":
+            return None
+        level = await self.repository.get_current_level(request.id)
         if level is None:
             raise ApprovalTransitionError("approval_conflict")
-        assignment_stmt = (
-            select(ApprovalAssignment)
-            .where(
-                ApprovalAssignment.approval_level_id == level.id,
-                ApprovalAssignment.status == "pending",
-                ApprovalAssignment.deleted_at.is_(None),
-            )
-            .order_by(ApprovalAssignment.created_at.asc())
-        )
-        assignment = (await self.session.execute(assignment_stmt)).scalars().first()
+        assignment = await self.repository.get_assignment_by_level(level.id)
         if assignment is None:
             raise ApprovalTransitionError("approval_conflict")
         return ApprovalDecisionContext(request=request, level=level, assignment=assignment)

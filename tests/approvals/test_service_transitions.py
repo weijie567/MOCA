@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -10,10 +11,11 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.agent.trace import write_agent_run
 from src.approvals.schemas import ApprovalDecisionCommand, ApprovalRequestCreateCommand
+from src.approvals.repository import ApprovalRepository
 from src.approvals.service import ApprovalService, ApprovalTransitionError
 from src.approvals.snapshot_service import compute_action_payload_hash
 from src.db.models import (
@@ -784,3 +786,82 @@ async def test_decision_context_matches_shared_fixture_shape(session: AsyncSessi
     assert set(context.model_dump(mode="json")) == set(fixture)
     assert context.approval_id == request.id
     assert context.allowed_decision_types == ["accept", "approve", "edit", "respond", "reject", "ignore"]
+
+
+@pytest.mark.asyncio
+async def test_decision_preflight_and_expiry_use_request_first_without_postgres_deadlock(
+    test_engine,
+    session: AsyncSession,
+    seeded_session,
+):
+    request, level, assignment = await _approval_bundle(
+        session,
+        seeded_session,
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    actor_id = seeded_session["users"]["admin_user"].id
+    command = _decision_command(request, level, assignment, actor_id=actor_id)
+    await session.commit()
+
+    preflight_done = asyncio.Event()
+    expiry_request_locked = asyncio.Event()
+    decision_request_attempted = asyncio.Event()
+    session_factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+
+    class DecisionRepository(ApprovalRepository):
+        async def lock_request(self, approval_id: UUID, tenant_id: UUID) -> ApprovalRequest | None:
+            decision_request_attempted.set()
+            return await super().lock_request(approval_id, tenant_id)
+
+    class ExpiryRepository(ApprovalRepository):
+        async def lock_request(self, approval_id: UUID, tenant_id: UUID) -> ApprovalRequest | None:
+            locked = await super().lock_request(approval_id, tenant_id)
+            expiry_request_locked.set()
+            await asyncio.wait_for(decision_request_attempted.wait(), timeout=2)
+            return locked
+
+    async def decide_worker() -> str:
+        async with session_factory() as worker_session:
+            service = ApprovalService(worker_session, repository=DecisionRepository(worker_session))
+            context = await service.get_decision_context(request.id, request.tenant_id)
+            assert context is not None
+            preflight_done.set()
+            await asyncio.wait_for(expiry_request_locked.wait(), timeout=2)
+            try:
+                await service.decide(command)
+            except ApprovalTransitionError as exc:
+                await worker_session.rollback()
+                return exc.code
+            await worker_session.commit()
+            return "decided"
+
+    async def expire_worker() -> str:
+        await asyncio.wait_for(preflight_done.wait(), timeout=2)
+        async with session_factory() as worker_session:
+            service = ApprovalService(worker_session, repository=ExpiryRepository(worker_session))
+            expired = await service.expire_due_request(
+                request.id,
+                request.tenant_id,
+                now=datetime.now(UTC) + timedelta(hours=2),
+            )
+            await worker_session.commit()
+            return "expired" if expired is not None else "not_expired"
+
+    decision_result, expiry_result = await asyncio.wait_for(
+        asyncio.gather(decide_worker(), expire_worker()),
+        timeout=5,
+    )
+
+    assert decision_result == "approval_conflict"
+    assert expiry_result == "expired"
+    async with session_factory() as verify_session:
+        persisted_request = await verify_session.get(ApprovalRequest, request.id)
+        persisted_level = await verify_session.get(ApprovalLevel, level.id)
+        persisted_assignment = await verify_session.get(ApprovalAssignment, assignment.id)
+        decision_count = await verify_session.scalar(
+            select(func.count()).select_from(ApprovalDecision).where(ApprovalDecision.approval_request_id == request.id)
+        )
+    assert persisted_request is not None and persisted_request.status == "expired"
+    assert persisted_level is not None and persisted_level.status == "expired"
+    assert persisted_assignment is not None and persisted_assignment.status == "expired"
+    assert decision_count == 0

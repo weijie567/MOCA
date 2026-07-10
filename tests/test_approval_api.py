@@ -1792,6 +1792,53 @@ async def test_get_approval_returns_v2_details(client: AsyncClient, session: Asy
 
 
 @pytest.mark.asyncio
+async def test_get_approval_returns_terminal_record_without_decision_context(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="terminal-get-recovery")
+    monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
+    headers = await _admin_headers(client)
+
+    decide_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle),
+        headers=headers,
+    )
+    get_response = await client.get(f"/api/v1/approvals/{bundle.approval.id}", headers=headers)
+
+    assert decide_response.status_code == 200
+    assert get_response.status_code == 200
+    payload = get_response.json()["data"]
+    assert payload["id"] == str(bundle.approval.id)
+    assert payload["status"] == "approved"
+    assert payload["decision"] == "approve"
+    assert payload["decided_at"] is not None
+    assert payload["decision_context"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_pending_approval_with_broken_lifecycle_returns_stable_conflict(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="pending-broken-lifecycle")
+    bundle.level.status = "approved"
+    await session.commit()
+
+    response = await client.get(
+        f"/api/v1/approvals/{bundle.approval.id}",
+        headers=await _admin_headers(client),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "CONFLICT"
+
+
+@pytest.mark.asyncio
 async def test_get_approval_rejects_over_scoped_non_reviewer_token(
     client: AsyncClient,
     session: AsyncSession,
