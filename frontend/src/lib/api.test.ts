@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import fixture from '@contracts/fixtures/approval_decision_context_v1.json'
 import {
   apiFetch,
+  freezeApprovalSubmission,
   getApproval,
   isExactApprovalDecisionContext,
   parseApprovalDecisionContext,
@@ -9,6 +10,7 @@ import {
   setAuthToken,
   setDemoUsername,
   shouldReplaceApprovalDecisionContext,
+  submitFrozenApprovalSubmission,
 } from './api'
 
 function jsonResponse(status: number, body: unknown) {
@@ -79,6 +81,38 @@ describe('approval decision context v1', () => {
       safety_snapshot_hash: fixture.safety_snapshot_hash,
     })
     expect(body).not.toHaveProperty('decision')
+  })
+
+  it('reuses the byte-identical frozen decision body only when explicitly submitted again', async () => {
+    const context = parseApprovalDecisionContext(fixture)!
+    const submission = freezeApprovalSubmission(context, {
+      decision_type: 'reject',
+      reason: '  binding remains unchanged  ',
+    })
+    const terminalRecord = { id: context.approval_id, run_id: context.run_id, status: 'rejected' }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { success: true, data: terminalRecord }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await submitFrozenApprovalSubmission(submission)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await submitFrozenApprovalSubmission(submission)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/v1/approvals/${context.approval_id}/decide`)
+    expect(fetchMock.mock.calls[1][0]).toBe(fetchMock.mock.calls[0][0])
+    expect(fetchMock.mock.calls[0][1]?.body).toBe(fetchMock.mock.calls[1][1]?.body)
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      decision_type: 'reject',
+      expected_request_version: context.request_version,
+      expected_level_version: context.level_version,
+      expected_assignment_version: context.assignment_version,
+      expected_revision: context.revision,
+      action_payload_hash: context.action_payload_hash,
+      safety_snapshot_hash: context.safety_snapshot_hash,
+      reason: 'binding remains unchanged',
+    })
   })
 
   it('requires reject reason and rejects unsupported decisions', () => {

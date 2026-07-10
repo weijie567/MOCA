@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createRun,
-  decideApproval,
+  freezeApprovalSubmission,
   getApproval,
   getRunStatus,
   isExactApprovalDecisionContext,
   isTerminalApprovalStatus,
   parseApprovalDecisionContext,
   shouldReplaceApprovalDecisionContext,
+  submitFrozenApprovalSubmission,
 } from '@/lib/api'
-import type { ApprovalDecisionContextV1, ApprovalRecord, ApprovalSubmissionOutcome } from '@/lib/api'
+import type {
+  ApprovalDecisionContextV1,
+  ApprovalRecord,
+  ApprovalSubmissionOutcome,
+  FrozenApprovalSubmission,
+} from '@/lib/api'
 import { connectToRunEvents } from '@/lib/sse'
 import type { ChatMessage, RunStatus, SseEvent } from '@/types/events'
 
@@ -43,7 +49,13 @@ const INITIAL_STATE: AgentRunState = {
 
 const THREAD_ID_STORAGE_KEY = 'moca.agent.threadId'
 const DEFAULT_ERROR_MESSAGE = '执行遇到问题，请重试。如问题持续，请联系管理员'
+const RESUME_INCOMPLETE_MESSAGE = '审批决定已保存，但运行恢复尚未完成。请确认后重试恢复；系统不会自动重复提交审批决定。'
 let messageCounter = 0
+
+interface ApprovalResumeRetry {
+  runId: string
+  submission: FrozenApprovalSubmission
+}
 
 const TERMINAL_STATUSES = new Set<AgentRunStatus>([
   'completed',
@@ -225,6 +237,7 @@ export function useAgentRun() {
   const pollTimerRef = useRef<number | null>(null)
   const closeExpectedRef = useRef(false)
   const runGenerationRef = useRef(0)
+  const approvalResumeRetryRef = useRef<ApprovalResumeRetry | null>(null)
 
   const clearPolling = useCallback(() => {
     if (pollTimerRef.current !== null) {
@@ -471,6 +484,7 @@ export function useAgentRun() {
 
       runGenerationRef.current += 1
       const generation = runGenerationRef.current
+      approvalResumeRetryRef.current = null
       stopStream()
       clearPolling()
       const userMessage: ChatMessage = {
@@ -558,6 +572,34 @@ export function useAgentRun() {
     })
   }, [])
 
+  const recordResumeIncomplete = useCallback(
+    async (
+      submission: FrozenApprovalSubmission,
+      runId: string,
+    ): Promise<ApprovalSubmissionOutcome> => {
+      approvalResumeRetryRef.current = { submission, runId }
+      const [latestApproval, latestRun] = await Promise.all([
+        getApproval(submission.approval_id),
+        getRunStatus(runId),
+      ])
+      const approval = latestApproval.success
+        && latestApproval.data.id === submission.approval_id
+        && latestApproval.data.run_id === runId
+        && isTerminalApprovalStatus(latestApproval.data.status)
+        ? latestApproval.data
+        : null
+      if (approval) applyAuthoritativeApproval(approval)
+      const runStatus = latestRun.success ? latestRun.data.final_status : null
+      setState((current) => ({
+        ...current,
+        approvalContextFresh: false,
+        error: RESUME_INCOMPLETE_MESSAGE,
+      }))
+      return { kind: 'resume_incomplete', approval, runStatus }
+    },
+    [applyAuthoritativeApproval],
+  )
+
   const recoverApprovalAfterSubmission = useCallback(
     async (
       approvalId: string,
@@ -621,8 +663,12 @@ export function useAgentRun() {
         return { kind: 'stale', approval: latest.data }
       }
       const frozen = reviewedContext
-      const result = await decideApproval(frozen, { decision_type: 'approve' })
+      const submission = freezeApprovalSubmission(frozen, { decision_type: 'approve' })
+      const result = await submitFrozenApprovalSubmission(submission)
       if (!result.success) {
+        if (result.error.code === 'APPROVAL_RESUME_FAILED') {
+          return recordResumeIncomplete(submission, state.runId)
+        }
         if (result.error.code === 'NETWORK_ERROR') {
           return recoverApprovalAfterSubmission(frozen.approval_id, state.runId, 'ambiguous')
         }
@@ -639,7 +685,7 @@ export function useAgentRun() {
       setState((current) => ({ ...current, approvalContextFresh: false, error: '审批提交失败，请刷新后重试。' }))
       return { kind: 'unavailable', approval: null }
     }
-  }, [applyAuthoritativeApproval, recoverApprovalAfterSubmission, startPolling, state.approvalContext, state.runId])
+  }, [applyAuthoritativeApproval, recordResumeIncomplete, recoverApprovalAfterSubmission, startPolling, state.approvalContext, state.runId])
 
   const rejectRun = useCallback(
     async (reason: string): Promise<ApprovalSubmissionOutcome> => {
@@ -664,8 +710,12 @@ export function useAgentRun() {
           return { kind: 'stale', approval: latest.data }
         }
         const frozen = reviewedContext
-        const result = await decideApproval(frozen, { decision_type: 'reject', reason })
+        const submission = freezeApprovalSubmission(frozen, { decision_type: 'reject', reason })
+        const result = await submitFrozenApprovalSubmission(submission)
         if (!result.success) {
+          if (result.error.code === 'APPROVAL_RESUME_FAILED') {
+            return recordResumeIncomplete(submission, state.runId)
+          }
           if (result.error.code === 'NETWORK_ERROR') {
             return recoverApprovalAfterSubmission(frozen.approval_id, state.runId, 'ambiguous')
           }
@@ -693,11 +743,58 @@ export function useAgentRun() {
         return { kind: 'unavailable', approval: null }
       }
     },
-    [applyAuthoritativeApproval, recoverApprovalAfterSubmission, startPolling, state.approvalContext, state.runId],
+    [applyAuthoritativeApproval, recordResumeIncomplete, recoverApprovalAfterSubmission, startPolling, state.approvalContext, state.runId],
   )
+
+  const retryApprovalResume = useCallback(async (): Promise<ApprovalSubmissionOutcome> => {
+    const retry = approvalResumeRetryRef.current
+    if (!retry || retry.runId !== state.runId) return { kind: 'unavailable', approval: null }
+    try {
+      const result = await submitFrozenApprovalSubmission(retry.submission)
+      if (result.success) {
+        approvalResumeRetryRef.current = null
+        setState((current) => ({
+          ...current,
+          status: 'running',
+          approvalContextFresh: false,
+          error: null,
+        }))
+        startPolling(retry.runId)
+        return { kind: 'resume_reconciled', approval: result.data }
+      }
+      if (result.error.code === 'APPROVAL_RESUME_FAILED') {
+        return recordResumeIncomplete(retry.submission, retry.runId)
+      }
+      if (result.error.code === 'NETWORK_ERROR') {
+        setState((current) => ({
+          ...current,
+          approvalContextFresh: false,
+          error: '恢复结果未确认，请勿重复点击；可查询最新状态后再决定。',
+        }))
+        return { kind: 'ambiguous', approval: null }
+      }
+      approvalResumeRetryRef.current = null
+      setState((current) => ({
+        ...current,
+        approvalContextFresh: false,
+        error: '运行恢复请求已失效，请刷新后联系管理员。',
+      }))
+      return result.error.code === 'HTTP_409' || result.error.code === 'CONFLICT'
+        ? { kind: 'stale', approval: null }
+        : { kind: 'unavailable', approval: null }
+    } catch {
+      setState((current) => ({
+        ...current,
+        approvalContextFresh: false,
+        error: '恢复结果未确认，请勿重复点击；可查询最新状态后再决定。',
+      }))
+      return { kind: 'ambiguous', approval: null }
+    }
+  }, [recordResumeIncomplete, startPolling, state.runId])
 
   const reset = useCallback(() => {
     runGenerationRef.current += 1
+    approvalResumeRetryRef.current = null
     stopStream()
     clearPolling()
     setState(INITIAL_STATE)
@@ -722,6 +819,7 @@ export function useAgentRun() {
     submitQuery,
     approveRun,
     rejectRun,
+    retryApprovalResume,
     reset,
     newConversation,
     resetConversation: newConversation,

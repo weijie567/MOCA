@@ -11,8 +11,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
-import { decideApproval, getApproval, getPendingApprovals, isTerminalApprovalStatus } from '@/lib/api'
-import type { ApprovalRecord, ApprovalSubmissionOutcome } from '@/lib/api'
+import {
+  decideApproval,
+  freezeApprovalSubmission,
+  getApproval,
+  getPendingApprovals,
+  getRunStatus,
+  isTerminalApprovalStatus,
+  submitFrozenApprovalSubmission,
+} from '@/lib/api'
+import type {
+  ApprovalRecord,
+  ApprovalSubmissionOutcome,
+  FrozenApprovalSubmission,
+} from '@/lib/api'
 
 interface ApprovalTabProps {
   approvalId: string | null
@@ -22,9 +34,15 @@ interface ApprovalTabProps {
   status: string
   onApprove?: () => Promise<ApprovalSubmissionOutcome>
   onReject?: (reason: string) => Promise<ApprovalSubmissionOutcome>
+  onRetryResume?: () => Promise<ApprovalSubmissionOutcome>
 }
 
-type PendingDecision = 'approve' | 'reject' | null
+type PendingDecision = 'approve' | 'reject' | 'resume' | null
+type ResumeRetry =
+  | { source: 'active' }
+  | { source: 'direct'; submission: FrozenApprovalSubmission }
+
+const RESUME_INCOMPLETE_MESSAGE = '审批决定已保存，但运行恢复未完成。系统不会自动重复提交审批决定。'
 
 function riskVariant(riskLevel?: string | null) {
   if (riskLevel === 'high') return 'destructive'
@@ -43,12 +61,33 @@ function reconciledApprovalMessage(approval: ApprovalRecord) {
   return `服务器已确认审批终态：${approval.status}。`
 }
 
+async function queryResumeIncompleteState(
+  submission: FrozenApprovalSubmission,
+): Promise<ApprovalSubmissionOutcome> {
+  const [latestApproval, latestRun] = await Promise.all([
+    getApproval(submission.approval_id),
+    getRunStatus(submission.run_id),
+  ])
+  const approval = latestApproval.success
+    && latestApproval.data.id === submission.approval_id
+    && latestApproval.data.run_id === submission.run_id
+    && isTerminalApprovalStatus(latestApproval.data.status)
+    ? latestApproval.data
+    : null
+  return {
+    kind: 'resume_incomplete',
+    approval,
+    runStatus: latestRun.success ? latestRun.data.final_status : null,
+  }
+}
+
 export function ApprovalTab({
   approvalId,
   canApprove,
   status,
   onApprove,
   onReject,
+  onRetryResume,
 }: ApprovalTabProps) {
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRecord[]>([])
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null)
@@ -62,6 +101,7 @@ export function ApprovalTab({
   const [pendingDecision, setPendingDecision] = useState<PendingDecision>(null)
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [resumeRetry, setResumeRetry] = useState<ResumeRetry | null>(null)
   const loadPendingApprovals = useCallback(async () => {
     if (!canApprove) {
       setPendingApprovals([])
@@ -91,7 +131,9 @@ export function ApprovalTab({
   const decisionCopy =
     pendingDecision === 'approve'
       ? '确认批准此操作？系统将创建已授权的操作草稿；本页面不会直接执行生产外部操作。'
-      : '确认驳回此操作？请填写驳回原因。'
+      : pendingDecision === 'reject'
+        ? '确认驳回此操作？请填写驳回原因。'
+        : '确认重试恢复运行？系统将使用已保存的同一审批决定恢复运行，不会重新审批，也不会直接执行生产外部操作。'
 
   useEffect(() => {
     void Promise.resolve()
@@ -123,44 +165,71 @@ export function ApprovalTab({
   }, [canApprove, detailRefresh, selectedApprovalId])
 
   async function confirmDecision() {
-    if (!activeApproval?.decision_context || !pendingDecision || submitting) return
-    const frozenContext = structuredClone(activeApproval.decision_context)
+    const decision = pendingDecision
+    if (!decision || submitting) return
+    if (decision !== 'resume' && !activeApproval?.decision_context) return
+    if (decision === 'resume' && !resumeRetry) return
     setSubmitting(true)
     setStatusMessage(null)
     let outcome: ApprovalSubmissionOutcome = { kind: 'unavailable', approval: null }
+    let newResumeRetry: ResumeRetry | null = null
     try {
-      if (pendingDecision === 'approve') {
-        if (activeApproval.id === approvalId && onApprove) {
-          outcome = await onApprove()
+      if (decision === 'resume' && resumeRetry) {
+        if (resumeRetry.source === 'active') {
+          outcome = onRetryResume
+            ? await onRetryResume()
+            : { kind: 'unavailable', approval: null }
         } else {
-          const result = await decideApproval(frozenContext, { decision_type: 'approve' })
+          const result = await submitFrozenApprovalSubmission(resumeRetry.submission)
+          if (result.success) {
+            outcome = { kind: 'resume_reconciled', approval: result.data }
+          } else if (result.error.code === 'APPROVAL_RESUME_FAILED') {
+            outcome = await queryResumeIncompleteState(resumeRetry.submission)
+          } else if (result.error.code === 'NETWORK_ERROR') {
+            outcome = { kind: 'ambiguous', approval: null }
+          } else if (result.error.code === 'HTTP_409' || result.error.code === 'CONFLICT') {
+            outcome = { kind: 'stale', approval: null }
+          }
+        }
+      } else {
+        const frozenContext = structuredClone(activeApproval!.decision_context!)
+        const input = decision === 'approve'
+          ? { decision_type: 'approve' as const }
+          : { decision_type: 'reject' as const, reason }
+        const submission = freezeApprovalSubmission(frozenContext, input)
+        const activeCallback = activeApproval!.id === approvalId
+          ? decision === 'approve'
+            ? onApprove
+            : onReject
+          : undefined
+        if (activeCallback) {
+          outcome = decision === 'approve'
+            ? await (activeCallback as NonNullable<typeof onApprove>)()
+            : await (activeCallback as NonNullable<typeof onReject>)(reason)
+          if (outcome.kind === 'resume_incomplete') newResumeRetry = { source: 'active' }
+        } else {
+          const result = await decideApproval(frozenContext, input)
           if (result.success) {
             outcome = { kind: 'submitted' }
-          } else {
+          } else if (result.error.code === 'APPROVAL_RESUME_FAILED') {
+            newResumeRetry = { source: 'direct', submission }
+            outcome = await queryResumeIncompleteState(submission)
+          } else if (result.error.code === 'NETWORK_ERROR') {
             const latest = await getApproval(frozenContext.approval_id)
             if (latest.success && latest.data.decision_context === null && isTerminalApprovalStatus(latest.data.status)) {
               outcome = { kind: 'reconciled', approval: latest.data }
-            } else if (result.error.code === 'NETWORK_ERROR') {
+            } else {
               outcome = { kind: 'ambiguous', approval: latest.success ? latest.data : null }
-            } else if (result.error.code === 'HTTP_409' || result.error.code === 'CONFLICT') {
+            }
+          } else if (result.error.code === 'HTTP_409' || result.error.code === 'CONFLICT') {
+            const latest = await getApproval(frozenContext.approval_id)
+            if (latest.success && latest.data.decision_context === null && isTerminalApprovalStatus(latest.data.status)) {
+              outcome = { kind: 'reconciled', approval: latest.data }
+            } else {
               outcome = { kind: 'stale', approval: latest.success ? latest.data : null }
             }
-          }
-        }
-      } else if (activeApproval.id === approvalId && onReject) {
-        outcome = await onReject(reason)
-      } else {
-        const result = await decideApproval(frozenContext, { decision_type: 'reject', reason })
-        if (result.success) {
-          outcome = { kind: 'submitted' }
-        } else {
-          const latest = await getApproval(frozenContext.approval_id)
-          if (latest.success && latest.data.decision_context === null && isTerminalApprovalStatus(latest.data.status)) {
-            outcome = { kind: 'reconciled', approval: latest.data }
-          } else if (result.error.code === 'NETWORK_ERROR') {
-            outcome = { kind: 'ambiguous', approval: latest.success ? latest.data : null }
-          } else if (result.error.code === 'HTTP_409' || result.error.code === 'CONFLICT') {
-            outcome = { kind: 'stale', approval: latest.success ? latest.data : null }
+          } else {
+            outcome = { kind: 'unavailable', approval: null }
           }
         }
       }
@@ -169,15 +238,28 @@ export function ApprovalTab({
     }
 
     if (outcome.kind === 'submitted') {
+      setResumeRetry(null)
       setContextInvalidated(true)
       setStatusMessage('审批决定已提交，正在同步运行状态。')
       await loadPendingApprovals()
+    } else if (outcome.kind === 'resume_reconciled') {
+      setResumeRetry(null)
+      setContextInvalidated(true)
+      if (outcome.approval) setActiveApproval(outcome.approval)
+      setStatusMessage('运行恢复流程已完成，请查看权威运行终态。')
+    } else if (outcome.kind === 'resume_incomplete') {
+      if (decision !== 'resume') setResumeRetry(newResumeRetry)
+      setContextInvalidated(true)
+      if (outcome.approval) setActiveApproval(outcome.approval)
+      setStatusMessage(RESUME_INCOMPLETE_MESSAGE)
     } else if (outcome.kind === 'reconciled') {
+      setResumeRetry(null)
       setContextInvalidated(true)
       setActiveApproval(outcome.approval)
       setStatusMessage(reconciledApprovalMessage(outcome.approval))
       await loadPendingApprovals()
     } else if (outcome.kind === 'stale') {
+      if (decision === 'resume') setResumeRetry(null)
       setContextInvalidated(true)
       setActiveApproval(outcome.approval)
       setStatusMessage('审批已更新，请查看最新内容后重新决定。')
@@ -186,6 +268,7 @@ export function ApprovalTab({
       setActiveApproval(outcome.approval)
       setStatusMessage('提交结果未确认，已查询最新状态。请勿重复提交。')
     } else {
+      if (decision === 'resume') setResumeRetry(null)
       setContextInvalidated(true)
       setActiveApproval(null)
       setLoadError('审批不可用或已更新，请返回列表并刷新。')
@@ -328,13 +411,35 @@ export function ApprovalTab({
         </div>
       ) : null}
 
+      {canApprove && resumeRetry ? (
+        <Card>
+          <CardContent className="space-y-3" role="alert">
+            <p className="text-body text-status-waiting">{RESUME_INCOMPLETE_MESSAGE}</p>
+            <Button
+              className="min-h-11"
+              variant="outline"
+              disabled={submitting}
+              onClick={() => setPendingDecision('resume')}
+            >
+              重试恢复运行
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {statusMessage ? <p aria-live="polite" className="text-body text-muted-foreground">{statusMessage}</p> : null}
 
       <Dialog open={pendingDecision !== null} onOpenChange={(open) => !open && setPendingDecision(null)}>
         <DialogContent>
           <DialogClose onOpenChange={(open) => !open && setPendingDecision(null)} />
           <DialogHeader>
-            <DialogTitle>{pendingDecision === 'approve' ? '确认批准' : '确认驳回'}</DialogTitle>
+            <DialogTitle>
+              {pendingDecision === 'approve'
+                ? '确认批准'
+                : pendingDecision === 'reject'
+                  ? '确认驳回'
+                  : '确认重试恢复'}
+            </DialogTitle>
           </DialogHeader>
           <div className="px-4 py-3">
             <p className="text-body text-muted-foreground">{decisionCopy}</p>
@@ -364,7 +469,13 @@ export function ApprovalTab({
               disabled={submitting || (pendingDecision === 'reject' && !reason.trim())}
               onClick={() => void confirmDecision()}
             >
-              {submitting ? '提交中…' : pendingDecision === 'approve' ? '批准' : '驳回'}
+              {submitting
+                ? '提交中…'
+                : pendingDecision === 'approve'
+                  ? '批准'
+                  : pendingDecision === 'reject'
+                    ? '驳回'
+                    : '重试恢复'}
             </Button>
           </DialogFooter>
         </DialogContent>

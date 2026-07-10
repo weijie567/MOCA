@@ -1,7 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import fixture from '@contracts/fixtures/approval_decision_context_v1.json'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { decideApproval, getApproval, getPendingApprovals, parseApprovalDecisionContext } from '@/lib/api'
+import {
+  decideApproval,
+  getApproval,
+  getPendingApprovals,
+  getRunStatus,
+  parseApprovalDecisionContext,
+  submitFrozenApprovalSubmission,
+} from '@/lib/api'
 import type { ApprovalRecord, DecidableApprovalRecord } from '@/lib/api'
 import { ApprovalTab } from './ApprovalTab'
 
@@ -12,6 +19,8 @@ vi.mock('@/lib/api', async (importOriginal) => {
     decideApproval: vi.fn(),
     getApproval: vi.fn(),
     getPendingApprovals: vi.fn(),
+    getRunStatus: vi.fn(),
+    submitFrozenApprovalSubmission: vi.fn(),
   }
 })
 
@@ -47,7 +56,12 @@ describe('ApprovalTab decision safety', () => {
     vi.clearAllMocks()
     vi.mocked(getPendingApprovals).mockResolvedValue({ success: true, data: { approvals: [record], total: 1 } })
     vi.mocked(getApproval).mockResolvedValue({ success: true, data: record })
-    vi.mocked(decideApproval).mockResolvedValue({ success: true, data: {} })
+    vi.mocked(decideApproval).mockResolvedValue({ success: true, data: terminalRecord })
+    vi.mocked(getRunStatus).mockResolvedValue({
+      success: true,
+      data: { run_id: fixture.run_id, final_status: 'running', final_response: null },
+    })
+    vi.mocked(submitFrozenApprovalSubmission).mockResolvedValue({ success: true, data: terminalRecord })
   })
 
   it('keeps decisions disabled until latest detail validates and exposes selected semantics', async () => {
@@ -79,7 +93,7 @@ describe('ApprovalTab decision safety', () => {
   })
 
   it('echoes the validated frozen context and never double submits', async () => {
-    let resolveDecision: ((value: { success: true; data: Record<string, never> }) => void) | undefined
+    let resolveDecision: ((value: { success: true; data: ApprovalRecord }) => void) | undefined
     vi.mocked(decideApproval).mockReturnValueOnce(new Promise((resolve) => { resolveDecision = resolve }))
     render(<ApprovalTab approvalId={fixture.approval_id} canApprove status="waiting_approval" />)
     await waitFor(() => expect((screen.getByRole('button', { name: '批准' }) as HTMLButtonElement).disabled).toBe(false))
@@ -90,7 +104,7 @@ describe('ApprovalTab decision safety', () => {
     fireEvent.click(confirm)
     expect(decideApproval).toHaveBeenCalledTimes(1)
     expect(decideApproval).toHaveBeenCalledWith(decisionContext, { decision_type: 'approve' })
-    resolveDecision?.({ success: true, data: {} })
+    resolveDecision?.({ success: true, data: terminalRecord })
   })
 
   it.each([
@@ -136,5 +150,37 @@ describe('ApprovalTab decision safety', () => {
     expect(decideApproval).toHaveBeenCalledTimes(1)
     expect(getApproval).toHaveBeenCalledTimes(2)
     expect(screen.queryByText('提交结果未确认，已查询最新状态。请勿重复提交。')).toBeNull()
+  })
+
+  it('requires a second confirmation before retrying a committed resume failure', async () => {
+    vi.mocked(getApproval)
+      .mockResolvedValueOnce({ success: true, data: record })
+      .mockResolvedValueOnce({ success: true, data: terminalRecord })
+    vi.mocked(decideApproval).mockResolvedValueOnce({
+      success: false,
+      data: null,
+      error: { code: 'APPROVAL_RESUME_FAILED', message: 'decision saved; resume incomplete' },
+    })
+    render(<ApprovalTab approvalId={null} canApprove status="waiting_approval" />)
+    await waitFor(() => expect((screen.getByRole('button', { name: '批准' }) as HTMLButtonElement).disabled).toBe(false))
+
+    fireEvent.click(screen.getByRole('button', { name: '批准' }))
+    fireEvent.click(screen.getAllByRole('button', { name: '批准' }).at(-1)!)
+
+    await screen.findAllByText(/审批决定已保存，但运行恢复未完成/)
+    expect(screen.queryByText('服务器已确认审批通过，正在同步运行状态。')).toBeNull()
+    expect(decideApproval).toHaveBeenCalledTimes(1)
+    expect(submitFrozenApprovalSubmission).not.toHaveBeenCalled()
+    expect(getApproval).toHaveBeenCalledTimes(2)
+    expect(getRunStatus).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '重试恢复运行' }))
+    expect(screen.getByText(/使用已保存的同一审批决定恢复运行/)).toBeTruthy()
+    expect(submitFrozenApprovalSubmission).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '重试恢复' }))
+
+    await screen.findByText('运行恢复流程已完成，请查看权威运行终态。')
+    expect(submitFrozenApprovalSubmission).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: '重试恢复运行' })).toBeNull()
   })
 })

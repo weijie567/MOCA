@@ -92,6 +92,13 @@ export type ApprovalDecideInput =
   | { decision_type: 'edit'; edited_action: Record<string, unknown>; reason?: string }
   | { decision_type: 'respond'; response_text: string; reason?: string }
 
+export interface FrozenApprovalSubmission {
+  readonly approval_id: string
+  readonly run_id: string
+  readonly decision_type: ApprovalDecisionType
+  readonly body_json: string
+}
+
 const DECISION_TYPES = new Set<ApprovalDecisionType>(['accept', 'approve', 'edit', 'respond', 'reject', 'ignore'])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -137,6 +144,20 @@ export function serializeApprovalDecision(
   return body
 }
 
+export function freezeApprovalSubmission(
+  context: ApprovalDecisionContextV1,
+  input: ApprovalDecideInput,
+): FrozenApprovalSubmission {
+  const frozenContext = parseApprovalDecisionContext(structuredClone(context))
+  if (!frozenContext) throw new Error('INVALID_APPROVAL_CONTEXT')
+  return Object.freeze({
+    approval_id: frozenContext.approval_id,
+    run_id: frozenContext.run_id,
+    decision_type: input.decision_type,
+    body_json: JSON.stringify(serializeApprovalDecision(frozenContext, structuredClone(input))),
+  })
+}
+
 export interface ApprovalRecord {
   decision_context: ApprovalDecisionContextV1 | null
   id: string
@@ -160,6 +181,8 @@ export type DecidableApprovalRecord = ApprovalRecord & { decision_context: Appro
 export type ApprovalSubmissionOutcome =
   | { kind: 'submitted' }
   | { kind: 'reconciled'; approval: ApprovalRecord }
+  | { kind: 'resume_incomplete'; approval: ApprovalRecord | null; runStatus: string | null }
+  | { kind: 'resume_reconciled'; approval: ApprovalRecord | null }
   | { kind: 'stale'; approval: ApprovalRecord | null }
   | { kind: 'ambiguous'; approval: ApprovalRecord | null }
   | { kind: 'unavailable'; approval: null }
@@ -314,11 +337,13 @@ export async function getRunTrace(runId: string) {
 }
 
 export async function decideApproval(context: ApprovalDecisionContextV1, input: ApprovalDecideInput) {
-  const frozen = parseApprovalDecisionContext(structuredClone(context))
-  if (!frozen) throw new Error('INVALID_APPROVAL_CONTEXT')
-  return apiFetch(`/approvals/${frozen.approval_id}/decide`, {
+  return submitFrozenApprovalSubmission(freezeApprovalSubmission(context, input))
+}
+
+export async function submitFrozenApprovalSubmission(submission: FrozenApprovalSubmission) {
+  return apiFetch<ApprovalRecord>(`/approvals/${submission.approval_id}/decide`, {
     method: 'POST',
-    body: JSON.stringify(serializeApprovalDecision(frozen, input)),
+    body: submission.body_json,
   })
 }
 

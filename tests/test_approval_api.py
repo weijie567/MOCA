@@ -672,8 +672,18 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
     assert retry_response.status_code == 200
     assert retry_response.json()["data"]["status"] == "approved"
     assert run.final_status == "completed"
+    assert completed_statuses.count("attempted") == 1
+    assert completed_statuses.count("failed") == 1
     assert completed_statuses.count("completed") == 1
     assert len(graph.calls) == 1
+    assert (
+        await _count_rows(
+            session,
+            ApprovalDecision,
+            ApprovalDecision.approval_request_id == bundle.approval.id,
+        )
+        == 1
+    )
     assert len(await _finalizer_steps(session, run_id=bundle.approval.run_id)) == 1
     assert (
         await _count_rows(

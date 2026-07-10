@@ -9,7 +9,7 @@ import { getDemoToken, setAuthToken } from '@/lib/api'
 
 function App() {
   const { role, username, switchRole } = useAuth()
-  const { state, submitQuery, approveRun, rejectRun, newConversation } = useAgentRun()
+  const { state, submitQuery, approveRun, rejectRun, retryApprovalResume, newConversation } = useAgentRun()
   const [authReady, setAuthReady] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
 
@@ -67,6 +67,7 @@ function App() {
             steps={state.steps}
             approveRun={approveRun}
             rejectRun={rejectRun}
+            retryApprovalResume={retryApprovalResume}
           />
         </section>
       </div>

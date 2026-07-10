@@ -21,6 +21,7 @@ interface DetailsPanelProps {
   steps?: SseEvent[]
   approveRun?: () => Promise<ApprovalSubmissionOutcome>
   rejectRun?: (reason: string) => Promise<ApprovalSubmissionOutcome>
+  retryApprovalResume?: () => Promise<ApprovalSubmissionOutcome>
 }
 
 function statusVariant(status: string) {
@@ -39,6 +40,7 @@ export function DetailsPanel({
   steps = [],
   approveRun,
   rejectRun,
+  retryApprovalResume,
 }: DetailsPanelProps) {
   const [activeTab, setActiveTab] = useState<DetailsTab>('result')
   const selectedTab = status === 'waiting_approval' ? 'approval' : activeTab
@@ -93,6 +95,7 @@ export function DetailsPanel({
               status={status}
               onApprove={approveRun}
               onReject={rejectRun}
+              onRetryResume={retryApprovalResume}
             />
           </TabsContent>
           <TabsContent value="trace" activeValue={selectedTab}>

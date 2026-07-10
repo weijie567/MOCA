@@ -4,7 +4,13 @@ import { createElement } from 'react'
 import { DetailsPanel } from '@/components/details/DetailsPanel'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TimelineStep } from '@/components/timeline/TimelineStep'
-import { createRun, decideApproval, getApproval, getRunStatus, parseApprovalDecisionContext } from '@/lib/api'
+import {
+  createRun,
+  getApproval,
+  getRunStatus,
+  parseApprovalDecisionContext,
+  submitFrozenApprovalSubmission,
+} from '@/lib/api'
 import type { ApprovalRecord } from '@/lib/api'
 import { connectToRunEvents } from '@/lib/sse'
 import type { SseEvent } from '@/types/events'
@@ -15,7 +21,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return {
     ...actual,
     createRun: vi.fn(),
-    decideApproval: vi.fn(),
+    submitFrozenApprovalSubmission: vi.fn(),
     getPendingApprovals: vi.fn().mockResolvedValue({ success: true, data: { approvals: [], total: 0 } }),
     getApproval: vi.fn(),
     getRunEvidence: vi.fn().mockResolvedValue({ success: true, data: { evidence: [] } }),
@@ -29,7 +35,7 @@ vi.mock('@/lib/sse', () => ({
 }))
 
 const createRunMock = vi.mocked(createRun)
-const decideApprovalMock = vi.mocked(decideApproval)
+const submitFrozenApprovalSubmissionMock = vi.mocked(submitFrozenApprovalSubmission)
 const getApprovalMock = vi.mocked(getApproval)
 const getRunStatusMock = vi.mocked(getRunStatus)
 const connectToRunEventsMock = vi.mocked(connectToRunEvents)
@@ -103,7 +109,7 @@ describe('useAgentRun thread lifecycle', () => {
       data: { run_id: 'run-1', final_status: 'running', final_response: null },
     })
     getApprovalMock.mockResolvedValue({ success: true, data: approvalRecord })
-    decideApprovalMock.mockResolvedValue({ success: true, data: {} })
+    submitFrozenApprovalSubmissionMock.mockResolvedValue({ success: true, data: approvalRecord })
     connectToRunEventsMock.mockImplementation((runId, callbacks) => {
       streamCallbacks.set(runId, callbacks)
       return new AbortController()
@@ -597,8 +603,13 @@ describe('useAgentRun thread lifecycle', () => {
       expect(await result.current.approveRun()).toEqual({ kind: 'submitted' })
     })
 
-    expect(decideApprovalMock).toHaveBeenCalledTimes(1)
-    expect(decideApprovalMock).toHaveBeenCalledWith(approvalContext, { decision_type: 'approve' })
+    expect(submitFrozenApprovalSubmissionMock).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(submitFrozenApprovalSubmissionMock.mock.calls[0][0].body_json)).toMatchObject({
+      decision_type: 'approve',
+      expected_revision: approvalContext.revision,
+      action_payload_hash: approvalContext.action_payload_hash,
+      safety_snapshot_hash: approvalContext.safety_snapshot_hash,
+    })
   })
 
   it('does not submit a strictly newer or payload-changed GET context before review', async () => {
@@ -623,9 +634,68 @@ describe('useAgentRun thread lifecycle', () => {
       expect(await result.current.approveRun()).toMatchObject({ kind: 'stale' })
     })
 
-    expect(decideApprovalMock).not.toHaveBeenCalled()
+    expect(submitFrozenApprovalSubmissionMock).not.toHaveBeenCalled()
     expect(result.current.state.approvalContext).toEqual(newerContext)
     expect(result.current.state.approvalContextFresh).toBe(false)
+  })
+
+  it('keeps a committed resume failure distinct until an explicit frozen retry succeeds', async () => {
+    const terminalApproval: ApprovalRecord = {
+      ...approvalRecord,
+      status: 'approved',
+      decision: 'approve',
+      decided_at: new Date().toISOString(),
+      decision_context: null,
+    }
+    getApprovalMock
+      .mockResolvedValueOnce({ success: true, data: approvalRecord })
+      .mockResolvedValueOnce({ success: true, data: terminalApproval })
+    submitFrozenApprovalSubmissionMock
+      .mockResolvedValueOnce({
+        success: false,
+        data: null,
+        error: { code: 'APPROVAL_RESUME_FAILED', message: 'decision saved; resume incomplete' },
+      })
+      .mockResolvedValueOnce({ success: true, data: terminalApproval })
+    const { result, unmount } = renderHook(() => useAgentRun())
+
+    await act(async () => {
+      await result.current.submitQuery('approve with interrupted resume')
+    })
+    act(() => {
+      streamCallbacks.get('run-1')?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: { approval_id: approvalContext.approval_id, decision_context: approvalContext },
+      }))
+    })
+
+    await act(async () => {
+      expect(await result.current.approveRun()).toEqual({
+        kind: 'resume_incomplete',
+        approval: terminalApproval,
+        runStatus: 'running',
+      })
+    })
+
+    expect(submitFrozenApprovalSubmissionMock).toHaveBeenCalledTimes(1)
+    expect(getApprovalMock).toHaveBeenCalledTimes(2)
+    expect(getRunStatusMock).toHaveBeenCalledTimes(1)
+    expect(result.current.state.status).toBe('waiting_approval')
+    expect(result.current.state.error).toContain('审批决定已保存，但运行恢复尚未完成')
+    const frozenSubmission = submitFrozenApprovalSubmissionMock.mock.calls[0][0]
+
+    await act(async () => {
+      expect(await result.current.retryApprovalResume()).toEqual({
+        kind: 'resume_reconciled',
+        approval: terminalApproval,
+      })
+    })
+
+    expect(submitFrozenApprovalSubmissionMock).toHaveBeenCalledTimes(2)
+    expect(submitFrozenApprovalSubmissionMock.mock.calls[1][0]).toBe(frozenSubmission)
+    expect(result.current.state.status).toBe('running')
+    unmount()
   })
 
   it('reconciles a committed approval after a lost POST response without replay', async () => {
@@ -639,7 +709,7 @@ describe('useAgentRun thread lifecycle', () => {
     getApprovalMock
       .mockResolvedValueOnce({ success: true, data: approvalRecord })
       .mockResolvedValueOnce({ success: true, data: terminalApproval })
-    decideApprovalMock.mockResolvedValueOnce({
+    submitFrozenApprovalSubmissionMock.mockResolvedValueOnce({
       success: false,
       data: null,
       error: { code: 'NETWORK_ERROR', message: 'response lost' },
@@ -662,7 +732,7 @@ describe('useAgentRun thread lifecycle', () => {
     })
 
     expect(outcome).toEqual({ kind: 'reconciled', approval: terminalApproval })
-    expect(decideApprovalMock).toHaveBeenCalledTimes(1)
+    expect(submitFrozenApprovalSubmissionMock).toHaveBeenCalledTimes(1)
     expect(getApprovalMock).toHaveBeenCalledTimes(2)
     expect(result.current.state.approvalContext).toBeNull()
     expect(result.current.state.approvalContextFresh).toBe(false)
