@@ -21216,6 +21216,26 @@ Plan 05 开始时，Plan 04 留下的两个 graph 用例仍断言 `risk_assessme
 **剩余问题和下次继续排查入口**
 本条无未解决产品或测试阻塞。Phase 64.1-06 应继续把 architecture baseline 与 route vocabulary 作为最终 guard；长测试必须保留并轮询真实 session 至明确 exit code，不能把输出通道结束当成测试结束。
 
+## 2026-07-10 — Phase 64.1 code-review frontend terminal recovery 验证事故
+
+**问题现象**
+code-review fix 首轮 frontend build 出现两项 TypeScript 错误：pending list test 仍用 nullable `ApprovalRecord` 代替 `DecidableApprovalRecord`，且 terminal helper 的 `AgentRunStatus` 未通过 type guard 收窄到 `RunStatus`。修正类型后，首轮 scoped Playwright 为 `8 passed / 2 failed`：desktop/mobile stale decision 场景查询到新 pending context 后立即重新启用“批准”按钮，违背 stale 后必须显式重新审阅/刷新才可决定的 fail-closed 交互。
+
+**如何检测/复现**
+运行 `cd frontend && npm test -- --run src/lib/api.test.ts src/hooks/useAgentRun.test.ts src/components/details/ApprovalTab.test.tsx && npm run build`，随后运行 `cd frontend && npm run e2e -- phase64_1-approval-safety.spec.ts`。Playwright 失败断言为 stale POST 后 `getByRole('button', {name: '批准'}).first()` 仍 enabled。
+
+**关键证据或命令**
+首轮 Vitest 已为 `4 files / 30 tests`，build 在 `ApprovalTab.test.tsx` 与 `useAgentRun.ts` 的类型边界失败；类型修复后 build 通过。首轮 Playwright `8 passed / 2 failed`，唯一失败语义为 stale recovery 重新可决定；加入 explicit context-invalidated gate 后，同一 scoped E2E 重跑为 `10 passed (1.6m)`，Vitest `30 passed`、production build 继续通过。
+
+**当前判断/根因**
+TypeScript 问题是 nullable terminal record 引入后测试/辅助函数未完成类型收窄。E2E 问题是真实前端状态机缺口：虽然已消费 query-first GET 的最新 pending record，但没有区分“数据最新”与“用户已重新审阅并确认该版本”，因此 stale 提交失败后可立即再次点击。
+
+**已做处理**
+pending list 使用 `DecidableApprovalRecord`，non-success status helper 改为 TypeScript type guard；ApprovalTab 新增 `contextInvalidated`，stale/ambiguous/submitted/terminal outcome 一律失效当前 decidability，用户显式重新选择审批项并完成 latest GET 后才重新启用原生按钮。committed-but-response-lost 场景仍消费 terminal GET、显示权威终态且 POST 始终只发送一次。
+
+**剩余问题和下次继续排查入口**
+本条无剩余阻塞。后续改 approval recovery 时先跑三份 frontend unit contract，再跑 desktop/mobile `phase64_1-approval-safety.spec.ts`；必须同时断言 stale 不可立即重试、terminal 可收敛、ambiguous 不重放 POST。
+
 ## 2026-07-10 — Phase 64.1-06 最终矩阵、architecture guard 与全量门禁事故
 
 **问题现象**
