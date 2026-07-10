@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
-import { decideApproval, getPendingApprovals } from '@/lib/api'
+import { decideApproval, getApproval, getPendingApprovals } from '@/lib/api'
 import type { ApprovalRecord } from '@/lib/api'
 
 interface ApprovalTabProps {
@@ -39,8 +39,6 @@ function actionEntries(proposedAction?: Record<string, unknown> | null) {
 
 export function ApprovalTab({
   approvalId,
-  proposedAction,
-  riskLevel,
   canApprove,
   status,
   onApprove,
@@ -48,7 +46,11 @@ export function ApprovalTab({
 }: ApprovalTabProps) {
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRecord[]>([])
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null)
+  const [activeApproval, setActiveApproval] = useState<ApprovalRecord | null>(null)
+  const [loadingList, setLoadingList] = useState(false)
+  const [loadingDetail, setLoadingDetail] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [pendingDecision, setPendingDecision] = useState<PendingDecision>(null)
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -60,7 +62,9 @@ export function ApprovalTab({
       return
     }
 
+    setLoadingList(true)
     const result = await getPendingApprovals()
+    setLoadingList(false)
     if (!result.success) {
       setLoadError(result.error?.message ?? '待审批列表加载失败')
       return
@@ -75,39 +79,11 @@ export function ApprovalTab({
       return currentRunApproval?.id ?? result.data.approvals[0]?.id ?? null
     })
   }, [approvalId, canApprove])
-  const activeApproval = useMemo(() => {
-    if (!canApprove) return null
-
-    const selectedApproval = pendingApprovals.find((approval) => approval.id === selectedApprovalId)
-    const currentRunApproval = pendingApprovals.find((approval) => approval.id === approvalId)
-    return (
-      selectedApproval ??
-      currentRunApproval ??
-      (approvalId
-        ? {
-            id: approvalId,
-            run_id: '',
-            status: status === 'waiting_approval' ? 'pending' : status,
-            requested_by: '',
-            proposed_action: proposedAction ?? {},
-            risk_level: riskLevel ?? 'unknown',
-            risk_rule_ref: null,
-            risk_reason: null,
-            decision: null,
-            reason: null,
-            decided_by: null,
-            decided_at: null,
-            expires_at: '',
-            created_at: '',
-          }
-        : null)
-    )
-  }, [approvalId, canApprove, pendingApprovals, proposedAction, riskLevel, selectedApprovalId, status])
   const entries = useMemo(() => actionEntries(activeApproval?.proposed_action), [activeApproval])
   const decisionCopy =
     pendingDecision === 'approve'
-      ? '确认批准此操作？批准后将立即执行，此操作不可撤销。'
-      : '确认驳回此操作？驳回后本次请求将终止，此操作不可撤销。'
+      ? '确认批准此操作？系统将创建已授权的操作草稿；本页面不会直接执行生产外部操作。'
+      : '确认驳回此操作？请填写驳回原因。'
 
   useEffect(() => {
     void Promise.resolve()
@@ -115,33 +91,78 @@ export function ApprovalTab({
       .catch(() => setLoadError('待审批列表加载失败'))
   }, [loadPendingApprovals])
 
+  useEffect(() => {
+    if (!canApprove || !selectedApprovalId) {
+      setActiveApproval(null)
+      return
+    }
+    let active = true
+    setLoadingDetail(true)
+    setActiveApproval(null)
+    void getApproval(selectedApprovalId).then((result) => {
+      if (!active) return
+      setLoadingDetail(false)
+      if (!result.success) {
+        setLoadError(result.error.message || '审批信息加载失败，请重试。')
+        return
+      }
+      setActiveApproval(result.data)
+      setLoadError(null)
+    })
+    return () => { active = false }
+  }, [canApprove, selectedApprovalId])
+
   async function confirmDecision() {
-    if (!activeApproval || !pendingDecision) return
+    if (!activeApproval || !pendingDecision || submitting) return
+    const frozenContext = structuredClone(activeApproval.decision_context)
     setSubmitting(true)
+    setStatusMessage(null)
     try {
       if (pendingDecision === 'approve') {
         if (activeApproval.id === approvalId && onApprove) {
           await onApprove()
           await loadPendingApprovals()
         } else {
-          await decideApproval(activeApproval.id, 'approve', 'Approved from MOCA demo console')
+          const result = await decideApproval(frozenContext, { decision_type: 'approve' })
+          if (!result.success) throw new Error(result.error.code)
           await loadPendingApprovals()
         }
       } else if (activeApproval.id === approvalId && onReject) {
         await onReject(reason)
         await loadPendingApprovals()
       } else {
-        await decideApproval(activeApproval.id, 'reject', reason)
+        const result = await decideApproval(frozenContext, { decision_type: 'reject', reason })
+        if (!result.success) throw new Error(result.error.code)
         await loadPendingApprovals()
       }
+      setStatusMessage('审批决定已提交，正在同步运行状态。')
       setPendingDecision(null)
       setReason('')
-    } catch {
-      setLoadError('审批提交失败')
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      setPendingDecision(null)
+      setActiveApproval(null)
+      if (code === 'NETWORK_ERROR') {
+        setStatusMessage('提交结果未确认，正在查询最新状态。请勿重复提交。')
+      } else if (code === 'HTTP_409' || code === 'CONFLICT') {
+        setStatusMessage('审批已更新，请查看最新内容后重新决定。')
+      } else {
+        setLoadError('审批不可用或已更新，请返回列表并刷新。')
+      }
+      await getApproval(frozenContext.approval_id)
     } finally {
       setSubmitting(false)
     }
   }
+
+  const context = activeApproval?.decision_context
+  const expired = context ? Date.parse(context.expires_at) <= Date.now() : true
+  const canApproveDecision = Boolean(
+    context && activeApproval?.status === 'pending' && !expired && context.allowed_decision_types.includes('approve'),
+  )
+  const canRejectDecision = Boolean(
+    context && activeApproval?.status === 'pending' && !expired && context.allowed_decision_types.includes('reject'),
+  )
 
   return (
     <div className="space-y-4">
@@ -173,8 +194,10 @@ export function ApprovalTab({
         <CardContent className="space-y-2">
           {!canApprove ? (
             <p className="text-body text-muted-foreground">切换到审批员或管理员后可查看待审批列表。</p>
+          ) : loadingList ? (
+            <p className="text-body text-muted-foreground" aria-live="polite">正在加载待审批项…</p>
           ) : loadError ? (
-            <div className="rounded-md border border-destructive/40 p-3 text-body">{loadError}</div>
+            <div className="rounded-md border border-destructive/40 p-3 text-body" role="alert">{loadError}</div>
           ) : pendingApprovals.length === 0 ? (
             <p className="text-body text-muted-foreground">当前没有待处理审批</p>
           ) : (
@@ -186,6 +209,7 @@ export function ApprovalTab({
                   activeApproval?.id === approval.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40'
                 }`}
                 onClick={() => setSelectedApprovalId(approval.id)}
+                aria-pressed={selectedApprovalId === approval.id}
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-semibold">run {approval.run_id.slice(0, 8)}</span>
@@ -212,6 +236,8 @@ export function ApprovalTab({
         <CardContent>
           {!canApprove ? (
             <p className="text-body text-muted-foreground">审批详情仅对审批员和管理员可见。</p>
+          ) : loadingDetail ? (
+            <p className="text-body text-muted-foreground" aria-live="polite">正在加载审批详情…</p>
           ) : entries.length > 0 ? (
             <dl className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-2 text-body">
               {entries.map(([key, value]) => (
@@ -224,7 +250,7 @@ export function ApprovalTab({
               ))}
             </dl>
           ) : (
-            <p className="text-body text-muted-foreground">等待 approval_required 事件中的 proposed_action 详情</p>
+            <p className="text-body text-muted-foreground">审批信息不完整，请刷新后再决定。</p>
           )}
         </CardContent>
       </Card>
@@ -233,7 +259,8 @@ export function ApprovalTab({
         <div className="grid grid-cols-2 gap-3">
           <Button
             className="min-h-11"
-            disabled={submitting || !activeApproval || activeApproval.status !== 'pending'}
+            disabled={submitting || !canApproveDecision}
+            aria-disabled={submitting || !canApproveDecision}
             onClick={() => setPendingDecision('approve')}
           >
             批准
@@ -241,13 +268,16 @@ export function ApprovalTab({
           <Button
             className="min-h-11"
             variant="destructive"
-            disabled={submitting || !activeApproval || activeApproval.status !== 'pending'}
+            disabled={submitting || !canRejectDecision}
+            aria-disabled={submitting || !canRejectDecision}
             onClick={() => setPendingDecision('reject')}
           >
             驳回
           </Button>
         </div>
       ) : null}
+
+      {statusMessage ? <p aria-live="polite" className="text-body text-muted-foreground">{statusMessage}</p> : null}
 
       <Dialog open={pendingDecision !== null} onOpenChange={(open) => !open && setPendingDecision(null)}>
         <DialogContent>
@@ -258,13 +288,20 @@ export function ApprovalTab({
           <div className="px-4 py-3">
             <p className="text-body text-muted-foreground">{decisionCopy}</p>
             {pendingDecision === 'reject' ? (
-              <Textarea
-                className="mt-3"
-                rows={3}
-                value={reason}
-                placeholder="请输入驳回原因"
-                onChange={(event) => setReason(event.target.value)}
-              />
+              <div>
+                <Textarea
+                  className="mt-3"
+                  rows={3}
+                  value={reason}
+                  placeholder="请输入驳回原因"
+                  aria-label="驳回原因"
+                  aria-describedby="reject-reason-help"
+                  onChange={(event) => setReason(event.target.value)}
+                />
+                <p id="reject-reason-help" className="mt-2 text-label text-muted-foreground">
+                  驳回决定必须填写非空原因。
+                </p>
+              </div>
             ) : null}
           </div>
           <DialogFooter>
@@ -276,7 +313,7 @@ export function ApprovalTab({
               disabled={submitting || (pendingDecision === 'reject' && !reason.trim())}
               onClick={() => void confirmDecision()}
             >
-              {pendingDecision === 'approve' ? '批准' : '驳回'}
+              {submitting ? '提交中…' : pendingDecision === 'approve' ? '批准' : '驳回'}
             </Button>
           </DialogFooter>
         </DialogContent>
