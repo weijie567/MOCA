@@ -182,7 +182,9 @@ def test_graph_registers_canonical_action_draft_node_only() -> None:
     assert 'add_node("execute_action"' not in source
     assert '"action_draft": "action_draft"' in source
     assert '"execute_action": "execute_action"' not in source
-    assert 'add_edge("action_draft", "final_response")' in source
+    assert "route_after_action_draft" in source
+    assert 'add_edge("action_draft", "final_response")' not in source
+    assert '"terminal_error": "final_response"' in source
 
 
 def test_source_does_not_import_execute_action_shim_outside_shim() -> None:
