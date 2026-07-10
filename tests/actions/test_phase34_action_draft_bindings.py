@@ -13,7 +13,7 @@ from src.actions.service import create_coupon_grant_draft
 from src.approvals.service import ApprovalService
 from src.approvals.schemas import RiskDecisionV1, TargetMerchantBindingV1
 from src.approvals.snapshot_service import compute_action_payload_hash, persist_action_safety_snapshot
-from src.db.models import ActionDraft, AgentRun, ApprovalAssignment, ApprovalLevel, ApprovalRequest
+from src.db.models import ActionDraft, AgentRun, AgentTraceEvent, ApprovalAssignment, ApprovalLevel, ApprovalRequest
 from src.knowledge.schemas import EvidenceRefV1
 from src.tools.contracts import BusinessFactRefV1
 from tests.approvals.test_service_transitions import (
@@ -209,7 +209,7 @@ def _phase34_tool_kwargs(request: ApprovalRequest, **overrides) -> dict[str, obj
 def _auto_allowed_risk_decision(binding: dict[str, object]) -> dict[str, object]:
     risk_decision = dict(binding["risk_decision"])
     risk_decision["risk_level"] = "low"
-    risk_decision["reason_codes"] = ["auto_allowed"]
+    risk_decision["reason_codes"] = ["auto_allowed_candidate", "risk_disposition:allow"]
     risk_decision["approval_required"] = False
     risk_decision["risk_rule_ref"] = "risk:auto-allowed"
     risk_decision["risk_reason"] = "Low-risk action auto-allowed."
@@ -219,6 +219,38 @@ def _auto_allowed_risk_decision(binding: dict[str, object]) -> dict[str, object]
 async def _assert_no_drafts(session: AsyncSession, run_id: UUID) -> None:
     rows = (await session.execute(select(ActionDraft).where(ActionDraft.run_id == run_id))).scalars().all()
     assert rows == []
+
+
+async def _mint_auto_action_capability(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    actor_id: UUID,
+    run_id: UUID,
+    target_merchant_id: str,
+    action_payload_hash: str,
+    safety_snapshot_ref: str,
+    safety_snapshot_hash: str,
+    risk_decision_ref: str,
+    risk_decision: dict[str, object],
+) -> str:
+    from src.actions.capabilities import AutoActionCapabilityService
+
+    grant = await AutoActionCapabilityService(session).mint(
+        tenant_id=tenant_id,
+        actor_id=actor_id,
+        run_id=run_id,
+        target_merchant_id=target_merchant_id,
+        canonical_action="issue_coupon",
+        action_payload_hash=action_payload_hash,
+        safety_snapshot_ref=safety_snapshot_ref,
+        safety_snapshot_hash=safety_snapshot_hash,
+        risk_decision_ref=risk_decision_ref,
+        risk_decision=risk_decision,
+        risk_disposition="allow",
+        handler="create_coupon_grant_draft",
+    )
+    return grant.capability_ref
 
 
 @pytest.mark.asyncio
@@ -281,6 +313,15 @@ async def test_create_coupon_grant_draft_persists_phase34_binding_projection(
     assert [ref.model_dump(mode="json") for ref in action_draft.verified_evidence_refs] == request.verified_evidence_refs
     assert action_draft.risk_decision_ref == request.risk_decision_ref
     assert action_draft.risk_decision.model_dump(mode="json") == request.risk_decision
+    event = (
+        await session.execute(
+            select(AgentTraceEvent).where(
+                AgentTraceEvent.run_id == request.run_id,
+                AgentTraceEvent.event_type == "action_draft_created",
+            )
+        )
+    ).scalar_one()
+    assert event.redacted_payload["authorization_source"] == "approval"
 
 
 @pytest.mark.asyncio
@@ -316,21 +357,18 @@ async def test_create_coupon_grant_draft_accepts_exact_auto_allowed_binding(
         created_at=command.created_at,
         created_by=user_id,
     )
-    auto_allowed_binding = {
-        "schema_version": "auto_allowed_action_binding.v1",
-        "tenant_id": str(tenant_id),
-        "run_id": str(run_id),
-        "target_merchant_id": binding["target_merchant_id"],
-        "action_payload_hash": action_payload_hash,
-        "safety_snapshot_ref": snapshot.safety_snapshot_ref,
-        "safety_snapshot_hash": snapshot.safety_snapshot_hash,
-        "risk_decision_ref": binding["risk_decision_ref"],
-        "idempotency_key": f"auto:{tenant_id}:{run_id}",
-        "business_fact_refs": binding["business_fact_refs"],
-        "verified_evidence_refs": binding["verified_evidence_refs"],
-        "claim_verification_ref": binding["claim_verification_ref"],
-        "claim_verification_summary": binding["claim_verification_summary"],
-    }
+    capability_ref = await _mint_auto_action_capability(
+        session,
+        tenant_id=tenant_id,
+        actor_id=user_id,
+        run_id=run_id,
+        target_merchant_id=binding["target_merchant_id"],
+        action_payload_hash=action_payload_hash,
+        safety_snapshot_ref=snapshot.safety_snapshot_ref,
+        safety_snapshot_hash=snapshot.safety_snapshot_hash,
+        risk_decision_ref=binding["risk_decision_ref"],
+        risk_decision=binding["risk_decision"],
+    )
 
     result = await create_coupon_grant_draft(
         tenant_id=str(tenant_id),
@@ -352,23 +390,22 @@ async def test_create_coupon_grant_draft_accepts_exact_auto_allowed_binding(
         claim_verification_summary=binding["claim_verification_summary"],
         risk_decision_ref=binding["risk_decision_ref"],
         risk_decision=binding["risk_decision"],
-        auto_allowed_binding=auto_allowed_binding,
+        auto_action_capability_ref=capability_ref,
     )
 
     assert result["status"] == "success"
     draft = await session.get(ActionDraft, UUID(result["data"]["draft_id"]))
     assert draft is not None
     assert draft.approval_request_id is None
-    assert draft.approval_revision_ref == f"auto_allowed:{binding['risk_decision_ref']}"
-    assert draft.auto_allowed_binding_ref == f"auto_allowed:{binding['risk_decision_ref']}"
+    assert draft.approval_revision_ref.startswith("auto_action_capability:")
+    assert draft.auto_allowed_binding_ref == draft.approval_revision_ref
     assert len(draft.idempotency_key) <= 256
-    assert draft.idempotency_key.startswith(f"{tenant_id}:{run_id}:auto_allowed_sha256:")
-    assert "key_sha256:" in draft.idempotency_key
+    assert draft.idempotency_key.startswith(f"{tenant_id}:{run_id}:auto_action_capability:")
     await session.refresh(run)
     assert run.scope_classification == "business_merchant"
     assert run.target_merchant_id == binding["target_merchant_id"]
     assert run.target_merchant_ref == binding["target_merchant_ref"]
-    assert run.scope_source == "auto_allowed_action_binding_v1"
+    assert run.scope_source == "auto_action_capability.v1"
 
 
 @pytest.mark.asyncio
@@ -407,19 +444,18 @@ async def test_create_coupon_grant_draft_rejects_auto_allowed_binding_mismatch(
         created_at=command.created_at,
         created_by=user_id,
     )
-    auto_allowed_binding = {
-        "schema_version": "auto_allowed_action_binding.v1",
-        "tenant_id": str(tenant_id),
-        "run_id": str(run_id),
-        "target_merchant_id": "merchant-other",
-        "action_payload_hash": action_payload_hash,
-        "safety_snapshot_ref": snapshot.safety_snapshot_ref,
-        "safety_snapshot_hash": snapshot.safety_snapshot_hash,
-        "risk_decision_ref": binding["risk_decision_ref"],
-        "idempotency_key": f"auto:{tenant_id}:{run_id}",
-        "business_fact_refs": binding["business_fact_refs"],
-        "verified_evidence_refs": binding["verified_evidence_refs"],
-    }
+    capability_ref = await _mint_auto_action_capability(
+        session,
+        tenant_id=tenant_id,
+        actor_id=user_id,
+        run_id=run_id,
+        target_merchant_id=binding["target_merchant_id"],
+        action_payload_hash=action_payload_hash,
+        safety_snapshot_ref=snapshot.safety_snapshot_ref,
+        safety_snapshot_hash=snapshot.safety_snapshot_hash,
+        risk_decision_ref=binding["risk_decision_ref"],
+        risk_decision=binding["risk_decision"],
+    )
 
     result = await create_coupon_grant_draft(
         tenant_id=str(tenant_id),
@@ -433,7 +469,7 @@ async def test_create_coupon_grant_draft_rejects_auto_allowed_binding_mismatch(
         action_payload_hash=action_payload_hash,
         safety_snapshot_ref=snapshot.safety_snapshot_ref,
         safety_snapshot_hash=snapshot.safety_snapshot_hash,
-        target_merchant_id=binding["target_merchant_id"],
+        target_merchant_id="merchant-other",
         target_merchant_ref=binding["target_merchant_ref"],
         business_fact_refs=binding["business_fact_refs"],
         verified_evidence_refs=binding["verified_evidence_refs"],
@@ -441,11 +477,11 @@ async def test_create_coupon_grant_draft_rejects_auto_allowed_binding_mismatch(
         claim_verification_summary=binding["claim_verification_summary"],
         risk_decision_ref=binding["risk_decision_ref"],
         risk_decision=binding["risk_decision"],
-        auto_allowed_binding=auto_allowed_binding,
+        auto_action_capability_ref=capability_ref,
     )
 
     assert result["status"] == "error"
-    assert result["error"]["error_code"] == "AUTO_ALLOWED_BINDING_MISMATCH"
+    assert result["error"]["error_code"] == "SNAPSHOT_BINDING_MISMATCH"
     await _assert_no_drafts(session, run_id)
 
 
@@ -485,21 +521,18 @@ async def test_create_coupon_grant_draft_rejects_auto_allowed_risk_decision_tamp
         created_at=command.created_at,
         created_by=user_id,
     )
-    auto_allowed_binding = {
-        "schema_version": "auto_allowed_action_binding.v1",
-        "tenant_id": str(tenant_id),
-        "run_id": str(run_id),
-        "target_merchant_id": binding["target_merchant_id"],
-        "action_payload_hash": action_payload_hash,
-        "safety_snapshot_ref": snapshot.safety_snapshot_ref,
-        "safety_snapshot_hash": snapshot.safety_snapshot_hash,
-        "risk_decision_ref": binding["risk_decision_ref"],
-        "idempotency_key": f"auto:{tenant_id}:{run_id}",
-        "business_fact_refs": binding["business_fact_refs"],
-        "verified_evidence_refs": binding["verified_evidence_refs"],
-        "claim_verification_ref": binding["claim_verification_ref"],
-        "claim_verification_summary": binding["claim_verification_summary"],
-    }
+    capability_ref = await _mint_auto_action_capability(
+        session,
+        tenant_id=tenant_id,
+        actor_id=user_id,
+        run_id=run_id,
+        target_merchant_id=binding["target_merchant_id"],
+        action_payload_hash=action_payload_hash,
+        safety_snapshot_ref=snapshot.safety_snapshot_ref,
+        safety_snapshot_hash=snapshot.safety_snapshot_hash,
+        risk_decision_ref=binding["risk_decision_ref"],
+        risk_decision=binding["risk_decision"],
+    )
     tampered_risk_decision = dict(binding["risk_decision"])
     tampered_risk_decision["approval_required"] = True
 
@@ -523,9 +556,9 @@ async def test_create_coupon_grant_draft_rejects_auto_allowed_risk_decision_tamp
         claim_verification_summary=binding["claim_verification_summary"],
         risk_decision_ref=binding["risk_decision_ref"],
         risk_decision=tampered_risk_decision,
-        auto_allowed_binding=auto_allowed_binding,
+        auto_action_capability_ref=capability_ref,
     )
 
     assert result["status"] == "error"
-    assert result["error"]["error_code"] == "AUTO_ALLOWED_BINDING_MISMATCH"
+    assert result["error"]["error_code"] == "AUTO_ACTION_CAPABILITY_MISMATCH"
     await _assert_no_drafts(session, run_id)

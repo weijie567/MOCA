@@ -295,6 +295,15 @@ def test_action_drafts_orm_declares_phase34_binding_columns():
         assert f'"{column}"' in source
 
 
+def test_action_draft_persists_only_a_bounded_capability_reference():
+    table = _table("action_drafts")
+
+    assert table.c["auto_allowed_binding_ref"].type.length == 256
+    assert "capability_nonce" not in table.c
+    assert "capability_permissions" not in table.c
+    assert "external_execution_id" not in table.c
+
+
 def test_action_drafts_orm_uses_tenant_scoped_idempotency_uniqueness():
     items = _named_schema_items("action_drafts")
 

@@ -148,21 +148,11 @@ def _approved_state() -> dict:
     }
 
 
-def _auto_allowed_binding(state: dict[str, Any]) -> dict[str, Any]:
+def _auto_action_capability(state: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schema_version": "auto_allowed_action_binding.v1",
-        "tenant_id": state["tenant_id"],
-        "run_id": state["current_run_id"],
-        "target_merchant_id": state["target_merchant_id"],
-        "action_payload_hash": state["action_payload_hash"],
-        "safety_snapshot_ref": state["safety_snapshot_ref"],
-        "safety_snapshot_hash": state["safety_snapshot_hash"],
-        "risk_decision_ref": state["risk_decision_ref"],
-        "idempotency_key": f"auto:{state['tenant_id']}:{state['current_run_id']}",
-        "business_fact_refs": state["business_fact_refs"],
-        "verified_evidence_refs": state["verified_evidence_refs"],
-        "claim_verification_ref": state["claim_verification_ref"],
-        "claim_verification_summary": state["claim_verification_summary"],
+        "schema_version": "auto_action_capability_ref.v1",
+        "capability_ref": "aac_" + "x" * 43,
+        "expires_at": "2026-07-10T00:05:00Z",
     }
 
 
@@ -536,24 +526,26 @@ async def test_execute_action_passes_phase34_binding_fields_to_action_tool(monke
         "risk_decision",
     ):
         assert kwargs[field] == state[field]
-    assert kwargs["auto_allowed_binding"] is None
+    assert kwargs["auto_action_capability_ref"] is None
 
 
 @pytest.mark.asyncio
-async def test_execute_action_auto_allowed_binding_invokes_action_tool(monkeypatch):
+async def test_execute_action_auto_action_capability_invokes_only_draft_tool(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
     state["risk_assessment"] = {"approval_required": False}
     state["approval_result"] = None
-    state["auto_allowed_binding"] = _auto_allowed_binding(state)
+    state["auto_action_capability"] = _auto_action_capability(state)
+    permissions_before = list(_trusted_config(state)["configurable"]["permissions"])
 
     result = await action_draft_module.action_draft(state, _trusted_config(state))
 
     assert result["draft_outcome"]["status"] == "not_executed_demo"
     _, kwargs = create_draft.await_args
     assert kwargs["approval_request_id"] is None
-    assert kwargs["auto_allowed_binding"] == state["auto_allowed_binding"]
+    assert kwargs["auto_action_capability_ref"] == state["auto_action_capability"]["capability_ref"]
+    assert _trusted_config(state)["configurable"]["permissions"] == permissions_before
 
 
 @pytest.mark.asyncio
@@ -695,7 +687,7 @@ async def test_execute_action_without_required_approval_fails_closed(monkeypatch
     result = await action_draft_module.action_draft(state, _trusted_config())
 
     assert result["action_result"]["status"] == "error"
-    assert result["action_result"]["error"]["error_code"] == "AUTO_ALLOWED_BINDING_REQUIRED"
+    assert result["action_result"]["error"]["error_code"] == "AUTO_ACTION_CAPABILITY_REQUIRED"
     assert "draft_outcome" not in result
     create_draft.assert_not_awaited()
 

@@ -227,3 +227,24 @@ def test_auto_allowed_action_binding_requires_typed_safe_refs():
     assert binding.schema_version == "auto_allowed_action_binding.v1"
     assert binding.business_fact_refs[0].resource_id == "RF-1001"
     assert binding.verified_evidence_refs[0].evidence_id == "refund-policy/chunk-001@v3"
+
+
+def test_legacy_auto_allowed_binding_cannot_impersonate_a_server_capability():
+    payload = {
+        "schema_version": "auto_allowed_action_binding.v1",
+        "tenant_id": "tenant-1",
+        "run_id": "run-1",
+        "target_merchant_id": "merchant-1",
+        "action_payload_hash": "sha256:" + "b" * 64,
+        "safety_snapshot_ref": "action_safety_snapshot/snap-1",
+        "safety_snapshot_hash": "sha256:" + "c" * 64,
+        "risk_decision_ref": "risk_decision/run-1/act-1",
+        "idempotency_key": "legacy-key",
+        "business_fact_refs": [_business_fact_ref().model_dump(mode="json")],
+        "verified_evidence_refs": [_evidence_ref().model_dump(mode="json")],
+        "capability_ref": "aac_client_asserted",
+        "handler": "create_coupon_grant_draft",
+    }
+
+    with pytest.raises(ValidationError):
+        AutoAllowedActionBindingV1.model_validate(payload)
