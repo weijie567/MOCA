@@ -92,8 +92,12 @@ def _trace_step(
 
 
 def _load_risk_rules() -> dict[str, Any]:
-    with RISK_RULES_PATH.open("r", encoding="utf-8") as file:
-        return yaml.safe_load(file) or {}
+    try:
+        with RISK_RULES_PATH.open("r", encoding="utf-8") as file:
+            loaded = yaml.safe_load(file)
+    except (OSError, yaml.YAMLError) as exc:
+        return {"_config_error": type(exc).__name__}
+    return loaded if isinstance(loaded, dict) else {"_config_error": "root_not_mapping"}
 
 
 def _money_value(value: Any) -> Decimal | None:
@@ -126,28 +130,157 @@ def _rule_threshold(rule: dict[str, Any], operator: str) -> Decimal | None:
     return _money_value(match.group(1)) if match else None
 
 
-def _deterministic_rule_match(
-    draft: dict[str, Any], context: dict[str, Any], rules: dict[str, Any]
-) -> dict[str, Any] | None:
+_RISK_GROUPS = ("high_risk", "medium_risk", "low_risk")
+_GROUP_DECISIONS = {
+    "high_risk": ("high", "approval_required", True),
+    "medium_risk": ("medium", "manual_review", False),
+    "low_risk": ("low", "allow", False),
+}
+
+
+def _validated_rules(rules: dict[str, Any]) -> dict[str, list[dict[str, Any]]] | None:
+    if rules.get("_config_error"):
+        return None
+    validated: dict[str, list[dict[str, Any]]] = {}
+    seen_ids: set[str] = set()
+    for group in _RISK_GROUPS:
+        items = rules.get(group)
+        if not isinstance(items, list) or not items:
+            return None
+        validated[group] = []
+        for item in items:
+            if not isinstance(item, dict):
+                return None
+            rule_id = item.get("id")
+            description = item.get("description")
+            condition = item.get("condition")
+            if not all(isinstance(value, str) and value.strip() for value in (rule_id, description, condition)):
+                return None
+            if rule_id in seen_ids or not _supported_rule_condition(condition):
+                return None
+            seen_ids.add(rule_id)
+            validated[group].append(item)
+    return validated
+
+
+def _supported_rule_condition(condition: str) -> bool:
+    return condition == "default" or any(
+        marker in condition
+        for marker in (
+            "compensation_amount >",
+            "compensation_amount >=",
+            "recommended_action contains 'full_refund'",
+            "recommended_action contains 'partial_refund'",
+            "merchant_risk_level == 'high'",
+            "case_age_days >",
+        )
+    )
+
+
+def _rule_matches(rule: dict[str, Any], draft: dict[str, Any], context: dict[str, Any]) -> bool:
     action = str(draft.get("recommended_action") or "")
     amount = _extract_compensation_amount(draft, context)
     order = _business_context_resource(context, "order")
+    refund_case = _business_context_resource(context, "refund_case")
     merchant_risk_level = context.get("merchant_risk_level") or order.get("merchant_risk_level")
+    condition = rule["condition"]
+    if condition == "default":
+        return True
+    upper = _rule_threshold(rule, ">")
+    lower = _rule_threshold(rule, ">=")
+    max_inclusive = _rule_threshold(rule, "<=")
+    if "compensation_amount" in condition:
+        if amount is None:
+            return False
+        if lower is not None and amount < lower:
+            return False
+        if max_inclusive is not None and amount > max_inclusive:
+            return False
+        return upper is None or amount > upper
+    if "full_refund" in condition:
+        return matches_full_refund_alias(action) and order.get("status") == "delivered"
+    if "partial_refund" in condition:
+        return canonical_executable_action_type(action) == "partial_refund"
+    if "merchant_risk_level" in condition:
+        return merchant_risk_level == "high"
+    if "case_age_days" in condition:
+        threshold = _money_value(re.search(r"case_age_days\s*>\s*(\d+)", condition).group(1))
+        age = _money_value(context.get("case_age_days") or refund_case.get("case_age_days"))
+        return age is not None and threshold is not None and age > threshold
+    return False
 
-    for rule in rules.get("high_risk") or []:
-        condition = rule.get("condition", "")
-        threshold = _rule_threshold(rule, ">")
-        if threshold is not None and amount is not None and amount > threshold:
-            return rule
-        if (
-            "full_refund" in condition
-            and matches_full_refund_alias(action)
-            and order.get("status") == "delivered"
-        ):
-            return rule
-        if "merchant_risk_level" in condition and merchant_risk_level == "high":
-            return rule
-    return None
+
+def _deterministic_risk_assessment(
+    draft: dict[str, Any], context: dict[str, Any], rules: dict[str, Any]
+) -> dict[str, Any]:
+    validated = _validated_rules(rules)
+    if validated is None:
+        return risk_assessment_with_disposition(
+            {"risk_level": "medium", "risk_reason": "Risk rule configuration is unavailable or invalid.", "approval_required": False, "rule_ref": "RISK-CONFIG-INVALID"},
+            disposition="manual_review",
+            severity="medium",
+            reason="risk_config_invalid",
+        )
+    for group in ("high_risk", "medium_risk"):
+        for rule in validated[group]:
+            if _rule_matches(rule, draft, context):
+                severity, disposition, approval_required = _GROUP_DECISIONS[group]
+                return risk_assessment_with_disposition(
+                    {"risk_level": severity, "risk_reason": rule["description"], "approval_required": approval_required, "rule_ref": rule["id"]},
+                    disposition=disposition,
+                    severity=severity,
+                )
+    action = draft.get("recommended_action")
+    if action not in NO_ACTION_RECOMMENDATIONS and canonical_executable_action_type(action) is None:
+        return risk_assessment_with_disposition(
+            {"risk_level": "medium", "risk_reason": "Action candidate is unknown or non-executable.", "approval_required": False, "rule_ref": "RISK-ACTION-UNKNOWN"},
+            disposition="manual_review",
+            severity="medium",
+            reason="unknown_action_candidate",
+        )
+    for rule in validated["low_risk"]:
+        if _rule_matches(rule, draft, context):
+            severity, disposition, approval_required = _GROUP_DECISIONS["low_risk"]
+            return risk_assessment_with_disposition(
+                {"risk_level": severity, "risk_reason": rule["description"], "approval_required": approval_required, "rule_ref": rule["id"]},
+                disposition=disposition,
+                severity=severity,
+            )
+    return risk_assessment_with_disposition(
+        {"risk_level": "medium", "risk_reason": "No deterministic risk rule matched.", "approval_required": False, "rule_ref": "RISK-RULE-UNMATCHED"},
+        disposition="manual_review",
+        severity="medium",
+        reason="risk_rule_unmatched",
+    )
+
+
+def _deterministic_rule_match(
+    draft: dict[str, Any], context: dict[str, Any], rules: dict[str, Any]
+) -> dict[str, Any] | None:
+    assessment = _deterministic_risk_assessment(draft, context, rules)
+    if assessment.get("risk_severity") != "high":
+        return None
+    return {"id": assessment.get("rule_ref"), "description": assessment.get("risk_reason")}
+
+
+def _merge_llm_assessment(deterministic: dict[str, Any], llm: dict[str, Any]) -> dict[str, Any]:
+    llm_normalized = risk_assessment_with_disposition(llm)
+    severity_rank = {"low": 0, "medium": 1, "high": 2}
+    disposition_rank = {"allow": 0, "approval_required": 1, "manual_review": 2, "blocked": 3}
+    det_severity = str(deterministic.get("risk_severity") or deterministic.get("risk_level") or "medium")
+    llm_severity = str(llm_normalized.get("risk_severity") or llm_normalized.get("risk_level") or "medium")
+    det_disposition = str(deterministic.get("risk_disposition") or "manual_review")
+    llm_disposition = str(llm_normalized.get("risk_disposition") or "manual_review")
+    if (severity_rank.get(llm_severity, 1), disposition_rank.get(llm_disposition, 2)) > (
+        severity_rank.get(det_severity, 1), disposition_rank.get(det_disposition, 2)
+    ):
+        merged = dict(llm_normalized)
+    else:
+        merged = dict(deterministic)
+    llm_reason = str(llm.get("risk_reason") or "").strip()
+    if llm_reason and llm_reason not in str(merged.get("risk_reason") or ""):
+        merged["risk_reason"] = f"{merged.get('risk_reason')} LLM context: {llm_reason}"
+    return risk_assessment_with_disposition(merged)
 
 
 def _verification_route(state: AgentState) -> str | None:
@@ -763,6 +896,14 @@ def _auto_allowed_binding(
         return None
 
 
+def _is_auto_allowed_assessment(assessment: dict[str, Any]) -> bool:
+    return (
+        assessment.get("approval_required") is False
+        and assessment.get("risk_disposition") == "allow"
+        and assessment.get("risk_severity") == "low"
+    )
+
+
 def _phase34_fail_closed_result(
     result: dict[str, Any],
     assessment: dict[str, Any],
@@ -857,7 +998,7 @@ def _attach_phase34_binding_state(
         approval_idempotency_key=approval_idempotency_key,
     )
     auto_allowed_binding: dict[str, Any] | None = None
-    if assessment.get("approval_required") is False:
+    if _is_auto_allowed_assessment(assessment):
         binding = _auto_allowed_binding(
             state=state,
             target_merchant_ref=target_merchant_ref,
@@ -994,7 +1135,7 @@ async def _attach_snapshot_binding(
                 "safety_snapshot_hash": snapshot.immutable_hash,
                 "safety_snapshot_verified": True,
                 "safety_snapshot_persistence": "ephemeral",
-                "auto_allowed": assessment.get("approval_required") is False,
+                "auto_allowed": _is_auto_allowed_assessment(assessment),
                 "policy_config_version": POLICY_CONFIG_VERSION,
                 "risk_config_version": RISK_CONFIG_VERSION,
                 "retrieval_config_version": _retrieval_config_version(evidence_refs),
@@ -1073,7 +1214,7 @@ async def _attach_snapshot_binding(
         "safety_snapshot_ref": snapshot.safety_snapshot_ref,
         "safety_snapshot_hash": snapshot.safety_snapshot_hash,
         "safety_snapshot_verified": True,
-        "auto_allowed": assessment.get("approval_required") is False,
+        "auto_allowed": _is_auto_allowed_assessment(assessment),
         "policy_config_version": POLICY_CONFIG_VERSION,
         "risk_config_version": RISK_CONFIG_VERSION,
         "retrieval_config_version": _retrieval_config_version(evidence_refs),
@@ -1110,28 +1251,7 @@ def _fallback_risk(draft: dict[str, Any], context: dict[str, Any], rules: dict[s
             disposition="allow",
         )
 
-    high_rule = _deterministic_rule_match(draft, context, rules)
-    if high_rule:
-        return risk_assessment_with_disposition(
-            {
-                "risk_level": "high",
-                "risk_reason": high_rule.get("description") or "High risk rule matched.",
-                "approval_required": True,
-                "rule_ref": high_rule.get("id"),
-            },
-            disposition="approval_required",
-        )
-
-    low_rule = (rules.get("low_risk") or [{}])[0]
-    return risk_assessment_with_disposition(
-        {
-            "risk_level": "low",
-            "risk_reason": low_rule.get("description") or "No high risk rule matched.",
-            "approval_required": False,
-            "rule_ref": low_rule.get("id"),
-        },
-        disposition="allow",
-    )
+    return _deterministic_risk_assessment(draft, context, rules)
 
 
 async def risk_gate(state: AgentState, config: RunnableConfig = None) -> dict:
@@ -1183,7 +1303,7 @@ async def risk_gate(state: AgentState, config: RunnableConfig = None) -> dict:
         context=context,
     )
     messages = prompt_assembly.to_messages()
-    structured_llm = _get_llm().with_structured_output(RiskAssessment)
+    structured_llm = None
     last_error: str | None = None
     provider_latency_ms: int | None = None
     retry_count = 0
@@ -1193,20 +1313,13 @@ async def risk_gate(state: AgentState, config: RunnableConfig = None) -> dict:
         retry_count = attempt
         try:
             t0 = time.perf_counter()
+            if structured_llm is None:
+                structured_llm = _get_llm().with_structured_output(RiskAssessment)
             result = await structured_llm.ainvoke(messages)
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
-            assessment = result.model_dump()
-            high_rule = _deterministic_rule_match(draft, context, rules)
-            if high_rule:
-                assessment.update(
-                    {
-                        "risk_level": "high",
-                        "risk_reason": high_rule.get("description") or assessment["risk_reason"],
-                        "approval_required": True,
-                        "rule_ref": high_rule.get("id"),
-                    }
-                )
-            assessment = risk_assessment_with_disposition(assessment)
+            llm_assessment = result.model_dump()
+            deterministic = _deterministic_risk_assessment(draft, context, rules)
+            assessment = _merge_llm_assessment(deterministic, llm_assessment)
             proposed_action = (
                 {"pending_snapshot": True}
                 if draft.get("recommended_action") not in NO_ACTION_RECOMMENDATIONS
@@ -1241,7 +1354,7 @@ async def risk_gate(state: AgentState, config: RunnableConfig = None) -> dict:
                 config=config,
                 trusted_edit=trusted_edit,
             )
-        except (ValidationError, ValueError, TimeoutError) as exc:
+        except (ValidationError, ValueError, TimeoutError, ConnectionError, OSError) as exc:
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             last_error = str(exc)
             if attempt == 0:
@@ -1323,7 +1436,7 @@ async def _assemble_risk_prompt(
 
 def _risk_rules_summary(rules: dict[str, Any]) -> str:
     lines: list[str] = ["Risk rules summary:"]
-    for group in ("high_risk", "low_risk"):
+    for group in _RISK_GROUPS:
         for rule in rules.get(group) or []:
             if not isinstance(rule, dict):
                 continue

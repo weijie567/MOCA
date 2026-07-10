@@ -105,10 +105,10 @@ async def test_live_freeform_rejection_action_type_is_canonical():
         )
     )
 
-    assert result["risk_assessment"]["approval_required"] is True
-    assert result["proposed_action"]["action_type"] == "manual_review"
-    assert len(result["proposed_action"]["action_type"]) <= 64
-    assert route_after_risk(result) == "approval_gate"
+    assert result["risk_assessment"]["risk_disposition"] == "manual_review"
+    assert result["risk_assessment"]["approval_required"] is False
+    assert result["proposed_action"] is None
+    assert route_after_risk(result) == "final_response"
 
 
 async def test_route_after_risk_returns_approval_gate_for_all_high_risk_rules():

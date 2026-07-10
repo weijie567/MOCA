@@ -693,6 +693,51 @@ async def test_expected_error_retries_then_falls_back(monkeypatch, base_state):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("error", [TimeoutError("timeout"), ConnectionError("unavailable"), ValueError("invalid schema")])
+async def test_llm_failures_preserve_medium_manual_review(monkeypatch, base_state, error):
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: RaisingLLM(error))
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "partial_refund",
+            "reasoning_summary": "Partially refund the disputed amount.",
+        },
+        "claim_verification_bundle": _claim_bundle_with_safe_refs(base_state["tenant_id"]),
+        "business_context": _phase34_business_context(base_state["tenant_id"]),
+    }
+
+    result = await risk_gate_module.risk_gate(state)
+
+    assert result["risk_assessment"]["risk_severity"] == "medium"
+    assert result["risk_assessment"]["risk_disposition"] == "manual_review"
+    assert result["risk_assessment"]["rule_ref"] == "MR-01"
+    assert result["risk_assessment"]["approval_required"] is False
+    assert result.get("auto_allowed_binding") is None
+
+
+@pytest.mark.asyncio
+async def test_llm_cannot_downgrade_medium_rule(monkeypatch, base_state):
+    monkeypatch.setattr(
+        risk_gate_module,
+        "_get_llm",
+        lambda: FakeLLM({"risk_level": "low", "risk_reason": "model says allow", "approval_required": False, "rule_ref": "LR-01"}),
+    )
+    state = {
+        **base_state,
+        "recommendation_draft": {"recommended_action": "partial_refund", "reasoning_summary": "Partial refund."},
+        "claim_verification_bundle": _claim_bundle_with_safe_refs(base_state["tenant_id"]),
+        "business_context": _phase34_business_context(base_state["tenant_id"]),
+    }
+
+    result = await risk_gate_module.risk_gate(state)
+
+    assert result["risk_assessment"]["risk_severity"] == "medium"
+    assert result["risk_assessment"]["risk_disposition"] == "manual_review"
+    assert result["risk_assessment"]["rule_ref"] == "MR-01"
+    assert result.get("auto_allowed_binding") is None
+
+
+@pytest.mark.asyncio
 async def test_risk_gate_prompt_uses_context_assembly_and_excludes_raw_payloads(monkeypatch, base_state):
     fake_llm = CapturingLLM(
         {

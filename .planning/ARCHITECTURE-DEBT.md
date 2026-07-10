@@ -2144,3 +2144,12 @@
 - **证据**：Phase 64.1 Plan 01；`src/agent/safety/taxonomy.py`、`src/agent/state.py`、`src/agent/nodes/recommendation_generation.py`、`src/agent/routing.py`；RED commit `80cd526`。
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_safety_taxonomy.py tests/agent/test_nodes/test_recommendation_generation.py tests/agent/rag_context/test_routing.py tests/test_graph_routing.py -q --tb=short` → `226 passed, 1 warning`；对应 `uv run ruff check` → 通过。
 - **剩余风险**：🟡 本 plan 只修 canonical candidate 与 recommendation/claim routing；deterministic risk parity、approval contract、capability 和 terminal propagation 分别由 64.1-02 至 64.1-05 完成，最终 architecture guard/full matrix 由 64.1-06 收口。
+## 2026-07-10 — Phase 64.1 Plan 02 deterministic risk authority ✅已修复验证
+
+- **子系统**：意图识别 / Agent safety risk gate
+- **问题 / 根因**：`risk_gate` 的 deterministic fallback 只遍历 `high_risk`，未命中就直接取第一条 `low_risk`；YAML 中的 `medium_risk` 完全不参与 runtime 判定。LLM timeout、unavailable 或 schema failure 因而可能把 partial refund 等 medium action 降为 low/allow，且 `approval_required=false` 曾被直接等价为 auto-allowed binding。
+- **影响**：配置中的 medium 规则会在失败路径消失；LLM 或配置故障可造成风险降级与自动 draft 授权候选，违反 Phase 63 taxonomy 和 backend deterministic authority。
+- **处理状态**：✅ 统一 validated high/medium/low evaluator，固定 high > medium > low precedence，拒绝缺组、空组、重复 rule id、未知 condition 和 malformed YAML；unknown/unmatched/config invalid 均稳定进入 medium/manual_review。LLM 合并只能保留或升级 deterministic 结果，不能覆盖其 rule identity 做降级。auto-allowed 现在只接受 `low + allow + approval_required=false`。
+- **证据**：Phase 64.1 Plan 02；`src/agent/nodes/risk_gate.py`、`tests/agent/test_nodes/test_risk_gate.py`、`tests/test_interception_rate.py`；RED commit `6f3e881`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_risk_gate.py tests/test_interception_rate.py tests/approvals/test_hash_binding.py tests/approvals/test_snapshots.py -q --tb=short` → `69 passed`；plan-scoped `uv run ruff check` → `All checks passed!`。
+- **剩余风险**：🟡 本 plan 保留现有 `RiskDecisionV1`、snapshot/hash 与 approval contract；server-minted bounded capability、approval API/frontend parity 和 terminal failure propagation仍由 64.1-03 至 64.1-05 完成，64.1-06 做最终跨层 guard。
