@@ -30,6 +30,69 @@ def _assert_no_current_run_legacy_identity(result: dict[str, Any]) -> None:
     assert result.get("resume_route") != _LEGACY_NODE
 
 
+@pytest.mark.parametrize(
+    "draft, context, expected",
+    [
+        ({"recommended_action": "issue_coupon", "compensation_amount": 501}, {}, ("high", "approval_required", "HR-01")),
+        ({"recommended_action": "full_refund"}, {"order": {"status": "delivered"}}, ("high", "approval_required", "HR-02")),
+        ({"recommended_action": "issue_coupon"}, {"merchant_risk_level": "high"}, ("high", "approval_required", "HR-03")),
+        ({"recommended_action": "partial_refund"}, {}, ("medium", "manual_review", "MR-01")),
+        ({"recommended_action": "issue_coupon", "compensation_amount": 100}, {}, ("medium", "manual_review", "MR-02")),
+        ({"recommended_action": "issue_coupon"}, {"refund_case": {"case_age_days": 31}}, ("medium", "manual_review", "MR-03")),
+        ({"recommended_action": "issue_coupon", "compensation_amount": 10}, {}, ("low", "allow", "LR-01")),
+    ],
+)
+def test_deterministic_evaluator_covers_every_configured_rule_group(draft, context, expected):
+    decision = risk_gate_module._deterministic_risk_assessment(
+        draft, context, risk_gate_module._load_risk_rules()
+    )
+    assert (decision["risk_severity"], decision["risk_disposition"], decision["rule_ref"]) == expected
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        {},
+        {"high_risk": [], "medium_risk": [], "low_risk": []},
+        {"high_risk": [{"id": "DUP", "description": "x", "condition": "default"}], "medium_risk": [{"id": "DUP", "description": "y", "condition": "default"}], "low_risk": [{"id": "LR", "description": "z", "condition": "default"}]},
+        {"high_risk": "not-a-list", "medium_risk": [], "low_risk": []},
+        {"high_risk": [], "medium_risk": [{"id": "MR-X", "description": "x", "condition": "unknown == syntax"}], "low_risk": [{"id": "LR", "description": "z", "condition": "default"}]},
+    ],
+)
+def test_invalid_or_conflicting_rule_config_fails_closed(rules):
+    decision = risk_gate_module._deterministic_risk_assessment(
+        {"recommended_action": "issue_coupon"}, {}, rules
+    )
+    assert decision["risk_severity"] in {"medium", "high"}
+    assert decision["risk_disposition"] in {"manual_review", "approval_required", "blocked"}
+    assert decision["approval_required"] is False
+    assert decision["rule_ref"] == "RISK-CONFIG-INVALID"
+
+
+def test_deterministic_precedence_uses_strongest_matching_rule():
+    decision = risk_gate_module._deterministic_risk_assessment(
+        {"recommended_action": "partial_refund", "compensation_amount": 600},
+        {},
+        risk_gate_module._load_risk_rules(),
+    )
+    assert decision["rule_ref"] == "HR-01"
+    assert decision["risk_severity"] == "high"
+
+
+def test_llm_merge_is_monotonic_and_preserves_deterministic_identity():
+    deterministic = risk_gate_module._deterministic_risk_assessment(
+        {"recommended_action": "partial_refund"}, {}, risk_gate_module._load_risk_rules()
+    )
+    merged = risk_gate_module._merge_llm_assessment(
+        deterministic,
+        {"risk_level": "low", "risk_reason": "LLM says safe", "approval_required": False, "rule_ref": "LR-01"},
+    )
+    assert merged["risk_severity"] == "medium"
+    assert merged["risk_disposition"] == "manual_review"
+    assert merged["rule_ref"] == "MR-01"
+    assert "LLM says safe" in merged["risk_reason"]
+
+
 def _allowing_claim_bundle() -> dict[str, Any]:
     return {
         "schema_version": "claim_verification_bundle.v1",
