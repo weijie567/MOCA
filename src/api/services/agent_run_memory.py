@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes.memory_write import memory_write
-from src.agent.routing import project_action_draft_terminal
+from src.agent.routing import project_run_terminal
 from src.agent.trace import append_agent_steps
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
@@ -116,10 +116,15 @@ async def finalize_completed_agent_run_memory(
     conversation_service: ConversationService | None = None,
 ) -> AgentRunMemoryFinalizeResult:
     started_at = _now_iso()
-    action_terminal = project_action_draft_terminal(final_state)
-    terminal_blocked = action_terminal.applies and action_terminal.status != "completed"
+    run_terminal = project_run_terminal(final_state)
+    terminal_blocked = run_terminal.applies and not run_terminal.memory_eligible
     if final_status != "completed" or not _has_final_response(final_response) or terminal_blocked:
-        reason_code = "action_terminal_failed" if terminal_blocked else "not_completed_path"
+        if run_terminal.status == "error":
+            reason_code = "action_terminal_failed"
+        elif run_terminal.status in {"manual_review", "refused"}:
+            reason_code = f"{run_terminal.status}_terminal"
+        else:
+            reason_code = "not_completed_path"
         return AgentRunMemoryFinalizeResult(
             status="skipped",
             assistant_message_id=None,

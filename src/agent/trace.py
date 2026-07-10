@@ -397,6 +397,10 @@ async def _append_lifecycle_status(
         await lifecycle.mark_expired(**common)
     elif status == "error":
         await lifecycle.mark_error(**common, error_code=error_code or "run_error")
+    elif status == "manual_review":
+        await lifecycle.mark_manual_review(**common, error_code=error_code or "MANUAL_REVIEW_REQUIRED")
+    elif status == "refused":
+        await lifecycle.mark_refused(**common, error_code=error_code or "RUN_NOT_COMPLETED")
     elif status == "cancelled":
         await lifecycle.mark_cancelled(**common)
 
@@ -420,6 +424,10 @@ def _reason_code_for_status(status: str) -> str:
         return "run_cancelled"
     if status == "error":
         return "run_error"
+    if status == "manual_review":
+        return "manual_review_required"
+    if status == "refused":
+        return "request_refused"
     return "status_changed"
 
 

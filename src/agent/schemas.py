@@ -158,7 +158,7 @@ class RiskAssessment(BaseModel):
 class FinalResponseOutput(BaseModel):
     response_text: str
     evidence_citations: list[str] = Field(default_factory=list)
-    final_status: Literal["completed", "insufficient_evidence", "error"]
+    final_status: Literal["completed", "insufficient_evidence", "manual_review", "refused", "error"]
 
 
 class InvestigationResult(BaseModel):

@@ -158,7 +158,11 @@ async def recommendation_generation(state: AgentState, config: RunnableConfig = 
     started_at = _now_iso()
     existing_draft = state.get("recommendation_draft") or {}
     if existing_draft.get("recommended_action") in {"insufficient_evidence", "retrieval_error"}:
-        return {"trace_steps": (state.get("trace_steps") or []) + [_trace_step("skipped", started_at)]}
+        return {
+            "canonical_action": None,
+            "risk_signals": [],
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("skipped", started_at)],
+        }
 
     package = _verified_package_from_state(state)
     if not _package_allows_generation(state, package):
@@ -248,6 +252,7 @@ async def recommendation_generation(state: AgentState, config: RunnableConfig = 
             node_result = {
                 "recommendation_draft": draft,
                 "canonical_action": canonical_action,
+                "risk_signals": [],
                 "material_claims": material_claim_payloads,
                 "llm_outputs": outputs,
                 "evidence_refs": merged_refs,
@@ -290,6 +295,8 @@ async def recommendation_generation(state: AgentState, config: RunnableConfig = 
             "missing_info": ["Recommendation generation failed"],
         },
         "material_claims": [],
+        "canonical_action": None,
+        "risk_signals": [],
         "node_errors": (state.get("node_errors") or [])
         + [{"node": "recommendation_generation", "error": last_error, "retry_count": 2}],
         "trace_steps": (state.get("trace_steps") or [])
@@ -384,6 +391,8 @@ def _insufficient_verified_package_result(
     return {
         "recommendation_draft": draft,
         "material_claims": [],
+        "canonical_action": None,
+        "risk_signals": [],
         "llm_outputs": outputs,
         "evidence_refs": [],
         "trace_steps": (state.get("trace_steps") or []) + [_trace_step("insufficient_evidence", started_at, context_chars=0)],

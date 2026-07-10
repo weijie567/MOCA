@@ -887,6 +887,46 @@ class DraftTerminalFailureGraph:
         )
 
 
+class ManualReviewTerminalGraph:
+    async def astream(self, input_state, config, stream_mode):
+        del input_state, config, stream_mode
+        yield (
+            "risk_gate",
+            {
+                "recommendation_draft": {
+                    "recommended_action": "launch rocket",
+                    "reasoning_summary": "unproven action",
+                    "evidence_refs": [],
+                },
+                "canonical_action": {
+                    "raw_value": "launch rocket",
+                    "executable_action_type": None,
+                    "disposition": "manual_review",
+                    "matched_alias": None,
+                    "match_kind": "unknown",
+                    "match_provenance": "unresolved",
+                    "schema_valid": True,
+                },
+                "risk_signals": ["manual_review_required"],
+                "proposed_action": None,
+                "risk_assessment": {
+                    "risk_level": "medium",
+                    "risk_severity": "medium",
+                    "risk_disposition": "manual_review",
+                    "approval_required": False,
+                },
+                "trace_steps": [
+                    {
+                        "node": "risk_gate",
+                        "status": "completed",
+                        "started_at": datetime.now(UTC).isoformat(),
+                        "completed_at": datetime.now(UTC).isoformat(),
+                    }
+                ],
+            },
+        )
+
+
 class RagClaimSummaryGraph:
     async def astream(self, input_state, config, stream_mode):
         del input_state, config, stream_mode
@@ -2778,6 +2818,112 @@ async def test_draft_terminal_failure_projects_error_across_sse_db_polling_and_m
     assert poll.status_code == 200
     assert poll.json()["data"]["final_status"] == "error"
     assert poll.json()["data"]["final_response"] == run.final_response
+
+
+@pytest.mark.asyncio
+async def test_manual_review_terminal_is_non_success_across_sse_db_polling_and_memory(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+    finalizer_calls: list[dict] = []
+
+    async def record_finalizer_call(**kwargs):
+        finalizer_calls.append(kwargs)
+        return SimpleNamespace(trace_steps=[])
+
+    monkeypatch.setattr(
+        "src.api.routers.agent_runs.finalize_completed_agent_run_memory",
+        record_finalizer_call,
+    )
+    events = [
+        _event_data(event)
+        async for event in _event_generator(
+            ManualReviewTerminalGraph(),
+            _stream_input(run, user),
+            {"configurable": {"thread_id": run.thread_id, "session": session}},
+            run=run,
+            session=session,
+            user=user,
+        )
+        if "data" in event
+    ]
+
+    await session.refresh(run)
+    terminal_events = [event for event in events if event["event_type"] in {"final_response", "error"}]
+    assert [event["event_type"] for event in terminal_events] == ["error"]
+    assert terminal_events[0]["status"] == "manual_review"
+    assert terminal_events[0]["payload"] == {
+        "error_code": "MANUAL_REVIEW_REQUIRED",
+        "error_message": "当前建议需要人工复核，系统未将其作为已完成建议，也未创建审批请求或动作草稿。",
+        "final_response": "当前建议需要人工复核，系统未将其作为已完成建议，也未创建审批请求或动作草稿。",
+        "final_status": "manual_review",
+    }
+    assert run.final_status == "manual_review"
+    assert run.final_response == terminal_events[0]["payload"]["final_response"]
+    assert "launch rocket" not in json.dumps(terminal_events, ensure_ascii=False)
+    lifecycle_rows = (
+        (
+            await session.execute(
+                select(AgentTraceEvent)
+                .where(AgentTraceEvent.run_id == run.id, AgentTraceEvent.event_type == "run_status_changed")
+                .order_by(AgentTraceEvent.sequence)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [row.redacted_payload["status"] for row in lifecycle_rows] == ["running", "manual_review"]
+    assert finalizer_calls == []
+    assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id) == 0
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
+    assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
+
+    poll = await client.get(
+        f"/api/v1/agent-runs/{run.id}",
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+    assert poll.status_code == 200
+    assert poll.json()["data"]["final_status"] == "manual_review"
+    assert poll.json()["data"]["final_response"] == run.final_response
+
+
+@pytest.mark.asyncio
+async def test_completed_memory_finalizer_defensively_skips_manual_review_state(
+    session: AsyncSession,
+    seeded_session,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.flush()
+    final_state = {
+        "canonical_action": {"executable_action_type": None, "disposition": "manual_review"},
+        "risk_signals": ["manual_review_required"],
+        "risk_assessment": {"risk_disposition": "manual_review", "approval_required": False},
+        "final_response": "must not persist",
+    }
+
+    result = await finalize_completed_agent_run_memory(
+        session=session,
+        run=run,
+        user=user,
+        input_state=_stream_input(run, user),
+        final_state=final_state,
+        final_status="completed",
+        final_response="must not persist",
+        trace_steps=[],
+        trace_id=None,
+    )
+
+    assert result.status == "skipped"
+    assert result.memory_write_result == {"status": "skipped", "reason_code": "manual_review_terminal"}
+    assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id) == 0
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
+    assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
 
 
 @pytest.mark.asyncio

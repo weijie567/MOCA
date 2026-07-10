@@ -26,7 +26,7 @@ from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
 from src.agent.rag_claim_summary import build_rag_claim_summary
 from src.agent.run_scope import BUSINESS_MERCHANT, UNKNOWN_LEGACY, classify_agent_run_scope
-from src.agent.routing import ActionDraftTerminalV1, project_action_draft_terminal
+from src.agent.routing import RunTerminalV1, project_run_terminal
 from src.agent.state import business_query_context_binding_from_trusted_context
 from src.agent.trace import build_trace_summary, update_agent_run_status, write_agent_run, write_agent_steps
 from src.api.services.agent_run_memory import (
@@ -345,30 +345,30 @@ def _project_run_terminal(
     run_id: str,
     final_state: dict[str, Any],
     total_latency_ms: int,
-) -> tuple[str, str | None, ActionDraftTerminalV1]:
-    action_terminal = project_action_draft_terminal(final_state)
-    if action_terminal.applies and action_terminal.status == "error":
-        safe_response = str(action_terminal.safe_message)
+) -> tuple[str, str | None, RunTerminalV1]:
+    run_terminal = project_run_terminal(final_state)
+    if run_terminal.applies and run_terminal.status in {"error", "manual_review", "refused"}:
+        safe_response = str(run_terminal.safe_message)
         final_state["final_response"] = safe_response
         final_state["llm_outputs"] = {
             **_as_mapping(final_state.get("llm_outputs")),
             "final_response": {
                 "response_text": safe_response,
                 "evidence_citations": [],
-                "final_status": "error",
+                "final_status": run_terminal.final_status,
                 "mode": "deterministic-template",
                 "approval_context": None,
-                "error_code": action_terminal.error_code,
-                "reason_code": action_terminal.reason_code,
+                "error_code": run_terminal.error_code,
+                "reason_code": run_terminal.reason_code,
             },
         }
-        return "error", safe_response, action_terminal
+        return run_terminal.final_status, safe_response, run_terminal
 
     final_response = final_state.get("final_response")
     final_status = build_trace_summary(run_id, final_state, total_latency_ms).get("final_status", "completed")
     if not final_response:
-        return "error", None, action_terminal
-    return str(final_status), str(final_response), action_terminal
+        return "error", None, run_terminal
+    return str(final_status), str(final_response), run_terminal
 
 
 async def _event_generator_from_graph_updates(
@@ -440,7 +440,7 @@ async def _event_generator_from_graph_updates(
         if isinstance(final_state.get("trace_steps"), list):
             trace_steps = final_state["trace_steps"]
         total_ms = round((time.perf_counter() - t0) * 1000)
-        final_status, final_response, action_terminal = _project_run_terminal(
+        final_status, final_response, run_terminal = _project_run_terminal(
             run_id_str,
             final_state,
             total_ms,
@@ -475,16 +475,21 @@ async def _event_generator_from_graph_updates(
                 prior_trace_steps=trace_steps,
                 finalizer_trace_steps=finalizer_result.trace_steps,
             )
-        if action_terminal.applies and action_terminal.status == "error":
+        if run_terminal.applies and run_terminal.status in {"error", "manual_review", "refused"}:
             yield _sse_event(
                 event_type="error",
                 run_id=run_id_str,
                 step_index=step_index + 1,
-                status="failed",
-                message=str(action_terminal.safe_message),
+                status="failed" if run_terminal.status == "error" else run_terminal.status,
+                message=str(run_terminal.safe_message),
                 payload={
-                    "error_code": action_terminal.error_code,
-                    "error_message": action_terminal.safe_message,
+                    "error_code": run_terminal.error_code,
+                    "error_message": run_terminal.safe_message,
+                    **(
+                        {"final_response": final_response, "final_status": run_terminal.final_status}
+                        if run_terminal.status in {"manual_review", "refused"}
+                        else {}
+                    ),
                 },
             )
         elif final_response:
@@ -614,7 +619,7 @@ async def _event_generator_from_graph_events(
         if isinstance(final_state.get("trace_steps"), list):
             trace_steps = final_state["trace_steps"]
         total_ms = round((time.perf_counter() - t0) * 1000)
-        final_status, final_response, action_terminal = _project_run_terminal(
+        final_status, final_response, run_terminal = _project_run_terminal(
             run_id_str,
             final_state,
             total_ms,
@@ -649,16 +654,21 @@ async def _event_generator_from_graph_events(
                 prior_trace_steps=trace_steps,
                 finalizer_trace_steps=finalizer_result.trace_steps,
             )
-        if action_terminal.applies and action_terminal.status == "error":
+        if run_terminal.applies and run_terminal.status in {"error", "manual_review", "refused"}:
             yield _sse_event(
                 event_type="error",
                 run_id=run_id_str,
                 step_index=last_step_index + 1,
-                status="failed",
-                message=str(action_terminal.safe_message),
+                status="failed" if run_terminal.status == "error" else run_terminal.status,
+                message=str(run_terminal.safe_message),
                 payload={
-                    "error_code": action_terminal.error_code,
-                    "error_message": action_terminal.safe_message,
+                    "error_code": run_terminal.error_code,
+                    "error_message": run_terminal.safe_message,
+                    **(
+                        {"final_response": final_response, "final_status": run_terminal.final_status}
+                        if run_terminal.status in {"manual_review", "refused"}
+                        else {}
+                    ),
                 },
             )
         elif final_response:
@@ -1229,6 +1239,10 @@ def _reason_code_for_final_status(final_status: str) -> str:
         return "approval_required"
     if final_status == "error":
         return "run_error"
+    if final_status == "manual_review":
+        return "manual_review_required"
+    if final_status == "refused":
+        return "request_refused"
     if final_status == "cancelled":
         return "run_cancelled"
     return "run_completed"

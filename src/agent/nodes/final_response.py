@@ -5,7 +5,7 @@ from typing import Any
 
 from src.agent.graph_vocabulary import project_trace_step_for_contract
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
-from src.agent.routing import project_action_draft_terminal
+from src.agent.routing import project_action_draft_terminal, project_run_terminal
 from src.agent.state import AgentState
 from src.business.query.projection import business_query_response_text, safe_business_query_metadata
 
@@ -1183,6 +1183,25 @@ async def final_response(state: AgentState) -> dict:
                 },
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
+        }
+    run_terminal = project_run_terminal(state)
+    if run_terminal.applies and run_terminal.status == "manual_review":
+        response_text = _decorate_deferred_response(str(run_terminal.safe_message), state)
+        return {
+            "final_response": response_text,
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "final_response": {
+                    "response_text": response_text,
+                    "evidence_citations": [],
+                    "final_status": run_terminal.final_status,
+                    "mode": "deterministic-template",
+                    "approval_context": None,
+                    "error_code": run_terminal.error_code,
+                    "reason_code": run_terminal.reason_code,
+                },
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("manual_review", started_at)],
         }
     if draft.get("recommended_action") == "retrieval_error":
         response_text = _decorate_deferred_response(_retrieval_error_response(draft), state)

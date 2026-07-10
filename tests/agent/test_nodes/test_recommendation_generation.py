@@ -321,6 +321,7 @@ async def test_generation_resolves_action_candidate_before_material_claims(
     candidate = result["canonical_action"]
     assert candidate["executable_action_type"] == canonical_action
     assert candidate["schema_valid"] is True
+    assert result["risk_signals"] == []
     assert any(claim["claim_type"] == "action_recommendation" for claim in result["material_claims"])
     assert result["recommendation_draft"]["canonical_action"] == candidate
 
@@ -370,7 +371,40 @@ async def test_canonical_recommendation_generation_insufficient_evidence_identit
     assert "recommendation_generation" in result["llm_outputs"]
     assert "generate_recommendation" not in result["llm_outputs"]
     assert result["trace_steps"][-1]["node"] == "recommendation_generation"
+    assert result["canonical_action"] is None
+    assert result["risk_signals"] == []
     _assert_no_verifier_owned_state(result)
+
+
+@pytest.mark.asyncio
+async def test_generation_clears_prior_turn_manual_review_on_validation_failure(monkeypatch, base_state):
+    class InvalidStructuredLLM:
+        def with_structured_output(self, schema):
+            del schema
+
+            class _Wrapper:
+                async def ainvoke(self, messages):
+                    del messages
+                    raise ValueError("invalid structured response")
+
+            return _Wrapper()
+
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: InvalidStructuredLLM())
+
+    result = await recommendation_generation_module.recommendation_generation(
+        {
+            **base_state,
+            **_retrieval_state(evidence=[evidence]),
+            "canonical_action": {"disposition": "manual_review", "executable_action_type": None},
+            "risk_signals": ["manual_review_required"],
+        },
+        _config(),
+    )
+
+    assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert result["canonical_action"] is None
+    assert result["risk_signals"] == []
 
 
 @pytest.mark.asyncio
@@ -386,6 +420,8 @@ async def test_skips_llm_for_retrieval_safety_drafts(monkeypatch, base_state, re
     result = await recommendation_generation_module.recommendation_generation(state)
 
     assert "recommendation_draft" not in result
+    assert result["canonical_action"] is None
+    assert result["risk_signals"] == []
     assert result["trace_steps"][-1]["status"] == "skipped"
 
 

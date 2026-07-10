@@ -168,6 +168,13 @@ async def test_responded_needs_info_lifecycle_stays_interrupted_without_complete
         ("mark_rejected", "rejected", "approval_rejected", {}),
         ("mark_expired", "expired", "approval_expired", {}),
         ("mark_error", "error", "graph_error", {"error_code": "GRAPH_ERROR"}),
+        (
+            "mark_manual_review",
+            "manual_review",
+            "manual_review_required",
+            {"error_code": "MANUAL_REVIEW_REQUIRED"},
+        ),
+        ("mark_refused", "refused", "request_refused", {"error_code": "RUN_NOT_COMPLETED"}),
         ("mark_cancelled", "cancelled", "client_cancelled", {}),
     ],
 )
@@ -195,8 +202,8 @@ async def test_rejected_expired_error_cancelled_lifecycles_append_safe_terminal_
     assert required["status"] == status
     assert required["previous_status"] == "running"
     assert required["reason_code"] == reason_code
-    if status == "error":
-        assert required["error_code"] == "GRAPH_ERROR"
+    if "error_code" in extra_kwargs:
+        assert required["error_code"] == extra_kwargs["error_code"]
 
 
 @pytest.mark.asyncio

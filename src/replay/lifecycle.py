@@ -161,6 +161,50 @@ class RunLifecycleService:
             trace_id=trace_id,
         )
 
+    async def mark_manual_review(
+        self,
+        *,
+        run_id: uuid.UUID | str,
+        tenant_id: uuid.UUID | str,
+        thread_id: str,
+        previous_status: str | None,
+        reason_code: str = "manual_review_required",
+        error_code: str | None = "MANUAL_REVIEW_REQUIRED",
+        trace_id: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._append_status_event(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            status="manual_review",
+            previous_status=previous_status,
+            reason_code=reason_code,
+            error_code=error_code,
+            trace_id=trace_id,
+        )
+
+    async def mark_refused(
+        self,
+        *,
+        run_id: uuid.UUID | str,
+        tenant_id: uuid.UUID | str,
+        thread_id: str,
+        previous_status: str | None,
+        reason_code: str = "request_refused",
+        error_code: str | None = "RUN_NOT_COMPLETED",
+        trace_id: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._append_status_event(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            status="refused",
+            previous_status=previous_status,
+            reason_code=reason_code,
+            error_code=error_code,
+            trace_id=trace_id,
+        )
+
     async def mark_cancelled(
         self,
         *,

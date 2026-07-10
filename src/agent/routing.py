@@ -35,6 +35,10 @@ _CLAIM_VERIFY_ROUTES = {"risk_gate", "final_response"}
 _ACTION_DRAFT_ROUTES = {"final_response", "terminal_error"}
 ACTION_DRAFT_TERMINAL_ERROR_CODE = "ACTION_DRAFT_TERMINAL_FAILED"
 ACTION_DRAFT_TERMINAL_SAFE_MESSAGE = "操作草稿未能安全创建，请稍后重试或转人工处理。"
+MANUAL_REVIEW_TERMINAL_ERROR_CODE = "MANUAL_REVIEW_REQUIRED"
+MANUAL_REVIEW_TERMINAL_SAFE_MESSAGE = (
+    "当前建议需要人工复核，系统未将其作为已完成建议，也未创建审批请求或动作草稿。"
+)
 _ACTION_DRAFT_AUTH_ERROR_CODES = {
     "APPROVAL_REQUIRED",
     "AUTO_ACTION_CAPABILITY_EXPIRED",
@@ -124,6 +128,101 @@ class ActionDraftTerminalV1(BaseModel):
     error_code: str | None = None
     safe_message: str | None = None
     draft_id: str | None = None
+
+
+class RunTerminalV1(BaseModel):
+    """Authoritative non-success terminal shared by graph, API/SSE, and memory."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["run_terminal.v1"] = "run_terminal.v1"
+    applies: bool
+    status: Literal["not_applicable", "completed", "manual_review", "refused", "error"]
+    final_status: Literal["completed", "manual_review", "refused", "error"]
+    reason_code: str | None = None
+    error_code: str | None = None
+    safe_message: str | None = None
+    memory_eligible: bool = False
+
+
+def project_run_terminal(state: AgentState) -> RunTerminalV1:
+    """Classify action failures and unresolved/manual-review safety outcomes once."""
+    action_terminal = project_action_draft_terminal(state)
+    if action_terminal.applies and action_terminal.status == "error":
+        return RunTerminalV1(
+            applies=True,
+            status="error",
+            final_status="error",
+            reason_code=action_terminal.reason_code,
+            error_code=action_terminal.error_code,
+            safe_message=action_terminal.safe_message,
+        )
+
+    explicit_terminal = _explicit_final_response_terminal(state)
+    if explicit_terminal is not None:
+        return explicit_terminal
+
+    manual_review_reason = _manual_review_terminal_reason(state)
+    if manual_review_reason is not None:
+        return RunTerminalV1(
+            applies=True,
+            status="manual_review",
+            final_status="manual_review",
+            reason_code=manual_review_reason,
+            error_code=MANUAL_REVIEW_TERMINAL_ERROR_CODE,
+            safe_message=MANUAL_REVIEW_TERMINAL_SAFE_MESSAGE,
+        )
+
+    return RunTerminalV1(
+        applies=False,
+        status="not_applicable",
+        final_status="completed",
+        memory_eligible=True,
+    )
+
+
+def _manual_review_terminal_reason(state: AgentState) -> str | None:
+    candidate = _safe_mapping(state.get("canonical_action"))
+    if candidate.get("executable_action_type") is None:
+        if candidate.get("disposition") == "blocked":
+            return "canonical_action_blocked"
+        if candidate.get("disposition") == "manual_review":
+            return "unresolved_action"
+
+    risk = _safe_mapping(state.get("risk_assessment"))
+    disposition = str(risk.get("risk_disposition") or "")
+    if disposition == "blocked":
+        return "risk_blocked"
+    if disposition == "manual_review":
+        return "risk_manual_review"
+    return None
+
+
+def _explicit_final_response_terminal(state: AgentState) -> RunTerminalV1 | None:
+    final_output = _safe_mapping(_safe_mapping(state.get("llm_outputs")).get("final_response"))
+    final_status = str(final_output.get("final_status") or "")
+    if final_status not in {"manual_review", "refused", "error"}:
+        return None
+
+    response_text = str(final_output.get("response_text") or state.get("final_response") or "").strip()
+    if not response_text:
+        response_text = (
+            MANUAL_REVIEW_TERMINAL_SAFE_MESSAGE
+            if final_status == "manual_review"
+            else "当前请求未能安全完成，请转人工处理。"
+        )
+    error_code = str(final_output.get("error_code") or "").strip() or (
+        MANUAL_REVIEW_TERMINAL_ERROR_CODE if final_status == "manual_review" else "RUN_NOT_COMPLETED"
+    )
+    reason_code = str(final_output.get("reason_code") or "").strip() or f"final_response_{final_status}"
+    return RunTerminalV1(
+        applies=True,
+        status=final_status,
+        final_status=final_status,
+        reason_code=reason_code,
+        error_code=error_code,
+        safe_message=response_text,
+    )
 
 
 def project_action_draft_terminal(state: AgentState, *, require_action: bool = False) -> ActionDraftTerminalV1:

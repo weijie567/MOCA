@@ -17,6 +17,7 @@ from src.agent import routing as routing_module
 from src.agent.graph import route_after_risk
 from src.agent.nodes import risk_gate as risk_module
 from src.agent.nodes.action_draft import action_draft
+from src.agent.nodes.final_response import final_response
 from src.agent.routing import route_after_recommendation
 from src.agent.safety.taxonomy import resolve_action_text
 from src.agent.schemas import RiskAssessment
@@ -273,7 +274,13 @@ async def test_unproven_medium_action_stays_closed_when_llm_fails(
     assert result["risk_assessment"]["risk_disposition"] == "manual_review"
     assert result["auto_action_capability"] is None
     assert result["auto_allowed"] is False
-    assert route_after_risk({**state, **result}) == "final_response"
+    post_risk = {**state, **result}
+    assert route_after_risk(post_risk) == "final_response"
+    terminal = routing_module.project_run_terminal(post_risk)
+    rendered = await final_response(post_risk)
+    assert terminal.status == "manual_review"
+    assert terminal.reason_code == "risk_manual_review"
+    assert rendered["llm_outputs"]["final_response"]["final_status"] == "manual_review"
     assert await _draft_count(session, run_id) == 0
 
 
@@ -295,6 +302,11 @@ async def test_unknown_ambiguous_and_schema_invalid_actions_never_reach_draft(
     state = {
         "canonical_action": asdict(resolution),
         "risk_signals": ["manual_review_required"],
+        "recommendation_draft": {
+            "recommended_action": str(candidate),
+            "reasoning_summary": "unproven action",
+            "evidence_refs": [],
+        },
         "proposed_action": None,
         "auto_action_capability": None,
     }
@@ -303,7 +315,29 @@ async def test_unknown_ambiguous_and_schema_invalid_actions_never_reach_draft(
     assert resolution.executable_action_type is None
     assert resolution.disposition == "manual_review"
     assert route_after_recommendation(state) == "claim_verify"
+    terminal = routing_module.project_run_terminal(state)
+    rendered = await final_response(state)
+    assert terminal.status == "manual_review"
+    assert terminal.reason_code == "unresolved_action"
+    assert rendered["llm_outputs"]["final_response"]["final_status"] == "manual_review"
     assert await _draft_count(session) == 0
+
+
+def test_blocked_action_and_risk_keep_distinct_non_success_reasons() -> None:
+    blocked_action = routing_module.project_run_terminal(
+        {"canonical_action": {"executable_action_type": None, "disposition": "blocked"}}
+    )
+    blocked_risk = routing_module.project_run_terminal(
+        {
+            "canonical_action": {"executable_action_type": "issue_coupon", "disposition": "allow"},
+            "risk_assessment": {"risk_disposition": "blocked"},
+        }
+    )
+
+    assert blocked_action.final_status == "manual_review"
+    assert blocked_action.reason_code == "canonical_action_blocked"
+    assert blocked_risk.final_status == "manual_review"
+    assert blocked_risk.reason_code == "risk_blocked"
 
 
 @pytest.mark.asyncio

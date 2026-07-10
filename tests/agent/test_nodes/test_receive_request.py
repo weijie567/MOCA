@@ -31,6 +31,8 @@ async def test_receive_request_resets_ephemeral(base_state):
         "clarification_request": {"reason": "old"},
         "last_business_context_refs": {"business_fact_refs": [{"resource_id": "ORD-OLD"}]},
         "business_context": {"old": "data"},
+        "canonical_action": {"disposition": "manual_review"},
+        "risk_signals": ["manual_review_required"],
         "action_draft": {"draft_id": "old-draft"},
         "draft_outcome": {"status": "not_executed_demo"},
         "execution_mode": "demo",
@@ -59,12 +61,32 @@ async def test_receive_request_resets_ephemeral(base_state):
     assert result["clarification_request"] is None
     assert result["last_business_context_refs"] is None
     assert result["business_context"] is None
+    assert result["canonical_action"] is None
+    assert result["risk_signals"] == []
     assert result["action_draft"] is None
     assert result["draft_outcome"] is None
     assert result["execution_mode"] is None
     assert result["action_result"] is None
     assert [step["node"] for step in result["trace_steps"]] == ["receive_request"]
     assert result["current_run_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_receive_request_two_turn_reset_removes_checkpointed_safety_projection(base_state):
+    first_turn_checkpoint = {
+        **base_state,
+        "canonical_action": {"executable_action_type": None, "disposition": "manual_review"},
+        "risk_signals": ["manual_review_required"],
+        "recommendation_draft": {"recommended_action": "launch rocket"},
+        "risk_assessment": {"risk_disposition": "manual_review"},
+    }
+
+    second_turn = await receive_request(first_turn_checkpoint)
+
+    assert second_turn["canonical_action"] is None
+    assert second_turn["risk_signals"] == []
+    assert second_turn["recommendation_draft"] is None
+    assert second_turn["risk_assessment"] is None
 
 
 @pytest.mark.asyncio
