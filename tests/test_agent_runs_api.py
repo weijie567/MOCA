@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.main import app
 from src.agent.merchant_context import project_target_merchant_context
+from src.agent.nodes.final_response import final_response as render_final_response
 from src.agent.run_scope import BUSINESS_MERCHANT
 from src.agent.state import business_query_context_binding_from_trusted_context
 from src.agent.trace import write_agent_run
@@ -925,6 +926,46 @@ class ManualReviewTerminalGraph:
                 ],
             },
         )
+
+
+class VerificationTerminalWithStaleDraftGraph:
+    def __init__(self, *, route: str) -> None:
+        self.route = route
+
+    async def astream(self, input_state, config, stream_mode):
+        del config, stream_mode
+        blocked_claims = ["claim-action-1"] if self.route == "manual_review" else []
+        state = {
+            **input_state,
+            "recommendation_draft": {
+                "recommended_action": "issue_coupon",
+                "reasoning_summary": "unsupported action recommendation",
+                "evidence_refs": [],
+            },
+            "claim_verification_bundle": {
+                "schema_version": "claim_verification_bundle.v1",
+                "overall_status": "blocked",
+                "route": self.route,
+                "blocked_claims": blocked_claims,
+                "safe_support_refs": [],
+                "reason_codes": ["claim_verification_blocked"],
+            },
+            "blocked_claims": blocked_claims,
+            "proposed_action": {"action_type": "issue_coupon", "target_id": "ORD-STALE"},
+            "approval_result": {"status": "approved", "decision_type": "approve"},
+            "action_draft": {"id": "draft-stale", "status": "draft_created"},
+            "draft_outcome": {"status": "not_executed_demo", "draft_id": "draft-stale"},
+            "trace_steps": [
+                {
+                    "node": "claim_verify",
+                    "status": "completed",
+                    "started_at": datetime.now(UTC).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
+                }
+            ],
+        }
+        rendered = await render_final_response(state)
+        yield ("final_response", {**state, **rendered})
 
 
 class RagClaimSummaryGraph:
@@ -2890,6 +2931,62 @@ async def test_manual_review_terminal_is_non_success_across_sse_db_polling_and_m
     assert poll.status_code == 200
     assert poll.json()["data"]["final_status"] == "manual_review"
     assert poll.json()["data"]["final_response"] == run.final_response
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("route", "expected_status", "expected_phrase"),
+    [
+        ("manual_review", "manual_review", "人工复核"),
+        ("refuse", "refused", "无法基于当前政策证据支持"),
+    ],
+)
+async def test_authoritative_verification_terminal_wins_over_stale_draft_across_api_projection(
+    route: str,
+    expected_status: str,
+    expected_phrase: str,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+    finalizer_calls: list[dict] = []
+
+    async def record_finalizer_call(**kwargs):
+        finalizer_calls.append(kwargs)
+        return SimpleNamespace(trace_steps=[])
+
+    monkeypatch.setattr(
+        "src.api.routers.agent_runs.finalize_completed_agent_run_memory",
+        record_finalizer_call,
+    )
+    events = [
+        _event_data(event)
+        async for event in _event_generator(
+            VerificationTerminalWithStaleDraftGraph(route=route),
+            _stream_input(run, user),
+            {"configurable": {"thread_id": run.thread_id, "session": session}},
+            run=run,
+            session=session,
+            user=user,
+        )
+        if "data" in event
+    ]
+
+    await session.refresh(run)
+    terminal_events = [event for event in events if event["event_type"] in {"final_response", "error"}]
+    assert [event["event_type"] for event in terminal_events] == ["error"]
+    assert terminal_events[0]["status"] == expected_status
+    assert terminal_events[0]["payload"]["final_status"] == expected_status
+    assert terminal_events[0]["payload"]["error_code"] != "ACTION_DRAFT_TERMINAL_FAILED"
+    assert expected_phrase in terminal_events[0]["payload"]["final_response"]
+    assert run.final_status == expected_status
+    assert run.final_response == terminal_events[0]["payload"]["final_response"]
+    assert finalizer_calls == []
+    assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id) == 0
+    assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
 
 
 @pytest.mark.asyncio

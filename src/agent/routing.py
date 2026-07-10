@@ -147,6 +147,10 @@ class RunTerminalV1(BaseModel):
 
 def project_run_terminal(state: AgentState) -> RunTerminalV1:
     """Classify action failures and unresolved/manual-review safety outcomes once."""
+    explicit_terminal = _explicit_final_response_terminal(state)
+    if explicit_terminal is not None:
+        return explicit_terminal
+
     action_terminal = project_action_draft_terminal(state)
     if action_terminal.applies and action_terminal.status == "error":
         return RunTerminalV1(
@@ -157,10 +161,6 @@ def project_run_terminal(state: AgentState) -> RunTerminalV1:
             error_code=action_terminal.error_code,
             safe_message=action_terminal.safe_message,
         )
-
-    explicit_terminal = _explicit_final_response_terminal(state)
-    if explicit_terminal is not None:
-        return explicit_terminal
 
     manual_review_reason = _manual_review_terminal_reason(state)
     if manual_review_reason is not None:
