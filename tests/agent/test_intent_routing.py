@@ -127,6 +127,20 @@ def test_policy_evidence_required_derives_from_intent_policy_registry(monkeypatc
     assert calls == ["needs_evidence", "no_evidence"]
 
 
+@pytest.mark.parametrize("requested_operation", ["draft_action", "execute_action", "escalate"])
+def test_policy_evidence_required_forces_executable_operations_before_false_policy_flags(
+    requested_operation: str,
+) -> None:
+    state = {
+        "primary_intent": "small_talk",
+        "requested_operation": requested_operation,
+        "evidence_policy": {"evidence_required": False},
+        "routing_hints": {"policy_evidence_required": False},
+    }
+
+    assert routing_module._policy_evidence_required(state) is True
+
+
 def test_action_bound_or_high_risk_derives_from_intent_policy_registry(monkeypatch):
     class FakeIntentRegistry:
         def is_action_bound_intent(self, intent: str) -> bool:
@@ -325,6 +339,27 @@ def test_confidence_defaults_for_low_and_safety_sensitive_routes():
 )
 def test_resolve_risk_tier(primary_intent, requested_operation, routing_hints, expected):
     assert resolve_risk_tier(primary_intent, requested_operation, channel="ordinary_chat", routing_hints=routing_hints) == expected
+
+
+@pytest.mark.parametrize("requested_operation", ["draft_action", "execute_action", "escalate"])
+def test_resolve_risk_decision_forces_executable_operations_to_require_evidence(
+    requested_operation: str,
+) -> None:
+    decision = resolve_risk_decision("small_talk", requested_operation, channel="ordinary_chat")
+
+    assert decision.evidence_required is True
+
+
+def test_resolve_risk_decision_keeps_approval_chat_forbidden_without_evidence() -> None:
+    decision = resolve_risk_decision(
+        "unsupported",
+        "execute_action",
+        channel="ordinary_chat",
+        routing_hints={"pre_route_disposition": "approval_chat_not_trusted"},
+    )
+
+    assert decision.tier == "forbidden_in_chat"
+    assert decision.evidence_required is False
 
 
 def _legacy_resolve_risk_tier(

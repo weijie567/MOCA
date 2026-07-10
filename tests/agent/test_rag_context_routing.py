@@ -75,6 +75,15 @@ def test_route_after_rag_context_is_total_over_all_statuses(status: str) -> None
         ),
         (
             {
+                "rag_context_status": "not_required",
+                "primary_intent": "compensation_suggestion",
+                "requested_operation": "execute_action",
+                "evidence_policy": {"evidence_required": False},
+            },
+            "final_response",
+        ),
+        (
+            {
                 "rag_context_status": "partial",
                 "primary_intent": "policy_qa",
                 "requested_operation": "advise",

@@ -132,6 +132,7 @@ REQUESTED_OPERATIONS: tuple[str, ...] = (
     "execute_action",
     "escalate",
 )
+ACTION_EVIDENCE_OPERATIONS = frozenset({"draft_action", "execute_action", "escalate"})
 
 INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
     "policy_qa": IntentDefinition(
@@ -1125,7 +1126,7 @@ def resolve_risk_decision(
 
     channel_class = _channel_class(channel or str(hints.get("channel") or "ordinary_chat"))
     template = _lookup_risk_policy(primary_intent, requested_operation, channel_class)
-    return _risk_decision_from_template(template, primary_intent)
+    return _risk_decision_from_template(template, primary_intent, requested_operation=requested_operation)
 
 
 def resolve_risk_tier(
@@ -1191,9 +1192,19 @@ def _risk_intent_classes(primary_intent: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(classes))
 
 
-def _risk_decision_from_template(template: RiskDecision, primary_intent: str) -> RiskDecision:
+def _risk_decision_from_template(
+    template: RiskDecision,
+    primary_intent: str,
+    *,
+    requested_operation: str | None = None,
+) -> RiskDecision:
     definition = INTENT_DEFINITIONS.get(primary_intent)
-    evidence_required = definition.evidence_required if definition is not None else template.evidence_required
+    if requested_operation in ACTION_EVIDENCE_OPERATIONS:
+        evidence_required = True
+    elif template.tier == "forbidden_in_chat":
+        evidence_required = False
+    else:
+        evidence_required = definition.evidence_required if definition is not None else template.evidence_required
     return RiskDecision(
         tier=template.tier,
         evidence_required=evidence_required,

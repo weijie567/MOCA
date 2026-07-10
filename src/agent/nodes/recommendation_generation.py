@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from src.agent.context import ContextAssembler, PromptAssembly
 from src.agent.context.session_memory_bundle import load_session_prompt_context
-from src.agent.intent_policy import INTENT_POLICY_REGISTRY
+from src.agent.intent_policy import ACTION_EVIDENCE_OPERATIONS, INTENT_POLICY_REGISTRY
 from src.agent.prompts import GENERATE_RECOMMENDATION_SYSTEM
 from src.agent.rag_context.risk_labels import filter_safe_evidence_risk_labels
 from src.agent.routing import _partial_rag_context_can_generate
@@ -337,15 +337,15 @@ def _verified_package_reason_codes(
 
 
 def _policy_evidence_required_for_generation(state: AgentState) -> bool:
+    requested_operation = state.get("requested_operation")
+    if requested_operation in ACTION_EVIDENCE_OPERATIONS:
+        return True
     evidence_policy = state.get("evidence_policy")
     if isinstance(evidence_policy, dict) and isinstance(evidence_policy.get("evidence_required"), bool):
         return bool(evidence_policy["evidence_required"])
     routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
     if isinstance(routing_hints.get("policy_evidence_required"), bool):
         return bool(routing_hints["policy_evidence_required"])
-    requested_operation = state.get("requested_operation")
-    if requested_operation in {"draft_action", "execute_action", "escalate"}:
-        return True
     intent = str(state.get("primary_intent") or state.get("current_intent") or "")
     try:
         return INTENT_POLICY_REGISTRY.requires_evidence(intent)

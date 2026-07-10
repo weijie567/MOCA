@@ -1829,6 +1829,31 @@
 **剩余风险**
 - 🟡 `recommendation_generation.py` 仍有 RAG risk label 集合与 actionable recommendation 集合，按计划由 Phase 64 统一处理。
 
+## 2026-07-10 — Phase 63 review loop WR-02 — 可执行操作 evidence policy 排序已修复验证 ✅
+
+**子系统**
+- 意图识别 / routing / RAG recommendation_generation
+
+**问题现象 / 根因**
+- Phase 63 code review 发现 `resolve_risk_decision("small_talk", "execute_action")` 会先套用 no-evidence intent 定义，覆盖 action operation risk template，返回 `evidence_required=False`。
+- `routing._policy_evidence_required(...)` 与 `recommendation_generation._policy_evidence_required_for_generation(...)` 也先信任 `evidence_policy` / `routing_hints` 中的显式 `False`，再检查 `draft_action` / `execute_action` / `escalate`，导致可执行操作可能绕过 RAG evidence gate。
+
+**影响**
+- 资损相关 action/escalation 在 `rag_context_status="not_required"` 或 explicit false policy flag 下可能进入 `recommendation_generation`，与 Phase 63 action/risk/evidence 词表目标不一致。
+
+**处理状态**
+- ✅ 已修复验证。新增共享 `ACTION_EVIDENCE_OPERATIONS`，正常 risk decision 与 routing/generation evidence policy helper 均先判断可执行操作，强制 `evidence_required=True`。
+- ✅ 保留 approval-chat hard-negative 例外：`approval_chat_not_trusted` 仍走 `forbidden_in_chat` 且不要求 evidence。
+
+**证据 / 验证**
+- Phase 63 REVIEW WR-02；文件：`src/agent/intent_policy.py`、`src/agent/routing.py`、`src/agent/nodes/recommendation_generation.py`、`tests/agent/test_intent_routing.py`、`tests/agent/test_rag_context_routing.py`、`tests/agent/test_nodes/test_recommendation_generation.py`。
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_routing.py tests/agent/test_rag_context_routing.py tests/agent/test_nodes/test_recommendation_generation.py -q --tb=short` → `1314 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/intent_policy.py src/agent/routing.py src/agent/nodes/recommendation_generation.py tests/agent/test_intent_routing.py tests/agent/test_rag_context_routing.py tests/agent/test_nodes/test_recommendation_generation.py` → `All checks passed!`
+- Review probe 复核：`resolve_risk_decision("small_talk", "execute_action")` 现在返回 `evidence_required=True`，同类 `route_after_rag_context` 状态返回 `final_response`。
+
+**剩余风险**
+- 🟡 本次只修复可执行 operation 对 evidence-required 的优先级；非 action 的 no-evidence intent（如 `small_talk`、当前 metric read）仍按 registry/policy 显式配置处理。
+
 ## 2026-07-10 — Phase 64 — RAG risk label 单一事实源与 `manual_review_sensitive` 漂移已修复验证 ✅
 
 **子系统**

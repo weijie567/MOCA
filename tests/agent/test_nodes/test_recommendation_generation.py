@@ -848,6 +848,23 @@ def test_policy_evidence_required_for_generation_consumes_intent_registry(monkey
     assert calls == ["order_status_inquiry", "small_talk"]
 
 
+@pytest.mark.parametrize("requested_operation", ["draft_action", "execute_action", "escalate"])
+def test_policy_evidence_required_for_generation_forces_executable_operations(
+    requested_operation: str,
+) -> None:
+    assert (
+        recommendation_generation_module._policy_evidence_required_for_generation(
+            {
+                "primary_intent": "small_talk",
+                "requested_operation": requested_operation,
+                "evidence_policy": {"evidence_required": False},
+                "routing_hints": {"policy_evidence_required": False},
+            }
+        )
+        is True
+    )
+
+
 def test_policy_evidence_required_for_generation_fails_closed_on_registry_error(monkeypatch):
     class RaisingIntentRegistry:
         def requires_evidence(self, intent: str) -> bool:

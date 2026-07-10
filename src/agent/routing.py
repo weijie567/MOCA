@@ -6,6 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from src.agent.intent_policy import (
+    ACTION_EVIDENCE_OPERATIONS,
     INTENT_POLICY_REGISTRY,
     SLOT_POLICY_REGISTRY,
     PreRouteDecision,
@@ -1113,15 +1114,15 @@ def _missing_required_validation_inputs(state: AgentState) -> bool:
 
 
 def _policy_evidence_required(state: AgentState) -> bool:
+    requested_operation = state.get("requested_operation")
+    if requested_operation in ACTION_EVIDENCE_OPERATIONS:
+        return True
     evidence_policy = state.get("evidence_policy")
     if isinstance(evidence_policy, dict) and isinstance(evidence_policy.get("evidence_required"), bool):
         return bool(evidence_policy["evidence_required"])
     routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
     if isinstance(routing_hints.get("policy_evidence_required"), bool):
         return bool(routing_hints["policy_evidence_required"])
-    requested_operation = state.get("requested_operation")
-    if requested_operation in {"draft_action", "execute_action", "escalate"}:
-        return True
     try:
         return INTENT_POLICY_REGISTRY.requires_evidence(_intent(state))
     except Exception:
