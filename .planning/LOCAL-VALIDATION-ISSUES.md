@@ -21195,3 +21195,23 @@ Phase 64 plan 阶段按 GSD workflow 启动 `gsd-phase-researcher` 子代理生�
 
 **剩余问题和下次继续排查入口**
 无产品实现遗留。后续 64-03 迁移 metrics 时继续保持 `_level3_triggered` 风险提示 marker 与 routing reason code 的映射边界。
+
+## 2026-07-10 — Phase 64.1-05 终态完整性验证中的测试基线与进程输出漂移
+
+**问题现象**
+Plan 05 开始时，Plan 04 留下的两个 graph 用例仍断言 `risk_assessment is None`；新 terminal RED fixture 首轮因基础 state 没有 `current_run_id` 报 `KeyError`；approval reconciliation 的旧成功 fixture 只有最小 draft id/status，没有 durable v2 identity 与 audit；额外 architecture 回归仍强制要求本 Plan 明确删除的 `add_edge("action_draft", "final_response")`。另一次长 API pytest 的输出通道先结束，但 pytest 子进程继续运行，进程退出后临时 stdout 文件被清理，无法保留最终结果。
+
+**如何检测/复现**
+先运行两个 Plan 04 指定 graph 用例；再运行 Plan 05 的 graph/final/router RED/GREEN suites、`tests/test_approval_api.py::test_approval_resume_reconciliation_accepts_not_executed_demo_draft_outcome` 与 `tests/architecture/test_action_draft_boundaries.py`；长 API gate 使用进程检查确认 pytest 仍在运行。
+
+**关键证据或命令**
+两个 graph 用例实际稳定得到 Phase 02 `low / allow / approval_required=false / LR-01`；旧 approval fixture 被 canonical projector 判为 `action_draft_reconcile_failed`；architecture 回归首轮结果为 `1 failed, 109 passed`，唯一失败是旧无条件边源码断言。最终 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/test_nodes/test_final_response.py tests/test_graph_routing.py tests/test_agent_runs_api.py tests/test_approval_api.py tests/test_approval_integration.py -q --tb=short` 得到 `299 passed, 87 warnings`。
+
+**当前判断/根因**
+两个 graph 断言是 Phase 02 后的确定性风险状态测试期望漂移，现已从“未确认”裁决为确认；`KeyError` 是新增测试 fixture 错误；approval fixture 与 architecture assertion 是旧 contract 未同步。resume reconciliation 只合并旧 `final_state`、丢掉自身构造的 trusted tenant/run identity，则是本次终态 guard 暴露出的真实实现缺口。长测试问题属于本地执行器输出/session 管理，不是产品失败。
+
+**已做处理**
+更新两个 graph 用例以验证确定性 low/allow/LR-01；补齐 RED fixture run identity；reconciliation 改为合并其构造的完整 state，并把成功 fixture 升级为 durable `action_draft.v2 + DraftOutcomeV1 + critical audit`；architecture test 改为验证 conditional `route_after_action_draft` 与 `terminal_error` mapping。丢失输出的 API gate 使用可轮询 session 重跑，得到 `125 passed, 11 warnings`。
+
+**剩余问题和下次继续排查入口**
+本条无未解决产品或测试阻塞。Phase 64.1-06 应继续把 architecture baseline 与 route vocabulary 作为最终 guard；长测试必须保留并轮询真实 session 至明确 exit code，不能把输出通道结束当成测试结束。

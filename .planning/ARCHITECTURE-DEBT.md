@@ -2153,3 +2153,13 @@
 - **证据**：Phase 64.1 Plan 02；`src/agent/nodes/risk_gate.py`、`tests/agent/test_nodes/test_risk_gate.py`、`tests/test_interception_rate.py`；RED commit `6f3e881`。
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_risk_gate.py tests/test_interception_rate.py tests/approvals/test_hash_binding.py tests/approvals/test_snapshots.py -q --tb=short` → `69 passed`；plan-scoped `uv run ruff check` → `All checks passed!`。
 - **剩余风险**：🟡 本 plan 保留现有 `RiskDecisionV1`、snapshot/hash 与 approval contract；server-minted bounded capability、approval API/frontend parity 和 terminal failure propagation仍由 64.1-03 至 64.1-05 完成，64.1-06 做最终跨层 guard。
+
+## 2026-07-10 — Phase 64.1 Plan 05 action-draft 跨层终态完整性 ✅已修复验证
+
+- **子系统**：工具调用 / Agent Graph / approval resume / agent-runs API-SSE / 记忆投影
+- **问题现象 / 根因**：`action_draft` 原先无条件连接 `final_response`，API completion 又主要依赖已有 copy 或 `node_errors`；因此授权、工具/存储、`DraftOutcomeV1` identity 或关键 audit 失败可能被包装成 completed response/run，approval resume 在没有 `node_errors` 时也可能漏判，memory finalizer 只信调用方传入的 completed status。
+- **影响**：失败动作可能在 graph、DB、polling、SSE、approval resume 与 memory 中出现互相矛盾的成功终态，并可能把内部错误文本或失败路径写成 assistant message / memory projection。
+- **处理状态**：✅ 新增共享 typed `ActionDraftTerminalV1` projector；只有 tenant/run/draft identity 一致、`status=not_executed_demo`、`external_side_effect=false`、durable `action_draft.v2` 且存在 completed `create_coupon_grant_draft` audit 的结果可完成。graph 改为 conditional terminal edge；final response、agent-runs、approval resume 与 memory 复用同一 fail-closed contract，失败只输出稳定安全文案/错误码且不执行 completed memory finalizer。resume reconciliation 现在保留其构造的 trusted identity state，避免成功草稿在终态校验时丢失 tenant/run 绑定。
+- **证据**：Phase 64.1 Plan 05；commits `ebf12c3`、`80bf50a`、`4c140c6`、`94ac0ad`；`src/agent/routing.py`、`src/agent/graph.py`、`src/agent/nodes/action_draft.py`、`src/agent/nodes/final_response.py`、`src/api/routers/agent_runs.py`、`src/api/routers/approvals.py`、`src/api/services/agent_run_memory.py`。
+- **验证**：Plan 05 聚合 pytest → `299 passed, 87 warnings`；API/approval/integration 聚合 → `125 passed, 11 warnings`；action-draft architecture focused → `13 passed, 1 warning`；全部 scoped Ruff → `All checks passed!`。
+- **剩余风险**：🟡 现有 LangGraph/LangChain warnings 为既有 annotation/deprecation 噪声；Phase 64.1-06 仍需跑最终跨层 architecture guard/full matrix，确认后续改动不会重新引入无条件成功边或 completed-memory 漂移。
