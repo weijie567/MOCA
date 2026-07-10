@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: planning
-last_updated: "2026-07-10T09:11:33+08:00"
+last_updated: "2026-07-10T09:24:38+08:00"
 last_activity: 2026-07-10
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 4
   total_plans: 21
   completed_plans: 21
-  percent: 57
+  percent: 50
 ---
 
 # Project State: MOCA
@@ -32,7 +32,7 @@ Next: Plan Phase 65 with `$gsd-phase-autopilot 65` or `$gsd-plan-phase 65`.
 
 Resume file: none yet
 
-Progress: [██████░░░░] 57%
+Progress: [█████░░░░░] 50%
 
 ## Last Completed Milestone
 
@@ -71,13 +71,15 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 - Phase 64 planned as four execution plans and passed GSD plan-checker after Claude/Codex plan review repairs: registry foundation, builder/recommendation migration, verifier/routing/metrics migration, and drift guard/validation closeout.
 - Phase 64 completed with canonical RAG risk label registry, `manual_review_sensitive` builder propagation, registry-consuming builder/recommendation/verifier/routing/metrics paths, static drift guards, clean code review, UAT, security, and validation closeout.
 - Phase 65 added: Trace Event And Console Label Consistency.
-- Phase 66 added: Dev Test And Config Hygiene.
-- Phase 67 added: State Machine Registry And DB Constraint Hardening.
+- Phase 66 added: Unified Operation Contract And Tool Gateway.
+- Phase 67 added: Dev Test And Config Hygiene.
+- Phase 68 added: State Machine Registry And DB Constraint Hardening.
 
 **Planned Phase:** 61 (Product Experience Fixes) — 5 plans — 2026-07-09T02:57:41.178Z
 **Planned Phase:** 62 (Business Query And Drilldown Foundation) — 7 plans — 2026-07-09T12:11:17Z
 **Completed Phase:** 63 (Safety Taxonomy And Risk Vocabulary) — 5/5 plans complete, review/UAT/security/validation clean
 **Completed Phase:** 64 (RAG Risk Label Unification) — 4/4 plans complete, review/UAT/security/validation clean
 **Registered Phase:** 65 (Trace Event And Console Label Consistency) — pending `$gsd-plan-phase 65`
-**Registered Phase:** 66 (Dev Test And Config Hygiene) — pending `$gsd-plan-phase 66`
-**Registered Phase:** 67 (State Machine Registry And DB Constraint Hardening) — pending `$gsd-plan-phase 67`
+**Registered Phase:** 66 (Unified Operation Contract And Tool Gateway) — pending `$gsd-plan-phase 66`
+**Registered Phase:** 67 (Dev Test And Config Hygiene) — pending `$gsd-plan-phase 67`
+**Registered Phase:** 68 (State Machine Registry And DB Constraint Hardening) — pending `$gsd-plan-phase 68`

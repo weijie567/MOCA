@@ -152,11 +152,28 @@ Plans:
 Plans:
 - [ ] TBD (run /gsd-plan-phase 65 to break down)
 
-### Phase 66: Dev Test And Config Hygiene
+### Phase 66: Unified Operation Contract And Tool Gateway
 
-**Goal:** Reduce long-term validation and environment maintenance cost by consolidating test fixtures, demo constants, local configuration defaults, and developer-environment hardcoded values that are not covered by the business-query, safety, RAG, or trace-label phases.
+**Goal:** Reduce the LLM-facing tool surface to controlled operation contracts, so natural language is translated into typed operation specs and backend-owned dispatch handles concrete business, knowledge, and action handlers with permission, safety, projection, audit, and replay boundaries.
 **Requirements**: TBD during Phase 66 planning.
 **Depends on:** Phase 65
+**Plans:** 0 plans
+
+**Success criteria:**
+1. LLM/planner-facing contracts are expressed as stable operation specs rather than ad hoc concrete tool names wherever a controlled operation family exists.
+2. Business read operations route through `business_query`; exact-id compatibility tools such as `get_order`, `get_refund_case`, and `get_ticket` are either backend handlers/wrappers or explicitly justified as remaining LLM-visible.
+3. Knowledge/RAG retrieval and action draft/execute paths have separate controlled operation schemas and cannot be collapsed into a generic unsafe executor.
+4. ToolCatalog, planner allowlists, event families, policy checks, projection, and frontend labels consume the same operation/tool registry or have parity tests that fail on drift.
+5. Legacy concrete tool names have a compatibility and migration plan that preserves audit/replay identity without expanding the LLM-visible surface.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 66 to break down)
+
+### Phase 67: Dev Test And Config Hygiene
+
+**Goal:** Reduce long-term validation and environment maintenance cost by consolidating test fixtures, demo constants, local configuration defaults, and developer-environment hardcoded values that are not covered by the business-query, safety, RAG, trace-label, or operation-gateway phases.
+**Requirements**: TBD during Phase 67 planning.
+**Depends on:** Phase 66
 **Plans:** 0 plans
 
 **Success criteria:**
@@ -166,13 +183,13 @@ Plans:
 4. Demo-only defaults such as action draft retention policy are either renamed/isolated as demo scope or documented as intentional non-production defaults.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 66 to break down)
+- [ ] TBD (run /gsd-plan-phase 67 to break down)
 
-### Phase 67: State Machine Registry And DB Constraint Hardening
+### Phase 68: State Machine Registry And DB Constraint Hardening
 
 **Goal:** Establish explicit state-machine ownership and DB/API/frontend consistency checks for run, action, approval, memory, and replay lifecycle states so status values cannot drift across service writers, migrations, replay validators, and Console surfaces.
-**Requirements**: TBD during Phase 67 planning.
-**Depends on:** Phase 66
+**Requirements**: TBD during Phase 68 planning.
+**Depends on:** Phase 67
 **Plans:** 0 plans
 
 **Success criteria:**
@@ -183,4 +200,4 @@ Plans:
 5. Cross-surface parity tests fail when a new state is added without the corresponding DB/API/frontend/replay handling.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 67 to break down)
+- [ ] TBD (run /gsd-plan-phase 68 to break down)

@@ -1800,8 +1800,8 @@
 - `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/safety src/agent/nodes/risk_gate.py src/agent/nodes/action_draft.py src/agent/intent_policy.py src/agent/routing.py tests/agent/test_safety_taxonomy.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_phase22_action_boundary.py tests/test_execute_action.py tests/actions/test_action_draft_v2.py tests/actions/test_phase34_action_draft_bindings.py tests/agent/test_intent_routing.py tests/agent/test_intent_policy_registry.py tests/approvals/test_hash_binding.py tests/architecture/test_safety_taxonomy_boundaries.py` → `All checks passed!`
 
 **剩余风险**
-- 🟡 Phase 63 不实现 Phase 64 RAG risk label registry、Phase 65 trace/console label registry、Phase 66 config/demo hygiene。
-- 🟡 跨 DB/API/frontend/service writer 的状态机 registry 与 DB CHECK hardening 仍按审查结论 defer 到建议的 Phase 67；Phase 63 仅处理 safety taxonomy / action-risk vocabulary drift。
+- 🟡 Phase 63 不实现 Phase 64 RAG risk label registry、Phase 65 trace/console label registry、Phase 66 unified operation gateway、Phase 67 config/demo hygiene。
+- 🟡 跨 DB/API/frontend/service writer 的状态机 registry 与 DB CHECK hardening 仍按审查结论 defer 到 Phase 68；Phase 63 仅处理 safety taxonomy / action-risk vocabulary drift。
 - 🟡 现有 legacy tests / API projection 中仍可能保留 `risk_level="manual_review"` 兼容样例；Phase 63 已通过 taxonomy normalization 和 drift guard 限制其不能重新成为 active executable action 或 risk severity source。
 
 ## 2026-07-10 — Phase 63 review loop — recommendation_generation evidence policy drift 已修复验证 ✅
@@ -1910,35 +1910,37 @@
 **剩余风险**
 - 🟡 本次只修复同一 evidence id 多条 risk hint 的合并语义；跨 evidence merge、route reason code 与 evidence risk label 分组边界仍沿用 Phase 64 既定 registry 设计。
 
-## 2026-07-09 — Phase 62-66 覆盖矩阵补齐项（源码级硬编码审查）⚠️待规划落地
+## 2026-07-09 — Phase 62-68 覆盖矩阵补齐项（源码级硬编码审查）⚠️待规划落地
 
 **子系统**
 - 工具调用 / RAG / 记忆 / 意图识别 / 状态机 / 前后端契约 / 本地配置
 
 **问题 / 根因**
-- 源码级硬编码审查确认，Phase 62-66 的 roadmap 方向能覆盖大多数已发现的 hardcoding debt，但仍需要在各 phase 的 PLAN.md 中显式锁定具体补齐项，否则容易在执行时只做局部清理。
-- 另有一类跨 DB/API/frontend/service writer 的状态机单一事实源与 DB CHECK 约束问题，不自然归入 Phase 62-66，需要新增 phase 或在 Phase 65 后明确扩展范围。
+- 源码级硬编码审查确认，Phase 62-68 的 roadmap 方向能覆盖大多数已发现的 hardcoding debt，但仍需要在各 phase 的 PLAN.md 中显式锁定具体补齐项，否则容易在执行时只做局部清理。
+- 另有一类 LLM-facing 具体工具面过宽的问题，需要在 Phase 65 建立 tool/event/label registry 后由 Phase 66 统一 Operation Contract / Tool Gateway 收敛。
 
 **影响**
 - 若 Phase 62 未锁定 business query / metric registry / business id resolver / time policy，`business_metric_query` 可能继续沿用多处硬编码 parser、metric id、status、time preset，新增 list/detail/drilldown 时继续扩大分叉。
 - 若 Phase 63 未拆分 risk severity 与 risk disposition，`manual_review` / `blocked` 等处置结果仍可能混入 `risk_level`，action taxonomy 也会继续在 `risk_gate`、`action_draft`、`intent_policy` 多处复制。
 - 若 Phase 64 只做命名整理而不统一 RAG label registry，`manual_review_sensitive` 这类标签仍可能在 builder / verifier / routing / metrics 之间被过滤或解释不一致。
 - 若 Phase 65 只做 console 文案，不做 event / response_kind / tool name / graph node / frontend payload registry 或 parity 测试，后续新增工具、节点、响应类型仍会漏改前端或 replay validator。
-- 若 Phase 66 只清单点 demo 常量，不处理 fixture/settings 边界，magic dates、demo IDs、local DB/port、investigate max_iterations、demo adapter role/scope 副本仍会作为隐性环境假设留存。
-- 若不新增状态机 registry phase，`AgentRun.final_status`、`ActionDraft.status`、API schema、frontend types、DB CHECK / migration 之间仍缺少统一约束与漂移测试。
+- 若 Phase 66 不收敛 LLM-facing tool surface，`get_order` / `get_refund_case` / `get_ticket` / `business_query` / RAG / action tools 仍会作为具体工具名被 planner 和 UI 多处硬编码，后续新增 operation 时继续扩大漂移面。
+- 若 Phase 67 只清单点 demo 常量，不处理 fixture/settings 边界，magic dates、demo IDs、local DB/port、investigate max_iterations、demo adapter role/scope 副本仍会作为隐性环境假设留存。
+- 若 Phase 68 不实现状态机 registry，`AgentRun.final_status`、`ActionDraft.status`、API schema、frontend types、DB CHECK / migration 之间仍缺少统一约束与漂移测试。
 
 **处理状态**
-- ⚠️ 已完成源码级审查和 phase 归属裁决，尚未进入 Phase 62-66 任一 PLAN.md。
+- ⚠️ 已完成源码级审查和 phase 归属裁决，尚未进入 Phase 65-68 后续 PLAN.md。
 - ⚠️ Phase 62 必须覆盖：metric id / resource / status / time preset registry，metric parser parity，`query_business_metric` service/tool contract 的 `current_snapshot` 边界，business id resolver，`business_query` schema、field/sort/status/time/limit/cursor allowlist，`last_query_spec` / `last_answer_context` / `result_cursor`。
 - ⚠️ Phase 63 必须覆盖：risk severity vs risk disposition 拆分，action taxonomy / canonical action type，money/risk extraction 假设，evidence-required / action-bound intent routing registry。
 - ⚠️ Phase 64 必须覆盖：RAG risk label registry，尤其 `manual_review_sensitive` 在 builder / verifier / routing / metrics / recommendation 之间的单一事实源和 parity 测试。
 - ⚠️ Phase 65 必须覆盖：tool name / event_family / tool label registry，trace event type 与 DB CHECK / replay validator parity，response_kind / SSE payload / frontend type contract，graph node label 与 safe reason label parity。
-- ⚠️ Phase 66 必须覆盖：demo seed constants、test magic dates、local config / port / DB defaults、demo action status residue、investigate iteration settings、demo authz role/scope 副本。
-- ⚠️ 建议新增 Phase 67：State Machine Registry And DB Constraint Hardening。若 Phase 62 被规划成完整 business query mainline，则原先的 Business Query Production Hardening 不单独开新 phase；若 Phase 62 执行时被缩成 foundation MVP，再考虑在 Phase 67 之后新增 business query coverage expansion。
+- ⚠️ Phase 66 必须覆盖：Unified Operation Contract / Tool Gateway、LLM-facing operation spec、ToolCatalog/planner/event/policy/projection/frontend label parity、exact-id compatibility tool migration plan、RAG/action/business operation family separation。
+- ⚠️ Phase 67 必须覆盖：demo seed constants、test magic dates、local config / port / DB defaults、demo action status residue、investigate iteration settings、demo authz role/scope 副本。
+- ⚠️ Phase 68 必须覆盖：State Machine Registry And DB Constraint Hardening。若 Phase 62 被规划成完整 business query mainline，则原先的 Business Query Production Hardening 不单独开新 phase；若 Phase 62 执行时被缩成 foundation MVP，再考虑在 Phase 68 之后新增 business query coverage expansion。
 
 **证据 / 验证**
-- Roadmap phase 边界：`.planning/ROADMAP.md` Phase 62-66。
-- 当前状态：`.planning/STATE.md` 显示 Phase 62 为当前待规划焦点，Phase 63-66 已注册待规划。
+- Roadmap phase 边界：`.planning/ROADMAP.md` Phase 62-68。
+- 当前状态：`.planning/STATE.md` 显示 Phase 65 为当前待规划焦点，Phase 66-68 已注册待规划。
 - 已核实代码证据包括：
   - `src/business/schemas.py`、`src/agent/schemas.py`、`src/agent/routing.py`、`src/business/service.py`、`src/tools/catalog.py`、`src/agent/nodes/contextual_intent_resolve.py`、`src/agent/nodes/slot_resolution_gate.py` 的 metric / time / status / parser 重复。
   - `src/agent/rag_context/builder.py`、`src/agent/rag_context/metrics.py`、`src/agent/rag_context/verifier.py`、`src/agent/rag_context/routing.py` 的 RAG risk label 重复与 `manual_review_sensitive` 发散风险。
@@ -1949,8 +1951,8 @@
 - 本条为审查记录，未运行测试；后续 phase planning / implementation 中的验证命令必须使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`。
 
 **剩余风险**
-- 🔴 Phase 62-66 尚未生成 PLAN.md；上述补齐项目前只是审查裁决，未被任务化。
-- 🔴 状态机 registry / DB CHECK / API / frontend parity 不属于现有 Phase 62-66 的明确成功标准，建议新增 Phase 67 或在 Phase 65 后追加专门 phase。
+- 🔴 Phase 65-68 尚未生成 PLAN.md；上述补齐项目前只是审查裁决，未被任务化。
+- 🔴 统一 Operation Contract / Tool Gateway 与状态机 registry / DB CHECK / API / frontend parity 都已注册为后续 phase，但尚未计划和实现。
 - 🟡 Phase 62 若只落 foundation 而不覆盖生产 drilldown/list/detail/cursor/UI/eval，则还需要后续 business query coverage expansion phase。
 
 ## 2026-07-09 — Phase 62 Plan 01 business query registry 与 metric routing 派生 ⚠️修复但验证有缺口

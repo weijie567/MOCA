@@ -443,7 +443,7 @@ Safe projection responsibilities：backend projection owns prompt-safe and UI-sa
 
 Business facts versus RAG authority separation remains unchanged：`business_query` returns current business facts and `BusinessFactRefV1`; RAG/KnowledgeService returns policy evidence through `EvidenceRefV1`. RAG evidence or memory cannot prove current order/refund/ticket/coupon/metric facts, and `business_query` cannot satisfy policy evidence requirements.
 
-Named deferrals remain out of Phase 62 implementation scope unless a later plan explicitly changes this file：Phase 63 owns risk/action taxonomy and canonical action-type vocabulary; Phase 64 owns RAG risk label unification; Phase 65 owns global event/response-kind/node/tool/console label registry and parity; Phase 66 owns demo/config/test hygiene; Phase 67 remains a registration-only recommendation for state-machine registry and DB constraint hardening per D-62-17 through D-62-20.
+Named deferrals remain out of Phase 62 implementation scope unless a later plan explicitly changes this file：Phase 63 owns risk/action taxonomy and canonical action-type vocabulary; Phase 64 owns RAG risk label unification; Phase 65 owns global event/response-kind/node/tool/console label registry and parity; Phase 66 owns unified operation contract and tool gateway migration; Phase 67 owns demo/config/test hygiene; Phase 68 owns state-machine registry and DB constraint hardening per D-62-17 through D-62-20.
 
 完整的 `ToolCallContext` / `ToolRequest` / `ToolResultV2` / `ToolError` 类型见本文件 §12.5 Tool contract。
 
