@@ -284,16 +284,22 @@ async def test_non_allow_risk_assessment_clears_same_turn_stale_snapshot_binding
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "bundle",
+    ("bundle", "expected_disposition", "expected_severity"),
     [
-        _claim_bundle(route="manual_review", overall_status="manual_review"),
-        _claim_bundle(route="final_response", overall_status="blocked", blocked_claims=["claim-action-1"]),
+        (_claim_bundle(route="manual_review", overall_status="manual_review"), "manual_review", "medium"),
+        (
+            _claim_bundle(route="final_response", overall_status="blocked", blocked_claims=["claim-action-1"]),
+            "blocked",
+            "high",
+        ),
     ],
 )
 async def test_claim_bundle_blockers_clear_same_turn_action_capable_state(
     monkeypatch: pytest.MonkeyPatch,
     base_state: dict[str, Any],
     bundle: dict[str, Any],
+    expected_disposition: str,
+    expected_severity: str,
 ) -> None:
     """APF-14: claim bundle blockers are authoritative even when legacy route is allow."""
     monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: ExplodingRiskLLM())
@@ -323,6 +329,9 @@ async def test_claim_bundle_blockers_clear_same_turn_action_capable_state(
     assert merged_state["safety_snapshot_ref"] is None
     assert merged_state["safety_snapshot_hash"] is None
     assert merged_state["safety_snapshot_verified"] is False
+    assert merged_state["risk_assessment"]["risk_disposition"] == expected_disposition
+    assert merged_state["risk_assessment"]["risk_level"] == expected_severity
+    assert merged_state["risk_assessment"]["risk_severity"] == expected_severity
     assert route_after_risk(merged_state) == "final_response"
 
 
@@ -348,6 +357,9 @@ async def test_action_claim_result_disallowing_action_blocks_risk_and_snapshots(
     assert result.get("safety_snapshot_ref") is None
     assert result.get("safety_snapshot_hash") is None
     assert result.get("safety_snapshot_verified") is False
+    assert result["risk_assessment"]["risk_disposition"] == "manual_review"
+    assert result["risk_assessment"]["risk_level"] == "medium"
+    assert result["risk_assessment"]["risk_severity"] == "medium"
 
 
 @pytest.mark.asyncio
@@ -398,6 +410,9 @@ async def test_missing_positive_action_claim_blocks_approval_edit_risk_reentry(
     merged_state = {**state, **result}
 
     assert result["risk_assessment"]["rule_ref"] == "PHASE33-CLAIM-VERIFY"
+    assert result["risk_assessment"]["risk_disposition"] == "manual_review"
+    assert result["risk_assessment"]["risk_level"] == "medium"
+    assert result["risk_assessment"]["risk_severity"] == "medium"
     assert merged_state["proposed_action"] is None
     assert merged_state["approval_result"] is None
     assert merged_state["action_payload_hash"] is None
@@ -405,6 +420,43 @@ async def test_missing_positive_action_claim_blocks_approval_edit_risk_reentry(
     assert merged_state["safety_snapshot_hash"] is None
     assert merged_state["safety_snapshot_verified"] is False
     assert route_after_risk(merged_state) == "final_response"
+
+
+@pytest.mark.asyncio
+async def test_malformed_claim_bundle_records_blocked_high_risk(
+    monkeypatch: pytest.MonkeyPatch,
+    base_state: dict[str, Any],
+) -> None:
+    """APF-14: malformed claim bundles fail closed with non-allow risk vocabulary."""
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: ExplodingRiskLLM())
+    state = {
+        **_claim_verified_actionable_state(
+            base_state,
+            {
+                "schema_version": "claim_verification_bundle.v1",
+                "overall_status": "verified",
+                "route": "continue",
+            },
+        ),
+        "proposed_action": {"action_type": "issue_coupon"},
+        "approval_plan": {"plan_id": "stale-plan"},
+        "action_payload_hash": ACTION_HASH,
+        "safety_snapshot_ref": "snapshot:stale",
+        "safety_snapshot_hash": SNAPSHOT_HASH,
+        "safety_snapshot_verified": True,
+    }
+
+    result = await risk_gate_module.risk_gate(
+        state,
+        {"configurable": {"session": object()}},
+    )
+
+    assert result["proposed_action"] is None
+    assert result["approval_plan"] is None
+    assert result["risk_assessment"]["risk_disposition"] == "blocked"
+    assert result["risk_assessment"]["risk_level"] == "high"
+    assert result["risk_assessment"]["risk_severity"] == "high"
+    assert result["risk_assessment"]["blocked"] is True
 
 
 @pytest.mark.asyncio

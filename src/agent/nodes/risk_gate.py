@@ -227,8 +227,19 @@ def _action_gate_block_reason(state: AgentState, draft: dict[str, Any]) -> str |
 
 def _blocked_verifier_risk(state: AgentState, reason_code: str | None = None) -> dict[str, Any]:
     route = _verification_route(state)
-    disposition = "manual_review" if route == "manual_review" else "blocked" if route == "refuse" else "allow"
-    severity = "high" if route == "refuse" else "low" if route not in {"manual_review", "refuse"} else None
+    if reason_code == "claim_verification_not_allow":
+        bundle = _claim_verification_bundle(state) or {}
+        hard_blocked = (
+            _non_empty_list(state.get("blocked_claims"))
+            or _non_empty_list(bundle.get("blocked_claims"))
+            or bundle.get("overall_status") in {"blocked", "error"}
+            or bundle.get("route") == "final_response"
+        )
+        disposition = "blocked" if hard_blocked else "manual_review"
+        severity = "high" if hard_blocked else "medium"
+    else:
+        disposition = "manual_review" if route == "manual_review" else "blocked" if route == "refuse" else "allow"
+        severity = "high" if route == "refuse" else "low" if route not in {"manual_review", "refuse"} else None
     reason = (
         "Claim verification did not allow action assessment."
         if reason_code == "claim_verification_not_allow"
@@ -240,7 +251,7 @@ def _blocked_verifier_risk(state: AgentState, reason_code: str | None = None) ->
             **base,
             "risk_reason": reason,
             "approval_required": False,
-            "blocked": route == "refuse",
+            "blocked": disposition == "blocked",
             "rule_ref": "PHASE33-CLAIM-VERIFY" if reason_code == "claim_verification_not_allow" else "PHASE22-VERIFY",
         },
         disposition=disposition,
