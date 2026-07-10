@@ -167,3 +167,20 @@ Plans:
 
 Plans:
 - [ ] TBD (run /gsd-plan-phase 66 to break down)
+
+### Phase 67: State Machine Registry And DB Constraint Hardening
+
+**Goal:** Establish explicit state-machine ownership and DB/API/frontend consistency checks for run, action, approval, memory, and replay lifecycle states so status values cannot drift across service writers, migrations, replay validators, and Console surfaces.
+**Requirements**: TBD during Phase 67 planning.
+**Depends on:** Phase 66
+**Plans:** 0 plans
+
+**Success criteria:**
+1. AgentRun, ActionDraft, Approval, memory, replay, and related lifecycle state values have a documented canonical owner or explicit deferral.
+2. High-risk status fields have registry/schema-backed parity across service writers, API schemas, frontend types, replay validators, and tests.
+3. DB CHECK constraints and migrations are added where safe, or compatibility exceptions are documented with migration-backed regression tests.
+4. Legacy/demo-only status values are migrated, renamed, isolated, or documented so they cannot silently become production state-machine values.
+5. Cross-surface parity tests fail when a new state is added without the corresponding DB/API/frontend/replay handling.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 67 to break down)
