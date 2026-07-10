@@ -26,6 +26,7 @@ from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
 from src.agent.rag_claim_summary import build_rag_claim_summary
 from src.agent.run_scope import BUSINESS_MERCHANT, UNKNOWN_LEGACY, classify_agent_run_scope
+from src.agent.routing import ActionDraftTerminalV1, project_action_draft_terminal
 from src.agent.state import business_query_context_binding_from_trusted_context
 from src.agent.trace import build_trace_summary, update_agent_run_status, write_agent_run, write_agent_steps
 from src.api.services.agent_run_memory import (
@@ -340,6 +341,36 @@ async def _event_generator(
         yield event
 
 
+def _project_run_terminal(
+    run_id: str,
+    final_state: dict[str, Any],
+    total_latency_ms: int,
+) -> tuple[str, str | None, ActionDraftTerminalV1]:
+    action_terminal = project_action_draft_terminal(final_state)
+    if action_terminal.applies and action_terminal.status == "error":
+        safe_response = str(action_terminal.safe_message)
+        final_state["final_response"] = safe_response
+        final_state["llm_outputs"] = {
+            **_as_mapping(final_state.get("llm_outputs")),
+            "final_response": {
+                "response_text": safe_response,
+                "evidence_citations": [],
+                "final_status": "error",
+                "mode": "deterministic-template",
+                "approval_context": None,
+                "error_code": action_terminal.error_code,
+                "reason_code": action_terminal.reason_code,
+            },
+        }
+        return "error", safe_response, action_terminal
+
+    final_response = final_state.get("final_response")
+    final_status = build_trace_summary(run_id, final_state, total_latency_ms).get("final_status", "completed")
+    if not final_response:
+        return "error", None, action_terminal
+    return str(final_status), str(final_response), action_terminal
+
+
 async def _event_generator_from_graph_updates(
     graph: Any,
     input_state: dict[str, Any],
@@ -406,14 +437,14 @@ async def _event_generator_from_graph_updates(
         if not final_state.get("final_response"):
             final_state.update(await build_final_response(final_state))
 
-        final_response = final_state.get("final_response")
         if isinstance(final_state.get("trace_steps"), list):
             trace_steps = final_state["trace_steps"]
         total_ms = round((time.perf_counter() - t0) * 1000)
-        final_status = build_trace_summary(run_id_str, final_state, total_ms).get("final_status", "completed")
-        if not final_response:
-            final_status = "error"
-            final_response = None
+        final_status, final_response, action_terminal = _project_run_terminal(
+            run_id_str,
+            final_state,
+            total_ms,
+        )
         completed_at = datetime.now(timezone.utc)
         await _complete_run(
             session=session,
@@ -425,25 +456,38 @@ async def _event_generator_from_graph_updates(
             trace_steps=trace_steps,
             final_state=final_state,
         )
-        finalizer_result = await finalize_completed_agent_run_memory(
-            session=session,
-            run=run,
-            user=user,
-            input_state=input_state,
-            final_state=final_state,
-            final_status=str(final_status),
-            final_response=str(final_response) if final_response else None,
-            trace_steps=trace_steps,
-            trace_id=config.get("configurable", {}).get("trace_id"),
-            conversation_service=config.get("configurable", {}).get("conversation_service"),
-        )
-        await persist_agent_run_memory_finalize_trace_steps(
-            session=session,
-            run=run,
-            prior_trace_steps=trace_steps,
-            finalizer_trace_steps=finalizer_result.trace_steps,
-        )
-        if final_response:
+        if final_status == "completed" and final_response:
+            finalizer_result = await finalize_completed_agent_run_memory(
+                session=session,
+                run=run,
+                user=user,
+                input_state=input_state,
+                final_state=final_state,
+                final_status=str(final_status),
+                final_response=str(final_response),
+                trace_steps=trace_steps,
+                trace_id=config.get("configurable", {}).get("trace_id"),
+                conversation_service=config.get("configurable", {}).get("conversation_service"),
+            )
+            await persist_agent_run_memory_finalize_trace_steps(
+                session=session,
+                run=run,
+                prior_trace_steps=trace_steps,
+                finalizer_trace_steps=finalizer_result.trace_steps,
+            )
+        if action_terminal.applies and action_terminal.status == "error":
+            yield _sse_event(
+                event_type="error",
+                run_id=run_id_str,
+                step_index=step_index + 1,
+                status="failed",
+                message=str(action_terminal.safe_message),
+                payload={
+                    "error_code": action_terminal.error_code,
+                    "error_message": action_terminal.safe_message,
+                },
+            )
+        elif final_response:
             yield _sse_event(
                 event_type="final_response",
                 run_id=run_id_str,
@@ -567,14 +611,14 @@ async def _event_generator_from_graph_events(
         if not final_state.get("final_response"):
             final_state.update(await build_final_response(final_state))
 
-        final_response = final_state.get("final_response")
         if isinstance(final_state.get("trace_steps"), list):
             trace_steps = final_state["trace_steps"]
         total_ms = round((time.perf_counter() - t0) * 1000)
-        final_status = build_trace_summary(run_id_str, final_state, total_ms).get("final_status", "completed")
-        if not final_response:
-            final_status = "error"
-            final_response = None
+        final_status, final_response, action_terminal = _project_run_terminal(
+            run_id_str,
+            final_state,
+            total_ms,
+        )
         completed_at = datetime.now(timezone.utc)
         await _complete_run(
             session=session,
@@ -586,25 +630,38 @@ async def _event_generator_from_graph_events(
             trace_steps=trace_steps,
             final_state=final_state,
         )
-        finalizer_result = await finalize_completed_agent_run_memory(
-            session=session,
-            run=run,
-            user=user,
-            input_state=input_state,
-            final_state=final_state,
-            final_status=str(final_status),
-            final_response=str(final_response) if final_response else None,
-            trace_steps=trace_steps,
-            trace_id=config.get("configurable", {}).get("trace_id"),
-            conversation_service=config.get("configurable", {}).get("conversation_service"),
-        )
-        await persist_agent_run_memory_finalize_trace_steps(
-            session=session,
-            run=run,
-            prior_trace_steps=trace_steps,
-            finalizer_trace_steps=finalizer_result.trace_steps,
-        )
-        if final_response:
+        if final_status == "completed" and final_response:
+            finalizer_result = await finalize_completed_agent_run_memory(
+                session=session,
+                run=run,
+                user=user,
+                input_state=input_state,
+                final_state=final_state,
+                final_status=str(final_status),
+                final_response=str(final_response),
+                trace_steps=trace_steps,
+                trace_id=config.get("configurable", {}).get("trace_id"),
+                conversation_service=config.get("configurable", {}).get("conversation_service"),
+            )
+            await persist_agent_run_memory_finalize_trace_steps(
+                session=session,
+                run=run,
+                prior_trace_steps=trace_steps,
+                finalizer_trace_steps=finalizer_result.trace_steps,
+            )
+        if action_terminal.applies and action_terminal.status == "error":
+            yield _sse_event(
+                event_type="error",
+                run_id=run_id_str,
+                step_index=last_step_index + 1,
+                status="failed",
+                message=str(action_terminal.safe_message),
+                payload={
+                    "error_code": action_terminal.error_code,
+                    "error_message": action_terminal.safe_message,
+                },
+            )
+        elif final_response:
             yield _sse_event(
                 event_type="final_response",
                 run_id=run_id_str,

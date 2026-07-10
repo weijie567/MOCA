@@ -3438,6 +3438,62 @@ async def test_completed_agent_run_finalizer_skips_non_completed_status(
 
 
 @pytest.mark.asyncio
+async def test_completed_memory_projection_rechecks_action_terminal_integrity(
+    session: AsyncSession,
+    seeded_session,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.flush()
+    failed_state = {
+        "proposed_action": {"action_type": "issue_coupon", "target_id": "RF-MEMORY-FAIL"},
+        "risk_assessment": {
+            "risk_level": "low",
+            "risk_disposition": "allow",
+            "approval_required": False,
+        },
+        "action_result": {
+            "status": "error",
+            "data": {},
+            "error": {
+                "error_code": "DRAFT_CREATION_FAILED",
+                "message": "raw storage details",
+                "retryable": True,
+            },
+        },
+        "final_response": "unsafe completed copy",
+    }
+
+    result = await finalize_completed_agent_run_memory(
+        session=session,
+        run=run,
+        user=user,
+        input_state=_stream_input(run, user),
+        final_state=failed_state,
+        final_status="completed",
+        final_response="unsafe completed copy",
+        trace_steps=[],
+        trace_id=None,
+    )
+
+    assert result.status == "skipped"
+    assert result.memory_write_result == {"status": "skipped", "reason_code": "action_terminal_failed"}
+    assert result.case_working_context_result == {
+        "status": "skipped",
+        "reason_code": "action_terminal_failed",
+    }
+    assert result.trace_steps == []
+    assert await _count_rows(
+        session,
+        ConversationMessage,
+        ConversationMessage.run_id == run.id,
+        ConversationMessage.role == "assistant",
+    ) == 0
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
+    assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
+
+
+@pytest.mark.asyncio
 async def test_completed_agent_run_finalizer_writes_case_working_context(
     session: AsyncSession,
     seeded_session,

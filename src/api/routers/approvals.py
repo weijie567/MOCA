@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes.action_draft import action_draft
+from src.agent.routing import project_action_draft_terminal
 from src.agent.trace import append_agent_steps, update_agent_run_status
 from src.api.routers.agent_runs import (
     ApprovalInterruptValidationError,
@@ -351,8 +352,13 @@ async def _resume_graph_after_decision(
 
     run_id = str(result.run_id)
     final_response_text = final_state.get("final_response")
+    action_terminal = project_action_draft_terminal(final_state)
     final_status = "completed"
-    if final_state.get("node_errors") or not final_response_text:
+    if action_terminal.applies and action_terminal.status == "error":
+        final_status = "error"
+        final_response_text = str(action_terminal.safe_message)
+        final_state["final_response"] = final_response_text
+    elif final_state.get("node_errors") or not final_response_text:
         final_status = "error"
     run = await session.get(AgentRun, result.run_id)
     total_latency_ms = (run.total_latency_ms if run and run.total_latency_ms else 0) + resume_latency_ms
@@ -823,8 +829,8 @@ async def _reconcile_approved_action_draft(
         "approval_idempotency_key": result.approval_idempotency_key,
     }
     update = await action_draft(state, config)
-    reconciled = {**final_state, **update}
-    if not _is_successful_demo_draft_outcome(update.get("draft_outcome")):
+    reconciled = {**state, **update}
+    if project_action_draft_terminal(reconciled, require_action=True).status != "completed":
         reconciled["node_errors"] = (final_state.get("node_errors") or []) + [
             {"node": "action_draft", "error": "action_draft_reconcile_failed"}
         ]

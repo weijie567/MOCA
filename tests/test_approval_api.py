@@ -873,15 +873,35 @@ async def test_approval_resume_reconciliation_accepts_not_executed_demo_draft_ou
         assert state["approval_result"] == result.resume_payload
         assert state["current_run_id"] == str(result.run_id)
         assert config["configurable"]["session"] is session
+        outcome = {
+            "schema_version": "draft_outcome.v1",
+            "tenant_id": str(result.tenant_id),
+            "run_id": str(result.run_id),
+            "draft_id": "draft-api-001",
+            "status": "not_executed_demo",
+            "external_side_effect": False,
+        }
         return {
-            "action_draft": {"draft_id": "draft-api-001", "status": "draft_created"},
-            "draft_outcome": {
-                "schema_version": "draft_outcome.v1",
+            "action_draft": {
+                "schema_version": "action_draft.v2",
+                "tenant_id": str(result.tenant_id),
+                "run_id": str(result.run_id),
                 "draft_id": "draft-api-001",
-                "status": "not_executed_demo",
-                "external_side_effect": False,
+                "status": "draft_created",
+                "execution_mode": "demo",
+                "lifecycle_status": "active",
+                "draft_outcome": outcome,
             },
+            "draft_outcome": outcome,
+            "execution_mode": "demo",
             "action_result": {"status": "error", "data": {}, "error": {"message": "legacy field ignored"}},
+            "trace_steps": [
+                {
+                    "node": "action_draft",
+                    "status": "completed",
+                    "tool_name": "create_coupon_grant_draft",
+                }
+            ],
         }
 
     monkeypatch.setattr(approvals_router, "action_draft", fake_action_draft)
