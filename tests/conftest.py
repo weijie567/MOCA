@@ -547,7 +547,18 @@ class _ApprovalGraphBusinessExecutor:
                 "order_no": order_no,
                 "status": "delivered",
                 "amount": "199.00",
+                "currency": "CNY",
+                "buyer_name": "Approval Test Buyer",
+                "item_name": "Approval Test Item",
+                "paid_at": None,
+                "delivered_at": None,
                 "merchant_id": _tool_context_merchant_id(ctx),
+                "relation_hints": {
+                    "has_active_refund": False,
+                    "latest_refund_case_id": None,
+                    "has_open_ticket": False,
+                    "latest_ticket_id": None,
+                },
             },
             summary="order result",
             source_system="business_tool_service",
@@ -639,7 +650,12 @@ class _ApprovalGraphKnowledgeExecutor:
         )
         return ToolResultV2(
             status="success",
-            data={"retrieval_status": "strong_evidence", "best_score": 0.93, "threshold": 0.55},
+            data={
+                "retrieval_status": "strong_evidence",
+                "best_score": 0.93,
+                "threshold": 0.55,
+                "summary": "补偿超过500元需人工审批。",
+            },
             summary="policy found",
             source_system="policy_knowledge_service",
             data_freshness_at=None,
