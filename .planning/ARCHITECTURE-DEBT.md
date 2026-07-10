@@ -112,6 +112,16 @@
 **这一轮 = milestone v2.1「Tool Platform Hardening」，Phase 37–41，5 phase / 14 plan，全部标记 complete（`.planning/STATE.md`）。**
 **主要契约参考**：`docs/contract-spec.md` §8.0 / §12.5 / §12.6；phase plan 若发现冲突，应先提出 spec delta。
 
+## 2026-07-10 — Phase 64.1 审批授权、bounded capability 与终态完整性 ✅已修复验证
+
+- **子系统**：工具调用 / approval / action draft / Agent Graph / agent-runs API-SSE / memory projection
+- **问题现象/根因**：跨层审批路径原先没有一个 backend-owned decision context，前端拿到的字段不足以满足后端严格 decide schema，只能猜测或补默认值；normal auto-allow 又依赖 graph 内普通 binding，缺少 durable、server-minted、actor/action/scope/hash/handler/TTL/replay 边界。`action_draft` 无条件进入 `final_response`，API、SSE、DB 与 memory 对成功的判断也未统一，授权、store、tool 或关键 audit 失败可能被包装成 completed。Plan 06 全量回归还确认了一个优先级回归：action-draft 终态 guard 过早执行，会把已经存在的 evidence/claim verification non-allow 错归类为 draft failure。
+- **影响**：旧路径无法证明用户决定对应最新 request/level/assignment/revision/hash；auto-allow 授权可能被跨 tenant/run/actor/merchant/action/handler 复用或扩成通用工具权限；失败状态可能在 graph、最终文案、持久化、SSE 和 memory 之间漂移，形成成功洗白。
+- **处理状态**：✅ 已修复并通过 phase-wide 验证。`ApprovalDecisionContextV1` 由 approval service/projector 单一生成并供 list/get/SSE 共用，前端 runtime validator 与 serializer 只精确回显服务端字段，不再接受 legacy `decision` 或补造 integrity 默认值。durable opaque capability 由服务端签发并原子消费，绑定 tenant、actor、run、canonical action、payload/risk hash、merchant scope、固定 draft handler、expiry 与 replay state；它只授权 demo durable draft，不扩宽 ToolPolicy 或生产执行权限。post-draft terminal 改为共享 typed projector 和 conditional edge，只有 identity、`DraftOutcomeV1`、durable lifecycle 与 critical audit 全部一致才可 completed；API/SSE/DB/resume/memory 复用同一 fail-closed 语义。Plan 06 同时把 evidence/claim verification non-allow 恢复为高于 action-draft terminal guard 的权威失败，避免错误分类覆盖原始安全结论。
+- **证据**：Phase 64.1 commits `89afe7e`、`fae3059`、`08777d3`、`0afddea`、`fa13100`、`80bf50a`、`4c140c6`、`e2408ec`、`a0773b8`、`8ae3c4b`；`src/approvals/schemas.py`、`src/approvals/service.py`、`src/api/routers/approvals.py`、`src/api/routers/agent_runs.py`、`src/actions/capabilities.py`、`src/actions/service.py`、`src/agent/graph.py`、`src/agent/routing.py`、`src/agent/nodes/final_response.py`、`src/api/services/agent_run_memory.py`、`tests/integration/test_phase64_1_runtime_safety_matrix.py`、`tests/architecture/test_runtime_safety_boundaries.py`、`frontend/e2e/phase64_1-approval-safety.spec.ts`。
+- **验证**：Plan 06 matrix → `26 passed`；architecture ownership gate → `42 passed`，canonical graph supplemental → `21 passed`；Phase 64.1 exact backend full gate → `2862 passed, 1 skipped, 109 warnings in 837.35s`；`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` → `All checks passed!`；frontend chained gate → Vitest `4 files / 20 tests`、production build 通过、mocked Playwright desktop/mobile `16 passed in 1.8m`。
+- **剩余风险/明确 defer**：🟡 本 phase 没有实现 Phase 66 的 general operation/tool gateway，没有处理 Phase 64.2 的 evidence/replay/memory identity，没有中央化 Phase 69 的 LLM provider/model gateway 与 observability，也没有新增生产外部副作用 executor。生产 external effects 必须进入另一个明确授权、独立 threat model/approval/rollback 门禁的 phase；不得从本条“demo durable draft 已安全”推导为生产执行已完成。现有 LangGraph/LangChain annotation/deprecation warning 仍是可见的非阻塞噪声。
+
 ## 2026-07-10 — Phase 62 business_query denied/projection no-leak 缺口已修复 ✅
 
 - **子系统**：工具调用 / Business Query / Agent Console 投影
@@ -212,6 +222,16 @@
 **已 ship 的相关 milestone**：v1.8 Intent Routing Safety Hardening（Phase 25，IRS-01~IRS-12）。
 
 > 以下为 2026-07-02 代码走查中发现的**设计层面缺陷**与后续处理状态。ID-01/ID-03 已通过三层契约拆分落地；ID-04 的档位 A 已通过 Phase 43 落地；ID-02 仍未修复。
+
+## 2026-07-10 — Phase 64.1 canonical action 与 deterministic risk authority ✅已修复验证
+
+- **子系统**：意图识别 / recommendation routing / safety taxonomy / risk gate
+- **问题现象/根因**：`recommendation_generation` 曾用 node-local 中英文 substring 集合判断 actionable recommendation，canonical action、alias、unknown、ambiguous 与 schema-invalid 值没有一个 material-claim 前置权威；`risk_gate` 的 fallback 又只完整检查 high risk，未命中后直接取第一条 low rule，配置中的 medium rules 在 provider timeout/unavailable/schema failure 路径可能消失并被降成 low/auto-allow。
+- **影响**：中文或英文动作表达可能绕过 action claim/risk/approval；未知、歧义或 malformed action 可能进入普通 completed advice；LLM/provider/config 故障可能降低确定性风险并错误形成 auto-allowed draft 候选。
+- **处理状态**：✅ 已修复并通过 phase-wide 验证。共享 `ActionResolution` 在 material claim 前统一处理 canonical/中英文 alias/strict structured input，unknown、ambiguous、schema-invalid 与 approval-chat hard negative 均稳定 fail closed；recommendation 与 router 不再维护本地 actionable authority。一个 validated deterministic evaluator 以 high > medium > low 顺序消费现有 taxonomy/rule data，拒绝缺组、空组、重复 id、未知条件和 malformed config；LLM merge 只能保留或升级确定性结论，不能降级，auto-allow 只接受 deterministic `low + allow + approval_required=false`。Plan 06 AST/source guards锁定 resolver/evaluator 单一 owner，并用中英文、provider failure、unknown/ambiguous/schema-invalid 的跨层 matrix 防止回漂。
+- **证据**：Phase 64.1 commits `deb8ee3`、`74e78d7`、`e2408ec`、`a0773b8`；`src/agent/safety/taxonomy.py`、`src/agent/nodes/recommendation_generation.py`、`src/agent/nodes/risk_gate.py`、`src/agent/routing.py`、`tests/agent/test_safety_taxonomy.py`、`tests/agent/test_nodes/test_risk_gate.py`、`tests/integration/test_phase64_1_runtime_safety_matrix.py`、`tests/architecture/test_runtime_safety_boundaries.py`。
+- **验证**：Plan 01 focused → `226 passed`；Plan 02 focused → `69 passed`；Plan 06 matrix → `26 passed`；Phase 64.1 exact backend full gate → `2862 passed, 1 skipped, 109 warnings in 837.35s`；全量 Ruff → `All checks passed!`。
+- **剩余风险/明确 defer**：🟡 Phase 69 才负责 LLM provider/model gateway 与 observability；Phase 66 才负责 general operation/tool gateway。既有 ID-02“未校准的 LLM 自报 confidence”仍是本节独立开放债务，本次 risk no-downgrade 修复不等于完成 confidence calibration。
 
 ## 2026-07-09 — direct-response intent 缺少专用最终回复模板 ✅
 

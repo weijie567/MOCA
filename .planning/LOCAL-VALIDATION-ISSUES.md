@@ -21215,3 +21215,23 @@ Plan 05 开始时，Plan 04 留下的两个 graph 用例仍断言 `risk_assessme
 
 **剩余问题和下次继续排查入口**
 本条无未解决产品或测试阻塞。Phase 64.1-06 应继续把 architecture baseline 与 route vocabulary 作为最终 guard；长测试必须保留并轮询真实 session 至明确 exit code，不能把输出通道结束当成测试结束。
+
+## 2026-07-10 — Phase 64.1-06 最终矩阵、architecture guard 与全量门禁事故
+
+**问题现象**
+Plan 06 组装跨层 safety matrix 与 mocked Playwright 时先后遇到四类本地测试 wiring 问题：matrix 从 `src.agent.routing` 导入了实际由 `src.agent.graph` export 的 `route_after_risk`，导致 collection ImportError；Playwright 在 Node ESM 下直接导入共享 JSON fixture 时缺少 import attribute；draft-failure mock 先返回 approval 交互、decision 后再切 error 的状态机与 hook freshness 不一致；新增 Python 测试残留一个未使用 import。随后 exact architecture gate 暴露两个旧 guard 假设：`tests/architecture/test_approval_boundaries.py` 用过宽的 `src.business` prefix 把 Phase 62 合法 query schema/registry 当成 raw persistence access，canonical graph baseline 又把所有 route key 都假设成 node，无法表示 Plan 05 已引入的 `terminal_error` control key。最后，第一轮 exact backend full gate 有 4 个 Phase 22 final-response 用例失败。
+
+**如何检测/复现**
+依次运行 Plan 06 focused matrix、`cd frontend && npm test -- --run && npm run e2e`、Task 2 exact architecture gate，以及 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent tests/approvals tests/actions tests/architecture tests/integration/test_phase64_1_runtime_safety_matrix.py tests/test_approval_api.py tests/test_approval_integration.py tests/test_graph_routing.py tests/test_agent_runs_api.py -q --tb=short`。第一轮 full gate 的失败集中在 `tests/agent/test_phase22_final_response.py` 的 evidence/manual-review failure 场景。
+
+**关键证据或命令**
+matrix 修复后得到 `26 passed, 3 warnings in 58.22s`；Task 2 exact architecture gate 得到 `42 passed, 1 warning in 8.63s`，supplemental canonical baseline 得到 `21 passed, 1 warning in 1.41s`。第一轮 exact backend full gate 为 `4 failed, 2858 passed, 1 skipped, 109 warnings in 835.17s`；失败断言显示既有 evidence/claim verification non-allow 被改写成 `ACTION_DRAFT_TERMINAL_FAILED`。修复后 focused final/graph regression 为 `153 passed, 1 warning`，第二轮同一 exact full gate为 `2862 passed, 1 skipped, 109 warnings in 837.35s`。最终全量 Ruff 为 `All checks passed!`；frontend chained gate 为 Vitest `4 files / 20 tests`、build 通过、mocked desktop/mobile Playwright `16 passed in 1.8m`。
+
+**当前判断/根因**
+导入路径、Node JSON import attribute、mock 状态机和 unused import 属于本轮测试 wiring 问题。两个 architecture 失败属于 guard 过宽/旧 graph vocabulary 假设，不是生产边界放宽。full gate 的 4 个失败则是确认的产品回归：Plan 05 action-draft terminal guard 在 `final_response` 中早于权威 evidence/claim verification non-allow 投影执行，使含 stale/malicious action-shaped 字段的真实 evidence failure 被错误分类为 draft failure，覆盖了原始安全结论。
+
+**已做处理**
+matrix 改从 canonical graph owner 导入 route；Playwright 使用 `with { type: "json" }` 直接消费同一个 repository fixture；draft-failure E2E 收敛为独立 mocked terminal-error flow且继续断言无 completed success；删除 unused import。approval guard 只禁止真实 raw adapter/repository/service persistence prefixes，不再泛禁整个 `src.business`；graph baseline 显式区分 node route 与 `terminal_error` control key，并锁定 conditional action-draft mapping。commit `8ae3c4b` 将 `project_action_draft_terminal` 检查移到权威 evidence/claim verification non-allow 处理之后，保留 draft terminal fail-closed，但不再覆盖更早的验证失败。
+
+**剩余问题和下次继续排查入口**
+本条无未解决产品或测试阻塞；Phase 64.1 exact backend、Ruff、frontend test/build/E2E 已全部通过。109 条 backend warnings 仍是既有 LangGraph/LangChain annotation/deprecation warning，未被当成失败隐藏。后续若 final-response 或 graph terminal 再改动，先跑 `tests/agent/test_phase22_final_response.py`、`tests/agent/test_nodes/test_final_response.py`、`tests/test_graph_routing.py` 和 `tests/test_agent_runs_api.py`，再跑 Plan 06 exact full gate；architecture scan 必须保持具体 prefix/AST owner，不得恢复 generic-string 全仓误报。
