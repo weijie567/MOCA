@@ -1,6 +1,6 @@
 ---
 phase: 64-rag-risk-label-unification
-reviewed: 2026-07-09T20:34:42Z
+reviewed: 2026-07-10T00:18:48Z
 depth: deep
 files_reviewed: 10
 files_reviewed_list:
@@ -16,43 +16,62 @@ files_reviewed_list:
   - tests/architecture/test_rag_risk_label_boundaries.py
 findings:
   critical: 0
-  warning: 0
-  info: 0
-  total: 0
-status: clean
+  warning: 1
+  info: 1
+  total: 2
+status: issues_found
 ---
 
 # Phase 64: Code Review Report
 
-**Reviewed:** 2026-07-09T20:34:42Z
+**Reviewed:** 2026-07-10T00:18:48Z
 **Depth:** deep
 **Files Reviewed:** 10
-**Status:** clean
+**Status:** issues_found
 
 ## Summary
 
-Reviewed the Phase 64 RAG risk label unification changes at deep depth, including the canonical registry, all migrated caller paths, focused regression tests, and the architecture drift guard. The implementation keeps route reason codes out of prompt-safe evidence labels, preserves `manual_review_sensitive` across safe RAG projections, and removes the prior copied label sets from builder, recommendation generation, verifier, routing, and metrics.
+Reviewed the bounded Phase 64 RAG risk label unification scope against the current working tree, including the canonical registry, builder projections, verifier semantic triggers, backend route mappings, hallucination metrics, recommendation-generation label filtering, and architecture drift guards. The registry correctly keeps route reason codes out of prompt-safe evidence labels, preserves `manual_review_sensitive` for single-entry safe projections, and keeps semantic provider route reasons route-only.
 
-Cross-file checks covered these paths:
+The main issue is in the builder's aggregation of risk hints: duplicate entries for the same evidence id replace earlier safe labels instead of merging them. That can drop `manual_review_sensitive` before it reaches prompt/citation/verifier surfaces.
 
-- `risk_labels.py` helper API to `builder.py` prompt-safe citation and safe-context projections.
-- `risk_labels.py` helper API to recommendation evidence risk hint filtering.
-- `risk_labels.py` semantic trigger helper to verifier level-2 and level-3 decisions.
-- `risk_labels.py` route reason groups to deterministic backend routing.
-- `risk_labels.py` metric trigger and routing groups to hallucination metrics.
-- `test_rag_risk_label_boundaries.py` AST guard against reintroduced local source-of-truth sets in migrated callers.
+## Warnings
 
-All reviewed files meet quality standards. No issues found.
+### WR-01: Duplicate Risk Hints Can Drop Manual Review Labels
+
+**File:** `/Users/ming/projects/MOCA/src/agent/rag_context/builder.py:421`
+**Issue:** `_risk_labels_by_evidence_id` assigns `labels[evidence_id] = ...` for each hint. If the input contains more than one hint for the same evidence id, the later entry overwrites earlier safe labels. A later entry with `["authority_checked"]` or only unknown labels would remove a prior `manual_review_sensitive`, so `citation_map.risk_labels` and verifier `_snippet_risk_labels()` no longer trigger semantic/manual-review handling for that evidence. The current tests cover unknown-label filtering within one hint, but not duplicate hint merging.
+**Fix:**
+```python
+def _risk_labels_by_evidence_id(hints: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
+    labels: dict[str, list[str]] = {}
+    for hint in hints:
+        evidence_id = str(hint.get("evidence_id") or "")
+        if not evidence_id:
+            continue
+        bucket = labels.setdefault(evidence_id, [])
+        for label in filter_prompt_safe_risk_labels(hint.get("labels") or []):
+            if label not in bucket:
+                bucket.append(label)
+    return labels
+```
+Add a regression test with two `risk_hints` entries for the same evidence id, where the first contains `manual_review_sensitive` and the second contains another safe label plus an unknown label.
+
+## Info
+
+### IN-01: Drift Guard Is Tied To Old Local Variable Names
+
+**File:** `/Users/ming/projects/MOCA/tests/architecture/test_rag_risk_label_boundaries.py:19`
+**Issue:** The architecture guard prevents reintroducing a few exact old names such as `_SAFE_RISK_LABELS` and `_ROUTE_MANUAL_REVIEW_REASONS`, but a duplicate source set under a new name in the same migrated files would pass. That weakens the taxonomy-drift guard this phase is trying to establish.
+**Fix:** Extend the AST guard to detect collection literals or assignments outside `src/agent/rag_context/risk_labels.py` that contain multiple canonical risk-label strings, regardless of variable name. Keep the explicit import-origin check as a second guard.
 
 ## Verification
 
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_risk_labels.py tests/agent/rag_context/test_context_builder.py tests/agent/test_nodes/test_recommendation_generation.py tests/agent/rag_context/test_semantic_verifier.py tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_routing.py tests/agent/rag_context/test_metrics.py tests/architecture/test_rag_risk_label_boundaries.py -q --tb=short`
-  - Result: `128 passed, 1 warning`
-- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/rag_context/risk_labels.py src/agent/rag_context/builder.py src/agent/rag_context/verifier.py src/agent/rag_context/routing.py src/agent/rag_context/metrics.py src/agent/nodes/recommendation_generation.py tests/agent/rag_context/test_risk_labels.py tests/agent/rag_context/test_context_builder.py tests/agent/rag_context/test_semantic_verifier.py tests/agent/rag_context/test_routing.py tests/agent/rag_context/test_metrics.py tests/agent/test_nodes/test_recommendation_generation.py tests/architecture/test_rag_risk_label_boundaries.py`
-  - Result: `All checks passed!`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_context_builder.py tests/agent/rag_context/test_metrics.py tests/agent/rag_context/test_risk_labels.py tests/architecture/test_rag_risk_label_boundaries.py -q`
+  - Result: `18 passed, 1 warning`
 
 ---
 
-_Reviewed: 2026-07-09T20:34:42Z_
+_Reviewed: 2026-07-10T00:18:48Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
