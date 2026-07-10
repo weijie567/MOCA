@@ -219,6 +219,44 @@ async def test_manual_review_sensitive_survives_prompt_safe_risk_label_projectio
 
 
 @pytest.mark.asyncio
+async def test_duplicate_risk_hints_merge_prompt_safe_labels_for_same_evidence() -> None:
+    """Phase 64 review: duplicate hints must merge safe labels without exposing unknown labels."""
+    ContextBuilder, _RagContextBundle = _load_context_api()
+    text = "Duplicate risk hints for one evidence id must preserve manual review labels."
+    evidence = _evidence_ref(text=text)
+    service = FakePolicyKnowledgeService({evidence.evidence_id: text})
+
+    bundle = await ContextBuilder(policy_service=service, max_snippet_chars=180).build(
+        candidate_evidence_refs=[evidence],
+        business_fact_refs=[_business_fact_ref()],
+        trusted_context=_trusted_context(),
+        risk_hints=[
+            {
+                "evidence_id": evidence.evidence_id,
+                "labels": ["manual_review_sensitive", "raw_debug_secret"],
+            },
+            {
+                "evidence_id": evidence.evidence_id,
+                "labels": ["authority_checked", "raw_debug_secret"],
+            },
+        ],
+    )
+
+    expected_labels = ["manual_review_sensitive", "authority_checked"]
+    assert bundle.prompt_context.citations[0].risk_labels == expected_labels
+    assert bundle.citation_map["C1"].risk_labels == expected_labels
+    assert bundle.prompt_context.risk_labels == expected_labels
+    assert bundle.final_response_context.risk_labels == expected_labels
+    assert "raw_debug_secret" not in _json_text(
+        {
+            "prompt_context": bundle.prompt_context,
+            "final_response_context": bundle.final_response_context,
+            "citation_map": bundle.citation_map,
+        }
+    )
+
+
+@pytest.mark.asyncio
 async def test_duplicate_and_adjacent_evidence_merge_projection_without_rewriting_identity() -> None:
     """CTX-04: dedupe and projection-only merging cannot rewrite EvidenceRefV1 identity."""
     ContextBuilder, _RagContextBundle = _load_context_api()

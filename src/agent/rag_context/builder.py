@@ -424,7 +424,10 @@ def _risk_labels_by_evidence_id(hints: Sequence[Mapping[str, Any]]) -> dict[str,
         evidence_id = str(hint.get("evidence_id") or "")
         if not evidence_id:
             continue
-        labels[evidence_id] = filter_prompt_safe_risk_labels(hint.get("labels") or [])
+        bucket = labels.setdefault(evidence_id, [])
+        for label in filter_prompt_safe_risk_labels(hint.get("labels") or []):
+            if label not in bucket:
+                bucket.append(label)
     return labels
 
 

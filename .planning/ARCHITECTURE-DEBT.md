@@ -1885,6 +1885,29 @@
 - 🟡 RAG risk label 的前端展示文案、trace/console label 一致性不在 Phase 64 范围内，已明确 defer 到 Phase 65。
 - 🟡 route reason code 与 evidence risk label 仍在同一 registry 文件中有少量耦合分组；Phase 64 已用 docstring、trigger 命名和 tests 锁定边界，若后续 reason code 体系扩大，应在 Phase 65 或后续 RAG quality phase 单独拆 registry。
 
+## 2026-07-10 — Phase 64 review fix — duplicate `risk_hints` 合并缺口已修复验证 ✅
+
+**子系统**
+- RAG / ContextBuilder / risk label projection
+
+**问题现象 / 根因**
+- Phase 64 code review WR-01 发现 `_risk_labels_by_evidence_id(...)` 对同一 `evidence_id` 的多条 `risk_hints` 逐条赋值覆盖，后一条 hint 会替换前一条已过滤出的 prompt-safe label。
+
+**影响**
+- 若第一条 hint 含 `manual_review_sensitive`、后一条只含 `authority_checked` 或 unknown label，`citation_map.risk_labels` 和 prompt/final safe context 可能丢失 manual-review 语义，导致 verifier / recommendation 下游无法稳定识别敏感证据。
+
+**处理状态**
+- ✅ 已修复验证。`src/agent/rag_context/builder.py` 改为按 `evidence_id` 建 bucket，并在保持输入顺序的前提下合并 prompt-safe labels、去重、继续过滤 unknown labels。
+- ✅ 新增 `tests/agent/rag_context/test_context_builder.py::test_duplicate_risk_hints_merge_prompt_safe_labels_for_same_evidence`，覆盖同一 evidence id 两条 hint 中 `manual_review_sensitive` 与 `authority_checked` 同时保留、`raw_debug_secret` 不进入安全投影。
+
+**证据 / 验证**
+- Phase 64 REVIEW WR-01；文件：`src/agent/rag_context/builder.py`、`tests/agent/rag_context/test_context_builder.py`。
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_context_builder.py -q --tb=short` → `7 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/rag_context/builder.py tests/agent/rag_context/test_context_builder.py` → `All checks passed!`
+
+**剩余风险**
+- 🟡 本次只修复同一 evidence id 多条 risk hint 的合并语义；跨 evidence merge、route reason code 与 evidence risk label 分组边界仍沿用 Phase 64 既定 registry 设计。
+
 ## 2026-07-09 — Phase 62-66 覆盖矩阵补齐项（源码级硬编码审查）⚠️待规划落地
 
 **子系统**
