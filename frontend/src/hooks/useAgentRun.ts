@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createRun, decideApproval, getRunStatus } from '@/lib/api'
+import { createRun, decideApproval, getApproval, getRunStatus, parseApprovalDecisionContext } from '@/lib/api'
+import type { ApprovalDecisionContextV1 } from '@/lib/api'
 import { connectToRunEvents } from '@/lib/sse'
 import type { ChatMessage, RunStatus, SseEvent } from '@/types/events'
 
@@ -12,6 +13,8 @@ interface AgentRunState {
   messages: ChatMessage[]
   finalResponse: string | null
   approvalId: string | null
+  approvalContext: ApprovalDecisionContextV1 | null
+  approvalContextFresh: boolean
   activeAssistantMessageId: string | null
   error: string | null
 }
@@ -23,6 +26,8 @@ const INITIAL_STATE: AgentRunState = {
   messages: [],
   finalResponse: null,
   approvalId: null,
+  approvalContext: null,
+  approvalContextFresh: false,
   activeAssistantMessageId: null,
   error: null,
 }
@@ -348,6 +353,10 @@ export function useAgentRun() {
             }
             const nextStatus = runStatusFromEvent(current.status, event)
             const approvalId = event.payload?.approval_id ?? current.approvalId
+            const incomingContext = parseApprovalDecisionContext(event.payload?.decision_context)
+            const approvalContext = incomingContext && incomingContext.run_id === runId
+              ? incomingContext
+              : current.approvalContext
             const finalResponse = event.payload?.final_response ?? current.finalResponse
             const errorMessage = event.payload?.error_message ?? current.error ?? DEFAULT_ERROR_MESSAGE
 
@@ -378,6 +387,8 @@ export function useAgentRun() {
               steps: upsertTimelineEvent(current.steps, event),
               messages,
               approvalId,
+              approvalContext,
+              approvalContextFresh: incomingContext?.run_id === runId,
               finalResponse,
               activeAssistantMessageId:
                 event.event_type === 'final_response' || nextStatus === 'failed'
@@ -390,13 +401,13 @@ export function useAgentRun() {
         onError(error) {
           if (generation !== runGenerationRef.current) return
           if (closeExpectedRef.current) return
-          setState((current) => ({ ...current, status: 'disconnected', error: error.message }))
+          setState((current) => ({ ...current, status: 'disconnected', approvalContextFresh: false, error: error.message }))
           void recoverRunStatus(runId, generation)
         },
         onClose() {
           if (generation !== runGenerationRef.current) return
           if (closeExpectedRef.current) return
-          setState((current) => ({ ...current, status: 'disconnected' }))
+          setState((current) => ({ ...current, status: 'disconnected', approvalContextFresh: false }))
           void recoverRunStatus(runId, generation)
         },
       })
@@ -477,13 +488,20 @@ export function useAgentRun() {
   )
 
   const approveRun = useCallback(async () => {
-    if (!state.approvalId || !state.runId) return
+    if (!state.approvalContext || !state.approvalContextFresh || !state.runId) return
     try {
-      const result = await decideApproval(state.approvalId, 'approve', 'Approved from MOCA demo console')
+      const latest = await getApproval(state.approvalContext.approval_id)
+      if (!latest.success) {
+        setState((current) => ({ ...current, approvalContextFresh: false, error: latest.error.message }))
+        return
+      }
+      const frozen = latest.data.decision_context
+      const result = await decideApproval(frozen, { decision_type: 'approve' })
       if (!result.success) {
+        await getApproval(frozen.approval_id)
         setState((current) => ({
           ...current,
-          status: 'failed',
+          approvalContextFresh: false,
           error: result.error?.message ?? '审批提交失败',
         }))
         return
@@ -491,23 +509,31 @@ export function useAgentRun() {
       setState((current) => ({ ...current, status: 'running', error: null }))
       startPolling(state.runId)
     } catch {
+      if (state.approvalContext) await getApproval(state.approvalContext.approval_id)
       setState((current) => ({
         ...current,
-        status: 'failed',
-        error: '审批提交失败',
+        approvalContextFresh: false,
+        error: '提交结果未确认，正在查询最新状态。请勿重复提交。',
       }))
     }
-  }, [startPolling, state.approvalId, state.runId])
+  }, [startPolling, state.approvalContext, state.approvalContextFresh, state.runId])
 
   const rejectRun = useCallback(
     async (reason: string) => {
-      if (!state.approvalId || !state.runId) return
+      if (!state.approvalContext || !state.approvalContextFresh || !state.runId || !reason.trim()) return
       try {
-        const result = await decideApproval(state.approvalId, 'reject', reason)
+        const latest = await getApproval(state.approvalContext.approval_id)
+        if (!latest.success) {
+          setState((current) => ({ ...current, approvalContextFresh: false, error: latest.error.message }))
+          return
+        }
+        const frozen = latest.data.decision_context
+        const result = await decideApproval(frozen, { decision_type: 'reject', reason })
         if (!result.success) {
+          await getApproval(frozen.approval_id)
           setState((current) => ({
             ...current,
-            status: 'failed',
+            approvalContextFresh: false,
             error: result.error?.message ?? '审批提交失败',
           }))
           return
@@ -524,14 +550,15 @@ export function useAgentRun() {
         }))
         startPolling(state.runId)
       } catch {
+        if (state.approvalContext) await getApproval(state.approvalContext.approval_id)
         setState((current) => ({
           ...current,
-          status: 'failed',
-          error: '审批提交失败',
+          approvalContextFresh: false,
+          error: '提交结果未确认，正在查询最新状态。请勿重复提交。',
         }))
       }
     },
-    [startPolling, state.approvalId, state.runId],
+    [startPolling, state.approvalContext, state.approvalContextFresh, state.runId],
   )
 
   const reset = useCallback(() => {

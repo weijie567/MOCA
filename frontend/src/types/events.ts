@@ -51,6 +51,7 @@ export interface SseEventPayload {
   risk_level?: string
   short_summary?: string
   approval_id?: string
+  decision_context?: ApprovalDecisionContextV1
   proposed_action?: Record<string, unknown>
   final_response?: string
   response_kind?:
@@ -101,3 +102,4 @@ export interface ChatMessage {
   status: 'completed' | 'pending' | 'error'
   runId?: string
 }
+import type { ApprovalDecisionContextV1 } from '@/lib/api'

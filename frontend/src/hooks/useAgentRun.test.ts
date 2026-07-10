@@ -12,6 +12,11 @@ vi.mock('@/lib/api', () => ({
   createRun: vi.fn(),
   decideApproval: vi.fn(),
   getPendingApprovals: vi.fn().mockResolvedValue({ success: true, data: { approvals: [], total: 0 } }),
+  getApproval: vi.fn(),
+  parseApprovalDecisionContext: vi.fn((value: unknown) => {
+    if (typeof value !== 'object' || value === null) return null
+    return (value as { schema_version?: string }).schema_version === 'approval_decision_context.v1' ? value : null
+  }),
   getRunEvidence: vi.fn().mockResolvedValue({ success: true, data: { evidence: [] } }),
   getRunStatus: vi.fn(),
   getRunTrace: vi.fn().mockResolvedValue({ success: true, data: { run_id: 'run-1', steps: [], timeline: [] } }),

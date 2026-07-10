@@ -10,10 +10,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@contracts': path.resolve(__dirname, '../contracts'),
     },
   },
   server: {
     port: 3000,
+    fs: { allow: [path.resolve(__dirname, '..')] },
     proxy: {
       '/api': {
         target: apiProxyTarget,
