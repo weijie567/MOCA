@@ -1873,6 +1873,7 @@
 - ✅ `builder.py` 改为使用 `filter_prompt_safe_risk_labels(...)`，`manual_review_sensitive` 可进入现有安全投影面，unknown label 继续 fail-closed。
 - ✅ `recommendation_generation.py`、`verifier.py`、`routing.py`、`metrics.py` 均迁移到 registry helper / group。
 - ✅ 新增 `tests/architecture/test_rag_risk_label_boundaries.py`，防止迁移后的 caller 重新定义 `_SAFE_RISK_LABELS`、`_SAFE_EVIDENCE_RISK_LABELS`、`_ROUTING_RISK_LABELS`、`_ROUTE_MANUAL_REVIEW_REASONS`、`_ROUTE_STALE_OR_OCR_REASONS`，并校验 helper import source。
+- ✅ Phase 64 review IN-01 已补强 drift guard：同一 architecture test 现在会扫描迁移后 caller 的 AST，只要集合字面量或 collection assignment 硬编码两个及以上 canonical RAG risk-label 字符串即失败，避免用新变量名重新建立本地标签事实源。
 
 **证据 / 验证**
 - Phase 64 Plan 01-04；summary：`.planning/phases/64-rag-risk-label-unification/64-01-SUMMARY.md`、`64-02-SUMMARY.md`、`64-03-SUMMARY.md`、`64-04-SUMMARY.md`。
@@ -1880,6 +1881,7 @@
 - Tests：`tests/agent/rag_context/test_risk_labels.py`、`tests/agent/rag_context/test_context_builder.py`、`tests/agent/rag_context/test_semantic_verifier.py`、`tests/agent/rag_context/test_verifier.py`、`tests/agent/rag_context/test_routing.py`、`tests/agent/rag_context/test_metrics.py`、`tests/agent/test_nodes/test_recommendation_generation.py`、`tests/architecture/test_rag_risk_label_boundaries.py`。
 - Focused verification：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_risk_labels.py tests/agent/rag_context/test_context_builder.py tests/agent/test_nodes/test_recommendation_generation.py tests/agent/rag_context/test_semantic_verifier.py tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_routing.py tests/agent/rag_context/test_metrics.py tests/architecture/test_rag_risk_label_boundaries.py -q --tb=short`。
 - Focused ruff：`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/rag_context/risk_labels.py src/agent/rag_context/builder.py src/agent/rag_context/verifier.py src/agent/rag_context/routing.py src/agent/rag_context/metrics.py src/agent/nodes/recommendation_generation.py tests/agent/rag_context/test_risk_labels.py tests/agent/rag_context/test_context_builder.py tests/agent/rag_context/test_semantic_verifier.py tests/agent/rag_context/test_routing.py tests/agent/rag_context/test_metrics.py tests/agent/test_nodes/test_recommendation_generation.py tests/architecture/test_rag_risk_label_boundaries.py`。
+- Review fix IN-01：`tests/architecture/test_rag_risk_label_boundaries.py`；`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_rag_risk_label_boundaries.py -q --tb=short` → `3 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check tests/architecture/test_rag_risk_label_boundaries.py` → `All checks passed!`。
 
 **剩余风险**
 - 🟡 RAG risk label 的前端展示文案、trace/console label 一致性不在 Phase 64 范围内，已明确 defer 到 Phase 65。

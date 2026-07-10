@@ -32,6 +32,12 @@ REGISTRY_IMPORT_NAMES = {
     "requires_semantic_review_for_risk_hints",
     "routing_risk_labels",
 }
+CANONICAL_RAG_RISK_LABEL_STRINGS = frozenset(
+    risk_labels.SAFE_EVIDENCE_RISK_LABELS
+    | risk_labels.SEMANTIC_REVIEW_RISK_LABELS
+    | risk_labels.MANUAL_REVIEW_TRIGGER_RISK_LABELS
+    | risk_labels.ROUTING_RISK_LABELS
+)
 
 
 def _source(path: Path) -> str:
@@ -59,6 +65,25 @@ def _is_collection_source_value(node: ast.AST) -> bool:
     return isinstance(value, ast.Tuple | ast.List | ast.Set | ast.Dict | ast.Call | ast.GeneratorExp | ast.SetComp)
 
 
+def _canonical_risk_label_strings_in(node: ast.AST) -> list[str]:
+    strings = {
+        child.value
+        for child in ast.walk(node)
+        if isinstance(child, ast.Constant)
+        and isinstance(child.value, str)
+        and child.value in CANONICAL_RAG_RISK_LABEL_STRINGS
+    }
+    return sorted(strings)
+
+
+def _is_local_risk_label_source_set(node: ast.AST) -> bool:
+    if isinstance(node, ast.Tuple | ast.List | ast.Set | ast.Dict):
+        return len(_canonical_risk_label_strings_in(node)) >= 2
+    if isinstance(node, ast.Assign | ast.AnnAssign) and _is_collection_source_value(node):
+        return len(_canonical_risk_label_strings_in(node)) >= 2
+    return False
+
+
 def test_canonical_rag_risk_label_owner_exports_expected_helper_api() -> None:
     assert CANONICAL_RAG_RISK_LABEL_PATH.exists()
     for helper_name in (
@@ -81,15 +106,20 @@ def test_canonical_rag_risk_label_owner_exports_expected_helper_api() -> None:
 
 
 def test_no_duplicate_rag_risk_label_source_sets_outside_registry() -> None:
-    violations: list[tuple[str, int, str]] = []
+    violations: list[tuple[str, int, str, str]] = []
     for path in MIGRATED_CALLER_PATHS:
         for node in ast.walk(_tree(path)):
             target_names = _assignment_target_names(node)
-            if not target_names or not _is_collection_source_value(node):
-                continue
-            for name in target_names:
-                if name in FORBIDDEN_LOCAL_SOURCE_NAMES:
-                    violations.append((_relative(path), getattr(node, "lineno", 0), name))
+            if target_names and _is_collection_source_value(node):
+                for name in target_names:
+                    if name in FORBIDDEN_LOCAL_SOURCE_NAMES:
+                        violations.append(
+                            (_relative(path), getattr(node, "lineno", 0), name, "retired local source name")
+                        )
+            if _is_local_risk_label_source_set(node):
+                labels = ", ".join(_canonical_risk_label_strings_in(node))
+                names = ", ".join(target_names) if target_names else type(node).__name__
+                violations.append((_relative(path), getattr(node, "lineno", 0), names, labels))
 
     assert violations == []
 
