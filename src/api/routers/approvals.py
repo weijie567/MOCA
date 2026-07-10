@@ -73,6 +73,11 @@ async def decide_approval(
 
     approval_uuid = _parse_approval_id(approval_id)
     service = ApprovalService(session)
+    scoped_approval = await _get_scoped_approval_or_404(service, user, approval_uuid)
+    if scoped_approval.requested_by == user.id:
+        raise HTTPException(
+            status_code=403, detail={"code": "SELF_APPROVAL", "message": "Cannot approve own request"}
+        )
     try:
         retry_result = await _recoverable_resume_retry_result(
             session=session,
@@ -86,7 +91,7 @@ async def decide_approval(
     if retry_result is not None:
         approval = await session.get(ApprovalRequest, retry_result.approval_id)
         if approval is None:
-            raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
+            raise _approval_not_found()
         _assert_approval_scope(user, approval)
         if approval.requested_by == user.id:
             raise HTTPException(
@@ -116,7 +121,7 @@ async def decide_approval(
     if context is None:
         terminal_request = await service.get_request(approval_uuid, user.tenant_id)
         if terminal_request is None:
-            raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
+            raise _approval_not_found()
         _assert_approval_scope(user, terminal_request)
         raise _approval_http_error(ApprovalTransitionError("approval_conflict"))
 
@@ -185,10 +190,7 @@ async def attach_approval_info(
 
     approval_uuid = _parse_approval_id(approval_id)
     service = ApprovalService(session)
-    approval = await service.get_request(approval_uuid, user.tenant_id)
-    if approval is None:
-        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
-    _assert_approval_scope(user, approval)
+    approval = await _get_scoped_approval_or_404(service, user, approval_uuid)
     command = ApprovalInfoCommand(
         approval_id=approval_uuid,
         clarification_request_id=body.clarification_request_id,
@@ -233,10 +235,7 @@ async def get_approval(
     _assert_approval_reviewer(user)
     service = ApprovalService(session)
     approval_uuid = _parse_approval_id(approval_id)
-    approval = await service.get_request(approval_uuid, user.tenant_id)
-    if approval is None:
-        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
-    _assert_approval_scope(user, approval)
+    approval = await _get_scoped_approval_or_404(service, user, approval_uuid)
     decision_context = None
     if approval.status == "pending":
         try:
@@ -972,10 +971,22 @@ def _approval_scope_allowed(user: User, approval: ApprovalRequest) -> bool:
 def _assert_approval_scope(user: User, approval: ApprovalRequest) -> None:
     if _approval_scope_allowed(user, approval):
         return
-    raise HTTPException(
-        status_code=403,
-        detail={"code": "FORBIDDEN", "message": "Approval target merchant is outside actor scope"},
-    )
+    raise _approval_not_found()
+
+
+async def _get_scoped_approval_or_404(
+    service: ApprovalService,
+    user: User,
+    approval_id: UUID,
+) -> ApprovalRequest:
+    approval = await service.get_request(approval_id, user.tenant_id)
+    if approval is None or not _approval_scope_allowed(user, approval):
+        raise _approval_not_found()
+    return approval
+
+
+def _approval_not_found() -> HTTPException:
+    return HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
 
 
 def _approval_binding_fields(approval: ApprovalRequest) -> dict[str, object]:

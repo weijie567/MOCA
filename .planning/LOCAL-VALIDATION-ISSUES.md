@@ -21275,3 +21275,23 @@ matrix 改从 canonical graph owner 导入 route；Playwright 使用 `with { typ
 
 **剩余问题和下次继续排查入口**
 本条无未解决产品或测试阻塞；Phase 64.1 exact backend、Ruff、frontend test/build/E2E 已全部通过。109 条 backend warnings 仍是既有 LangGraph/LangChain annotation/deprecation warning，未被当成失败隐藏。后续若 final-response 或 graph terminal 再改动，先跑 `tests/agent/test_phase22_final_response.py`、`tests/agent/test_nodes/test_final_response.py`、`tests/test_graph_routing.py` 和 `tests/test_agent_runs_api.py`，再跑 Plan 06 exact full gate；architecture scan 必须保持具体 prefix/AST owner，不得恢复 generic-string 全仓误报。
+
+## 2026-07-10 — Phase 64.1 code-review manager no-existence-leak 测试编写修正
+
+**问题现象**
+第二轮 code-review 修复首次运行 manager 跨商户 no-existence-leak 定向测试时得到 `2 failed, 4 passed`：一项把标准 API error envelope 的 `details: {}` 漏出预期值；另一项在审批恢复提交触发 commit 后才从已 expired 的 SQLAlchemy ORM fixture 读取 level/version，导致 `MissingGreenlet`。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py -q --tb=short -k 'manager_approval_review_paths or manager_cross_merchant_resume_retry or cross_tenant_approval_does_not_leak or self_approval'`。
+
+**关键证据或命令**
+首轮失败分别为 error payload 左侧多出 `details: {}`，以及 `_decision_body(bundle)` 在 commit 后读取 `bundle.level.version` 时触发 async lazy load。修正测试后同一定向命令为 `6 passed`；完整 `tests/test_approval_api.py` 为 `41 passed, 1 warning in 108.13s`。
+
+**当前判断/根因**
+两项均为本轮新增测试的 fixture/assertion 编写问题，不是产品实现错误，也不是项目 Python/pytest 入口问题。API 标准错误 envelope 与 ORM `expire_on_commit` 行为符合现有仓库约定。
+
+**已做处理**
+错误 parity 断言纳入标准空 `details`；恢复失败场景在 mutation 前冻结 approval id、revision 与完整 decision body，之后只使用冻结值验证跨商户请求在 binding 校验前返回与不存在资源相同的 404。
+
+**剩余问题和下次继续排查入口**
+无剩余阻塞。后续 approval mutation 测试凡需在 commit 后重用绑定字段，应在请求前冻结原始标量/body，避免从 expired ORM 对象隐式触发异步查询。

@@ -1907,13 +1907,85 @@ async def test_manager_approval_review_paths_deny_cross_merchant(
         json=_decision_body(bundle),
         headers=manager_headers,
     )
+    absent_id = uuid4()
+    absent_get_response = await client.get(f"/api/v1/approvals/{absent_id}", headers=manager_headers)
+    absent_decide_response = await client.post(
+        f"/api/v1/approvals/{absent_id}/decide",
+        json=_decision_body(bundle),
+        headers=manager_headers,
+    )
 
     assert list_response.status_code == 200
     assert list_response.json()["data"]["total"] == 0
-    assert get_response.status_code == 403
-    assert decide_response.status_code == 403
-    assert get_response.json()["error"]["code"] == "FORBIDDEN"
-    assert decide_response.json()["error"]["code"] == "FORBIDDEN"
+    assert get_response.status_code == absent_get_response.status_code == 404
+    assert decide_response.status_code == absent_decide_response.status_code == 404
+    assert get_response.json()["error"] == absent_get_response.json()["error"] == {
+        "code": "NOT_FOUND",
+        "message": "Approval not found",
+        "details": {},
+    }
+    assert decide_response.json()["error"] == absent_decide_response.json()["error"] == {
+        "code": "NOT_FOUND",
+        "message": "Approval not found",
+        "details": {},
+    }
+
+
+@pytest.mark.asyncio
+async def test_manager_cross_merchant_resume_retry_is_hidden_before_binding_checks(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    other_support = seeded_session["users"]["cs_other_merchant"]
+    bundle = await _create_approval(
+        session,
+        seeded_session,
+        requested_by=other_support,
+        thread_id="thread-manager-cross-resume-hidden",
+    )
+    graph = FakeResumeGraph("approved response")
+    original_record_resume_event = approvals_router._record_resume_event
+
+    async def fail_completed_resume_event(**kwargs):
+        if kwargs.get("resume_status") == "completed":
+            raise RuntimeError("simulated completed resume event failure")
+        return await original_record_resume_event(**kwargs)
+
+    monkeypatch.setattr(approvals_router, "_record_resume_event", fail_completed_resume_event)
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    approval_id = bundle.approval.id
+    decision_body = _decision_body(bundle)
+    original_revision = int(bundle.approval.revision or 0)
+    admin_response = await client.post(
+        f"/api/v1/approvals/{approval_id}/decide",
+        json=decision_body,
+        headers=await _admin_headers(client),
+    )
+    assert admin_response.status_code == 500
+    assert admin_response.json()["error"]["code"] == "APPROVAL_RESUME_FAILED"
+
+    tampered_body = {**decision_body, "expected_revision": original_revision + 99}
+    manager_headers = await _manager_headers(client)
+    hidden_response = await client.post(
+        f"/api/v1/approvals/{approval_id}/decide",
+        json=tampered_body,
+        headers=manager_headers,
+    )
+    absent_response = await client.post(
+        f"/api/v1/approvals/{uuid4()}/decide",
+        json=tampered_body,
+        headers=manager_headers,
+    )
+
+    assert hidden_response.status_code == absent_response.status_code == 404
+    assert hidden_response.json()["error"] == absent_response.json()["error"] == {
+        "code": "NOT_FOUND",
+        "message": "Approval not found",
+        "details": {},
+    }
+    assert len(graph.calls) == 1
 
 
 @pytest.mark.asyncio
