@@ -1313,6 +1313,74 @@ async def test_approval_resume_error_skips_terminal_finalizer_surfaces(
 
 
 @pytest.mark.asyncio
+async def test_approval_resume_action_failure_uses_terminal_guard_without_node_errors(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-resume-terminal-guard")
+    finalizer_calls: list[dict] = []
+    graph = FakeResumeGraph(
+        "approved but database password=must-not-leak",
+        extra_state={
+            "recommendation_draft": {
+                "recommended_action": "issue_coupon",
+                "reasoning_summary": "符合补偿规则。",
+                "evidence_refs": [],
+            },
+            "proposed_action": bundle.approval.proposed_action,
+            "risk_assessment": {"approval_required": True, "risk_level": "high"},
+            "approval_result": {"decision_type": "approve", "status": "approved"},
+            "action_result": {
+                "status": "error",
+                "data": {},
+                "error": {
+                    "error_code": "DRAFT_CREATION_FAILED",
+                    "message": "database password=must-not-leak",
+                    "retryable": True,
+                },
+            },
+        },
+    )
+
+    async def identity_reconcile(**kwargs):
+        return kwargs["final_state"]
+
+    async def record_finalizer_call(**kwargs):
+        finalizer_calls.append(kwargs)
+        return type("FinalizerResult", (), {"trace_steps": []})()
+
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    monkeypatch.setattr(approvals_router, "_reconcile_approved_action_draft", identity_reconcile)
+    monkeypatch.setattr(approvals_router, "finalize_completed_agent_run_memory", record_finalizer_call)
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle),
+        headers=await _admin_headers(client),
+    )
+
+    run = await session.get(AgentRun, bundle.approval.run_id)
+    assert response.status_code == 200
+    assert run is not None
+    assert run.final_status == "error"
+    assert run.final_response == "操作草稿未能安全创建，请稍后重试或转人工处理。"
+    assert "must-not-leak" not in str(run.final_response)
+    assert finalizer_calls == []
+    assert await _count_rows(session, ActionDraft, ActionDraft.run_id == run.id) == 0
+    assert await _count_rows(
+        session,
+        ConversationMessage,
+        ConversationMessage.run_id == run.id,
+        ConversationMessage.role == "assistant",
+    ) == 0
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
+    assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
+    assert len(await _finalizer_steps(session, run_id=run.id)) == 0
+
+
+@pytest.mark.asyncio
 async def test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decision(
     client: AsyncClient,
     session: AsyncSession,

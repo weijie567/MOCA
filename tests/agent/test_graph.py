@@ -66,6 +66,7 @@ ROUTER_EDGE_KEYS = {
     "route_after_slot_resolution": {"clarification_gate", "investigate", "memory_context_load"},
     "route_after_risk": {"approval_gate", "action_draft", "final_response"},
     "route_after_approval": {"risk_gate", "action_draft", "final_response"},
+    "route_after_action_draft": {"final_response", "terminal_error"},
     "route_after_investigate": {
         "final_response",
         "clarification_gate",
@@ -1519,6 +1520,18 @@ def test_approval_gate_edit_branch_is_registered_in_compiled_graph():
 
     assert ("approval_gate", "risk_gate") in conditional_edges
     assert ("approval_gate", "action_draft") in conditional_edges
+
+
+def test_action_draft_uses_conditional_terminal_integrity_edge_without_direct_success_edge():
+    graph = build_graph(MemorySaver())
+    edges = graph.get_graph().edges
+
+    assert any(edge.source == "action_draft" and edge.target == "final_response" and edge.conditional for edge in edges)
+    assert not any(
+        edge.source == "action_draft" and edge.target == "final_response" and not edge.conditional
+        for edge in edges
+    )
+    assert hasattr(__import__("src.agent.routing", fromlist=["route_after_action_draft"]), "route_after_action_draft")
 
 
 def test_route_after_investigate_keys_are_edge_targets():

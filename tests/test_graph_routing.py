@@ -165,6 +165,68 @@ def _auto_action_capability_payload() -> dict:
     }
 
 
+def _durable_draft_terminal_state(**overrides) -> dict:
+    tenant_id = str(uuid4())
+    run_id = str(uuid4())
+    draft_id = str(uuid4())
+    outcome = {
+        "schema_version": "draft_outcome.v1",
+        "status": "not_executed_demo",
+        "external_side_effect": False,
+        "tenant_id": tenant_id,
+        "run_id": run_id,
+        "draft_id": draft_id,
+        "created_at": "2026-07-10T05:00:00Z",
+    }
+    state = {
+        "tenant_id": tenant_id,
+        "current_run_id": run_id,
+        "proposed_action": {"action_type": "issue_coupon", "target_id": "RF-1001"},
+        "risk_assessment": {
+            "risk_level": "low",
+            "risk_severity": "low",
+            "risk_disposition": "allow",
+            "approval_required": False,
+        },
+        "action_draft": {
+            "schema_version": "action_draft.v2",
+            "tenant_id": tenant_id,
+            "run_id": run_id,
+            "draft_id": draft_id,
+            "status": "draft_created",
+            "execution_mode": "demo",
+            "lifecycle_status": "active",
+            "draft_outcome": outcome,
+        },
+        "draft_outcome": outcome,
+        "execution_mode": "demo",
+        "action_result": {
+            "status": "draft_created",
+            "data": {"draft_id": draft_id, "draft_outcome": outcome},
+            "error": {},
+        },
+        "trace_steps": [
+            {
+                "node": "action_draft",
+                "status": "completed",
+                "tool_name": "create_coupon_grant_draft",
+            }
+        ],
+    }
+    state.update(overrides)
+    return state
+
+
+def _terminal_projection(state: dict):
+    projector = getattr(routing_module, "project_action_draft_terminal")
+    return projector(state)
+
+
+def _post_draft_route(state: dict) -> str:
+    router = getattr(routing_module, "route_after_action_draft")
+    return router(state)
+
+
 def _risk_route_state(**overrides) -> dict:
     tenant_id = str(overrides.pop("tenant_id", uuid4()))
     run_id = str(overrides.pop("current_run_id", uuid4()))
@@ -580,6 +642,91 @@ def test_route_after_risk_routes_auto_allowed_only_with_opaque_capability_ref():
 
     state["auto_action_capability"]["capability_ref"] = "client-asserted-binding"
     assert route_after_risk(state) == "final_response"
+
+
+def test_route_after_action_draft_allows_only_valid_durable_audited_demo_outcome():
+    state = _durable_draft_terminal_state()
+
+    terminal = _terminal_projection(state)
+
+    assert terminal.status == "completed"
+    assert terminal.final_status == "completed"
+    assert terminal.draft_id == state["draft_outcome"]["draft_id"]
+    assert terminal.error_code is None
+    assert _post_draft_route(state) == "final_response"
+
+
+@pytest.mark.parametrize(
+    ("failure_kind", "mutate", "reason_code"),
+    [
+        (
+            "capability_auth",
+            lambda state: state.update(
+                action_draft=None,
+                draft_outcome=None,
+                action_result={
+                    "status": "error",
+                    "data": {},
+                    "error": {"error_code": "AUTO_ACTION_CAPABILITY_REQUIRED", "message": "binding secret"},
+                },
+                trace_steps=[{"node": "action_draft", "status": "error"}],
+            ),
+            "authorization_failed",
+        ),
+        (
+            "store_tool_exception",
+            lambda state: state.update(
+                action_draft=None,
+                draft_outcome=None,
+                action_result={
+                    "status": "error",
+                    "data": {},
+                    "error": {"error_code": "DRAFT_CREATION_FAILED", "message": "raw database exception"},
+                },
+                trace_steps=[{"node": "action_draft", "status": "error"}],
+            ),
+            "draft_persistence_failed",
+        ),
+        (
+            "missing_outcome",
+            lambda state: state.update(draft_outcome=None),
+            "draft_outcome_invalid",
+        ),
+        (
+            "malformed_outcome",
+            lambda state: state.update(draft_outcome={"status": "executed", "external_side_effect": True}),
+            "draft_outcome_invalid",
+        ),
+        (
+            "missing_draft_identity",
+            lambda state: state["draft_outcome"].update(draft_id=None),
+            "draft_identity_invalid",
+        ),
+        (
+            "critical_audit_missing",
+            lambda state: state.update(trace_steps=[]),
+            "critical_audit_missing",
+        ),
+    ],
+)
+def test_route_after_action_draft_failure_matrix_is_stable_terminal_error(
+    failure_kind,
+    mutate,
+    reason_code,
+):
+    state = _durable_draft_terminal_state()
+    mutate(state)
+
+    terminal = _terminal_projection(state)
+
+    assert failure_kind
+    assert terminal.status == "error"
+    assert terminal.final_status == "error"
+    assert terminal.error_code == "ACTION_DRAFT_TERMINAL_FAILED"
+    assert terminal.reason_code == reason_code
+    assert "secret" not in terminal.safe_message
+    assert "exception" not in terminal.safe_message
+    assert _post_draft_route(state) == "terminal_error"
 
 
 @pytest.mark.parametrize("missing_field", ["action_payload_hash", "safety_snapshot_ref", "safety_snapshot_hash"])

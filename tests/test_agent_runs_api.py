@@ -40,6 +40,7 @@ from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.approvals.snapshot_service import compute_action_payload_hash, persist_action_safety_snapshot
 from src.auth.jwt import ROLE_SCOPES, create_access_token, hash_password
 from src.db.models import (
+    ActionDraft,
     AgentRun,
     AgentStep,
     AgentTraceEvent,
@@ -839,6 +840,45 @@ class MissingFinalResponseGraph:
                     {
                         "node": "risk_gate",
                         "status": "completed",
+                        "started_at": datetime.now(UTC).isoformat(),
+                        "completed_at": datetime.now(UTC).isoformat(),
+                    }
+                ],
+            },
+        )
+
+
+class DraftTerminalFailureGraph:
+    async def astream(self, input_state, config, stream_mode):
+        del input_state, config, stream_mode
+        yield (
+            "action_draft",
+            {
+                "recommendation_draft": {
+                    "recommended_action": "issue_coupon",
+                    "reasoning_summary": "符合补偿规则。",
+                    "evidence_refs": [],
+                },
+                "proposed_action": {"action_type": "issue_coupon", "target_id": "RF-FAIL-001"},
+                "risk_assessment": {
+                    "risk_level": "low",
+                    "risk_severity": "low",
+                    "risk_disposition": "allow",
+                    "approval_required": False,
+                },
+                "action_result": {
+                    "status": "error",
+                    "data": {},
+                    "error": {
+                        "error_code": "DRAFT_CREATION_FAILED",
+                        "message": "database password=must-not-leak",
+                        "retryable": True,
+                    },
+                },
+                "trace_steps": [
+                    {
+                        "node": "action_draft",
+                        "status": "error",
                         "started_at": datetime.now(UTC).isoformat(),
                         "completed_at": datetime.now(UTC).isoformat(),
                     }
@@ -2674,6 +2714,70 @@ async def test_event_generator_reports_completion_persistence_failure(
     assert run.final_status == "error"
     assert run.final_response is None
     assert run.error_summary == "step write failed"
+
+
+@pytest.mark.asyncio
+async def test_draft_terminal_failure_projects_error_across_sse_db_polling_and_memory(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+    finalizer_calls: list[dict] = []
+
+    async def record_finalizer_call(**kwargs):
+        finalizer_calls.append(kwargs)
+        return SimpleNamespace(trace_steps=[])
+
+    monkeypatch.setattr(
+        "src.api.routers.agent_runs.finalize_completed_agent_run_memory",
+        record_finalizer_call,
+    )
+    events = [
+        _event_data(event)
+        async for event in _event_generator(
+            DraftTerminalFailureGraph(),
+            _stream_input(run, user),
+            {"configurable": {"thread_id": run.thread_id, "session": session}},
+            run=run,
+            session=session,
+            user=user,
+        )
+        if "data" in event
+    ]
+
+    await session.refresh(run)
+    terminal_events = [event for event in events if event["event_type"] in {"final_response", "error"}]
+    assert [event["event_type"] for event in terminal_events] == ["error"]
+    assert terminal_events[0]["status"] == "failed"
+    assert terminal_events[0]["payload"] == {
+        "error_code": "ACTION_DRAFT_TERMINAL_FAILED",
+        "error_message": "操作草稿未能安全创建，请稍后重试或转人工处理。",
+    }
+    assert "must-not-leak" not in json.dumps(events, ensure_ascii=False)
+    assert run.final_status == "error"
+    assert run.final_response == "操作草稿未能安全创建，请稍后重试或转人工处理。"
+    assert finalizer_calls == []
+    assert await _count_rows(session, ActionDraft, ActionDraft.run_id == run.id) == 0
+    assert await _count_rows(
+        session,
+        ConversationMessage,
+        ConversationMessage.run_id == run.id,
+        ConversationMessage.role == "assistant",
+    ) == 0
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
+    assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
+
+    poll = await client.get(
+        f"/api/v1/agent-runs/{run.id}",
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+    assert poll.status_code == 200
+    assert poll.json()["data"]["final_status"] == "error"
+    assert poll.json()["data"]["final_response"] == run.final_response
 
 
 @pytest.mark.asyncio

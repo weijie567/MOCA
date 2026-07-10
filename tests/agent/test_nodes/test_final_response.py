@@ -354,8 +354,48 @@ async def test_final_response_mentions_action_failure_after_approval(base_state)
 
     result = await final_response(state)
 
-    assert "草稿创建失败" in result["final_response"]
-    assert "draft write failed" in result["final_response"]
+    assert result["final_response"] == "操作草稿未能安全创建，请稍后重试或转人工处理。"
+    assert "draft write failed" not in result["final_response"]
+    assert "草稿已创建" not in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["final_status"] == "error"
+    assert result["llm_outputs"]["final_response"]["error_code"] == "ACTION_DRAFT_TERMINAL_FAILED"
+    assert result["trace_steps"][-1]["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_final_response_refuses_completed_projection_without_critical_action_draft_audit(base_state):
+    draft_id = "draft-missing-audit"
+    outcome = _draft_outcome(draft_id)
+    outcome.update({"tenant_id": base_state["tenant_id"], "run_id": base_state["current_run_id"]})
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "符合补偿规则。",
+            "evidence_refs": [],
+        },
+        "risk_assessment": {"approval_required": False, "risk_disposition": "allow"},
+        "action_draft": {
+            "schema_version": "action_draft.v2",
+            "tenant_id": base_state["tenant_id"],
+            "run_id": base_state["current_run_id"],
+            "draft_id": draft_id,
+            "status": "draft_created",
+            "execution_mode": "demo",
+            "lifecycle_status": "active",
+            "draft_outcome": outcome,
+        },
+        "draft_outcome": outcome,
+        "execution_mode": "demo",
+        "action_result": {"status": "draft_created", "data": {"draft_id": draft_id}, "error": {}},
+        "trace_steps": [],
+    }
+
+    result = await final_response(state)
+
+    assert result["llm_outputs"]["final_response"]["final_status"] == "error"
+    assert "草稿已创建" not in result["final_response"]
+    assert draft_id not in result["final_response"]
 
 
 @pytest.mark.asyncio
