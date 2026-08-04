@@ -122,11 +122,7 @@ class ActionDraftRepository:
         return capability
 
     async def lock_capability_by_opaque_ref(self, opaque_ref: str) -> AutoActionCapability | None:
-        stmt = (
-            select(AutoActionCapability)
-            .where(AutoActionCapability.opaque_ref == opaque_ref)
-            .with_for_update()
-        )
+        stmt = select(AutoActionCapability).where(AutoActionCapability.opaque_ref == opaque_ref).with_for_update()
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def get_draft_by_id(self, draft_id: UUID, tenant_id: UUID) -> ActionDraft | None:

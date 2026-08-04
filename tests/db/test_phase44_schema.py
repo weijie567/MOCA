@@ -20,6 +20,7 @@ from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
 
 
 MIGRATION_022_PATH = Path("src/db/migrations/versions/022_case_working_context.py")
+PRE_PHASE44_REVISION = "021_thread_case_links"
 PHASE44_TABLES = {
     "thread_case_links",
     "case_working_contexts",
@@ -158,9 +159,7 @@ async def _delete_case_working_context_audit_rows(database_url: str) -> None:
     engine = create_async_engine(database_url, future=True, poolclass=NullPool)
     try:
         async with engine.begin() as conn:
-            await conn.execute(
-                text("DELETE FROM memory_write_events WHERE memory_type = 'case_working_context'")
-            )
+            await conn.execute(text("DELETE FROM memory_write_events WHERE memory_type = 'case_working_context'"))
     finally:
         await engine.dispose()
 
@@ -210,7 +209,11 @@ def _migration_nonnullable_columns(table_name: str) -> set[str]:
             if not isinstance(column_name_arg, ast.Constant) or not isinstance(column_name_arg.value, str):
                 continue
             for keyword in arg.keywords:
-                if keyword.arg == "nullable" and isinstance(keyword.value, ast.Constant) and keyword.value.value is False:
+                if (
+                    keyword.arg == "nullable"
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value is False
+                ):
                     columns.add(column_name_arg.value)
         return columns
     raise AssertionError(f"migration must create {table_name}")
@@ -291,11 +294,11 @@ def test_phase44_migration_upgrade_insert_and_downgrade_guard() -> None:
     assert "case_working_context" in asyncio.run(_memory_type_check_definition(database_url))
 
     with pytest.raises(RuntimeError, match="memory_type='case_working_context'"):
-        command.downgrade(cfg, "-1")
+        command.downgrade(cfg, PRE_PHASE44_REVISION)
     assert "case_working_context" in asyncio.run(_memory_type_check_definition(database_url))
 
     asyncio.run(_delete_case_working_context_audit_rows(database_url))
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, PRE_PHASE44_REVISION)
     downgraded_tables = asyncio.run(_table_names(database_url))
     assert downgraded_tables.isdisjoint({"case_working_contexts", "case_working_context_revisions"})
     assert "case_working_context" not in asyncio.run(_memory_type_check_definition(database_url))

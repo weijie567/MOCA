@@ -32,8 +32,8 @@ _FORBIDDEN_HINT_MARKERS = (
     "replay_debug_blob",
     "replay_event",
     "secret",
-    "Evidence" "RefV1",
-    "Replay" "EventV3",
+    "".join(("Evidence", "RefV1")),
+    "".join(("Replay", "EventV3")),
 )
 
 
@@ -208,9 +208,7 @@ def _prior_policy_mention_refs(tool_summaries: list[SessionToolSummaryView]) -> 
     for summary in tool_summaries:
         for ref in summary.policy_evidence_refs:
             mention = {
-                key: value
-                for key in _POLICY_HINT_REF_KEYS
-                if (value := _safe_hint_value(ref.get(key))) is not None
+                key: value for key in _POLICY_HINT_REF_KEYS if (value := _safe_hint_value(ref.get(key))) is not None
             }
             tool_result_id = _safe_hint_value(summary.tool_result_id)
             if tool_result_id is not None:

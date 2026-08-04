@@ -99,9 +99,7 @@ async def decide_approval(
     service = ApprovalService(session)
     scoped_approval = await _get_scoped_approval_or_404(service, user, approval_uuid)
     if scoped_approval.requested_by == user.id:
-        raise HTTPException(
-            status_code=403, detail={"code": "SELF_APPROVAL", "message": "Cannot approve own request"}
-        )
+        raise HTTPException(status_code=403, detail={"code": "SELF_APPROVAL", "message": "Cannot approve own request"})
     try:
         retry_result = await _recoverable_resume_retry_result(
             session=session,

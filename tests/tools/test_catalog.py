@@ -372,7 +372,9 @@ def test_query_business_metric_schema_enums_are_registry_derived() -> None:
 
     assert "BUSINESS_QUERY_REGISTRY" in source
     assert set(descriptor.input_schema["properties"]["metric_id"]["enum"]) == BUSINESS_QUERY_REGISTRY.metric_ids()
-    assert set(descriptor.input_schema["properties"]["time_preset"]["enum"]) == BUSINESS_QUERY_REGISTRY.time_preset_ids()
+    assert (
+        set(descriptor.input_schema["properties"]["time_preset"]["enum"]) == BUSINESS_QUERY_REGISTRY.time_preset_ids()
+    )
     assert '"order_count",' not in source
     assert '"current_snapshot"],' not in source
 
@@ -520,10 +522,7 @@ def test_all_descriptor_schemas_use_only_supported_validation_keywords() -> None
             ("input_schema", descriptor.input_schema),
             ("output_schema", descriptor.output_schema),
         ):
-            failures.extend(
-                f"{descriptor.name}.{schema_name}:{path}"
-                for path in _unsupported_schema_keywords(schema)
-            )
+            failures.extend(f"{descriptor.name}.{schema_name}:{path}" for path in _unsupported_schema_keywords(schema))
 
     assert failures == []
 

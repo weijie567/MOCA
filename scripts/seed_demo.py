@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from src.auth.jwt import hash_password
 from src.db.models import (
@@ -93,17 +93,33 @@ async def reset_demo_data(session) -> None:
     await session.execute(delete(ThreadCaseLink).where(ThreadCaseLink.tenant_id.in_(tenant_ids)))
     await session.execute(delete(ConversationThread).where(ConversationThread.tenant_id.in_(tenant_ids)))
 
-    await session.execute(delete(CaseWorkingContextRevision).where(CaseWorkingContextRevision.tenant_id.in_(tenant_ids)))
+    await session.execute(
+        delete(CaseWorkingContextRevision).where(CaseWorkingContextRevision.tenant_id.in_(tenant_ids))
+    )
     await session.execute(delete(CaseWorkingContext).where(CaseWorkingContext.tenant_id.in_(tenant_ids)))
     await session.execute(delete(MemoryTombstone).where(MemoryTombstone.tenant_id.in_(tenant_ids)))
     await session.execute(delete(CaseMemory).where(CaseMemory.tenant_id.in_(tenant_ids)))
     await session.execute(delete(LongTermMemory).where(LongTermMemory.tenant_id.in_(tenant_ids)))
 
     if approval_ids:
+        await session.execute(
+            update(ApprovalRequest)
+            .where(ApprovalRequest.id.in_(approval_ids))
+            .values(
+                resume_attempt_id=None,
+                resume_attempt_decision_id=None,
+                resume_attempt_status=None,
+                resume_lease_expires_at=None,
+                resume_attempt_started_at=None,
+                resume_attempt_updated_at=None,
+            )
+        )
         await session.execute(delete(ApprovalEvent).where(ApprovalEvent.approval_request_id.in_(approval_ids)))
         await session.execute(delete(ApprovalDecision).where(ApprovalDecision.approval_request_id.in_(approval_ids)))
     if approval_level_ids:
-        await session.execute(delete(ApprovalAssignment).where(ApprovalAssignment.approval_level_id.in_(approval_level_ids)))
+        await session.execute(
+            delete(ApprovalAssignment).where(ApprovalAssignment.approval_level_id.in_(approval_level_ids))
+        )
         await session.execute(delete(ApprovalLevel).where(ApprovalLevel.id.in_(approval_level_ids)))
     if approval_ids:
         await session.execute(delete(ApprovalStep).where(ApprovalStep.approval_request_id.in_(approval_ids)))
@@ -134,8 +150,7 @@ async def seed_roles(session) -> dict[str, Role]:
             id=deterministic_id("role", "merchant"),
             name="merchant",
             description=(
-                "Deprecated compatibility role; support-equivalent merchant-bound access; "
-                "not a recommended new role"
+                "Deprecated compatibility role; support-equivalent merchant-bound access; not a recommended new role"
             ),
         ),
         "admin": Role(id=deterministic_id("role", "admin"), name="admin", description="System admin"),

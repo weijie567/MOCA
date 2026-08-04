@@ -992,12 +992,8 @@ def _approval_create_command_from_interrupt(
 
     try:
         evidence_refs = [EvidenceRefV1.model_validate(ref) for ref in interrupt_data["evidence_refs"]]
-        business_fact_refs = [
-            BusinessFactRefV1.model_validate(ref) for ref in interrupt_data["business_fact_refs"]
-        ]
-        verified_evidence_refs = [
-            EvidenceRefV1.model_validate(ref) for ref in interrupt_data["verified_evidence_refs"]
-        ]
+        business_fact_refs = [BusinessFactRefV1.model_validate(ref) for ref in interrupt_data["business_fact_refs"]]
+        verified_evidence_refs = [EvidenceRefV1.model_validate(ref) for ref in interrupt_data["verified_evidence_refs"]]
         return ApprovalRequestCreateCommand.model_validate(
             {
                 "tenant_id": user.tenant_id,
@@ -1389,7 +1385,9 @@ def _dedupe_evidence_refs(ref_groups: Any) -> list[dict[str, Any]]:
                 continue
             evidence_id = ref.get("evidence_id")
             citation_key = _evidence_citation_key(ref)
-            key = str(evidence_id or citation_key or ref.get("chunk_id") or json.dumps(ref, sort_keys=True, default=str))
+            key = str(
+                evidence_id or citation_key or ref.get("chunk_id") or json.dumps(ref, sort_keys=True, default=str)
+            )
             if key in seen:
                 continue
             if not evidence_id and citation_key and citation_key in seen_citations:

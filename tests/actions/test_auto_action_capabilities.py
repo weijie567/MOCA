@@ -323,9 +323,7 @@ async def test_mint_rejects_untrusted_or_non_allow_prerequisites_without_row(
     context = await _capability_context(session, seeded_session)
     api = context["api"]
     await session.delete(
-        (
-            await session.execute(select(api["model"]).where(api["model"].run_id == context["run_id"]))
-        ).scalar_one()
+        (await session.execute(select(api["model"]).where(api["model"].run_id == context["run_id"]))).scalar_one()
     )
     await session.flush()
     kwargs = {**context["mint_kwargs"], override: value}
@@ -334,7 +332,9 @@ async def test_mint_rejects_untrusted_or_non_allow_prerequisites_without_row(
         await api["service"](session).mint(**kwargs)
 
     assert (
-        await session.scalar(select(func.count()).select_from(api["model"]).where(api["model"].run_id == context["run_id"]))
+        await session.scalar(
+            select(func.count()).select_from(api["model"]).where(api["model"].run_id == context["run_id"])
+        )
     ) == 0
 
 
@@ -400,7 +400,9 @@ async def test_capability_confused_deputy_matrix_creates_zero_drafts(
 
     assert result["status"] == "error"
     assert await session.scalar(select(func.count()).select_from(ActionDraft)) == 0
-    row = await session.scalar(select(context["api"]["model"]).where(context["api"]["model"].run_id == context["run_id"]))
+    row = await session.scalar(
+        select(context["api"]["model"]).where(context["api"]["model"].run_id == context["run_id"])
+    )
     assert row is not None
     assert row.status == "issued"
 
@@ -449,16 +451,22 @@ async def test_consume_is_one_use_with_exact_idempotent_retry_and_distinct_audit
     assert second["data"]["idempotent_reused"] is True
     assert await session.scalar(select(func.count()).select_from(ActionDraft)) == 1
     events = (
-        await session.execute(
-            select(AgentTraceEvent).where(
-                AgentTraceEvent.run_id == context["run_id"],
-                AgentTraceEvent.event_type == "action_draft_created",
+        (
+            await session.execute(
+                select(AgentTraceEvent).where(
+                    AgentTraceEvent.run_id == context["run_id"],
+                    AgentTraceEvent.event_type == "action_draft_created",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(events) == 1
     assert events[0].redacted_payload["authorization_source"] == "auto_allow_capability"
-    row = await session.scalar(select(context["api"]["model"]).where(context["api"]["model"].run_id == context["run_id"]))
+    row = await session.scalar(
+        select(context["api"]["model"]).where(context["api"]["model"].run_id == context["run_id"])
+    )
     assert row is not None
     assert row.status == "consumed"
     assert str(row.resulting_draft_id) == first["data"]["draft_id"]
@@ -509,7 +517,9 @@ async def test_consumed_capability_idempotency_identity_tamper_closes_retry(
 @pytest.mark.asyncio
 async def test_expired_capability_is_closed_and_creates_zero_drafts(session: AsyncSession, seeded_session):
     context = await _capability_context(session, seeded_session)
-    row = await session.scalar(select(context["api"]["model"]).where(context["api"]["model"].run_id == context["run_id"]))
+    row = await session.scalar(
+        select(context["api"]["model"]).where(context["api"]["model"].run_id == context["run_id"])
+    )
     assert row is not None
     now = datetime.now(UTC)
     row.issued_at = now - timedelta(seconds=10)
@@ -567,7 +577,9 @@ async def test_write_failure_rolls_back_capability_draft_and_critical_event(
     session.expire_all()
     assert await session.scalar(select(func.count()).select_from(ActionDraft)) == 0
     assert await session.scalar(select(func.count()).select_from(AgentTraceEvent)) == 0
-    row = await session.scalar(select(context["api"]["model"]).where(context["api"]["model"].run_id == context["run_id"]))
+    row = await session.scalar(
+        select(context["api"]["model"]).where(context["api"]["model"].run_id == context["run_id"])
+    )
     assert row is not None
     assert row.status == "issued"
     assert row.resulting_draft_id is None
@@ -594,7 +606,9 @@ async def test_concurrent_consume_creates_one_draft_and_returns_same_identity(te
         assert await verify_session.scalar(select(func.count()).select_from(ActionDraft)) == 1
         assert (
             await verify_session.scalar(
-                select(func.count()).select_from(AgentTraceEvent).where(
+                select(func.count())
+                .select_from(AgentTraceEvent)
+                .where(
                     AgentTraceEvent.run_id == context["run_id"],
                     AgentTraceEvent.event_type == "action_draft_created",
                 )

@@ -346,9 +346,7 @@ class BusinessFactService:
                 fields_shown=list(safe_spec.fields),
                 scope=scope,
                 time_summary=safe_spec.time_preset,
-                filter_summary=",".join(safe_spec.filters.status_filter)
-                if safe_spec.filters.status_filter
-                else None,
+                filter_summary=",".join(safe_spec.filters.status_filter) if safe_spec.filters.status_filter else None,
             ),
             scope=scope,
         )
@@ -1057,7 +1055,9 @@ class BusinessFactService:
         conditions.extend(self._time_conditions(RefundCase.created_at, time_range))
         if status_filter:
             conditions.append(RefundCase.status.in_(status_filter))
-        value = await self.session.scalar(select(func.count(RefundCase.id)).select_from(RefundCase, Order).where(*conditions))
+        value = await self.session.scalar(
+            select(func.count(RefundCase.id)).select_from(RefundCase, Order).where(*conditions)
+        )
         return int(value or 0)
 
     async def _count_pending_tickets(
@@ -1518,9 +1518,7 @@ class BusinessFactService:
     ) -> BusinessFactResultV1:
         safe_errors = []
         if code is not None and safe_message is not None:
-            safe_errors.append(
-                ToolError(code=code, safe_message=safe_message, retryable=False, source=error_source)
-            )
+            safe_errors.append(ToolError(code=code, safe_message=safe_message, retryable=False, source=error_source))
         return BusinessFactResultV1(
             tenant_id=tenant_id,
             status=status,
@@ -1658,14 +1656,17 @@ class BusinessToolService:
 
     @staticmethod
     def _wrap_business_fact_result(result: BusinessFactResultV1) -> ToolResultV2:
-        status_map: dict[str, Literal[
-            "success",
-            "partial_success",
-            "not_found",
-            "permission_denied",
-            "unavailable",
-            "invalid_request",
-        ]] = {
+        status_map: dict[
+            str,
+            Literal[
+                "success",
+                "partial_success",
+                "not_found",
+                "permission_denied",
+                "unavailable",
+                "invalid_request",
+            ],
+        ] = {
             "ok": "success",
             "partial": "partial_success",
             "not_found": "not_found",
@@ -1709,9 +1710,7 @@ class BusinessToolService:
 
         status = result.status if result.status not in {"ok", "partial"} else "unavailable"
         safe_message = (
-            "Business fact request is invalid"
-            if status == "invalid_request"
-            else NO_LEAK_BUSINESS_RESOURCE_MESSAGE
+            "Business fact request is invalid" if status == "invalid_request" else NO_LEAK_BUSINESS_RESOURCE_MESSAGE
         )
         safe_code = code_map[status]
         if status == "not_found" and result.safe_errors:

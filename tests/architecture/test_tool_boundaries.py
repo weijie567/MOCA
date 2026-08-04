@@ -155,7 +155,11 @@ def test_domain_packages_do_not_import_graph_nodes_or_tool_platform_internals() 
     for package in ("actions", "business", "knowledge", "memory"):
         for path in sorted((ROOT / "src" / package).glob("**/*.py")):
             for module in _imports(path):
-                if module.startswith("src.agent.nodes") or module == legacy_module or module.startswith(f"{legacy_module}."):
+                if (
+                    module.startswith("src.agent.nodes")
+                    or module == legacy_module
+                    or module.startswith(f"{legacy_module}.")
+                ):
                     violations.append((str(path.relative_to(ROOT)), module))
 
     assert violations == []
@@ -183,10 +187,9 @@ def test_graph_nodes_target_tool_platform_facade() -> None:
     # rewires investigate off raw tool descriptor surfaces.
     investigate = ROOT / "src" / "agent" / "nodes" / "investigate.py"
     targets = _import_targets(investigate)
-    assert any(
-        module == "src.tools.platform" or module.startswith("src.tools.platform.")
-        for module in targets
-    ), "investigate must import src.tools.platform.ToolPlatform"
+    assert any(module == "src.tools.platform" or module.startswith("src.tools.platform.") for module in targets), (
+        "investigate must import src.tools.platform.ToolPlatform"
+    )
 
 
 def test_graph_nodes_do_not_import_tool_executors() -> None:

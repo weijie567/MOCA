@@ -59,7 +59,9 @@ def test_business_metric_query_has_generic_golden_coverage_only():
         if case["kind"] == "positive" and case["expected"].get("primary_intent") == "business_metric_query"
     ]
     negatives = [
-        case for case in cases if case["kind"] == "hard-negative" and case.get("negative_for") == "business_metric_query"
+        case
+        for case in cases
+        if case["kind"] == "hard-negative" and case.get("negative_for") == "business_metric_query"
     ]
     forbidden = {
         "order_count_query",
@@ -74,11 +76,7 @@ def test_business_metric_query_has_generic_golden_coverage_only():
     assert len(negatives) >= 3
     assert all(case["expected"].get("requested_operation") == "read_status" for case in positives)
     assert forbidden.isdisjoint(
-        {
-            case["expected"].get("primary_intent")
-            for case in cases
-            if isinstance(case.get("expected"), dict)
-        }
+        {case["expected"].get("primary_intent") for case in cases if isinstance(case.get("expected"), dict)}
     )
 
 

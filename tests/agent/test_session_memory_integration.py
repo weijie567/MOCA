@@ -413,7 +413,9 @@ async def test_disabled_and_unavailable_session_memory_fall_back_to_clarificatio
     disabled_deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
     disabled_state = await graph.ainvoke(
         _state(user, "that refund?", "integration-disabled-memory"),
-        _config(disabled_deps["tool_platform"], disabled_deps["events"], "integration-disabled-memory", session=session),
+        _config(
+            disabled_deps["tool_platform"], disabled_deps["events"], "integration-disabled-memory", session=session
+        ),
     )
     assert disabled_deps["tool_platform"].calls == []
     assert disabled_state["session_memory"]["fallback_reason"] == "disabled"

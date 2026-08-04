@@ -338,7 +338,10 @@ def test_confidence_defaults_for_low_and_safety_sensitive_routes():
     ],
 )
 def test_resolve_risk_tier(primary_intent, requested_operation, routing_hints, expected):
-    assert resolve_risk_tier(primary_intent, requested_operation, channel="ordinary_chat", routing_hints=routing_hints) == expected
+    assert (
+        resolve_risk_tier(primary_intent, requested_operation, channel="ordinary_chat", routing_hints=routing_hints)
+        == expected
+    )
 
 
 @pytest.mark.parametrize("requested_operation", ["draft_action", "execute_action", "escalate"])

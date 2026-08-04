@@ -60,9 +60,7 @@ def _attribute_call_sites(attribute: str) -> list[str]:
     sites: list[str] = []
     for path in sorted(SRC.rglob("*.py")):
         if any(
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == attribute
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == attribute
             for node in ast.walk(_tree(path))
         ):
             sites.append(_relative(path))
@@ -73,9 +71,7 @@ def _named_call_sites(name: str) -> list[str]:
     sites: list[str] = []
     for path in sorted(SRC.rglob("*.py")):
         if any(
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == name
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
             for node in ast.walk(_tree(path))
         ):
             sites.append(_relative(path))
@@ -101,9 +97,7 @@ def _typescript_function(source: str, start: str, end: str) -> str:
 def test_canonical_action_resolution_has_one_owner_before_claim_and_routing() -> None:
     assert _definitions("SafetyTaxonomyRegistry") == ["src/agent/safety/taxonomy.py"]
     assert _definitions("resolve_action_text") == ["src/agent/safety/taxonomy.py"]
-    assert "action_resolution = resolve_action_text(draft.get(\"recommended_action\"))" in _source(
-        RECOMMENDATION_PATH
-    )
+    assert 'action_resolution = resolve_action_text(draft.get("recommended_action"))' in _source(RECOMMENDATION_PATH)
     assert _source(RECOMMENDATION_PATH).index("action_resolution = resolve_action_text") < _source(
         RECOMMENDATION_PATH
     ).index("material_claims = _material_claims_from_draft")

@@ -448,7 +448,8 @@ def _write_result(
         decision=decision or candidate.decision,
         reason_code=resolved_reason_code,
         policy_version=MEMORY_POLICY_VERSION,
-        blocked_by=blocked_by or _blocked_by_for_values(
+        blocked_by=blocked_by
+        or _blocked_by_for_values(
             status=status,
             reason_code=resolved_reason_code,
             conflict_reason=conflict_reason,

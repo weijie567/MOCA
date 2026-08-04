@@ -102,18 +102,10 @@ class BusinessQueryRegistry:
         self._sorts = _read_only_mapping(sorts)
         self._statuses = _read_only_mapping(statuses)
         self._metric_aliases = _read_only_mapping(
-            {
-                alias: metric.id
-                for metric in self._metrics.values()
-                for alias in metric.parser_aliases
-            }
+            {alias: metric.id for metric in self._metrics.values() for alias in metric.parser_aliases}
         )
         self._time_preset_aliases = _read_only_mapping(
-            {
-                alias: preset.id
-                for preset in self._time_presets.values()
-                for alias in preset.parser_aliases
-            }
+            {alias: preset.id for preset in self._time_presets.values() for alias in preset.parser_aliases}
         )
 
     def operations(self) -> Mapping[str, BusinessQueryOperationDescriptor]:
@@ -282,7 +274,9 @@ _RESOURCES: Mapping[str, BusinessQueryResourceDescriptor] = {
             }
         ),
         list_field_ids=frozenset({"order_no", "status", "amount", "currency", "paid_at"}),
-        detail_field_ids=frozenset({"order_no", "status", "amount", "currency", "item_name", "paid_at", "delivered_at"}),
+        detail_field_ids=frozenset(
+            {"order_no", "status", "amount", "currency", "item_name", "paid_at", "delivered_at"}
+        ),
         prompt_field_ids=frozenset({"order_no", "status", "amount", "currency", "paid_at"}),
         ui_field_ids=frozenset({"order_no", "status", "amount", "currency", "paid_at", "delivered_at"}),
         status_descriptor_id="order_status",

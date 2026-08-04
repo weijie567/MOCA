@@ -207,8 +207,7 @@ class ToolPolicyDecision(BaseModel):
             runtime_leaked = set(self.reason_codes) & TOOL_POLICY_RUNTIME_ONLY_REASON_CODES
             if runtime_leaked:
                 raise ValueError(
-                    f"visibility-stage decision must not carry runtime-only reason codes: "
-                    f"{runtime_leaked}"
+                    f"visibility-stage decision must not carry runtime-only reason codes: {runtime_leaked}"
                 )
         return self
 

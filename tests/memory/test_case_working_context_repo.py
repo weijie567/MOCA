@@ -12,7 +12,16 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from src.db.models import AgentRun, Base, CaseWorkingContext, CaseWorkingContextRevision, Merchant, Order, RefundCase, Tenant
+from src.db.models import (
+    AgentRun,
+    Base,
+    CaseWorkingContext,
+    CaseWorkingContextRevision,
+    Merchant,
+    Order,
+    RefundCase,
+    Tenant,
+)
 from src.memory.case_working_context import (
     CaseWorkingContextRepository,
     dehydrate_content,
@@ -114,7 +123,9 @@ async def _seed_case_scope(session: AsyncSession) -> dict:
     return {"tenant": tenant, "merchant": merchant, "order": order, "refund_case": refund_case, "run": run}
 
 
-def _content(source_ref: MemorySourceRefV1, *, customer_request: str = "用户询问退款进度") -> CaseWorkingContextContentV1:
+def _content(
+    source_ref: MemorySourceRefV1, *, customer_request: str = "用户询问退款进度"
+) -> CaseWorkingContextContentV1:
     return CaseWorkingContextContentV1(
         customer_request=customer_request,
         issue_type="refund_status",
@@ -172,7 +183,9 @@ def test_schema_claims_facts_actions_and_commitments_require_source_refs() -> No
         observed_at=datetime.now(UTC),
     )
     action = CaseWorkingContextActionTakenV1(action="已查询退款单", source_ref=source_ref)
-    commitment = CaseWorkingContextCommitmentV1(text="客服承诺 24 小时内回复", confirmed_by_staff=True, source_ref=source_ref)
+    commitment = CaseWorkingContextCommitmentV1(
+        text="客服承诺 24 小时内回复", confirmed_by_staff=True, source_ref=source_ref
+    )
 
     assert claim.source_ref == source_ref
     assert fact.source_ref == source_ref
@@ -183,9 +196,7 @@ def test_schema_claims_facts_actions_and_commitments_require_source_refs() -> No
     with pytest.raises(ValidationError):
         CaseWorkingContextClaimV1.model_validate({"text": "missing source", "verified": False})
     with pytest.raises(ValidationError):
-        CaseWorkingContextVerifiedFactV1.model_validate(
-            {"text": "missing source", "observed_at": datetime.now(UTC)}
-        )
+        CaseWorkingContextVerifiedFactV1.model_validate({"text": "missing source", "observed_at": datetime.now(UTC)})
     with pytest.raises(ValidationError):
         CaseWorkingContextActionTakenV1.model_validate({"action": "missing source"})
     with pytest.raises(ValidationError):

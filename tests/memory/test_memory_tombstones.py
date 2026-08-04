@@ -424,7 +424,7 @@ async def test_delayed_rewrite_separate_session_blocks_by_source_identity(
     run_id = await _insert_run(session, seeded_session, thread_id="tombstone-session-a")
     service = LongTermMemoryService(LongTermMemoryRepository(session))
     source_ref = _source_ref(
-        source_type="deterministic_tool_result",
+        source_type="explicit_user_preference",
         run_id=run_id,
         business_object_id=str(seeded_session["merchant"].id),
         event_id="evt-delayed-source",
@@ -432,11 +432,13 @@ async def test_delayed_rewrite_separate_session_blocks_by_source_identity(
     original = _candidate(
         seeded_session,
         run_id=run_id,
-        content="Tool-confirmed merchant asks for concise summaries.",
-        source_type="deterministic_tool_result",
+        content="Merchant explicitly asks for concise summaries.",
+        source_type="explicit_user_preference",
         source_ref=source_ref,
     )
     write_result = await service.write_memory(original)
+    assert write_result.status == "written"
+    assert write_result.memory_id is not None
     await service.forget_long_term_memory(
         tenant_id=original.tenant_id,
         memory_id=write_result.memory_id,
@@ -464,8 +466,8 @@ async def test_delayed_rewrite_separate_session_blocks_by_source_identity(
         delayed_candidate = _candidate(
             seeded_session,
             run_id=delayed_run_id,
-            content="Delayed worker rewrites the forgotten source with new text.",
-            source_type="deterministic_tool_result",
+            content="Delayed worker rewrites the forgotten explicit preference with new text.",
+            source_type="explicit_user_preference",
             source_ref=source_ref,
         )
 

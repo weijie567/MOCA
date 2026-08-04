@@ -593,9 +593,7 @@ def test_session_hint_surfaces_reject_strict_authority_dto_parsing() -> None:
                 "tool_result_id": "tool-result-1",
             }
         ],
-        "last_business_context_refs": {
-            "business_fact_refs": [{"resource_type": "order", "resource_id": "ORD-HINT"}]
-        },
+        "last_business_context_refs": {"business_fact_refs": [{"resource_type": "order", "resource_id": "ORD-HINT"}]},
     }
 
     with pytest.raises(ValidationError):

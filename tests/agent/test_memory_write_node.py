@@ -227,7 +227,7 @@ async def test_memory_write_node_applies_explicit_long_term_and_case_candidates_
                     "outcome_id": "cwc:case-1:v1",
                 },
             },
-        ]
+        ],
     )
 
     result = await memory_write(
@@ -364,9 +364,7 @@ async def test_memory_write_node_never_creates_tenant_scope_from_chat_preference
     assert len(long_term_candidates) == 1
     assert long_term_candidates[0].scope_type == "merchant"
     assert long_term_candidates[0].scope_id == "merchant-1"
-    long_term_projections = [
-        item for item in result["memory_write_candidates"] if item["memory_type"] == "long_term"
-    ]
+    long_term_projections = [item for item in result["memory_write_candidates"] if item["memory_type"] == "long_term"]
     assert all(item["scope_type"] != "tenant" for item in long_term_projections)
 
 
@@ -564,9 +562,7 @@ async def test_memory_write_lifecycle_trace_events_share_non_null_operation_id(
     rows = (
         (
             await session.execute(
-                select(AgentTraceEvent)
-                .where(AgentTraceEvent.run_id == UUID(run_id))
-                .order_by(AgentTraceEvent.sequence)
+                select(AgentTraceEvent).where(AgentTraceEvent.run_id == UUID(run_id)).order_by(AgentTraceEvent.sequence)
             )
         )
         .scalars()

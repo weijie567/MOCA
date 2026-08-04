@@ -73,11 +73,7 @@ def test_business_tool_executor_delegates_without_query_construction() -> None:
 
     for forbidden in ("src.repositories", "src.db.models", "src.business.query.compiler"):
         assert not any(_module_matches(module, forbidden) for module in modules), forbidden
-    sqlalchemy_modules = {
-        module
-        for module in modules
-        if module == "sqlalchemy" or module.startswith("sqlalchemy.")
-    }
+    sqlalchemy_modules = {module for module in modules if module == "sqlalchemy" or module.startswith("sqlalchemy.")}
     assert sqlalchemy_modules <= {"sqlalchemy.ext.asyncio"}
     assert "invoke_tool" in calls
     assert not calls.intersection(

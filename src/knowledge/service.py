@@ -477,8 +477,7 @@ class PolicyKnowledgeService:
             total_candidates=len(candidates),
         )
         citation_map = {
-            citation_id: list(entry.source_evidence_ids)
-            for citation_id, entry in bundle.citation_map.items()
+            citation_id: list(entry.source_evidence_ids) for citation_id, entry in bundle.citation_map.items()
         }
         evidence_map = {evidence_id: detail.evidence_ref for evidence_id, detail in included.items()}
         policy_version = _package_policy_version(included, candidates, policy)
@@ -487,10 +486,7 @@ class PolicyKnowledgeService:
         return VerifiedEvidencePackageV1(
             package_id=_package_id(knowledge_context, candidates),
             status=status,
-            evidence_items=[
-                _evidence_item_from_detail(detail, bundle=bundle)
-                for detail in included.values()
-            ],
+            evidence_items=[_evidence_item_from_detail(detail, bundle=bundle) for detail in included.values()],
             citation_map=citation_map,
             evidence_map=evidence_map,
             prompt_projection=bundle.prompt_context.model_dump(mode="json"),
@@ -1017,11 +1013,7 @@ def _claim_result_from_verifier_result(
     evidence_map: Mapping[str, EvidenceRefV1],
 ) -> ClaimVerificationResultV1:
     support_status = _support_status(result)
-    supporting_refs = [
-        evidence_map[ref_id]
-        for ref_id in result.safe_support_refs
-        if ref_id in evidence_map
-    ]
+    supporting_refs = [evidence_map[ref_id] for ref_id in result.safe_support_refs if ref_id in evidence_map]
     return ClaimVerificationResultV1(
         claim_id=claim.claim_id,
         claim_type=claim.claim_type,

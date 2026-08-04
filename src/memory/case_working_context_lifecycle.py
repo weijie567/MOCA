@@ -773,14 +773,11 @@ async def _has_active_thread_case_link(
     )
     if thread is None:
         return False
-    stmt = (
-        select(ThreadCaseLink.id)
-        .where(
-            ThreadCaseLink.tenant_id == tenant_id,
-            ThreadCaseLink.conversation_thread_id == thread.id,
-            ThreadCaseLink.case_id == case_id,
-            ThreadCaseLink.deleted_at.is_(None),
-        )
+    stmt = select(ThreadCaseLink.id).where(
+        ThreadCaseLink.tenant_id == tenant_id,
+        ThreadCaseLink.conversation_thread_id == thread.id,
+        ThreadCaseLink.case_id == case_id,
+        ThreadCaseLink.deleted_at.is_(None),
     )
     if link_source is not None:
         stmt = stmt.where(ThreadCaseLink.link_source == link_source)

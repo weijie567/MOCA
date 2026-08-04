@@ -33,8 +33,11 @@ LEGACY_CURRENT_GRAPH_NODES = {
     "assess_risk",
 }
 DELETED_LEGACY_TEST_PATHS = {
-    "tests/agent/test_nodes/test_assess_risk_" "and_approval.py",
-    "tests/agent/test_nodes/test_generate_" "recommendation.py",
+    "/".join(parts)
+    for parts in (
+        ("tests", "agent", "test_nodes", "test_assess_risk_and_approval.py"),
+        ("tests", "agent", "test_nodes", "test_generate_recommendation.py"),
+    )
 }
 
 
@@ -123,10 +126,7 @@ def test_required_commands_reject_chained_bare_pytest_entrypoints():
             "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_operation_identity.py; "
             "pytest tests/replay/test_leak.py"
         ),
-        (
-            "uv run pytest tests/eval/test_phase35_replay_eval_gates.py && "
-            "python -m pytest tests/eval/test_leak.py"
-        ),
+        ("uv run pytest tests/eval/test_phase35_replay_eval_gates.py && python -m pytest tests/eval/test_leak.py"),
     ]
     drifted = manifest.model_copy(update={"required_test_commands": commands})
 

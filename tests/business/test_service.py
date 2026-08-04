@@ -450,9 +450,7 @@ async def test_metric_runtime_computes_refunds_tickets_coupons_and_refund_rate(
     refund_fact = _metric_value(
         await service.query_business_metric({"metric_id": "refund_case_count", **time_args}, support_ctx)
     )
-    ticket_fact = _metric_value(
-        await service.query_business_metric({"metric_id": "pending_ticket_count"}, support_ctx)
-    )
+    ticket_fact = _metric_value(await service.query_business_metric({"metric_id": "pending_ticket_count"}, support_ctx))
     coupon_fact = _metric_value(
         await service.query_business_metric({"metric_id": "coupon_record_count", **time_args}, support_ctx)
     )

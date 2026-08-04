@@ -219,9 +219,7 @@ class ApprovalService:
             raise ApprovalTransitionError("approval_conflict")
         return ApprovalDecisionContext(request=request, level=level, assignment=assignment)
 
-    async def project_decision_context(
-        self, approval_id: UUID, tenant_id: UUID
-    ) -> ApprovalDecisionContextV1 | None:
+    async def project_decision_context(self, approval_id: UUID, tenant_id: UUID) -> ApprovalDecisionContextV1 | None:
         context = await self.get_decision_context(approval_id, tenant_id)
         return context.project() if context is not None else None
 

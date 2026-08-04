@@ -95,18 +95,23 @@ class ToolPlatform:
         """
         availability_map = self._runtime._build_availability_map()
         decisions = self._policy_engine.visibility_decisions(
-            caller=caller, ctx=ctx, availability_map=availability_map,
+            caller=caller,
+            ctx=ctx,
+            availability_map=availability_map,
         )
         self.last_visibility_decisions = decisions
 
         # Emit visibility event when session is available.
         if session is not None:
             await self._emit_visibility_event(
-                decisions=decisions, ctx=ctx, session=session,
+                decisions=decisions,
+                ctx=ctx,
+                session=session,
             )
 
         return self._policy_engine.tool_views_for_decisions(
-            decisions, availability_map=availability_map,
+            decisions,
+            availability_map=availability_map,
         )
 
     async def invoke(
@@ -123,7 +128,10 @@ class ToolPlatform:
         policy_decision, and optional policy_event_id.
         """
         tool_result, policy_decision, policy_event_id, projection = await self._runtime.invoke(
-            tool_name, args, ctx, session=session,
+            tool_name,
+            args,
+            ctx,
+            session=session,
         )
         return ToolInvocationOutcome(
             tool_result=tool_result,
@@ -161,13 +169,15 @@ class ToolPlatform:
 
         tools_payload = []
         for decision in decisions:
-            tools_payload.append({
-                "tool_name": decision.tool_name,
-                "decision": decision.decision,
-                "reason_codes": decision.reason_codes,
-                "runtime_available": decision.runtime_available,
-                "data_classification": decision.data_classification,
-            })
+            tools_payload.append(
+                {
+                    "tool_name": decision.tool_name,
+                    "decision": decision.decision,
+                    "reason_codes": decision.reason_codes,
+                    "runtime_available": decision.runtime_available,
+                    "data_classification": decision.data_classification,
+                }
+            )
 
         try:
             await emit_decision_event(
@@ -200,9 +210,12 @@ class _StubExecutor:
 
     async def execute(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         from src.tools.manager_results import result as safe_result
+
         return safe_result(
-            "unavailable", "Stub executor: tool not available without session",
-            code="TOOL_UNAVAILABLE", source="tool",
+            "unavailable",
+            "Stub executor: tool not available without session",
+            code="TOOL_UNAVAILABLE",
+            source="tool",
         )
 
     @classmethod

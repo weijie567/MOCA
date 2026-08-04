@@ -134,9 +134,7 @@ def test_validation_commands_extract_bullet_inline_code_with_result_suffix(tmp_p
 
     commands = [command for _, command in _validation_commands(artifact)]
     violations = [
-        command
-        for command in commands
-        if command.startswith("pytest") or command.startswith("python -m pytest")
+        command for command in commands if command.startswith("pytest") or command.startswith("python -m pytest")
     ]
 
     assert commands == [

@@ -68,9 +68,7 @@ def is_opaque_capability_ref(value: Any) -> bool:
     """Return whether a raw value is shaped for authoritative service verification."""
 
     return (
-        isinstance(value, str)
-        and len(value) >= 32
-        and _AUTO_ACTION_CAPABILITY_REF_PATTERN.fullmatch(value) is not None
+        isinstance(value, str) and len(value) >= 32 and _AUTO_ACTION_CAPABILITY_REF_PATTERN.fullmatch(value) is not None
     )
 
 
@@ -89,9 +87,7 @@ def compute_merchant_scope_hash(
 
 def compute_risk_decision_hash(risk_decision: dict[str, Any] | RiskDecisionV1) -> str:
     canonical = (
-        risk_decision
-        if isinstance(risk_decision, RiskDecisionV1)
-        else RiskDecisionV1.model_validate(risk_decision)
+        risk_decision if isinstance(risk_decision, RiskDecisionV1) else RiskDecisionV1.model_validate(risk_decision)
     ).model_dump(mode="json")
     encoded = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
@@ -242,9 +238,7 @@ class AutoActionCapabilityService:
         risk_decision: dict[str, Any] | RiskDecisionV1,
         handler: str,
     ) -> VerifiedAutoActionCapability:
-        capability = await self.repository.lock_capability_by_opaque_ref(
-            capability_ref_digest(capability_ref)
-        )
+        capability = await self.repository.lock_capability_by_opaque_ref(capability_ref_digest(capability_ref))
         if capability is None:
             raise CapabilityVerificationError(
                 "AUTO_ACTION_CAPABILITY_MISMATCH",

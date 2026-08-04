@@ -47,6 +47,7 @@ SKIPPED_DIR_NAMES = frozenset(
         ".venv",
         "__pycache__",
         "dist",
+        "graphify-out",
         "node_modules",
     }
 )

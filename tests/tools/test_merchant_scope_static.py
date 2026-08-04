@@ -12,7 +12,7 @@ HIGH_RISK_WILDCARD_SURFACES = (
     SRC_ROOT / "agent" / "nodes" / "approval_gate.py",
     SRC_ROOT / "agent" / "nodes" / "action_draft.py",
     SRC_ROOT / "agent" / "nodes" / "rag_context_build.py",
-    SRC_ROOT / "agent" / "nodes" / "session_memory_load.py",
+    SRC_ROOT / "agent" / "nodes" / "session_context_load.py",
     SRC_ROOT / "memory" / "service.py",
     SRC_ROOT / "tools" / "runtime.py",
     SRC_ROOT / "approvals" / "service.py",

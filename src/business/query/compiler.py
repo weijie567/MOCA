@@ -107,7 +107,9 @@ class BusinessQueryCompiler:
         cursor_state: BusinessQueryCursorState | None,
     ) -> dict[str, Select[Any]]:
         if spec.operation == "aggregate":
-            return self._aggregate_statements(spec, tenant_id, merchant_uuid_ids, merchant_ids, time_window, status_filter)
+            return self._aggregate_statements(
+                spec, tenant_id, merchant_uuid_ids, merchant_ids, time_window, status_filter
+            )
         if spec.operation == "list" and spec.resource == "order":
             return {
                 "rows": self._order_list_statement(
@@ -359,7 +361,11 @@ class BusinessQueryCompiler:
         status_filter: list[str],
     ) -> Select[Any]:
         conditions = self._order_conditions(tenant_id, merchant_uuid_ids, time_window, status_filter)
-        return select(Order.status.label("status"), func.count(Order.id).label("value")).where(*conditions).group_by(Order.status)
+        return (
+            select(Order.status.label("status"), func.count(Order.id).label("value"))
+            .where(*conditions)
+            .group_by(Order.status)
+        )
 
     def _order_conditions(
         self,

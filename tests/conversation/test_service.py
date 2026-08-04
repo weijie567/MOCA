@@ -498,9 +498,7 @@ async def test_agent_runs_prompt_context_loads_prior_summary_recent_messages_and
     )
     stored_tool_result = (
         await session.execute(
-            select(ToolResultRecord).where(
-                ToolResultRecord.tool_result_id == "tool-result-agent-runs-prompt-context"
-            )
+            select(ToolResultRecord).where(ToolResultRecord.tool_result_id == "tool-result-agent-runs-prompt-context")
         )
     ).scalar_one()
     stored_tool_result.summary = "raw_payload private_reasoning approval_authority_body debug_trace secret"

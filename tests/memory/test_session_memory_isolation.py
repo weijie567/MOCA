@@ -321,7 +321,9 @@ async def test_session_context_excludes_cross_merchant_slots_summary_messages_an
     merchant_b = str(seeded_session["second_merchant"].id)
     await _seed_merchant_a_prompt_context(session, seeded_session, thread_id=thread_id, merchant_a=merchant_a)
     current_run_id = await _insert_run(session, seeded_session, thread_id=thread_id)
-    trusted_context = _trusted_context(seeded_session, merchant_id=merchant_b, thread_id=thread_id, run_id=current_run_id)
+    trusted_context = _trusted_context(
+        seeded_session, merchant_id=merchant_b, thread_id=thread_id, run_id=current_run_id
+    )
 
     result = await _session_context_load()(
         {
@@ -367,7 +369,9 @@ async def test_session_context_filters_production_trusted_context_dict_without_e
     merchant_b = str(seeded_session["second_merchant"].id)
     await _seed_merchant_a_prompt_context(session, seeded_session, thread_id=thread_id, merchant_a=merchant_a)
     current_run_id = await _insert_run(session, seeded_session, thread_id=thread_id)
-    trusted_context = _trusted_context(seeded_session, merchant_id=merchant_b, thread_id=thread_id, run_id=current_run_id)
+    trusted_context = _trusted_context(
+        seeded_session, merchant_id=merchant_b, thread_id=thread_id, run_id=current_run_id
+    )
 
     result = await _session_context_load()(
         {
@@ -423,7 +427,9 @@ async def test_session_context_does_not_let_merchant_a_active_slot_override_merc
             session_summary="merchant-a continuity should be dropped",
         )
     )
-    trusted_context = _trusted_context(seeded_session, merchant_id=merchant_b, thread_id=thread_id, run_id=current_run_id)
+    trusted_context = _trusted_context(
+        seeded_session, merchant_id=merchant_b, thread_id=thread_id, run_id=current_run_id
+    )
 
     result = await _session_context_load()(
         {

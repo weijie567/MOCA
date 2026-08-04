@@ -225,7 +225,9 @@ def test_memory_write_service_adds_explicit_user_preference_candidate_for_determ
         _state(user_query=query),
         trusted_context=_trusted_context("merchant-1"),
     )
-    long_term_candidates = [candidate for candidate in candidates if isinstance(candidate, LongTermMemoryWriteCandidate)]
+    long_term_candidates = [
+        candidate for candidate in candidates if isinstance(candidate, LongTermMemoryWriteCandidate)
+    ]
 
     assert len(long_term_candidates) == 1
     candidate = long_term_candidates[0]
@@ -273,7 +275,9 @@ def test_memory_write_service_uses_current_merchant_slot_when_trusted_scope_allo
         ),
         trusted_context=_trusted_context("merchant-1", "merchant-2"),
     )
-    long_term_candidates = [candidate for candidate in candidates if isinstance(candidate, LongTermMemoryWriteCandidate)]
+    long_term_candidates = [
+        candidate for candidate in candidates if isinstance(candidate, LongTermMemoryWriteCandidate)
+    ]
 
     assert len(long_term_candidates) == 1
     assert long_term_candidates[0].scope_type == "merchant"

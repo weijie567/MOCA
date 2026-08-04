@@ -84,7 +84,7 @@ def test_contract_case_memory_storage_model_matches_scope_based_orm() -> None:
 
 def test_protected_memory_tables_and_conversation_case_link_are_retained() -> None:
     models = _source(DB_MODELS_PATH)
-    conversation_thread_block = _between(models, "class ConversationThread", "Index(\"ix_conversation_threads")
+    conversation_thread_block = _between(models, "class ConversationThread", 'Index("ix_conversation_threads')
 
     for term in (
         '__tablename__ = "case_memories"',
@@ -241,7 +241,19 @@ def _planning_prose_lines(path: Path) -> list[tuple[int, str]]:
         lowered = stripped.lower()
         if stripped.startswith(("|", "```", "- path:", "from:", "to:", "via:", "pattern:")):
             continue
-        if any(marker in lowered for marker in ("do not", "must not", "forbid", "forbidden", "not rename", "not renamed", "not active", "no destructive")):
+        if any(
+            marker in lowered
+            for marker in (
+                "do not",
+                "must not",
+                "forbid",
+                "forbidden",
+                "not rename",
+                "not renamed",
+                "not active",
+                "no destructive",
+            )
+        ):
             continue
         lines.append((line_number, stripped))
     return lines

@@ -118,7 +118,9 @@ async def _seed_case_scope(session: AsyncSession) -> dict:
     return {"tenant": tenant, "merchant": merchant, "order": order, "refund_case": refund_case, "run": run}
 
 
-def _content(source_ref: MemorySourceRefV1, *, customer_request: str = "用户询问退款进度") -> CaseWorkingContextContentV1:
+def _content(
+    source_ref: MemorySourceRefV1, *, customer_request: str = "用户询问退款进度"
+) -> CaseWorkingContextContentV1:
     return CaseWorkingContextContentV1(
         customer_request=customer_request,
         issue_type="refund_status",
@@ -222,7 +224,9 @@ async def test_service_rejects_cross_tenant_case_without_event_or_row(phase44_se
             other_scope = await _seed_case_scope(session)
 
     async with phase44_session_factory() as session:
-        source_ref = _source_ref(agent_run_id=str(scope["run"].id), business_object_id=str(other_scope["refund_case"].id))
+        source_ref = _source_ref(
+            agent_run_id=str(scope["run"].id), business_object_id=str(other_scope["refund_case"].id)
+        )
         candidate = _candidate(scope, content=_content(source_ref), source_ref=source_ref).model_copy(
             update={"case_id": other_scope["refund_case"].id}
         )
@@ -248,7 +252,9 @@ async def test_service_rejects_cross_tenant_run_without_event_or_row(phase44_ses
             other_scope = await _seed_case_scope(session)
 
     async with phase44_session_factory() as session:
-        source_ref = _source_ref(agent_run_id=str(other_scope["run"].id), business_object_id=str(scope["refund_case"].id))
+        source_ref = _source_ref(
+            agent_run_id=str(other_scope["run"].id), business_object_id=str(scope["refund_case"].id)
+        )
         candidate = _candidate(scope, content=_content(source_ref), source_ref=source_ref, updated_by_run_id=None)
 
         with pytest.raises(ValueError, match="run_id does not belong to tenant"):

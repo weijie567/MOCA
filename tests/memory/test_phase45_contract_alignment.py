@@ -85,7 +85,7 @@ def test_contract_cwc_lifecycle_records_active_read_run_auto_and_terminal_writeb
     for term in (
         "active CWC read",
         "tenant + `refund_cases.id`",
-        "`link_source=\"run_auto\"`",
+        '`link_source="run_auto"`',
         "linked_by_run_id",
         "terminal finalizer",
         "CaseWorkingContextService.write_case_working_context(...)",

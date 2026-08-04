@@ -142,9 +142,7 @@ def project_session_memory_bundle_for_prompt(bundle: SessionMemoryBundle) -> dic
     return {
         "thread_rolling_summary": bundle.rolling_summary.summary_text if bundle.rolling_summary else "",
         "recent_messages": [
-            {"role": message.role, "content": message.content}
-            for message in bundle.recent_messages
-            if message.content
+            {"role": message.role, "content": message.content} for message in bundle.recent_messages if message.content
         ],
         "tool_result_summaries": [
             summary for summary in (_tool_prompt_summary_from_bundle(view) for view in bundle.tool_summaries) if summary

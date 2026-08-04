@@ -17,9 +17,7 @@ EXPECTED_METRIC_RESOURCES = {
     "coupon_record_count": "coupon_record",
     "merchant_refund_rate": "merchant_metric",
 }
-EXPECTED_TIME_PRESETS = frozenset(
-    {"today", "this_week", "this_month", "this_quarter", "this_year", "current_snapshot"}
-)
+EXPECTED_TIME_PRESETS = frozenset({"today", "this_week", "this_month", "this_quarter", "this_year", "current_snapshot"})
 
 
 def test_business_query_registry_exports_singleton_and_read_taxonomy() -> None:

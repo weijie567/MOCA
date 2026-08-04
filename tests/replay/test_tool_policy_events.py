@@ -176,7 +176,14 @@ async def test_tool_policy_runtime_auth_recorded_emits_per_invocation_event(sess
     assert payload["decision_stage"] == "runtime_auth"
     assert payload["decision"] == "denied"
     assert _has_forbidden_key(payload) is None
-    for forbidden in ("raw_args", "raw_payload", "raw_tool_output", "input_schema", "required_permission", "caller_allowlist"):
+    for forbidden in (
+        "raw_args",
+        "raw_payload",
+        "raw_tool_output",
+        "input_schema",
+        "required_permission",
+        "caller_allowlist",
+    ):
         assert forbidden not in payload
 
 

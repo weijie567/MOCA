@@ -157,13 +157,9 @@ async def test_receive_request_resets_session_context_target_fields(base_state):
         "case_memory": [{"excerpt": "old case memory"}],
         "memory_context": {"long_term_items": [{"content": "old memory context"}]},
         "memory_context_bundle": {"schema_version": "reviewed_memory_context_bundle.v1"},
-        "reviewed_memory_context_retrieve_status": {
-            "schema_version": "reviewed_memory_context_retrieve_status.v1"
-        },
+        "reviewed_memory_context_retrieve_status": {"schema_version": "reviewed_memory_context_retrieve_status.v1"},
         "case_working_context": {"schema_version": "case_working_context_active_payload.v1"},
-        "case_working_context_lifecycle_status": {
-            "schema_version": "case_working_context_lifecycle_status.v1"
-        },
+        "case_working_context_lifecycle_status": {"schema_version": "case_working_context_lifecycle_status.v1"},
         "memory_write_result": {"status": "written"},
         "memory_write_decision": {"schema_version": "memory_write_decision.v2"},
     }

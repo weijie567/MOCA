@@ -26,8 +26,7 @@ MONITORING_METRICS = {
 }
 ALLOWED_MONITORING_STATUSES = {"pending", "not_applicable", "sample_only"}
 APPROVED_MANIFEST_COMMAND = (
-    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest "
-    "tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short"
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short"
 )
 
 

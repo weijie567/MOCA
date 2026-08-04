@@ -436,9 +436,7 @@ def test_build_timeline_projects_phase56_recommendation_runtime_and_historical_n
         ("risk_gate", "risk_gate"),
     ],
 )
-def test_build_timeline_projects_phase57_risk_runtime_and_historical_node_identities(
-    node_name: str, target_node: str
-):
+def test_build_timeline_projects_phase57_risk_runtime_and_historical_node_identities(node_name: str, target_node: str):
     now = datetime.now(UTC)
     repo = TraceRepository(SimpleNamespace())
 

@@ -243,7 +243,7 @@ def _call_name(node: ast.AST) -> str | None:
 def test_approval_gate_has_no_runtime_risk_action_or_snapshot_coupling():
     source_path = Path("src/agent/nodes/approval_gate.py")
     tree = ast.parse(source_path.read_text())
-    legacy_risk_module = ".".join(("src", "agent", "nodes", "assess_" "risk_and_approval"))
+    legacy_risk_module = ".".join(("src", "agent", "nodes", "".join(("assess_risk_", "and_approval"))))
     forbidden_modules = (
         "src.agent.nodes.risk_gate",
         legacy_risk_module,
@@ -275,6 +275,6 @@ def test_approval_gate_has_no_runtime_risk_action_or_snapshot_coupling():
 
 def test_approval_gate_tests_do_not_reference_legacy_risk_node_name():
     source = Path(__file__).read_text(encoding="utf-8")
-    legacy_node_name = "assess_" "risk_and_approval"
+    legacy_node_name = "".join(("assess_risk_", "and_approval"))
 
     assert legacy_node_name not in source

@@ -201,10 +201,7 @@ def _coerce_business_fact_refs(value: Any) -> list[Any]:
     from src.tools.contracts import BusinessFactRefV1
 
     items = value if isinstance(value, list) else [value]
-    return [
-        item if isinstance(item, BusinessFactRefV1) else BusinessFactRefV1.model_validate(item)
-        for item in items
-    ]
+    return [item if isinstance(item, BusinessFactRefV1) else BusinessFactRefV1.model_validate(item) for item in items]
 
 
 class ClaimResult(BaseModel):

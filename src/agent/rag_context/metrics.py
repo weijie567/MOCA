@@ -39,6 +39,8 @@ REQUIRED_HALLUCINATION_METRICS: tuple[str, ...] = (
     "fail_closed_rate",
     "total_cases",
 )
+
+
 class HallucinationCaseResult(BaseModel):
     """Redacted per-case result consumed by the eval runner."""
 
@@ -340,7 +342,9 @@ def _bundle_risk_reason_codes(bundle: Any, cited_evidence_ids: Sequence[str]) ->
         source_ids = {str(value) for value in getattr(entry, "source_evidence_ids", []) or [] if str(value)}
         if not cited & source_ids:
             continue
-        reason_codes.extend(str(label) for label in getattr(entry, "risk_labels", []) or [] if str(label) in routing_risk_labels())
+        reason_codes.extend(
+            str(label) for label in getattr(entry, "risk_labels", []) or [] if str(label) in routing_risk_labels()
+        )
     return _unique_strings(reason_codes)
 
 

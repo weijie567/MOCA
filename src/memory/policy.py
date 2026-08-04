@@ -37,9 +37,7 @@ PUBLISHED_LONG_TERM_SOURCE_TYPES = frozenset(
     }
 )
 AUTO_APPROVED_LONG_TERM_SOURCE_TYPES = PUBLISHED_LONG_TERM_SOURCE_TYPES
-REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES = frozenset(
-    {"semantic_episode_candidate"}
-)
+REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES = frozenset({"semantic_episode_candidate"})
 DISALLOWED_LONG_TERM_SOURCE_TYPES = frozenset(
     {
         "deterministic_tool_result",

@@ -109,9 +109,7 @@ def _time_window_unmet(evidence_snippets: Sequence[Mapping[str, Any]], metadata:
     if _flag(metadata.get("time_window_unmet")):
         return True
     elapsed_days = _number(
-        metadata.get("days_since_event")
-        or metadata.get("days_since_delivery")
-        or metadata.get("elapsed_days")
+        metadata.get("days_since_event") or metadata.get("days_since_delivery") or metadata.get("elapsed_days")
     )
     if elapsed_days is None:
         return False

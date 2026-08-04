@@ -297,9 +297,7 @@ def _session_candidate_identity(candidate: SessionMemoryWriteCandidate) -> dict[
             memory_type="session",
             content=json.dumps(
                 {
-                    "explicit_slots": {
-                        key: slot.value for key, slot in sorted(candidate.explicit_slots.items())
-                    },
+                    "explicit_slots": {key: slot.value for key, slot in sorted(candidate.explicit_slots.items())},
                     "last_intent": candidate.last_intent or "",
                     "session_summary": candidate.session_summary or "",
                     "unresolved_questions": [str(question) for question in candidate.unresolved_questions],

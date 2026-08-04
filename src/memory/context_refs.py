@@ -73,9 +73,7 @@ class SessionContextLoadStatusV1(BaseModel):
 class ReviewedMemoryContextRetrieveStatusV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["reviewed_memory_context_retrieve_status.v1"] = (
-        "reviewed_memory_context_retrieve_status.v1"
-    )
+    schema_version: Literal["reviewed_memory_context_retrieve_status.v1"] = "reviewed_memory_context_retrieve_status.v1"
     status: str
     authority_class: Literal["contextual_only"] = "contextual_only"
     trusted_scope_inputs: dict[str, Any] = Field(default_factory=dict)
@@ -88,9 +86,7 @@ class ReviewedMemoryContextRetrieveStatusV1(BaseModel):
 class CaseWorkingContextLifecycleStatusV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["case_working_context_lifecycle_status.v1"] = (
-        "case_working_context_lifecycle_status.v1"
-    )
+    schema_version: Literal["case_working_context_lifecycle_status.v1"] = "case_working_context_lifecycle_status.v1"
     authority_class: Literal["contextual_only"] = "contextual_only"
     status: str
     resolve_status: str | None = None

@@ -234,11 +234,7 @@ def _coerce_explicit_candidate(value: Any) -> MemoryWriteCandidate | None:
     if not isinstance(value, Mapping):
         return None
     memory_type = _explicit_memory_type(value)
-    payload = {
-        key: item
-        for key, item in value.items()
-        if key not in {"memory_type", "type", "kind", "schema_version"}
-    }
+    payload = {key: item for key, item in value.items() if key not in {"memory_type", "type", "kind", "schema_version"}}
     if memory_type == "session":
         return SessionMemoryWriteCandidate.model_validate(payload)
     if memory_type == "long_term":

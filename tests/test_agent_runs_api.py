@@ -174,24 +174,32 @@ class ThreeTurnMemoryGraph:
     def _resolve_slots(self, query: str, session_memory) -> tuple[dict, dict, dict]:
         if "ORD-TEST-999" in query:
             extracted = {"order_id": "ORD-TEST-999", "refund_case_id": None, "issue_type": "refund_status"}
-            return extracted, {"order_id": "ORD-TEST-999", "issue_type": "refund_status"}, {
-                "order_id": {
-                    "source": "explicit_user",
-                    "previous_trusted_session_value": session_memory.active_slots.get("order_id"),
+            return (
+                extracted,
+                {"order_id": "ORD-TEST-999", "issue_type": "refund_status"},
+                {
+                    "order_id": {
+                        "source": "explicit_user",
+                        "previous_trusted_session_value": session_memory.active_slots.get("order_id"),
+                    },
+                    "issue_type": {"source": "explicit_user"},
                 },
-                "issue_type": {"source": "explicit_user"},
-            }
+            )
         if "ORD-TEST-001" in query:
             extracted = {
                 "order_id": "ORD-TEST-001",
                 "refund_case_id": "RF-TEST-001",
                 "issue_type": "refund_status",
             }
-            return extracted, dict(extracted), {
-                "order_id": {"source": "explicit_user"},
-                "refund_case_id": {"source": "explicit_user"},
-                "issue_type": {"source": "explicit_user"},
-            }
+            return (
+                extracted,
+                dict(extracted),
+                {
+                    "order_id": {"source": "explicit_user"},
+                    "refund_case_id": {"source": "explicit_user"},
+                    "issue_type": {"source": "explicit_user"},
+                },
+            )
         inherited = dict(session_memory.active_slots)
         if "issue_type" not in inherited:
             inherited["issue_type"] = "refund_status"
@@ -199,7 +207,9 @@ class ThreeTurnMemoryGraph:
         metadata["issue_type"] = {"source": "explicit_user"}
         return {"order_id": None, "refund_case_id": None, "issue_type": "refund_status"}, inherited, metadata
 
-    async def _append_tool_result(self, *, conversation_service, input_state, config, run_id: UUID, order_id: str) -> None:
+    async def _append_tool_result(
+        self, *, conversation_service, input_state, config, run_id: UUID, order_id: str
+    ) -> None:
         operation_id = uuid4()
         tool_call_id = f"tool-call-{run_id}"
         tool_call = await conversation_service.append_tool_call(
@@ -1473,7 +1483,9 @@ async def test_terminal_memory_write_applies_approval_marker_sanitizer(monkeypat
             },
         }
 
-    monkeypatch.setattr(agent_run_memory_service, "run_memory_side_effect_in_isolated_session", fake_isolated_side_effect)
+    monkeypatch.setattr(
+        agent_run_memory_service, "run_memory_side_effect_in_isolated_session", fake_isolated_side_effect
+    )
     monkeypatch.setattr(agent_run_memory_service, "memory_write", fake_memory_write)
 
     result = await agent_run_memory_service._run_terminal_memory_write(
@@ -1542,13 +1554,17 @@ async def test_persist_agent_run_memory_finalize_trace_steps_is_idempotent(
     )
 
     finalizer_steps = (
-        await session.execute(
-            select(AgentStep).where(
-                AgentStep.run_id == run_id,
-                AgentStep.node_name == agent_run_memory_service.FINALIZER_NODE,
+        (
+            await session.execute(
+                select(AgentStep).where(
+                    AgentStep.run_id == run_id,
+                    AgentStep.node_name == agent_run_memory_service.FINALIZER_NODE,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(finalizer_steps) == 1
     assert finalizer_steps[0].step_index == len(prior_trace_steps)
     assert finalizer_steps[0].metrics_json == {"memory_write_status": "completed"}
@@ -1671,11 +1687,15 @@ async def _run_agent_run_stream(client: AsyncClient, run_id: str, user: User) ->
     return events
 
 
-async def _messages_for_run(session: AsyncSession, *, run_id: UUID, role: str | None = None) -> list[ConversationMessage]:
+async def _messages_for_run(
+    session: AsyncSession, *, run_id: UUID, role: str | None = None
+) -> list[ConversationMessage]:
     filters = [ConversationMessage.run_id == run_id, ConversationMessage.deleted_at.is_(None)]
     if role is not None:
         filters.append(ConversationMessage.role == role)
-    result = await session.execute(select(ConversationMessage).where(*filters).order_by(ConversationMessage.message_index))
+    result = await session.execute(
+        select(ConversationMessage).where(*filters).order_by(ConversationMessage.message_index)
+    )
     return list(result.scalars().all())
 
 
@@ -2843,12 +2863,15 @@ async def test_draft_terminal_failure_projects_error_across_sse_db_polling_and_m
     assert run.final_response == "操作草稿未能安全创建，请稍后重试或转人工处理。"
     assert finalizer_calls == []
     assert await _count_rows(session, ActionDraft, ActionDraft.run_id == run.id) == 0
-    assert await _count_rows(
-        session,
-        ConversationMessage,
-        ConversationMessage.run_id == run.id,
-        ConversationMessage.role == "assistant",
-    ) == 0
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == run.id,
+            ConversationMessage.role == "assistant",
+        )
+        == 0
+    )
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
     assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
 
@@ -3195,9 +3218,7 @@ async def test_event_generator_rejects_spoofed_interrupt_proposed_action_identit
 
     events = [event async for event in generator]
     error_events = [
-        _event_data(event)
-        for event in events
-        if "data" in event and _event_data(event).get("event_type") == "error"
+        _event_data(event) for event in events if "data" in event and _event_data(event).get("event_type") == "error"
     ]
 
     await session.refresh(run)
@@ -3646,7 +3667,12 @@ async def test_completed_agent_run_finalizer_skips_non_completed_status(
     assert result.case_working_context_status == "skipped"
     assert result.case_working_context_result == {"status": "skipped", "reason_code": "not_completed_path"}
     assert result.trace_steps == []
-    assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id, ConversationMessage.role == "assistant") == 0
+    assert (
+        await _count_rows(
+            session, ConversationMessage, ConversationMessage.run_id == run.id, ConversationMessage.role == "assistant"
+        )
+        == 0
+    )
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
     assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
 
@@ -3672,12 +3698,15 @@ async def test_completed_agent_run_finalizer_skips_non_completed_status(
     assert missing_response.status == "skipped"
     assert missing_response.case_working_context_status == "skipped"
     assert missing_response.case_working_context_result == {"status": "skipped", "reason_code": "not_completed_path"}
-    assert await _count_rows(
-        session,
-        ConversationMessage,
-        ConversationMessage.run_id == missing_response_run.id,
-        ConversationMessage.role == "assistant",
-    ) == 0
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == missing_response_run.id,
+            ConversationMessage.role == "assistant",
+        )
+        == 0
+    )
 
 
 @pytest.mark.asyncio
@@ -3726,12 +3755,15 @@ async def test_completed_memory_projection_rechecks_action_terminal_integrity(
         "reason_code": "action_terminal_failed",
     }
     assert result.trace_steps == []
-    assert await _count_rows(
-        session,
-        ConversationMessage,
-        ConversationMessage.run_id == run.id,
-        ConversationMessage.role == "assistant",
-    ) == 0
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == run.id,
+            ConversationMessage.role == "assistant",
+        )
+        == 0
+    )
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
     assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
 
@@ -3821,12 +3853,15 @@ async def test_agent_run_finalizer_cwc_failure_preserves_terminal_rows(
     assert result.case_working_context_status == "error"
     assert result.case_working_context_result["reason_code"] == "case_working_context_write_failed"
     assert result.case_working_context_result["error_type"] == "RuntimeError"
-    assert await _count_rows(
-        session,
-        ConversationMessage,
-        ConversationMessage.run_id == run.id,
-        ConversationMessage.role == "assistant",
-    ) == 1
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == run.id,
+            ConversationMessage.role == "assistant",
+        )
+        == 1
+    )
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 1
 
 
@@ -3857,20 +3892,26 @@ async def test_agent_run_finalizer_cwc_blocked_preserves_terminal_rows(
     assert result.case_working_context_status == "blocked"
     assert result.case_working_context_result["reason_code"] == "pii_blocked"
     assert result.case_working_context_result.get("memory_id") is None
-    assert await _count_rows(
-        session,
-        ConversationMessage,
-        ConversationMessage.run_id == run.id,
-        ConversationMessage.role == "assistant",
-    ) == 1
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == run.id,
+            ConversationMessage.role == "assistant",
+        )
+        == 1
+    )
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 1
-    assert await _count_rows(
-        session,
-        CaseWorkingContext,
-        CaseWorkingContext.tenant_id == user.tenant_id,
-        CaseWorkingContext.case_id == seeded_session["refund_case"].id,
-        CaseWorkingContext.deleted_at.is_(None),
-    ) == 0
+    assert (
+        await _count_rows(
+            session,
+            CaseWorkingContext,
+            CaseWorkingContext.tenant_id == user.tenant_id,
+            CaseWorkingContext.case_id == seeded_session["refund_case"].id,
+            CaseWorkingContext.deleted_at.is_(None),
+        )
+        == 0
+    )
 
 
 @pytest.mark.asyncio
@@ -3941,12 +3982,15 @@ async def test_agent_run_finalizer_cwc_conflict_preserves_terminal_rows(
     assert result.case_working_context_result["reason_code"] == "version_conflict"
     assert result.case_working_context_result.get("memory_id") is None
     assert existing_cwc.customer_request == "初始请求"
-    assert await _count_rows(
-        session,
-        ConversationMessage,
-        ConversationMessage.run_id == run.id,
-        ConversationMessage.role == "assistant",
-    ) == 1
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == run.id,
+            ConversationMessage.role == "assistant",
+        )
+        == 1
+    )
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 1
 
 
@@ -4001,12 +4045,15 @@ async def test_completed_agent_run_finalizer_memory_write_rollback_does_not_remo
     assert metrics["fallback_reason"] == "repository_unavailable"
     assert metrics["pii_decision"] == "skip"
     assert metrics["pii_classification"] == "none"
-    assert await _count_rows(
-        session,
-        ConversationMessage,
-        ConversationMessage.run_id == run.id,
-        ConversationMessage.role == "assistant",
-    ) == 1
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == run.id,
+            ConversationMessage.role == "assistant",
+        )
+        == 1
+    )
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 1
 
 
@@ -4051,11 +4098,21 @@ async def test_completed_agent_run_finalizer_rolls_back_if_complete_run_fails(
     ]
 
     assert any('"event_type": "error"' in event.get("data", "") for event in events)
-    assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id, ConversationMessage.role == "assistant") == 0
+    assert (
+        await _count_rows(
+            session, ConversationMessage, ConversationMessage.run_id == run.id, ConversationMessage.role == "assistant"
+        )
+        == 0
+    )
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
     assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
     assert await _count_rows(session, SessionMemory, SessionMemory.thread_id == run.thread_id) == 0
-    assert await _count_rows(session, AgentStep, AgentStep.run_id == run.id, AgentStep.node_name == "agent_run_memory_finalize") == 0
+    assert (
+        await _count_rows(
+            session, AgentStep, AgentStep.run_id == run.id, AgentStep.node_name == "agent_run_memory_finalize"
+        )
+        == 0
+    )
     await session.refresh(run)
     assert run.final_status == "error"
 
@@ -4137,7 +4194,15 @@ async def test_agent_run_error_cancel_interrupted_do_not_write_completed_memory(
     for run in (error_run, cancelled_run, interrupted_run):
         await session.refresh(run)
         assert run.final_status in {"error", "interrupted"}
-        assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id, ConversationMessage.role == "assistant") == 0
+        assert (
+            await _count_rows(
+                session,
+                ConversationMessage,
+                ConversationMessage.run_id == run.id,
+                ConversationMessage.role == "assistant",
+            )
+            == 0
+        )
         assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
 
 
@@ -4207,12 +4272,16 @@ async def test_duplicate_sse_stream_does_not_duplicate_memory_surfaces(
     calls["graph"] = len(graph.calls)
     calls_after_first = dict(calls)
     counts_after_first = {
-        "user": await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run_id, ConversationMessage.role == "user"),
+        "user": await _count_rows(
+            session, ConversationMessage, ConversationMessage.run_id == run_id, ConversationMessage.role == "user"
+        ),
         "assistant": await _count_rows(
             session, ConversationMessage, ConversationMessage.run_id == run_id, ConversationMessage.role == "assistant"
         ),
         "tool_results": await _count_rows(session, ToolResultRecord, ToolResultRecord.run_id == run_id),
-        "summaries": await _count_rows(session, ConversationSummary, ConversationSummary.thread_id.like("phase24-duplicate-%")),
+        "summaries": await _count_rows(
+            session, ConversationSummary, ConversationSummary.thread_id.like("phase24-duplicate-%")
+        ),
         "session_memory_writes": await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run_id),
     }
     duplicate_response = await client.get(
@@ -4221,12 +4290,16 @@ async def test_duplicate_sse_stream_does_not_duplicate_memory_surfaces(
     )
     assert duplicate_response.status_code == 409
     counts_after_duplicate = {
-        "user": await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run_id, ConversationMessage.role == "user"),
+        "user": await _count_rows(
+            session, ConversationMessage, ConversationMessage.run_id == run_id, ConversationMessage.role == "user"
+        ),
         "assistant": await _count_rows(
             session, ConversationMessage, ConversationMessage.run_id == run_id, ConversationMessage.role == "assistant"
         ),
         "tool_results": await _count_rows(session, ToolResultRecord, ToolResultRecord.run_id == run_id),
-        "summaries": await _count_rows(session, ConversationSummary, ConversationSummary.thread_id.like("phase24-duplicate-%")),
+        "summaries": await _count_rows(
+            session, ConversationSummary, ConversationSummary.thread_id.like("phase24-duplicate-%")
+        ),
         "session_memory_writes": await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run_id),
     }
 
@@ -4276,20 +4349,31 @@ async def test_three_turn_agent_runs_smoke_uses_slots_and_summary_context(
         run_ids.append(run_id)
         await _run_agent_run_stream(client, str(run_id), user)
 
-    assert await _count_rows(session, ConversationMessage, ConversationMessage.thread_id == thread_id, ConversationMessage.role == "user") >= 3
-    assert await _count_rows(
-        session,
-        ConversationMessage,
-        ConversationMessage.thread_id == thread_id,
-        ConversationMessage.role == "assistant",
-        ConversationMessage.metadata_json["status"].as_string() == "completed",
-    ) >= 3
-    assert await _count_rows(
-        session,
-        ConversationSummary,
-        ConversationSummary.thread_id == thread_id,
-        ConversationSummary.summary_type == "thread_rolling",
-    ) >= 1
+    assert (
+        await _count_rows(
+            session, ConversationMessage, ConversationMessage.thread_id == thread_id, ConversationMessage.role == "user"
+        )
+        >= 3
+    )
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.thread_id == thread_id,
+            ConversationMessage.role == "assistant",
+            ConversationMessage.metadata_json["status"].as_string() == "completed",
+        )
+        >= 3
+    )
+    assert (
+        await _count_rows(
+            session,
+            ConversationSummary,
+            ConversationSummary.thread_id == thread_id,
+            ConversationSummary.summary_type == "thread_rolling",
+        )
+        >= 1
+    )
     assert await _count_rows(session, ToolResultRecord, ToolResultRecord.thread_id == thread_id) >= 3
     assert len(graph.calls) == 3
     assert len(graph.snapshots) == 3
@@ -4315,7 +4399,9 @@ async def test_three_turn_agent_runs_smoke_uses_slots_and_summary_context(
     assert turn2["active_slots"]["order_id"] == "ORD-TEST-001"
     assert turn2["active_slot_metadata"]["order_id"]["source"] == "trusted_session_memory"
     assert "ORD-TEST-001" in turn2["prompt_summary"]
-    assert any("Prompt-safe get_order summary for ORD-TEST-001" in summary for summary in turn2["tool_prompt_summaries"])
+    assert any(
+        "Prompt-safe get_order summary for ORD-TEST-001" in summary for summary in turn2["tool_prompt_summaries"]
+    )
     assert any(role == "user" and "那这个订单下一步" in content for role, content in turn2["recent_messages"])
     assert turn3["session_memory"]["active_slots"]["order_id"] == "ORD-TEST-001"
     assert turn3["active_slots"]["order_id"] == "ORD-TEST-999"

@@ -91,7 +91,9 @@ def test_phase36_scope_and_readiness_fields_do_not_enter_authorization_guards() 
         "agent_runs._claim_pending_run_for_stream": _authorization_lines(
             inspect.getsource(agent_runs_router._claim_pending_run_for_stream)
         ),
-        "agent_runs.get_agent_run_status": _authorization_lines(inspect.getsource(agent_runs_router.get_agent_run_status)),
+        "agent_runs.get_agent_run_status": _authorization_lines(
+            inspect.getsource(agent_runs_router.get_agent_run_status)
+        ),
         "agent_runs.get_agent_run_evidence": _authorization_lines(
             inspect.getsource(agent_runs_router.get_agent_run_evidence)
         ),

@@ -311,7 +311,9 @@ async def test_create_coupon_grant_draft_persists_phase34_binding_projection(
     action_draft = ActionDraftV2Data.model_validate(result["data"]["action_draft"])
     assert action_draft.target_merchant_id == request.target_merchant_id
     assert [ref.model_dump(mode="json") for ref in action_draft.business_fact_refs] == request.business_fact_refs
-    assert [ref.model_dump(mode="json") for ref in action_draft.verified_evidence_refs] == request.verified_evidence_refs
+    assert [
+        ref.model_dump(mode="json") for ref in action_draft.verified_evidence_refs
+    ] == request.verified_evidence_refs
     assert action_draft.risk_decision_ref == request.risk_decision_ref
     assert action_draft.risk_decision.model_dump(mode="json") == request.risk_decision
     event = (

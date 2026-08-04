@@ -488,6 +488,8 @@ async def test_membership_fail_drops_ref_and_marks_citation_invalid(monkeypatch,
     assert draft["recommended_action"] == "citation_invalid"
     assert draft["confidence"] == 0.0
     assert draft["citation_validation"]["is_valid"] is False
+    assert result["canonical_action"] is None
+    assert result["risk_signals"] == []
     assert result["evidence_refs"] == []
 
 
@@ -545,7 +547,11 @@ async def test_prompt_includes_bounded_policy_text(monkeypatch, base_state):
     calls = _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): full_text})
 
     await recommendation_generation_module.recommendation_generation(
-        {**base_state, **_retrieval_state(evidence=[evidence]), **_verified_package_state(evidence=evidence, snippet=full_text)},
+        {
+            **base_state,
+            **_retrieval_state(evidence=[evidence]),
+            **_verified_package_state(evidence=evidence, snippet=full_text),
+        },
         _config(),
     )
 
@@ -576,6 +582,7 @@ async def test_hash_mismatch_content_is_not_grounded(monkeypatch, base_state):
 async def test_canonical_latest_invalid_reason_routes_refuse_not_generic_insufficient(monkeypatch, base_state):
     text = "退款超时时，客服应核实支付通道和退款状态。"
     evidence = _evidence(tenant_id=base_state["tenant_id"], policy_version="v1", text=text)
+
     class ExplodingLLM:
         def with_structured_output(self, schema):
             raise AssertionError("LLM should not run for stale verified evidence packages")
@@ -610,6 +617,7 @@ async def test_canonical_latest_invalid_reason_routes_refuse_not_generic_insuffi
 async def test_evidence_ocr_low_confidence_label_routes_manual_review(monkeypatch, base_state):
     text = "扫描件显示可直接补偿 800 元。"
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=text)
+
     class ExplodingLLM:
         def with_structured_output(self, schema):
             raise AssertionError("LLM should not run for high-risk partial evidence packages")
@@ -722,7 +730,11 @@ async def test_text_hash_uses_full_content_not_truncated(monkeypatch, base_state
     _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): full_text})
 
     result = await recommendation_generation_module.recommendation_generation(
-        {**base_state, **_retrieval_state(evidence=[evidence]), **_verified_package_state(evidence=evidence, snippet=full_text)},
+        {
+            **base_state,
+            **_retrieval_state(evidence=[evidence]),
+            **_verified_package_state(evidence=evidence, snippet=full_text),
+        },
         _config(),
     )
 
@@ -736,6 +748,7 @@ async def test_text_hash_uses_full_content_not_truncated(monkeypatch, base_state
 async def test_missing_session_completes_without_grounded_text(monkeypatch, base_state):
     policy_text = "must not reach prompt without a session"
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=policy_text)
+
     class ExplodingLLM:
         def with_structured_output(self, schema):
             raise AssertionError("LLM should not run without a required verified evidence package")
@@ -1022,7 +1035,9 @@ async def test_expected_error_retries_then_falls_back(monkeypatch, base_state):
 
 
 @pytest.mark.asyncio
-async def test_recommendation_generation_prompt_uses_context_assembly_and_excludes_raw_payloads(monkeypatch, base_state):
+async def test_recommendation_generation_prompt_uses_context_assembly_and_excludes_raw_payloads(
+    monkeypatch, base_state
+):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
     fake_llm = CapturingLLM(_draft())
     fake_conversation = FakeConversationService()

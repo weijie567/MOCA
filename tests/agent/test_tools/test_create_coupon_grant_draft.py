@@ -443,7 +443,9 @@ async def test_create_coupon_grant_draft_rejects_bare_snapshot_without_auto_acti
         retrieval_config_version=command.retrieval_config_version,
         evidence_refs=command.evidence_refs,
         target_merchant_id=command.target_merchant_id,
-        target_merchant_ref=command.target_merchant_ref.model_dump(mode="json") if command.target_merchant_ref else None,
+        target_merchant_ref=command.target_merchant_ref.model_dump(mode="json")
+        if command.target_merchant_ref
+        else None,
         business_fact_refs=[ref.model_dump(mode="json") for ref in command.business_fact_refs],
         created_at=command.created_at,
         created_by=user_id,
@@ -462,7 +464,9 @@ async def test_create_coupon_grant_draft_rejects_bare_snapshot_without_auto_acti
         safety_snapshot_ref=snapshot.safety_snapshot_ref,
         safety_snapshot_hash=snapshot.safety_snapshot_hash,
         target_merchant_id=command.target_merchant_id,
-        target_merchant_ref=command.target_merchant_ref.model_dump(mode="json") if command.target_merchant_ref else None,
+        target_merchant_ref=command.target_merchant_ref.model_dump(mode="json")
+        if command.target_merchant_ref
+        else None,
         business_fact_refs=[ref.model_dump(mode="json") for ref in command.business_fact_refs],
         verified_evidence_refs=[ref.model_dump(mode="json") for ref in command.verified_evidence_refs],
         claim_verification_ref=command.claim_verification_ref,

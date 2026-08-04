@@ -20,7 +20,9 @@ depends_on: Sequence[str] | None = None
 
 def upgrade() -> None:
     op.drop_constraint("ck_agent_trace_events_event_type", "agent_trace_events", type_="check")
-    op.create_check_constraint("ck_agent_trace_events_event_type", "agent_trace_events",
+    op.create_check_constraint(
+        "ck_agent_trace_events_event_type",
+        "agent_trace_events",
         "event_type IN ("
         "'action_draft_created', 'approval_decided', 'approval_expired', 'approval_requested', "
         "'approval_resumed', 'llm_call_completed', 'llm_call_failed', 'llm_call_started', "
@@ -34,7 +36,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_constraint("ck_agent_trace_events_event_type", "agent_trace_events", type_="check")
-    op.create_check_constraint("ck_agent_trace_events_event_type", "agent_trace_events",
+    op.create_check_constraint(
+        "ck_agent_trace_events_event_type",
+        "agent_trace_events",
         "event_type IN ("
         "'action_draft_created', 'approval_decided', 'approval_expired', 'approval_requested', "
         "'approval_resumed', 'llm_call_completed', 'llm_call_failed', 'llm_call_started', "

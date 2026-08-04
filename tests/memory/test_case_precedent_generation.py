@@ -572,7 +572,9 @@ async def test_generated_candidate_pending_review_hidden_until_approval_with_pol
 
     assert approve_event.decision == "write"
     assert [item.case_memory_id for item in visible.items] == [str(generated.memory_id)]
-    assert visible.items[0].policy_refs == [{"doc_key": "refund_policy", "chunk_id": "c-1", "policy_version": "2026-01"}]
+    assert visible.items[0].policy_refs == [
+        {"doc_key": "refund_policy", "chunk_id": "c-1", "policy_version": "2026-01"}
+    ]
 
 
 def test_unresolved_merchant_falls_back_to_exact_case_scope(seeded_session: dict) -> None:

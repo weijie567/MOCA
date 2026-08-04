@@ -290,13 +290,14 @@ def _approval_route_state(**overrides) -> dict:
 
 
 def test_phase58_routing_tests_use_canonical_helpers_and_route_values_only():
+    join_fragment = "".join
     forbidden_fragments = [
-        "route_after_" "intent",
-        "route_after_" "slots",
-        "needs_long_" "term_memory",
-        "classify_" "intent",
-        "session_" "memory_load",
-        "assess_" "risk_and_approval",
+        join_fragment(("route_after_", "intent")),
+        join_fragment(("route_after_", "slots")),
+        join_fragment(("needs_long_", "term_memory")),
+        join_fragment(("classify_", "intent")),
+        join_fragment(("session_memory_", "load")),
+        join_fragment(("assess_risk_", "and_approval")),
     ]
 
     for path in PHASE58_ROUTING_TEST_FILES:
@@ -372,7 +373,7 @@ def test_route_after_recommendation_routes_actionable_draft_to_claim_verify():
         "recommendation_draft": {
             "recommended_action": "issue_coupon",
             "risk_level": "high",
-        }
+        },
     }
 
     assert route_after_recommendation(state) == "claim_verify"
@@ -545,7 +546,7 @@ def test_route_after_contextual_intent_fails_closed_for_exceptions_or_unregister
 
 
 def test_legacy_intent_route_delegate_is_not_public_current_route_authority():
-    legacy_route_helper = "route_after_" "intent"
+    legacy_route_helper = "".join(("route_after_", "intent"))
     state = {
         "primary_intent": "refund_troubleshooting",
         "requested_operation": "read_status",
@@ -558,7 +559,7 @@ def test_legacy_intent_route_delegate_is_not_public_current_route_authority():
 
 
 def test_legacy_slot_route_delegate_is_not_public_current_route_authority():
-    legacy_route_helper = "route_after_" "slots"
+    legacy_route_helper = "".join(("route_after_", "slots"))
     state = {
         "primary_intent": "refund_troubleshooting",
         "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
@@ -596,7 +597,7 @@ def test_phase56_recommendation_route_maps_target_canonical_graph_node():
         "claim_verify": "claim_verify",
         "final_response": "final_response",
     }
-    legacy_recommendation_edge = ("generate_" "recommendation", "route_after_recommendation")
+    legacy_recommendation_edge = ("generate_recommendation", "route_after_recommendation")
     assert legacy_recommendation_edge not in route_maps
     assert route_maps[("claim_verify", "route_after_claim_verify")]["risk_gate"] == "risk_gate"
 
@@ -820,7 +821,7 @@ def test_route_after_approval_rejects_legacy_risk_resume_route_authority():
             "decision_type": "edit",
             "status": "superseded",
             "new_action_payload_hash": "sha256:" + "3" * 64,
-            "resume_route": "assess_" "risk_and_approval",
+            "resume_route": "".join(("assess_risk_", "and_approval")),
         }
     )
 
@@ -875,39 +876,37 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_dra
     )
 
     input_state = {
-            "thread_id": "auto-allowed-snapshot",
-            "tenant_id": str(tenant_id),
-            "user_id": str(user_id),
-            "role": "support",
-            "current_run_id": str(run_id),
-            "current_intent": "compensation_suggestion",
-            "recommendation_draft": {
-                "recommended_action": "issue_coupon",
-                "reasoning_summary": "Issue a low value coupon.",
-                "confidence": 0.9,
-                "risk_level": "low",
-                "missing_info": [],
-            },
-            "business_context": {
-                "refund_case": {"id": "RF-TEST-001", "merchant_id": "merchant-1", "requested_amount": "50.00"},
-                "business_fact_refs": [
-                    _business_fact_ref_payload(str(tenant_id), resource_id="RF-TEST-001"),
-                ],
-            },
-            "claim_verification_bundle": {
-                **_claim_bundle_payload(str(tenant_id)),
-                "claim_results": [
-                    {
-                        **_claim_bundle_payload(str(tenant_id))["claim_results"][0],
-                        "business_fact_refs": [
-                            _business_fact_ref_payload(str(tenant_id), resource_id="RF-TEST-001")
-                        ],
-                    }
-                ],
-                "safe_support_refs": [_evidence_ref(tenant_id=tenant_id)],
-            },
-            "trace_steps": [],
-        }
+        "thread_id": "auto-allowed-snapshot",
+        "tenant_id": str(tenant_id),
+        "user_id": str(user_id),
+        "role": "support",
+        "current_run_id": str(run_id),
+        "current_intent": "compensation_suggestion",
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Issue a low value coupon.",
+            "confidence": 0.9,
+            "risk_level": "low",
+            "missing_info": [],
+        },
+        "business_context": {
+            "refund_case": {"id": "RF-TEST-001", "merchant_id": "merchant-1", "requested_amount": "50.00"},
+            "business_fact_refs": [
+                _business_fact_ref_payload(str(tenant_id), resource_id="RF-TEST-001"),
+            ],
+        },
+        "claim_verification_bundle": {
+            **_claim_bundle_payload(str(tenant_id)),
+            "claim_results": [
+                {
+                    **_claim_bundle_payload(str(tenant_id))["claim_results"][0],
+                    "business_fact_refs": [_business_fact_ref_payload(str(tenant_id), resource_id="RF-TEST-001")],
+                }
+            ],
+            "safe_support_refs": [_evidence_ref(tenant_id=tenant_id)],
+        },
+        "trace_steps": [],
+    }
     result = await risk_module.risk_gate(
         input_state,
         {

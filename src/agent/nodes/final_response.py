@@ -191,7 +191,10 @@ def _current_verified_package_evidence_refs(state: AgentState) -> list[dict[str,
     evidence_map = _mapping(package.get("evidence_map"))
     refs: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for value in (_mapping(state.get("claim_verification_bundle")).get("safe_support_refs"), state.get("safe_support_refs")):
+    for value in (
+        _mapping(state.get("claim_verification_bundle")).get("safe_support_refs"),
+        state.get("safe_support_refs"),
+    ):
         refs.extend(_resolve_package_evidence_refs(value, evidence_map, seen))
     refs.extend(_resolve_package_evidence_refs(list(evidence_map.values()), evidence_map, seen))
     return refs
@@ -448,7 +451,9 @@ def _metric_llm_output(response_text: str, metric: dict[str, Any]) -> dict[str, 
 
 
 def _metric_is_permission_denied(metric: dict[str, Any]) -> bool:
-    return metric.get("status") == "permission_denied" or metric.get("no_leak_status") == "scope_denied_no_existence_leak"
+    return (
+        metric.get("status") == "permission_denied" or metric.get("no_leak_status") == "scope_denied_no_existence_leak"
+    )
 
 
 def _metric_is_zero_denominator_refund_rate(metric: dict[str, Any]) -> bool:
@@ -547,10 +552,7 @@ def _direct_response_text(state: AgentState) -> str:
 
     routing_hints = _mapping(state.get("routing_hints"))
     if routing_hints.get("unsupported_reason") == "aggregate_order_query":
-        return (
-            "要统计订单数，请选择时间范围：今天、本周、本月、本季度、今年，"
-            "或指定起止时间。"
-        )
+        return "要统计订单数，请选择时间范围：今天、本周、本月、本季度、今年，或指定起止时间。"
 
     return (
         "当前只支持商家售后相关的政策问答、订单/退款/工单查询、补偿建议和审批前动作草稿。"
@@ -702,8 +704,7 @@ def _legacy_verifier_fields_present(state: AgentState) -> bool:
     if isinstance(state.get("rag_verification"), dict):
         return True
     return any(
-        state.get(field) is not None
-        for field in ("verification_route", "verifier_status", "verifier_reason_codes")
+        state.get(field) is not None for field in ("verification_route", "verifier_status", "verifier_reason_codes")
     )
 
 

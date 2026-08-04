@@ -224,8 +224,11 @@ class ConversationService:
         # Use projection data when available; otherwise create one.
         if projection is None:
             from src.tools.projection import ToolResultProjector
+
             projection = ToolResultProjector().project(
-                tool_name=tool_name, result=result, tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                result=result,
+                tool_call_id=tool_call_id,
             )
         normalized_result_json = projection.normalized_result
         prompt_proj = projection.prompt_projection

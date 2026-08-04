@@ -25,7 +25,7 @@ GENERATION_VERIFIER_OWNED_STATE_KEYS = {
 
 def test_phase58_recommendation_integration_patches_canonical_module_name() -> None:
     source = Path(__file__).read_text(encoding="utf-8")
-    legacy_alias = "generate_" "recommendation_module"
+    legacy_alias = "".join(("generate_", "recommendation_module"))
 
     assert legacy_alias not in source
     assert "from src.agent.nodes import recommendation_generation as recommendation_generation_module" in source

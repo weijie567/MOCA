@@ -225,13 +225,17 @@ async def test_canonical_low_action_reaches_one_audited_demo_draft(
     assert draft.draft_outcome["status"] == "not_executed_demo"
     assert draft.draft_outcome["external_side_effect"] is False
     events = (
-        await session.execute(
-            select(AgentTraceEvent).where(
-                AgentTraceEvent.run_id == run_id,
-                AgentTraceEvent.event_type == "action_draft_created",
+        (
+            await session.execute(
+                select(AgentTraceEvent).where(
+                    AgentTraceEvent.run_id == run_id,
+                    AgentTraceEvent.event_type == "action_draft_created",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(events) == 1
     assert events[0].redacted_payload["authorization_source"] == "auto_allow_capability"
 
@@ -371,9 +375,7 @@ async def test_high_action_uses_latest_decision_context_before_one_approved_draf
     pending = await client.get("/api/v1/approvals", headers=headers)
     detail = await client.get(f"/api/v1/approvals/{approval_id}", headers=headers)
     list_context = next(
-        item["decision_context"]
-        for item in pending.json()["data"]["approvals"]
-        if item["id"] == str(approval_id)
+        item["decision_context"] for item in pending.json()["data"]["approvals"] if item["id"] == str(approval_id)
     )
     detail_context = detail.json()["data"]["decision_context"]
     assert list_context == detail_context
@@ -517,9 +519,7 @@ async def test_wrong_handler_expiry_and_replay_never_create_an_unauthorized_new_
     first = await service.create_coupon_grant_draft(**_draft_kwargs(replay_context))
     exact_retry = await service.create_coupon_grant_draft(**_draft_kwargs(replay_context))
     tampered_risk = {**replay_context["risk_decision"], "risk_reason": "tampered replay"}
-    replay = await service.create_coupon_grant_draft(
-        **_draft_kwargs(replay_context, risk_decision=tampered_risk)
-    )
+    replay = await service.create_coupon_grant_draft(**_draft_kwargs(replay_context, risk_decision=tampered_risk))
     assert first["status"] == exact_retry["status"] == "success"
     assert first["data"]["draft_id"] == exact_retry["data"]["draft_id"]
     assert exact_retry["data"]["idempotent_reused"] is True
@@ -560,7 +560,9 @@ async def test_store_and_audit_failure_roll_back_draft_capability_and_critical_e
     assert result["status"] == "error"
     assert await _draft_count(session, context["run_id"]) == 0
     event_count = await session.scalar(
-        select(func.count()).select_from(AgentTraceEvent).where(
+        select(func.count())
+        .select_from(AgentTraceEvent)
+        .where(
             AgentTraceEvent.run_id == context["run_id"],
             AgentTraceEvent.event_type == "action_draft_created",
         )

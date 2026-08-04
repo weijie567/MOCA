@@ -252,8 +252,7 @@ def build_trace_summary(
     trace_steps = final_state.get("trace_steps") or []
     nodes_executed = [str(step.get("node") or "unknown") for step in trace_steps]
     projected_steps = [
-        project_trace_step_for_contract(step if isinstance(step, dict) else {"node": "unknown"})
-        for step in trace_steps
+        project_trace_step_for_contract(step if isinstance(step, dict) else {"node": "unknown"}) for step in trace_steps
     ]
     graph_projection_steps = [
         {

@@ -97,7 +97,9 @@ class CaseWorkingContextService:
                     event_id=event.id,
                 )
 
-            repository_result = await CaseWorkingContextRepository(child_session).write_working_context(trusted_candidate)
+            repository_result = await CaseWorkingContextRepository(child_session).write_working_context(
+                trusted_candidate
+            )
             if repository_result.status == "conflict":
                 event = await _emit_write_event(
                     child_session,

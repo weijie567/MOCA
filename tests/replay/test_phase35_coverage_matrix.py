@@ -69,7 +69,9 @@ APPROVED_PYTEST_ENTRYPOINTS = (
     ".venv/bin/pytest",
     ".venv/bin/python -m pytest",
 )
-PYTEST_COMMAND_START_RE = re.compile(r"^(?:UV_CACHE_DIR=\S+\s+)?(?:uv\s+run\s+pytest|\.venv/bin/pytest|\.venv/bin/python\s+-m\s+pytest|python\s+-m\s+pytest|pytest)\b")
+PYTEST_COMMAND_START_RE = re.compile(
+    r"^(?:UV_CACHE_DIR=\S+\s+)?(?:uv\s+run\s+pytest|\.venv/bin/pytest|\.venv/bin/python\s+-m\s+pytest|python\s+-m\s+pytest|pytest)\b"
+)
 INLINE_CODE_RE = re.compile(r"`([^`]*pytest[^`]*)`")
 AUTOMATED_XML_RE = re.compile(r"<automated>([^<]*pytest[^<]*)</automated>")
 
@@ -201,9 +203,7 @@ def test_phase35_matrix_has_focused_left_half_decision_assertions() -> None:
             "empty decision_assertions",
         ),
         (
-            lambda raw: _first_assertion(raw).__setitem__(
-                "test_path", "tests/replay/test_phase35_missing_contract.py"
-            ),
+            lambda raw: _first_assertion(raw).__setitem__("test_path", "tests/replay/test_phase35_missing_contract.py"),
             "decision assertion test_path",
         ),
         (
@@ -233,10 +233,7 @@ def test_phase35_matrix_has_focused_left_half_decision_assertions() -> None:
         (
             lambda raw: _first_row(raw).__setitem__(
                 "notes",
-                (
-                    "Run `uv run pytest tests/replay/test_ok.py && "
-                    "python -m pytest tests/replay/test_leak.py`"
-                ),
+                ("Run `uv run pytest tests/replay/test_ok.py && python -m pytest tests/replay/test_leak.py`"),
             ),
             "unscoped pytest entrypoint",
         ),

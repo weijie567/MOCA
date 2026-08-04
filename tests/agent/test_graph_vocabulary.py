@@ -107,14 +107,10 @@ def test_active_vocabulary_entries_are_unique_and_match_final_runtime_surface() 
 
     assert len(pairs) == len(set(pairs))
     assert {
-        entry.legacy_name
-        for entry in graph_vocabulary_module._ENTRIES
-        if entry.kind == "node"
+        entry.legacy_name for entry in graph_vocabulary_module._ENTRIES if entry.kind == "node"
     } == TARGET_CANONICAL_GRAPH_NODES
     assert {
-        entry.legacy_name
-        for entry in graph_vocabulary_module._ENTRIES
-        if entry.kind == "router"
+        entry.legacy_name for entry in graph_vocabulary_module._ENTRIES if entry.kind == "router"
     } == CURRENT_ROUTER_NAMES
 
 

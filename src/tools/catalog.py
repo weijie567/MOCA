@@ -257,11 +257,7 @@ _BUSINESS_QUERY_STATUS_SCHEMA: dict[str, Any] = {
     "items": {
         "type": "string",
         "enum": sorted(
-            {
-                status
-                for descriptor in BUSINESS_QUERY_REGISTRY.statuses().values()
-                for status in descriptor.values
-            }
+            {status for descriptor in BUSINESS_QUERY_REGISTRY.statuses().values() for status in descriptor.values}
         ),
         "minLength": 1,
     },
