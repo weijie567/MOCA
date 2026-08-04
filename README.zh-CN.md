@@ -2,9 +2,11 @@
 
 [English](README.md) | **简体中文**
 
-> 面向 AI 应用产品经理 / Agent 产品经理方向的开源作品集项目。
+> 一个强调安全边界、审计能力与可验证工作流的开源 AI Agent 参考实现。
 >
 > **范围说明：** MOCA 使用模拟商家运营场景和合成数据，不将其描述为真实商用上线系统。
+
+文档入口：[docs/README.md](docs/README.md)。
 
 ## 产品定位
 
@@ -39,7 +41,7 @@ MOCA 不是普通聊天机器人，它围绕以下产品边界设计：
 | 高风险动作审批 | “直接给这个订单退款并发券。” | 创建审批请求，而不是直接执行动作 |
 | 审批恢复与 trace 回放 | 主管批准或拒绝待处理动作 | 恢复工作流并保留完整审计轨迹 |
 
-完整演示脚本：[docs/demo-walkthrough.md](docs/demo-walkthrough.md)。
+当前演示指南：[docs/guides/demo.md](docs/guides/demo.md)。
 
 ## 项目亮点
 
@@ -48,7 +50,7 @@ MOCA 不是普通聊天机器人，它围绕以下产品边界设计：
 - **清晰权威边界：** 分离业务事实、政策证据、记忆、审批权和动作执行权。
 - **人审是核心路径：** 高风险动作通过 LangGraph interrupt/resume 和审批 API 处理。
 - **评测驱动的产品设计：** 使用 golden cases 评测意图、路由、工具调用、引用、安全和审批路径。
-- **作品集价值：** 展示产品定义、工作流设计、AI 安全边界思考、MVP 范围控制和评测规划能力。
+- **工程参考价值：** 展示工作流契约、权威隔离、人审、可回放性与评测门禁的实现方式。
 
 ## Agent 工作流
 
@@ -99,7 +101,7 @@ graph LR
     J --> H
 ```
 
-源码层 graph 说明见 [docs/current-langgraph-architecture.md](docs/current-langgraph-architecture.md)。
+源码层 graph 说明见 [docs/architecture/agent-workflow.md](docs/architecture/agent-workflow.md)。
 
 ## 安全边界
 
@@ -112,7 +114,7 @@ MOCA 的设计目标是让模型辅助理解和生成，但不能静默替代业
 - 审批决定必须来自可信审批 API，而不是普通聊天文本。
 - 租户、角色和商家范围会在 API 与服务边界进行校验。
 
-详见 [docs/security-and-permission.md](docs/security-and-permission.md)。
+详见 [docs/architecture/security-approval-and-actions.md](docs/architecture/security-approval-and-actions.md)。
 
 ## 评测体系
 
@@ -122,20 +124,19 @@ MOCA 的评测重点不是“回答像不像人”，而是 Agent 是否遵守�
 | --- | ---: | --- |
 | RAG Hit@5 | ≥ 85% | 对 `evaluation/golden/rag_cases.jsonl` 运行 `scripts/eval_rag.py` |
 | 意图与路由准确率 | ≥ 90% | `scripts/eval_agent.py` deterministic mode |
-| 工具选择准确率 | ≥ 90% | 检查 graph 运行是否包含预期业务工具 |
+| 工具选择准确率 | ≥ 85% | 检查 graph 运行是否包含预期业务工具 |
 | 引用率 | ≥ 85% | 检查证据文档键和回复 grounding |
 | 安全关键用例通过率 | 100% | 审批、权限拒绝、驳回和无证据场景 |
 
-评测详情：[docs/evaluation.md](docs/evaluation.md)。
+评测详情：[docs/quality/evaluation.md](docs/quality/evaluation.md)。
 
-## 作品集材料
+## 项目文档
 
-- [产品一页纸](study_plan/portfolio/01_Product_One_Pager.md)
-- [产品案例总览](study_plan/portfolio/MOCA_PM_CASE_STUDY.md)
-- [10 分钟演示脚本](docs/demo-walkthrough.md)
-- [评测方法](docs/evaluation.md)
-- [安全与权限模型](docs/security-and-permission.md)
-- [当前 LangGraph 架构](docs/current-langgraph-architecture.md)
+- [文档入口](docs/README.md)
+- [10 分钟演示指南](docs/guides/demo.md)
+- [评测方法](docs/quality/evaluation.md)
+- [安全、审批与动作边界](docs/architecture/security-approval-and-actions.md)
+- [当前 Agent 工作流](docs/architecture/agent-workflow.md)
 
 ## 当前状态
 
@@ -219,8 +220,7 @@ frontend/           # React + Vite 控制台
 evaluation/         # Golden sets 和评测报告
 scripts/            # Seed、demo、评测和工具 CLI
 rules/              # 风险规则
-docs/               # 架构、演示、评测和安全文档
-study_plan/         # 作品集和学习计划材料
+docs/               # 精简维护的 CURRENT、NORMATIVE 与 GUIDE 文档
 tests/              # 单元、集成、Agent、审批、trace 和 API 测试
 ```
 

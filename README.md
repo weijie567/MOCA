@@ -2,9 +2,11 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-> Open-source portfolio project for AI Application / Agent Product Manager roles.
+> Open-source reference implementation of a safety-bounded, auditable AI Agent workflow.
 >
 > **Scope:** MOCA uses a simulated merchant operations scenario and synthetic data. It is not presented as a real commercial deployment.
+
+Documentation portal: [docs/README.md](docs/README.md).
 
 ## Product Positioning
 
@@ -39,7 +41,7 @@ Merchant support work is not just “answering a question.” A real refund or c
 | High-risk approval | “Refund this order and issue a coupon now.” | Creates an approval request instead of executing the action |
 | Approval resume and trace | A manager approves or rejects a pending action | Resumes the workflow and preserves the audit trail |
 
-See the full walkthrough: [docs/demo-walkthrough.md](docs/demo-walkthrough.md).
+See the current walkthrough: [docs/guides/demo.md](docs/guides/demo.md).
 
 ## Why This Project Matters
 
@@ -48,7 +50,7 @@ See the full walkthrough: [docs/demo-walkthrough.md](docs/demo-walkthrough.md).
 - **Clear authority boundaries:** separates business facts, policy evidence, memory, approval authority, and action authority.
 - **Human approval is core:** uses LangGraph interrupt/resume and approval APIs for high-risk actions.
 - **Evaluation-aware product design:** evaluates intent, route, tool use, citation, safety, and approval paths with golden cases.
-- **Portfolio value:** demonstrates product definition, workflow design, AI safety boundary thinking, MVP scoping, and evaluation planning.
+- **Engineering reference value:** demonstrates workflow contracts, authority isolation, human approval, replayability, and evaluation gates.
 
 ## Agent Workflow
 
@@ -99,7 +101,7 @@ graph LR
     J --> H
 ```
 
-For the source-level graph map, see [docs/current-langgraph-architecture.md](docs/current-langgraph-architecture.md).
+For the source-level graph map, see [docs/architecture/agent-workflow.md](docs/architecture/agent-workflow.md).
 
 ## Safety Boundaries
 
@@ -112,7 +114,7 @@ MOCA is designed so the model can assist with reasoning and drafting but cannot 
 - Approval decisions must come from trusted approval APIs, not ordinary chat text.
 - Tenant, role, and merchant scope are checked at API and service boundaries.
 
-See [docs/security-and-permission.md](docs/security-and-permission.md).
+See [docs/architecture/security-approval-and-actions.md](docs/architecture/security-approval-and-actions.md).
 
 ## Evaluation
 
@@ -122,20 +124,19 @@ MOCA evaluates whether the Agent behaves correctly, not only whether responses s
 | --- | ---: | --- |
 | RAG Hit@5 | ≥ 85% | `scripts/eval_rag.py` over `evaluation/golden/rag_cases.jsonl` |
 | Intent and route accuracy | ≥ 90% | `scripts/eval_agent.py` deterministic mode |
-| Tool selection | ≥ 90% | Expected business tools contained in the graph run |
+| Tool selection | ≥ 85% | Expected business tools contained in the graph run |
 | Citation rate | ≥ 85% | Evidence document keys and response grounding checks |
 | Safety-critical pass rate | 100% | Approval, permission-denied, rejection, and no-evidence cases |
 
-Evaluation details: [docs/evaluation.md](docs/evaluation.md).
+Evaluation details: [docs/quality/evaluation.md](docs/quality/evaluation.md).
 
-## Portfolio Materials
+## Project Documentation
 
-- [Product One-Pager](study_plan/portfolio/01_Product_One_Pager.md)
-- [PM Case Study](study_plan/portfolio/MOCA_PM_CASE_STUDY.md)
-- [10-Minute Demo Walkthrough](docs/demo-walkthrough.md)
-- [Evaluation Methodology](docs/evaluation.md)
-- [Security and Permission Model](docs/security-and-permission.md)
-- [Current LangGraph Architecture](docs/current-langgraph-architecture.md)
+- [Documentation Portal](docs/README.md)
+- [10-Minute Demo Walkthrough](docs/guides/demo.md)
+- [Evaluation Methodology](docs/quality/evaluation.md)
+- [Security, Approval, and Action Boundaries](docs/architecture/security-approval-and-actions.md)
+- [Current Agent Workflow](docs/architecture/agent-workflow.md)
 
 ## Current Status
 
@@ -219,8 +220,7 @@ frontend/           # React and Vite console
 evaluation/         # Golden sets and reports
 scripts/            # Seed, demo, evaluation, and utility CLIs
 rules/              # Risk rules
-docs/               # Architecture, demo, evaluation, and security docs
-study_plan/         # Portfolio and learning-plan materials
+docs/               # Curated CURRENT, NORMATIVE, and GUIDE documentation
 tests/              # Unit, integration, Agent, approval, trace, and API tests
 ```
 

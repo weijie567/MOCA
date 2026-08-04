@@ -10,3 +10,10 @@ dist/
 htmlcov/
 .DS_Store
 pgdata/
+/graphify-out/
+/src/graphify-out/
+/output/
+/tmp/
+/study_plan/
+/scripts/study/
+/.planning/tmp/

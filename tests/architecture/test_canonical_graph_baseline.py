@@ -242,7 +242,7 @@ def test_forbidden_internal_or_lifecycle_names_are_not_registered_graph_nodes() 
 def test_slot_extraction_drift_is_explicitly_rejected() -> None:
     assert "slot_extraction" not in graph_add_node_names(), (
         "`slot_extraction` is not a registered main-chain graph node. If a future phase promotes it, "
-        "update docs/contract-spec.md, docs/target-agent-platform-architecture-plan.md, and "
+        "update docs/contract-spec.md, docs/architecture/agent-workflow.md, and "
         ".planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md first."
     )
 

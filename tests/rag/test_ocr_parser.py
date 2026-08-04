@@ -172,7 +172,7 @@ def test_image_ocr_parser_sanitizes_word_box_text_and_metadata(tmp_path, monkeyp
         return _ocr_data(
             texts=[
                 "七天",
-                "/Users/ming/private/ocr-source.png",
+                "/Users/example/private/ocr-source.png",
                 "parser_dump: Traceback (most recent call last)",
             ],
             confidences=[90, 88, 91],
@@ -187,8 +187,8 @@ def test_image_ocr_parser_sanitizes_word_box_text_and_metadata(tmp_path, monkeyp
 
     assert result.status == "degraded"
     assert "七天" in result.blocks[0].text
-    assert "/Users/ming" not in result.blocks[0].text
-    assert "/Users/ming" not in metadata_projection
+    assert "/Users/example" not in result.blocks[0].text
+    assert "/Users/example" not in metadata_projection
     assert "Traceback" not in result.blocks[0].text
     assert "Traceback" not in metadata_projection
     assert ParserWarningCode.LOCAL_PATH_REDACTED.value in warning_codes

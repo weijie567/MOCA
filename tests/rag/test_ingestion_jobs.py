@@ -32,7 +32,7 @@ ALLOWED_REPORT_FIELDS = {
     "completed_at",
 }
 FORBIDDEN_REPORT_TERMS = (
-    "/Users/ming/private/policy.pdf",
+    "/Users/example/private/policy.pdf",
     "Traceback (most recent call last)",
     "raw_bytes",
     "parser_dump",
@@ -114,7 +114,7 @@ class _FakeChunkRepo:
     async def bulk_insert(self, chunks) -> None:
         self.events.append("insert_chunks")
         if self.fail_insert:
-            raise RuntimeError("Traceback (most recent call last): /Users/ming/private/policy.pdf raw_bytes")
+            raise RuntimeError("Traceback (most recent call last): /Users/example/private/policy.pdf raw_bytes")
         self.inserted = list(chunks)
 
 
@@ -282,7 +282,7 @@ async def test_pre_transaction_failures_persist_sanitized_failed_job_without_doc
         parser_name="fake_ocr",
         parser_version="1.0",
         failure_code="ocr_timeout",
-        safe_message="Traceback (most recent call last): /Users/ming/private/policy.pdf raw_bytes",
+        safe_message="Traceback (most recent call last): /Users/example/private/policy.pdf raw_bytes",
     )
     session = _FakeSession(events)
     service = IngestionService(session=session, embedder=_FakeEmbedder(events), tenant_id=uuid4())
@@ -363,7 +363,7 @@ async def test_malicious_source_type_is_sanitized_before_durable_job_trace(tmp_p
 
     report = await service.ingest_document(
         _write_policy(tmp_path),
-        _doc_meta(source_type="policy_pdf\n/Users/ming/private/source.pdf\nparser_dump"),
+        _doc_meta(source_type="policy_pdf\n/Users/example/private/source.pdf\nparser_dump"),
     )
     failed_job = service.job_repo.created[-1]
     serialized_job = repr(failed_job)
@@ -372,7 +372,7 @@ async def test_malicious_source_type_is_sanitized_before_durable_job_trace(tmp_p
     assert report.error_code == "unsupported_source_type"
     assert failed_job.source_type == "unsupported"
     assert build_safe_ingestion_report(failed_job)["source_type"] == "unsupported"
-    assert "/Users/ming" not in serialized_job
+    assert "/Users/example" not in serialized_job
     for term in FORBIDDEN_REPORT_TERMS:
         assert term not in serialized_job
 
@@ -380,7 +380,7 @@ async def test_malicious_source_type_is_sanitized_before_durable_job_trace(tmp_p
 @pytest.mark.asyncio
 async def test_parser_result_source_type_is_sanitized_before_document_and_job_persistence(tmp_path: Path) -> None:
     events: list[str] = []
-    unsafe_scalar = "policy_pdf\n/Users/ming/private/source.pdf\nparser_dump"
+    unsafe_scalar = "policy_pdf\n/Users/example/private/source.pdf\nparser_dump"
     unsafe_block = _block(source_type=unsafe_scalar, parser_name=unsafe_scalar, parser_version=unsafe_scalar)
     session = _FakeSession(events)
     service = IngestionService(session=session, embedder=_FakeEmbedder(events), tenant_id=uuid4())
@@ -415,14 +415,14 @@ async def test_parser_result_source_type_is_sanitized_before_document_and_job_pe
     assert created_job.source_type == "unsupported"
     assert created_job.parser_name == "unknown_parser"
     assert created_job.parser_version == "unknown"
-    assert "/Users/ming" not in serialized
+    assert "/Users/example" not in serialized
     assert "parser_dump" not in serialized
 
 
 @pytest.mark.asyncio
 async def test_failed_job_update_sanitizes_parser_identity_and_revalidates_before_commit(tmp_path: Path) -> None:
     events: list[str] = []
-    unsafe_scalar = "Traceback (most recent call last): /Users/ming/private/source.pdf parser_dump"
+    unsafe_scalar = "Traceback (most recent call last): /Users/example/private/source.pdf parser_dump"
     failure = ParseResult(
         status="failed",
         source_type=unsafe_scalar,
@@ -450,7 +450,7 @@ async def test_failed_job_update_sanitizes_parser_identity_and_revalidates_befor
     assert failed_job.source_type == "unsupported"
     assert failed_job.parser_name == "unknown_parser"
     assert failed_job.parser_version == "unknown"
-    assert "/Users/ming" not in serialized
+    assert "/Users/example" not in serialized
     assert "Traceback" not in serialized
     assert "parser_dump" not in serialized
 
@@ -545,7 +545,7 @@ def test_sanitized_failure_reasons_forbid_raw_paths_stack_traces_bytes_and_parse
     from src.rag.ingestion import sanitize_failure_reason
 
     unsafe_reason = {
-        "path": "/Users/ming/private/policy.pdf",
+        "path": "/Users/example/private/policy.pdf",
         "stack": "Traceback (most recent call last)",
         "raw_bytes": b"secret-pdf-bytes",
         "parser_dump": {"object": "raw library node"},

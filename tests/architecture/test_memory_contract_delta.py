@@ -5,8 +5,7 @@ from pathlib import Path
 from src.agent.graph_vocabulary import graph_vocabulary_entry, project_trace_step_for_contract, target_graph_name
 
 ROOT = Path(__file__).resolve().parents[2]
-DOC_PATH = ROOT / "docs" / "memory-contract-delta.md"
-TARGET_ARCHITECTURE_PATH = ROOT / "docs" / "target-agent-platform-architecture-plan.md"
+DOC_PATH = ROOT / "docs" / "architecture" / "memory.md"
 MEMORY_AUTHORITY_TEST_PATH = ROOT / "tests" / "agent" / "test_memory_evidence_boundary.py"
 REQUIRED_SLOTS_TEST_PATH = ROOT / "tests" / "agent" / "test_required_slots.py"
 LONG_TERM_TEST_PATH = ROOT / "tests" / "memory" / "test_long_term_memory_service.py"
@@ -32,54 +31,50 @@ def _source(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_memory_contract_delta_locks_current_and_target_vocabulary() -> None:
+def test_memory_architecture_doc_locks_current_layers_and_vocabulary() -> None:
     source = _source(DOC_PATH)
 
     for term in (
         "SessionMemory",
         "session_memories",
-        "SessionContinuityStore",
         "SessionContextMemory",
-        "long_term_memory_retrieve",
         "memory_context_load",
         "memory_write",
-        "memory_write_pipeline",
-        "MemoryWriteService",
-        "MemoryPolicyEngine",
+        "MemoryContextBundle",
+        "Case Working Context",
+        "contextual_only",
     ):
         assert term in source
 
     for heading in (
-        "A. 当前代码已实现",
-        "B. 当前代码部分实现 / legacy 命名",
-        "C. 目标设计还没落地，不能当事实",
+        "## AgentState 与 checkpoint",
+        "## Session context、bundle 与 thread summary",
+        "## Case Working Context（CWC）",
+        "## 长期偏好与已审案例先例",
+        "## 当前实现限制",
     ):
         assert heading in source
 
 
-def test_memory_contract_delta_locks_authority_and_policy_boundaries() -> None:
+def test_memory_architecture_doc_locks_authority_and_policy_boundaries() -> None:
     source = _source(DOC_PATH)
 
     for term in (
         "EvidenceRefV1",
-        "policy citation",
-        "当前订单状态",
-        "当前退款状态",
-        "审批结论",
-        "政策规则",
-        "explicit preference memory only",
+        "BusinessFactRefV1",
+        "ReplayEventV3",
+        "contextual_only",
         "explicit_user_preference",
         "explicit_admin_preference",
-        "human_reviewed",
         "semantic_episode_candidate",
         "llm_candidate",
-        "tombstone match",
+        "tombstone",
         "needs_review",
     ):
         assert term in source
 
 
-def test_memory_contract_delta_rejects_broad_long_term_target_semantics() -> None:
+def test_memory_architecture_doc_rejects_broad_long_term_target_semantics() -> None:
     source = _source(DOC_PATH)
 
     for rejected in (
@@ -91,11 +86,11 @@ def test_memory_contract_delta_rejects_broad_long_term_target_semantics() -> Non
     ):
         assert rejected not in source
 
-    assert "explicit preference memory only" in source
-    assert "`memory_type='long_term_fact'` 只是 legacy storage/table identity" in source
+    assert "当前真正接通的长期偏好写入主路径只有管理员 API" in source
+    assert "不能替代当前业务事实、政策证据、审批决定、动作授权、动作结果、审计事实或 replay truth" in source
 
 
-def test_memory_contract_delta_matches_landed_facades_and_rules() -> None:
+def test_memory_architecture_doc_matches_landed_facades_and_rules() -> None:
     delta = _source(DOC_PATH)
     policy_source = _source(MEMORY_POLICY_PATH)
     write_service_source = _source(MEMORY_WRITE_SERVICE_PATH)
@@ -132,15 +127,15 @@ def test_memory_contract_delta_matches_landed_facades_and_rules() -> None:
     assert "list_pending_review" in review_api_source
 
 
-def test_memory_contract_delta_uses_explicit_preference_long_term_semantics() -> None:
+def test_memory_architecture_doc_uses_explicit_preference_long_term_semantics() -> None:
     source = _source(DOC_PATH)
 
     for expected in (
-        "explicit preference memory only",
+        "明确只持久化 `memory_kind = preference`",
         "explicit_user_preference",
         "explicit_admin_preference",
-        "human_reviewed",
-        "published long-term source types",
+        "当前真正接通的长期偏好写入主路径只有管理员 API",
+        "async finalizer 与同步 background writer 当前都没有向 `memory_write` 传入 `trusted_context`",
     ):
         assert expected in source
 

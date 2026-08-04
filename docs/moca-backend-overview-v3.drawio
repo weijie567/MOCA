@@ -1,0 +1,160 @@
+<mxfile host="app.diagrams.net" modified="2026-08-04T19:20:00.000Z" agent="Codex" version="28.0.6" type="device" compressed="false">
+  <diagram id="moca-backend-overview-v3" name="Backend Overview V3">
+    <mxGraphModel dx="1900" dy="1120" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1900" pageHeight="1120" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="backgrounds" value="Backgrounds" parent="0"/>
+        <mxCell id="connectors" value="Connectors" parent="0"/>
+        <mxCell id="components" value="Components" parent="0"/>
+
+        <mxCell id="page-bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F8FAFC;strokeColor=none;" vertex="1" parent="backgrounds">
+          <mxGeometry x="0" y="0" width="1900" height="1120" as="geometry"/>
+        </mxCell>
+        <mxCell id="backend-boundary" value="" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#94A3B8;strokeWidth=1.5;" vertex="1" parent="backgrounds">
+          <mxGeometry x="320" y="115" width="1530" height="700" as="geometry"/>
+        </mxCell>
+        <mxCell id="access-band" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#EFF6FF;strokeColor=#BFDBFE;strokeWidth=1;" vertex="1" parent="backgrounds">
+          <mxGeometry x="340" y="160" width="1100" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="runtime-band" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#F5F3FF;strokeColor=#DDD6FE;strokeWidth=1;" vertex="1" parent="backgrounds">
+          <mxGeometry x="340" y="300" width="1100" height="165" as="geometry"/>
+        </mxCell>
+        <mxCell id="app-band" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#FED7AA;strokeWidth=1;" vertex="1" parent="backgrounds">
+          <mxGeometry x="340" y="480" width="1100" height="305" as="geometry"/>
+        </mxCell>
+        <mxCell id="cross-plane-band" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#ECFDF5;strokeColor=#5EEAD4;strokeWidth=1.8;" vertex="1" parent="backgrounds">
+          <mxGeometry x="1480" y="160" width="350" height="625" as="geometry"/>
+        </mxCell>
+        <mxCell id="infra-band" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#F0FDF4;strokeColor=#BBF7D0;strokeWidth=1;" vertex="1" parent="backgrounds">
+          <mxGeometry x="320" y="840" width="1530" height="160" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="title" value="MOCA 后端分层架构总览 V3（真实调用边界）" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=PingFang SC;fontSize=28;fontStyle=1;fontColor=#0F172A;" vertex="1" parent="components">
+          <mxGeometry x="55" y="22" width="1120" height="42" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="ToolPlatform 只治理工具调用；记忆、审批与回放仍保留 Agent 运行时直接路径" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=PingFang SC;fontSize=14;fontColor=#475569;" vertex="1" parent="components">
+          <mxGeometry x="58" y="65" width="1200" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="legend" value="实线：主调用路径　　虚线：横切或 Tool 调用路径" style="text;html=1;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=PingFang SC;fontSize=12;fontColor=#64748B;" vertex="1" parent="components">
+          <mxGeometry x="1330" y="50" width="510" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="boundary-label" value="MOCA 后端 · 模块化单体" style="rounded=1;arcSize=15;whiteSpace=wrap;html=1;fillColor=#E2E8F0;strokeColor=none;fontFamily=PingFang SC;fontSize=12;fontStyle=1;fontColor=#334155;align=center;verticalAlign=middle;" vertex="1" parent="components">
+          <mxGeometry x="400" y="128" width="235" height="27" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="callers" value="&lt;b&gt;调用方&lt;/b&gt;&lt;br&gt;前端 · API 客户端&lt;br&gt;运营后台 · 自动化任务" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#60A5FA;strokeWidth=2;fontFamily=PingFang SC;fontSize=13;fontColor=#0F172A;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="components">
+          <mxGeometry x="55" y="176" width="225" height="92" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="access-label" value="01　接入与可信边界" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=PingFang SC;fontSize=15;fontStyle=1;fontColor=#1E3A8A;" vertex="1" parent="components">
+          <mxGeometry x="365" y="166" width="250" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="access" value="&lt;b&gt;API 与可信接入&lt;/b&gt;&lt;br&gt;FastAPI · Agent 运行与控制接口 · 身份认证/授权 · TrustedContext" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#3B82F6;strokeWidth=2;fontFamily=PingFang SC;fontSize=14;fontColor=#0F172A;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="components">
+          <mxGeometry x="620" y="181" width="660" height="82" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="runtime-label" value="02　Agent 运行时" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=PingFang SC;fontSize=15;fontStyle=1;fontColor=#5B21B6;" vertex="1" parent="components">
+          <mxGeometry x="365" y="310" width="200" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="runtime" value="&lt;b&gt;LangGraph Agent 运行时&lt;/b&gt;&lt;br&gt;StateGraph · AgentState · 上下文装配 · 检查点感知编排&lt;br&gt;直接编排应用服务，并按需发起 Tool 调用" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8B5CF6;strokeWidth=2;fontFamily=PingFang SC;fontSize=14;fontColor=#2E1065;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="components">
+          <mxGeometry x="550" y="330" width="800" height="105" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="app-label" value="03　应用能力" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=PingFang SC;fontSize=15;fontStyle=1;fontColor=#9A3412;" vertex="1" parent="components">
+          <mxGeometry x="365" y="490" width="160" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="app-group" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;fillOpacity=65;strokeColor=#FDBA74;strokeWidth=1.6;" vertex="1" parent="components">
+          <mxGeometry x="460" y="520" width="980" height="235" as="geometry"/>
+        </mxCell>
+        <mxCell id="memory" value="&lt;b&gt;记忆上下文能力&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#4338CA&quot;&gt;MemoryContextService&lt;/font&gt;&lt;br&gt;会话上下文 · 长期偏好&lt;br&gt;已审核案例上下文 · Agent 节点直调&lt;br&gt;&lt;font color=&quot;#0E7490&quot;&gt;唯一记忆 Tool：search_case_memory&lt;/font&gt;&lt;br&gt;&lt;font color=&quot;#0E7490&quot;&gt;只读查询已审核案例&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#EEF2FF;strokeColor=#818CF8;strokeWidth=1.8;fontFamily=PingFang SC;fontSize=11;fontColor=#312E81;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="components">
+          <mxGeometry x="490" y="555" width="240" height="155" as="geometry"/>
+        </mxCell>
+        <mxCell id="tool-exposed-group" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#ECFEFF;strokeColor=#67E8F9;strokeWidth=1.6;" vertex="1" parent="components">
+          <mxGeometry x="755" y="535" width="655" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="tool-exposed-label" value="经 ToolPlatform 调用的能力" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#CFFAFE;strokeColor=none;fontFamily=PingFang SC;fontSize=11;fontStyle=1;fontColor=#155E75;align=center;verticalAlign=middle;" vertex="1" parent="components">
+          <mxGeometry x="775" y="547" width="220" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="business" value="&lt;b&gt;业务事实查询&lt;/b&gt;&lt;br&gt;类型化查询&lt;br&gt;结果投影" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#22D3EE;strokeWidth=1.5;fontFamily=PingFang SC;fontSize=12;fontColor=#164E63;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="775" y="590" width="190" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="knowledge" value="&lt;b&gt;知识 / RAG&lt;/b&gt;&lt;br&gt;检索 · 重排&lt;br&gt;已验证证据" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#22D3EE;strokeWidth=1.5;fontFamily=PingFang SC;fontSize=12;fontColor=#164E63;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="985" y="590" width="190" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="action" value="&lt;b&gt;动作能力&lt;/b&gt;&lt;br&gt;策略约束&lt;br&gt;仅生成持久化草稿" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#F97316;strokeWidth=1.8;fontFamily=PingFang SC;fontSize=12;fontColor=#9A3412;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="1195" y="590" width="195" height="105" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="cross-plane-label" value="横切控制与工具平面" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#CCFBF1;strokeColor=none;fontFamily=PingFang SC;fontSize=14;fontStyle=1;fontColor=#115E59;align=center;verticalAlign=middle;" vertex="1" parent="components">
+          <mxGeometry x="1510" y="182" width="290" height="34" as="geometry"/>
+        </mxCell>
+        <mxCell id="cross-plane-note" value="不是所有应用能力的统一父层" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=PingFang SC;fontSize=11;fontColor=#64748B;" vertex="1" parent="components">
+          <mxGeometry x="1510" y="220" width="290" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="approval-replay" value="&lt;b&gt;审批与回放&lt;/b&gt;&lt;br&gt;API / Agent 运行时直接控制&lt;br&gt;风险决策 · 中断 / 恢复&lt;br&gt;运行生命周期 · 脱敏轨迹" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#F8FAFC;strokeColor=#64748B;strokeWidth=1.6;fontFamily=PingFang SC;fontSize=12;fontColor=#334155;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="components">
+          <mxGeometry x="1510" y="320" width="290" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="tool-platform" value="&lt;b&gt;ToolPlatform&lt;/b&gt;&lt;br&gt;仅治理 Tool 调用边界&lt;br&gt;目录 · 可见性 · 运行时策略&lt;br&gt;分派 · 结果投影 · 审计" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#CFFAFE;strokeColor=#0891B2;strokeWidth=2;fontFamily=PingFang SC;fontSize=12;fontColor=#164E63;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="components">
+          <mxGeometry x="1510" y="500" width="290" height="135" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="infra-label" value="04　数据与模型基础设施" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=PingFang SC;fontSize=15;fontStyle=1;fontColor=#166534;" vertex="1" parent="components">
+          <mxGeometry x="350" y="895" width="210" height="36" as="geometry"/>
+        </mxCell>
+        <mxCell id="postgres" value="&lt;b&gt;PostgreSQL 数据平台&lt;/b&gt;&lt;br&gt;业务 · 对话 · 记忆 · 审批 · 轨迹 / 回放&lt;br&gt;pgvector 知识索引 · LangGraph 检查点" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#FFFFFF;strokeColor=#22C55E;strokeWidth=2;fontFamily=PingFang SC;fontSize=13;fontColor=#14532D;align=center;verticalAlign=middle;" vertex="1" parent="components">
+          <mxGeometry x="590" y="860" width="720" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="models" value="&lt;b&gt;DashScope 模型 API&lt;/b&gt;&lt;br&gt;GLM-5.1 大语言模型&lt;br&gt;text-embedding-v4 向量模型&lt;br&gt;供 Agent 运行时与 RAG 使用" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#16A34A;strokeWidth=1.8;dashed=1;dashPattern=5 4;fontFamily=PingFang SC;fontSize=12;fontColor=#14532D;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="components">
+          <mxGeometry x="1510" y="860" width="290" height="115" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="implementation-note" value="当前调用边界：MemoryContextService 由 Agent 节点直接调用；唯一记忆 Tool 是只读 search_case_memory；审批 / 回放保留 API 与 Agent 运行时直接路径" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#CBD5E1;strokeWidth=1;fontFamily=PingFang SC;fontSize=12;fontColor=#475569;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="320" y="1020" width="1530" height="42" as="geometry"/>
+        </mxCell>
+        <mxCell id="source-note" value="代码依据：src/agent/graph.py · src/tools/platform.py · src/tools/executors/* · src/memory/context_service.py · src/approvals/service.py · src/replay/service.py · 当前工作树 2026-08-04" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=PingFang SC;fontSize=11;fontColor=#64748B;" vertex="1" parent="components">
+          <mxGeometry x="325" y="1072" width="1520" height="24" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e-callers-access" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2.5;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="connectors" source="callers" target="access">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-access-runtime" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2.5;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="connectors" source="access" target="runtime">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-runtime-app" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2.5;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="connectors" source="runtime" target="app-group">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-app-postgres" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2.5;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="connectors" source="app-group" target="postgres">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-runtime-approval" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#64748B;strokeWidth=1.7;dashed=1;dashPattern=5 4;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="connectors" source="runtime" target="approval-replay">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-runtime-tools" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891B2;strokeWidth=1.8;dashed=1;dashPattern=5 4;endArrow=block;endFill=1;exitX=1;exitY=0.85;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="connectors" source="runtime" target="tool-platform">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1430" y="470"/>
+              <mxPoint x="1655" y="470"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-tools-capabilities" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891B2;strokeWidth=1.8;dashed=1;dashPattern=5 4;endArrow=block;endFill=1;endSize=8;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.82;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="components" source="tool-platform" target="tool-exposed-group">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1655" y="770"/>
+              <mxPoint x="1292" y="770"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-app-models" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16A34A;strokeWidth=1.5;dashed=1;dashPattern=5 4;endArrow=block;endFill=1;exitX=0.72;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="connectors" source="app-group" target="models">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1166" y="825"/>
+              <mxPoint x="1655" y="825"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

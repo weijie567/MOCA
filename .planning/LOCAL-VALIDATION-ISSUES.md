@@ -21721,3 +21721,143 @@ CI 结果为 `1 failed, 4042 passed, 4 skipped, 126 warnings in 1298.39s`；错�
 
 **剩余问题和下次继续排查入口**
 本地定向验证已通过；仍需 push 修复并等待 Draft PR 新一轮隔离 CI 从头跑完整 suite，只有 `lint` 与 `test` 都通过后才能关闭本次发布门禁。
+
+## 2026-08-04 — 新文档核验暴露前台启动命令与 Draw.io XML 替换分隔符陷阱
+
+**问题现象**
+新生成的评估文档最初把 `make up` 与后续 `make migrate` / seed 命令连续列出，但当前 `Makefile` 的 `up` 目标以前台方式运行 Compose，会阻塞后续步骤。修订 Agent Runtime Flow 图时，第一次用 `perl -0pi -e 's#...#...#'` 替换 Draw.io XML，替换内容中的颜色字面量 `#7C3AED` 与 `#` 分隔符冲突，命令以 Perl 语法错误退出。另一次用 zsh 直接探测 `evaluation/reports/*.json` 时，由于目录只有 `.gitkeep`，触发 `no matches found`。
+
+**如何检测/复现**
+检查 `Makefile` 可见 `up` 执行 `docker compose up --build`，没有 `-d`；按文档顺序执行时不会返回到下一条命令。对含 `#RRGGBB` 的 Draw.io 单行 XML 使用 `#` 作为 Perl 替换分隔符可复现解析错误。目录中没有 JSON 报告时，在默认启用 `nomatch` 的 zsh 中直接展开 `evaluation/reports/*.json` 可复现 glob 错误。
+
+**关键证据或命令**
+失败的图编辑命令 stderr 包含 Perl 的 `Unknown modifier` / `Bareword` 类解析错误，且退出码非零；改用 `~` 分隔符后替换成功。随后 `xmllint --noout docs/moca-agent-runtime-flow-v2.drawio` 通过，Draw.io CLI 成功重新导出 PNG/SVG，人工查看 PNG 已确认 `final_response` 节点显示“确定性模板 · 节点最多 2 次尝试”。
+
+**当前判断/根因**
+三项均为本地验证与文档生成编排问题：Compose 前台语义与串行操作步骤不兼容；文本替换分隔符没有避开 XML 内颜色值；zsh 的 unmatched-glob 行为不适合探测可能为空的报告目录。不是 MOCA 运行时代码回归。
+
+**已做处理**
+评估文档改用 `docker compose up --build -d` 后再执行迁移和 seed；Draw.io XML 改用不冲突的 `~` 分隔符完成替换，并执行 XML 校验、PNG/SVG 重导出和视觉检查；空报告目录改用 `find` 或先判断文件存在的方式探测。
+
+**剩余问题和下次继续排查入口**
+本轮文档交付无剩余阻断。后续生成操作步骤时应区分前台服务与后台服务；机械修改 Draw.io XML 时应选择源文本中不存在的分隔符，或改用 XML-aware 工具；检查可空目录时不要依赖裸 zsh glob。
+
+## 2026-08-04 — 文档目录检查脚本误把模板定界符和元数据样式当成失败
+
+**问题现象**
+第一次编排目录级检查时，JavaScript template literal 内嵌了 Markdown 三反引号字面量，导致编排脚本在执行检查前就以 `SyntaxError: Invalid or unexpected token` 退出。修正后，第一版元数据检查又只接受 `**文档类型：**` 这一种排版，因此把表格元数据和未加粗引用块元数据误报为 11 份文档缺字段。
+
+**如何检测/复现**
+在反引号包围的 JavaScript 字符串中直接嵌入 Markdown fence 可复现解析失败。用固定字符串 `**字段：**` 检查 `docs/README.md` 的表格元数据或 `docs/architecture/agent-workflow.md` 的引用块元数据，可复现误报。
+
+**关键证据或命令**
+首轮编排没有产生任何子命令输出，只返回 JavaScript 语法错误；第二轮输出 `files=12 metadata_fail=11 fence_fail=0`，但人工查看文件头可见五个字段都存在。将 fence 标记改为 `chr(96) * 3`，并按文档头部是否包含五个字段名而非固定装饰语法检查后，结果为 `files=12 metadata_fail=0 fence_fail=0`；同轮本地链接检查为 `files=14 local_links=577 missing=0`。
+
+**当前判断/根因**
+这是验证脚本对宿主语言定界符和 Markdown 表达样式做了错误假设，不是生成文档缺字段或代码块损坏。
+
+**已做处理**
+避免在 template literal 中直接写三反引号，并把元数据校验改成对文档头部五个语义字段的样式无关检查；随后重新运行链接、元数据、fence、旧文档引用、敏感路径、XML 与 whitespace 检查，全部通过。
+
+**剩余问题和下次继续排查入口**
+无阻断。以后文档契约检查应验证字段语义而非某一种 Markdown 装饰格式；嵌套多种语言时优先使用不会与宿主定界符冲突的表示。
+
+## 2026-08-04 — 简历 PDF 本地编译遇到 Homebrew 依赖链接冲突与校验命令安全拦截
+
+**问题现象**
+为把 Overleaf 简历模板在本地直接导出 PDF，首次安装 Tectonic 时 Homebrew 在 `fontconfig`、`ca-certificates` 和 `openssl@3` 上连续报 “Another version is already linked”；首次生成 TeX 格式缓存时还出现短暂 TLS handshake EOF。完成 PDF 后，第一版打包校验命令包含 `rm -f` 清理目标 ZIP，被命令安全策略拒绝，整条校验未执行。
+
+**如何检测/复现**
+运行 `HOMEBREW_NO_AUTO_UPDATE=1 brew install tectonic` 可在本机多版本 Cellar 与已链接新版本并存时复现依赖链接冲突；运行包含 `rm -f ...zip` 的组合校验命令会被安全策略在进程创建前拒绝。Tectonic 首次运行 `tectonic main.tex --keep-logs --keep-intermediates` 时会下载格式、宏包和断词数据，网络握手不稳定时可看到自动重试警告。
+
+**关键证据或命令**
+Homebrew 依次报告 `Cannot link fontconfig` 和 `Cannot link ca-certificates`；显式 unlink 冲突依赖后，`tectonic 0.17.0` 安装成功。为模拟 Overleaf 字体环境，曾显式切换 `fontset=fandol`，但 Tectonic 下载 `FandolKai-Regular.otf` 时长时间无进度，遂中止该可选验证并恢复 ctex 的平台自动字体集。最终 `tectonic main.tex` 退出码为 0，`pdfinfo` 显示 `Pages: 2`、A4；PDFium 成功渲染两页，TeX 日志无 Overfull/Underfull。校验脚本确认 PDF 中五个 URI（GitHub、MOCA、CSDN、mailto、tel）均存在。ZIP 打包改为先用 `test ! -e` 断言目标不存在，再执行 `zip -j`，成功生成 7 文件源码包。
+
+**当前判断/根因**
+Homebrew 失败来自本机历史多版本依赖与当前 symlink 状态不一致，TLS 告警来自首次下载缓存时的瞬时网络问题；ZIP 校验失败来自命令包含可删除文件的 `rm -f`，被安全规则按预期拒绝。三项都不是简历 LaTeX 源码错误。
+
+**已做处理**
+只对冲突 formula 执行显式 unlink，再由 Homebrew 安装并链接当前版本；Tectonic 下载依赖时保留自动重试，缓存完成后重新编译。Fandol 显式字体验证因可选字体下载停滞而恢复 ctex 默认自动选择：本地使用 macOS 字体，Overleaf 会按其 Linux 环境选择随 TeX Live 提供的中文字体。打包流程不再删除既有目标，改为 fail-closed 的不存在断言；最终 PDF 和 Overleaf 源码包均完成文本、链接、页数、渲染与视觉检查。
+
+**剩余问题和下次继续排查入口**
+本轮交付无阻断。若换到新机器，优先直接使用 Overleaf 的 XeLaTeX；本地编译首次运行需预留格式缓存下载时间。以后生成固定文件名产物时，若目标已存在，应先使用新版本文件名或让用户确认可覆盖，不用 `rm -f` 清理。
+
+## 2026-08-04 — 开源仓库清理命令被安全策略拦截及归档脚本 locale 告警
+
+**问题现象**
+整理公开仓库时，第一版生成物清理命令包含递归删除形式，命令在执行前被安全策略拒绝，因此没有删除任何目标。随后把学习自动化脚本迁入本地私有归档仓库并批量改写绝对路径时，Perl 多次提示本机不支持 `C.UTF-8` locale，并回退到 `C`。
+
+**如何检测/复现**
+在当前命令执行环境提交包含递归删除目标的清理命令会在进程创建前被拒绝。以当前 shell locale 运行 Perl 批量替换，可看到 `Setting locale failed` 和 `Falling back to the standard locale ("C")` 告警。
+
+**关键证据或命令**
+被拒绝的清理命令没有产生文件系统变更；替代流程把生成物移动到 `/Users/ming/.Trash/MOCA-open-source-cleanup-20260804`。学习计划、作品集、简历与学习自动化脚本已归档到 `/Users/ming/projects/MOCA-portfolio-archive`，对应提交为 `a9dfdfd` 与 `b3fc38c`。归档后使用 `rg` 检查，未发现仍指向原 MOCA 工作区的绝对路径。
+
+**当前判断/根因**
+前者是命令安全策略对难恢复删除操作的预期拦截；后者是本机 locale 名称与 Perl 可用 locale 不一致，不影响 ASCII 路径替换结果。
+
+**已做处理**
+所有生成物改为移动到废纸篓中的独立可恢复目录，不再直接删除；个人资料只进入本地私有归档仓库，没有写入公开归档分支。Perl 路径改写完成后用 `rg` 独立核验结果，并保留私有仓库提交作为恢复点。
+
+**剩余问题和下次继续排查入口**
+无功能阻断。后续若需彻底清空废纸篓，应由用户在确认无需恢复后自行处理；若继续运行 Perl 批处理，可显式使用本机已安装的 locale，或在纯 ASCII 输入下接受回退到 `C`。
+
+## 2026-08-04 — 记忆文档迁移测试仍断言旧报告的固定措辞
+
+**问题现象**
+把 `tests/architecture/test_memory_contract_delta.py` 的文档事实来源迁到 `docs/architecture/memory.md` 后，首轮 focused suite 有 2 个断言失败、48 个通过。失败项仍要求旧报告中的英文标签和固定中文句式，而新 CURRENT 文档已用更完整的中文表达同一 authority 与长期偏好边界。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_memory_contract_delta.py tests/architecture/test_canonical_graph_baseline.py tests/knowledge/test_phase21_boundaries.py tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short`。
+
+**关键证据或命令**
+首轮失败断言分别寻找 `explicit preference memory only` 和“不能生产 evidence……”；修改后第二轮还剩 1 个固定措辞断言，寻找“生产 terminal writers 未传 `trusted_context`”。当前文档实际写明 `LongTermMemoryService` “明确只持久化 `memory_kind = preference`”，规定记忆“不能替代当前业务事实、政策证据、审批决定、动作授权、动作结果、审计事实或 replay truth”，并明确指出 async finalizer 与同步 background writer 当前都没有向 `memory_write` 传入 `trusted_context`。
+
+**当前判断/根因**
+这是测试迁移时沿用了旧文档的展示层措辞，不是记忆契约回归；新文档的边界更具体，且与当前源码和测试引用相连。
+
+**已做处理**
+测试改为锁定新 CURRENT 文档中的等价契约语句，包括当前两个生产 writer 的明确表述；保留对 broad long-term semantics、主路径接线状态和 authority 隔离的断言。
+
+**剩余问题和下次继续排查入口**
+同一 focused suite 最终为 `50 passed, 1 warning`，本项无剩余阻断。若以后文档措辞调整，从 `docs/architecture/memory.md` 的“阅读边界”“长期偏好与已审案例先例”“当前实现限制”三节核对语义，不应重新绑定已归档报告的展示层措辞。
+
+## 2026-08-04 — 学习脚本目录残留被忽略的构建产物与字节码缓存
+
+**问题现象**
+从公开仓库移除已归档的 `scripts/study/` 后，`git status` 仍显示其中 4 个未跟踪 macOS 二进制产物；把 `bin/` 移到废纸篓后，`rmdir scripts/study` 又因隐藏的 `__pycache__/` 非空而失败。
+
+**如何检测/复现**
+删除该目录中受版本控制的源文件后运行 `git ls-files --others --exclude-standard`，可看到 `.app` 和 Mach-O 可执行文件；再用 `find scripts/study -maxdepth 3 -print` 可定位多个 `.pyc`。旧的目录级 `.gitignore` 原本忽略 `bin/`、`*.pyc` 和 `__pycache__/`，所以普通状态检查在删除 ignore 文件前不会暴露它们。
+
+**关键证据或命令**
+`file` 将两个可执行文件识别为 `Mach-O 64-bit executable arm64`，另两个 bundle 文件为 XML。`find` 显示 Python 3.12/3.13 生成的缓存。对应 `bin/` 副本已存在于 `/Users/ming/projects/MOCA-portfolio-archive/scripts/study/`；公开仓库残留移动到 `/Users/ming/.Trash/MOCA-open-source-cleanup-20260804/study-script-build-artifacts/`。
+
+**当前判断/根因**
+这是嵌套 `.gitignore` 遮蔽的本地生成物，不是源码或归档缺失。`rmdir` 失败是因为第一次只处理了已显现的 `bin/`，没有先列出被忽略的缓存目录。
+
+**已做处理**
+先确认源文件与 `bin/` 已有私有归档恢复点，再将公开仓库中的 `bin/` 和 `__pycache__/` 都移动到可恢复的废纸篓目录；不提交二进制或字节码。
+
+**剩余问题和下次继续排查入口**
+最终提交前再次运行未跟踪文件和 ignored 文件检查，确认 `scripts/study/` 不再存在且没有其他嵌套 ignore 隐藏生成物。
+
+## 2026-08-04 — 文档元数据双空格触发 diff check 且组合命令未 fail-fast
+
+**问题现象**
+最终文档门禁中，`git diff --check` 报告 `docs/contract-spec.md` 新增元数据四行有 trailing whitespace。该组合命令没有启用 fail-fast，后续隐私扫描成功后使整组命令最终退出码仍为 0，若只看退出码会漏掉中间失败。
+
+**如何检测/复现**
+新增以两个空格结尾的 Markdown metadata 行后运行 `git diff --check`；再把它与后续成功命令按换行串行执行但不加 `set -e`，shell 最终返回最后一条命令的状态。
+
+**关键证据或命令**
+输出明确列出 `docs/contract-spec.md:3-6: trailing whitespace`。同轮 metadata 与链接检查本身为 `docs=13 metadata_fail=0 local_links=576 missing=0`，说明内容完整，失败仅来自行尾格式与命令编排。
+
+**当前判断/根因**
+生成文档用 Markdown 双空格表达 hard break，但仓库 whitespace 门禁不接受新增行尾空格；组合命令又错误假设任一中间失败会自动终止。
+
+**已做处理**
+移除新文档 metadata 的行尾空格，并把最终组合校验改为 `set -e`，确保任一子门禁失败都会成为整组失败。
+
+**剩余问题和下次继续排查入口**
+用 fail-fast 命令重跑 metadata、链接、XML、JSON、隐私字符串和 `git diff --check`；全部成功后再提交。

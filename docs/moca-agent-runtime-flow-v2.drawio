@@ -1,0 +1,143 @@
+<mxfile host="app.diagrams.net" modified="2026-08-04T20:05:00.000Z" agent="Codex" version="28.0.6" type="device" compressed="false">
+  <diagram id="moca-agent-runtime-flow-v2" name="Agent Runtime Flow V2">
+    <mxGraphModel dx="1900" dy="1180" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1900" pageHeight="1180" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="backgrounds" value="Backgrounds" parent="0"/>
+        <mxCell id="connectors" value="Connectors" parent="0"/>
+        <mxCell id="components" value="Components" parent="0"/>
+
+        <mxCell id="page-bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F8FAFC;strokeColor=none;" vertex="1" parent="backgrounds">
+          <mxGeometry x="0" y="0" width="1900" height="1180" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane-entry" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#EFF6FF;strokeColor=#BFDBFE;strokeWidth=1.2;" vertex="1" parent="backgrounds">
+          <mxGeometry x="40" y="125" width="1820" height="205" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane-evidence" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#ECFEFF;strokeColor=#A5F3FC;strokeWidth=1.2;" vertex="1" parent="backgrounds">
+          <mxGeometry x="40" y="350" width="1820" height="230" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane-govern" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#FED7AA;strokeWidth=1.2;" vertex="1" parent="backgrounds">
+          <mxGeometry x="40" y="600" width="1820" height="300" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="title" value="MOCA Agent 运行时流程 V2（当前 15 个注册节点）" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontFamily=PingFang SC;fontSize=27;fontStyle=1;fontColor=#0F172A;" vertex="1" parent="components">
+          <mxGeometry x="50" y="22" width="1120" height="42" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="依据当前 build_graph()：实线为主要推进路径，青色虚线为可跳过分支，橙色为审批中断 / 恢复；重复的澄清与安全收口在页底汇总" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontFamily=PingFang SC;fontSize=13;fontColor=#475569;" vertex="1" parent="components">
+          <mxGeometry x="52" y="67" width="1240" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="runtime-guard" value="&lt;b&gt;运行时保障&lt;/b&gt;&lt;br&gt;AsyncPostgresSaver 检查点 · AgentState&lt;br&gt;紫色描边节点：RetryPolicy(max_attempts=2)" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FAF5FF;strokeColor=#A78BFA;strokeWidth=1.5;fontFamily=PingFang SC;fontSize=11;fontColor=#5B21B6;align=left;verticalAlign=middle;spacingLeft=14;spacingRight=10;" vertex="1" parent="components">
+          <mxGeometry x="1370" y="20" width="480" height="76" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lane-entry-label" value="01　接入、会话与意图" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#DBEAFE;strokeColor=none;fontFamily=PingFang SC;fontSize=14;fontStyle=1;fontColor=#1E3A8A;align=center;verticalAlign=middle;" vertex="1" parent="components">
+          <mxGeometry x="60" y="145" width="210" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane-evidence-label" value="02　上下文、调查与证据" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#CFFAFE;strokeColor=none;fontFamily=PingFang SC;fontSize=14;fontStyle=1;fontColor=#155E75;align=center;verticalAlign=middle;" vertex="1" parent="components">
+          <mxGeometry x="60" y="370" width="230" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane-govern-label" value="03　风险、审批与响应" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#FFEDD5;strokeColor=none;fontFamily=PingFang SC;fontSize=14;fontStyle=1;fontColor=#9A3412;align=center;verticalAlign=middle;" vertex="1" parent="components">
+          <mxGeometry x="60" y="620" width="220" height="32" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="start" value="START" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#DBEAFE;strokeColor=#2563EB;strokeWidth=2;fontFamily=PingFang SC;fontSize=12;fontStyle=1;fontColor=#1E3A8A;align=center;verticalAlign=middle;" vertex="1" parent="components">
+          <mxGeometry x="150" y="220" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="receive" value="&lt;b&gt;01　receive_request&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#475569&quot;&gt;接收并规范化请求&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#3B82F6;strokeWidth=1.7;fontFamily=PingFang SC;fontSize=12;fontColor=#1E3A8A;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="components">
+          <mxGeometry x="270" y="210" width="220" height="85" as="geometry"/>
+        </mxCell>
+        <mxCell id="safety" value="&lt;b&gt;02　safety_pre_route&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#475569&quot;&gt;确定性安全预路由&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#3B82F6;strokeWidth=1.7;fontFamily=PingFang SC;fontSize=12;fontColor=#1E3A8A;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="components">
+          <mxGeometry x="550" y="210" width="220" height="85" as="geometry"/>
+        </mxCell>
+        <mxCell id="session" value="&lt;b&gt;03　session_context_load&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#475569&quot;&gt;加载同线程会话上下文&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#3B82F6;strokeWidth=1.7;fontFamily=PingFang SC;fontSize=12;fontColor=#1E3A8A;align=center;verticalAlign=middle;spacing=7;" vertex="1" parent="components">
+          <mxGeometry x="830" y="210" width="230" height="85" as="geometry"/>
+        </mxCell>
+        <mxCell id="contextual" value="&lt;b&gt;04　contextual_intent_resolve&lt;/b&gt;&lt;br&gt;意图 · 操作 · 候选槽位&lt;br&gt;&lt;font color=&quot;#7C3AED&quot;&gt;LLM · 最多 2 次尝试&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FAF5FF;strokeColor=#8B5CF6;strokeWidth=2;fontFamily=PingFang SC;fontSize=11;fontColor=#4C1D95;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="1120" y="205" width="260" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="slot" value="&lt;b&gt;05　slot_resolution_gate&lt;/b&gt;&lt;br&gt;槽位解析与完整性门&lt;br&gt;&lt;font color=&quot;#7C3AED&quot;&gt;LLM · 最多 2 次尝试&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FAF5FF;strokeColor=#8B5CF6;strokeWidth=2;fontFamily=PingFang SC;fontSize=11;fontColor=#4C1D95;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="1460" y="205" width="250" height="95" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="memory" value="&lt;b&gt;06　memory_context_load&lt;/b&gt;&lt;br&gt;按需加载长期偏好与已审核案例&lt;br&gt;&lt;font color=&quot;#64748B&quot;&gt;上下文用途，不授予动作权限&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#EFF6FF;strokeColor=#3B82F6;strokeWidth=1.8;fontFamily=PingFang SC;fontSize=11;fontColor=#1E3A8A;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="1460" y="425" width="250" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="investigate" value="&lt;b&gt;07　investigate&lt;/b&gt;&lt;br&gt;有界 Tool 调查循环&lt;br&gt;&lt;font color=&quot;#64748B&quot;&gt;业务事实 · 知识 · 案例记忆&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#CFFAFE;strokeColor=#0891B2;strokeWidth=2;fontFamily=PingFang SC;fontSize=11;fontColor=#164E63;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="1130" y="425" width="250" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="rag" value="&lt;b&gt;08　rag_context_build&lt;/b&gt;&lt;br&gt;按需构建并验证证据上下文&lt;br&gt;&lt;font color=&quot;#64748B&quot;&gt;verified / partial / fail-closed&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#06B6D4;strokeWidth=1.8;fontFamily=PingFang SC;fontSize=11;fontColor=#164E63;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="820" y="425" width="240" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="recommendation" value="&lt;b&gt;09　recommendation_generation&lt;/b&gt;&lt;br&gt;生成建议与候选动作&lt;br&gt;&lt;font color=&quot;#7C3AED&quot;&gt;LLM · 最多 2 次尝试&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FAF5FF;strokeColor=#8B5CF6;strokeWidth=2;fontFamily=PingFang SC;fontSize=11;fontColor=#4C1D95;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="470" y="425" width="280" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="claim" value="&lt;b&gt;10　claim_verify&lt;/b&gt;&lt;br&gt;校验声明与动作证据&lt;br&gt;&lt;font color=&quot;#64748B&quot;&gt;阻断未验证的动作路径&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#06B6D4;strokeWidth=1.8;fontFamily=PingFang SC;fontSize=11;fontColor=#164E63;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="150" y="425" width="250" height="95" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="risk" value="&lt;b&gt;11　risk_gate&lt;/b&gt;&lt;br&gt;风险与审批策略决策&lt;br&gt;&lt;font color=&quot;#7C3AED&quot;&gt;LLM · 最多 2 次尝试&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FAF5FF;strokeColor=#8B5CF6;strokeWidth=2;fontFamily=PingFang SC;fontSize=11;fontColor=#4C1D95;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="150" y="680" width="250" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="approval" value="&lt;b&gt;13　approval_gate&lt;/b&gt;&lt;br&gt;人工审批中断与恢复&lt;br&gt;&lt;font color=&quot;#C2410C&quot;&gt;interrupt / Command(resume)&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFEDD5;strokeColor=#EA580C;strokeWidth=2;fontFamily=PingFang SC;fontSize=11;fontColor=#9A3412;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="500" y="680" width="250" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="action" value="&lt;b&gt;14　action_draft&lt;/b&gt;&lt;br&gt;经 ToolPlatform 持久化动作草稿&lt;br&gt;&lt;font color=&quot;#64748B&quot;&gt;不直接执行外部副作用&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#F97316;strokeWidth=1.8;fontFamily=PingFang SC;fontSize=11;fontColor=#9A3412;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="850" y="680" width="250" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="final" value="&lt;b&gt;15　final_response&lt;/b&gt;&lt;br&gt;统一生成最终答复与终态&lt;br&gt;&lt;font color=&quot;#7C3AED&quot;&gt;确定性模板 · 节点最多 2 次尝试&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FAF5FF;strokeColor=#8B5CF6;strokeWidth=2;fontFamily=PingFang SC;fontSize=11;fontColor=#4C1D95;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="1200" y="680" width="250" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="clarification" value="&lt;b&gt;12　clarification_gate&lt;/b&gt;&lt;br&gt;收敛需要补充的信息&lt;br&gt;&lt;font color=&quot;#64748B&quot;&gt;入口来源见页底说明&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#94A3B8;strokeWidth=1.7;dashed=1;dashPattern=5 4;fontFamily=PingFang SC;fontSize=11;fontColor=#334155;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="components">
+          <mxGeometry x="1200" y="810" width="250" height="72" as="geometry"/>
+        </mxCell>
+        <mxCell id="end" value="END" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#DCFCE7;strokeColor=#16A34A;strokeWidth=2;fontFamily=PingFang SC;fontSize=12;fontStyle=1;fontColor=#166534;align=center;verticalAlign=middle;" vertex="1" parent="components">
+          <mxGeometry x="1545" y="692" width="70" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="note-clarification" value="&lt;b&gt;澄清路径&lt;/b&gt;&lt;br&gt;safety_pre_route、contextual_intent_resolve、slot_resolution_gate、investigate、rag_context_build&lt;br&gt;在信息不足或不可信时进入 clarification_gate，再统一进入 final_response" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#94A3B8;strokeWidth=1.3;fontFamily=PingFang SC;fontSize=11;fontColor=#334155;align=left;verticalAlign=middle;spacingLeft=14;spacingRight=12;" vertex="1" parent="components">
+          <mxGeometry x="60" y="930" width="560" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="note-final" value="&lt;b&gt;Fail-closed 安全收口&lt;/b&gt;&lt;br&gt;调查 / RAG 无证据或异常，建议 / 声明校验不通过，风险被阻断，审批拒绝或无效，动作草稿失败&lt;br&gt;这些重复分支均直接进入 final_response，本图不重复绘制全部回退线" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#CBD5E1;strokeWidth=1.3;fontFamily=PingFang SC;fontSize=11;fontColor=#334155;align=left;verticalAlign=middle;spacingLeft=14;spacingRight=12;" vertex="1" parent="components">
+          <mxGeometry x="650" y="930" width="570" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="note-approval" value="&lt;b&gt;审批语义&lt;/b&gt;&lt;br&gt;pending：approval_gate 自环　·　edit + superseded：返回 risk_gate 重评&lt;br&gt;批准：进入 action_draft　·　拒绝 / 无效：进入 final_response&lt;br&gt;API 保存审批决定后，通过 Command(resume=...) 恢复同一检查点" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#FB923C;strokeWidth=1.3;fontFamily=PingFang SC;fontSize=11;fontColor=#9A3412;align=left;verticalAlign=middle;spacingLeft=14;spacingRight=12;" vertex="1" parent="components">
+          <mxGeometry x="1250" y="930" width="600" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="source-note" value="代码依据：src/agent/graph.py::build_graph() · src/agent/routing.py · src/agent/nodes/approval_gate.py · src/api/routers/approvals.py · 当前工作树 2026-08-04；START / END 为 LangGraph 哨兵，不计入 15 个注册节点" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontFamily=PingFang SC;fontSize=10;fontColor=#64748B;" vertex="1" parent="components">
+          <mxGeometry x="60" y="1080" width="1790" height="30" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e-start-receive" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2.2;endArrow=block;endFill=1;endSize=8;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="connectors" source="start" target="receive"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-receive-safety" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2.2;endArrow=block;endFill=1;endSize=8;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="connectors" source="receive" target="safety"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-safety-session" value="安全通过" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2.2;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#1E3A8A;labelBackgroundColor=#EFF6FF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="connectors" source="safety" target="session"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-session-contextual" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2.2;endArrow=block;endFill=1;endSize=8;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="connectors" source="session" target="contextual"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-contextual-slot" value="需要槽位" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2.2;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#1E3A8A;labelBackgroundColor=#EFF6FF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="connectors" source="contextual" target="slot"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-slot-memory" value="需要记忆上下文" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4F46E5;strokeWidth=2;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#4338CA;labelBackgroundColor=#F8FAFC;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="connectors" source="slot" target="memory"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-memory-investigate" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891B2;strokeWidth=2;endArrow=block;endFill=1;endSize=8;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="connectors" source="memory" target="investigate"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-contextual-investigate" value="直接调查" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891B2;strokeWidth=1.7;dashed=1;dashPattern=5 4;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#0E7490;labelBackgroundColor=#F8FAFC;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="connectors" source="contextual" target="investigate"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-slot-investigate" value="槽位已完整" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891B2;strokeWidth=1.7;dashed=1;dashPattern=5 4;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#0E7490;labelBackgroundColor=#F8FAFC;exitX=0.25;exitY=1;entryX=0.8;entryY=0;" edge="1" parent="connectors" source="slot" target="investigate">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1522" y="375"/><mxPoint x="1330" y="375"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-investigate-rag" value="需要政策证据" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891B2;strokeWidth=2;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#0E7490;labelBackgroundColor=#ECFEFF;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="connectors" source="investigate" target="rag"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-rag-recommendation" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891B2;strokeWidth=2;endArrow=block;endFill=1;endSize=8;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="connectors" source="rag" target="recommendation"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-investigate-recommendation" value="无需 RAG" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891B2;strokeWidth=1.7;dashed=1;dashPattern=5 4;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#0E7490;labelBackgroundColor=#F8FAFC;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" edge="1" parent="components" source="investigate" target="recommendation">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1255" y="555"/><mxPoint x="610" y="555"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-recommendation-claim" value="有声明或动作" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0891B2;strokeWidth=2;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#0E7490;labelBackgroundColor=#ECFEFF;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="connectors" source="recommendation" target="claim"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-claim-risk" value="动作 / 风险信号" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#EA580C;strokeWidth=2;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#C2410C;labelBackgroundColor=#F8FAFC;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="connectors" source="claim" target="risk"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-risk-approval" value="需人工审批" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#EA580C;strokeWidth=2.2;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#C2410C;labelBackgroundColor=#FFF7ED;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="connectors" source="risk" target="approval"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-approval-action" value="已批准" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#EA580C;strokeWidth=2.2;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#C2410C;labelBackgroundColor=#FFF7ED;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="connectors" source="approval" target="action"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-action-final" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#EA580C;strokeWidth=2.2;endArrow=block;endFill=1;endSize=8;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="connectors" source="action" target="final"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-final-end" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16A34A;strokeWidth=2.2;endArrow=block;endFill=1;endSize=8;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="connectors" source="final" target="end"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-risk-action" value="低风险：无需人工审批" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16A34A;strokeWidth=1.8;dashed=1;dashPattern=5 4;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#166534;labelBackgroundColor=#F0FDF4;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" edge="1" parent="components" source="risk" target="action">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="275" y="835"/><mxPoint x="975" y="835"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-approval-risk" value="动作已编辑：返回风险评估" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#EA580C;strokeWidth=1.8;dashed=1;dashPattern=5 4;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#C2410C;labelBackgroundColor=#FFF7ED;exitX=1;exitY=0.25;entryX=0.85;entryY=0;" edge="1" parent="components" source="approval" target="risk">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="780" y="704"/><mxPoint x="780" y="630"/><mxPoint x="363" y="630"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-approval-pending" value="pending 自环" style="edgeStyle=loopEdgeStyle;orthogonalLoop=1;jettySize=22;direction=north;html=1;strokeColor=#EA580C;strokeWidth=1.7;dashed=1;dashPattern=5 4;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#C2410C;labelBackgroundColor=#FFF7ED;" edge="1" parent="components" source="approval" target="approval"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-clarification-final" value="补充信息答复" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#64748B;strokeWidth=1.7;dashed=1;dashPattern=5 4;endArrow=block;endFill=1;endSize=8;fontFamily=PingFang SC;fontSize=10;fontColor=#475569;labelBackgroundColor=#F8FAFC;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="components" source="clarification" target="final"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
