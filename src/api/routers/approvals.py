@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes.action_draft import action_draft
-from src.agent.routing import project_action_draft_terminal
+from src.agent.routing import project_action_draft_terminal, project_run_terminal
 from src.agent.trace import append_agent_steps, update_agent_run_status
 from src.api.routers.agent_runs import (
     ApprovalInterruptValidationError,
@@ -408,14 +408,20 @@ async def _resume_graph_after_decision(
 
     run_id = str(result.run_id)
     final_response_text = final_state.get("final_response")
-    action_terminal = project_action_draft_terminal(final_state)
+    run_terminal = project_run_terminal(final_state)
     final_status = "completed"
-    if action_terminal.applies and action_terminal.status == "error":
-        final_status = "error"
-        final_response_text = str(action_terminal.safe_message)
+    reason_code = "approval_resume_completed"
+    error_code = None
+    if run_terminal.applies:
+        final_status = run_terminal.final_status
+        final_response_text = str(run_terminal.safe_message or final_response_text or "") or None
         final_state["final_response"] = final_response_text
+        reason_code = run_terminal.reason_code or f"approval_resume_{final_status}"
+        error_code = run_terminal.error_code
     elif final_state.get("node_errors") or not final_response_text:
         final_status = "error"
+        reason_code = "approval_resume_error"
+        error_code = "approval_resume_error"
     run = await session.get(AgentRun, result.run_id)
     total_latency_ms = (run.total_latency_ms if run and run.total_latency_ms else 0) + resume_latency_ms
     status_update = {
@@ -424,17 +430,10 @@ async def _resume_graph_after_decision(
         "completed_at": datetime.now(UTC),
         "total_latency_ms": total_latency_ms,
         "trace_id": getattr(request.state, "trace_id", None),
+        "reason_code": reason_code,
+        "error_code": error_code,
+        "final_state": final_state,
     }
-    if final_status == "error":
-        status_update.update(
-            reason_code="approval_resume_error",
-            error_code="approval_resume_error",
-        )
-    else:
-        status_update.update(
-            reason_code="approval_resume_completed",
-            error_code=None,
-        )
     await update_agent_run_status(
         session,
         run_id=run_id,

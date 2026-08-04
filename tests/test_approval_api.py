@@ -22,6 +22,7 @@ from src.db.models import (
     ActionDraft,
     AgentRun,
     AgentStep,
+    AgentTraceEvent,
     ApprovalAssignment,
     ApprovalDecision,
     ApprovalEvent,
@@ -1560,6 +1561,122 @@ async def test_approval_resume_action_failure_uses_terminal_guard_without_node_e
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
     assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
     assert len(await _finalizer_steps(session, run_id=run.id)) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("terminal_status", "reason_code", "error_code", "safe_response"),
+    [
+        ("manual_review", "claim_verification_manual_review", "CLAIM_TERMINAL", "该请求需要人工复核。"),
+        ("refused", "policy_claim_refused", "POLICY_REFUSED", "当前请求被安全拒绝。"),
+    ],
+)
+async def test_approval_resume_preserves_authoritative_non_success_terminal_over_stale_draft_state(
+    terminal_status: str,
+    reason_code: str,
+    error_code: str,
+    safe_response: str,
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(
+        session,
+        seeded_session,
+        thread_id=f"thread-resume-{terminal_status}-terminal-precedence",
+    )
+    graph = FakeResumeGraph(
+        "stale action-shaped response must not win",
+        extra_state={
+            "llm_outputs": {
+                "final_response": {
+                    "final_status": terminal_status,
+                    "response_text": safe_response,
+                    "reason_code": reason_code,
+                    "error_code": error_code,
+                }
+            },
+            "approval_result": {"decision_type": "approve", "status": "approved"},
+            "action_draft": {"draft_id": "stale-draft-id", "status": "draft_created"},
+            "draft_outcome": {
+                "schema_version": "draft_outcome.v1",
+                "tenant_id": str(bundle.approval.tenant_id),
+                "run_id": str(bundle.approval.run_id),
+                "draft_id": "different-stale-draft-id",
+                "status": "not_executed_demo",
+                "external_side_effect": False,
+            },
+        },
+    )
+    finalizer_calls: list[dict] = []
+
+    async def identity_reconcile(**kwargs):
+        return kwargs["final_state"]
+
+    async def record_finalizer_call(**kwargs):
+        finalizer_calls.append(kwargs)
+        return type("FinalizerResult", (), {"trace_steps": []})()
+
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    monkeypatch.setattr(approvals_router, "_reconcile_approved_action_draft", identity_reconcile)
+    monkeypatch.setattr(approvals_router, "finalize_completed_agent_run_memory", record_finalizer_call)
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle),
+        headers=await _admin_headers(client),
+    )
+
+    run = await session.get(AgentRun, bundle.approval.run_id)
+    lifecycle_rows = (
+        (
+            await session.execute(
+                select(AgentTraceEvent)
+                .where(
+                    AgentTraceEvent.run_id == bundle.approval.run_id,
+                    AgentTraceEvent.event_type == "run_status_changed",
+                )
+                .order_by(AgentTraceEvent.sequence)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    resume_events = (
+        (
+            await session.execute(
+                select(ApprovalEvent)
+                .where(
+                    ApprovalEvent.approval_request_id == bundle.approval.id,
+                    ApprovalEvent.event_type == "approval_resumed",
+                )
+                .order_by(ApprovalEvent.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    assert response.status_code == 200
+    assert run is not None
+    assert run.final_status == terminal_status
+    assert run.final_response == safe_response
+    assert {
+        key: lifecycle_rows[-1].redacted_payload[key]
+        for key in ("status", "previous_status", "reason_code", "error_code")
+    } == {
+        "status": terminal_status,
+        "previous_status": "interrupted",
+        "reason_code": reason_code,
+        "error_code": error_code,
+    }
+    assert [event.metadata_json["resume_status"] for event in resume_events] == ["attempted", "completed"]
+    assert len({event.metadata_json["resume_attempt_id"] for event in resume_events}) == 1
+    assert all("resume_attempt_ref" in event.resource_refs_json for event in resume_events)
+    assert finalizer_calls == []
+    assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id) == 0
+    assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
 
 
 @pytest.mark.asyncio
