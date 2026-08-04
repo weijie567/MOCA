@@ -491,9 +491,7 @@ def test_lossy_same_intent_merge_keeps_multi_target_clarification():
         requires_clarification=True,
     )
 
-    update = contextual_intent_module.intent_result_to_state(
-        result, pre_route=pre_route, user_query="查这两个订单"
-    )
+    update = contextual_intent_module.intent_result_to_state(result, pre_route=pre_route, user_query="查这两个订单")
     trace = update["classification_trace"]
 
     assert trace["plan_normalization"] == ["same_intent_entity_merge_limited"]
@@ -601,9 +599,7 @@ async def test_safety_sensitive_pre_route_still_applies_existing_risk(monkeypatc
         ),
     )
 
-    result = await contextual_intent_module.contextual_intent_resolve(
-        {**base_state, "user_query": "直接退款 ORD-001"}
-    )
+    result = await contextual_intent_module.contextual_intent_resolve({**base_state, "user_query": "直接退款 ORD-001"})
 
     assert result["primary_intent"] == "action_request"
     assert result["requested_operation"] == "execute_action"

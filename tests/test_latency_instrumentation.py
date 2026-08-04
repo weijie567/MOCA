@@ -45,7 +45,7 @@ async def test_write_agent_steps_persists_latency_metrics(session: AsyncSession)
         run_id=run_id,
         trace_steps=[
             {
-                "node": "classify_intent",
+                "node": "contextual_intent_resolve",
                 "status": "completed",
                 "latency_ms": 125,
                 "provider_latency_ms": 118,
@@ -74,7 +74,7 @@ async def test_write_agent_steps_computes_latency_from_timestamps(session: Async
         run_id=run_id,
         trace_steps=[
             {
-                "node": "extract_slots",
+                "node": "slot_resolution_gate",
                 "status": "completed",
                 "started_at": started_at.isoformat(),
                 "completed_at": completed_at.isoformat(),
@@ -100,7 +100,7 @@ async def test_metrics_json_uses_allowlisted_keys(session: AsyncSession):
         run_id=run_id,
         trace_steps=[
             {
-                "node": "generate_recommendation",
+                "node": "recommendation_generation",
                 "status": "completed",
                 "provider_latency_ms": 900,
                 "retry_count": 0,
@@ -123,18 +123,18 @@ def test_diagnose_latency_mock_outputs_valid_json():
     )
     report = json.loads(result.stdout)
     assert {"run_id", "total_latency_ms", "nodes", "bottleneck", "suspected_causes"} <= set(report)
-    assert report["bottleneck"]["node"] == "generate_recommendation"
+    assert report["bottleneck"]["node"] == "recommendation_generation"
 
 
 def test_detect_bottleneck_selects_highest_latency_node():
     nodes = [
-        {"node": "classify_intent", "latency_ms": 120, "provider_latency_ms": 100, "retry_count": 0},
-        {"node": "generate_recommendation", "latency_ms": 800, "provider_latency_ms": 720, "retry_count": 0},
+        {"node": "contextual_intent_resolve", "latency_ms": 120, "provider_latency_ms": 100, "retry_count": 0},
+        {"node": "recommendation_generation", "latency_ms": 800, "provider_latency_ms": 720, "retry_count": 0},
         {"node": "final_response", "latency_ms": 50, "provider_latency_ms": None, "retry_count": 0},
     ]
 
     bottleneck = detect_bottleneck(nodes)
     report = build_report("run-1", nodes)
 
-    assert bottleneck == {"node": "generate_recommendation", "latency_ms": 800, "pct_of_total": 82.5}
+    assert bottleneck == {"node": "recommendation_generation", "latency_ms": 800, "pct_of_total": 82.5}
     assert report["bottleneck"] == bottleneck

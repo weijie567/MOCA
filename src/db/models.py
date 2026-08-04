@@ -804,7 +804,9 @@ class MemoryWriteEvent(Base):
     policy_version: Mapped[str] = mapped_column(
         String(64), nullable=False, default="memory_write_policy.v1", server_default="memory_write_policy.v1"
     )
-    blocked_by_json: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    blocked_by_json: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
     authority_class: Mapped[str] = mapped_column(
         String(32), nullable=False, default="contextual_only", server_default="contextual_only"
     )

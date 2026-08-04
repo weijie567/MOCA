@@ -84,7 +84,9 @@ def _project_business_query_drilldown_context(state: AgentState, current_binding
         "last_query_spec": state.get("last_query_spec"),
         "last_answer_context": state.get("last_answer_context"),
         "result_cursor": state.get("result_cursor") if isinstance(state.get("result_cursor"), dict) else None,
-        "expected_slot_type": state.get("expected_slot_type") if isinstance(state.get("expected_slot_type"), str) else None,
+        "expected_slot_type": state.get("expected_slot_type")
+        if isinstance(state.get("expected_slot_type"), str)
+        else None,
         "expected_slot_context": expected_context,
     }
 
@@ -111,7 +113,9 @@ async def receive_request(state: AgentState, config: RunnableConfig | None = Non
     """Reset per-turn state so checkpointed graph context cannot leak stale context."""
     started_at = _now_iso()
     active_flow_state = _project_active_flow_state(state)
-    current_binding = _business_query_context_binding_from_config(config) or trusted_business_query_context_binding(state)
+    current_binding = _business_query_context_binding_from_config(config) or trusted_business_query_context_binding(
+        state
+    )
     drilldown_context = _project_business_query_drilldown_context(state, current_binding)
     trace_steps = [
         {

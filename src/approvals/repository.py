@@ -126,7 +126,9 @@ class ApprovalRepository:
             immutable_hash=snapshot.immutable_hash,
             action_payload_hash=snapshot.action_payload_hash,
             target_merchant_id=snapshot.target_merchant_id,
-            target_merchant_ref=snapshot.target_merchant_ref.model_dump(mode="json") if snapshot.target_merchant_ref else None,
+            target_merchant_ref=snapshot.target_merchant_ref.model_dump(mode="json")
+            if snapshot.target_merchant_ref
+            else None,
             business_fact_refs=[ref.model_dump(mode="json") for ref in snapshot.business_fact_refs],
             policy_config_version=snapshot.policy_config_version,
             risk_config_version=snapshot.risk_config_version,

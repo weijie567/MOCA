@@ -169,11 +169,7 @@ def _resolve_identity(
             "trace_id": trace_id,
         }
 
-    missing = [
-        field_name
-        for field_name in ("run_id", "tenant_id", "thread_id")
-        if resolved[field_name] in (None, "")
-    ]
+    missing = [field_name for field_name in ("run_id", "tenant_id", "thread_id") if resolved[field_name] in (None, "")]
     if missing:
         raise ValueError(f"missing required decision event identity: {', '.join(missing)}")
     return resolved

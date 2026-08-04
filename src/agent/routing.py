@@ -36,9 +36,7 @@ _ACTION_DRAFT_ROUTES = {"final_response", "terminal_error"}
 ACTION_DRAFT_TERMINAL_ERROR_CODE = "ACTION_DRAFT_TERMINAL_FAILED"
 ACTION_DRAFT_TERMINAL_SAFE_MESSAGE = "操作草稿未能安全创建，请稍后重试或转人工处理。"
 MANUAL_REVIEW_TERMINAL_ERROR_CODE = "MANUAL_REVIEW_REQUIRED"
-MANUAL_REVIEW_TERMINAL_SAFE_MESSAGE = (
-    "当前建议需要人工复核，系统未将其作为已完成建议，也未创建审批请求或动作草稿。"
-)
+MANUAL_REVIEW_TERMINAL_SAFE_MESSAGE = "当前建议需要人工复核，系统未将其作为已完成建议，也未创建审批请求或动作草稿。"
 _ACTION_DRAFT_AUTH_ERROR_CODES = {
     "APPROVAL_REQUIRED",
     "AUTO_ACTION_CAPABILITY_EXPIRED",
@@ -346,10 +344,9 @@ def _durable_action_draft_identity_matches(
         nested_outcome = DraftOutcomeV1.model_validate(action_draft.get("draft_outcome"))
     except ValidationError:
         return False
-    return (
-        nested_outcome.model_dump(mode="json") == outcome.model_dump(mode="json")
-        and str(nested_outcome.draft_id or "") == str(action_draft.get("draft_id") or "")
-    )
+    return nested_outcome.model_dump(mode="json") == outcome.model_dump(mode="json") and str(
+        nested_outcome.draft_id or ""
+    ) == str(action_draft.get("draft_id") or "")
 
 
 def _critical_action_draft_audit_present(state: AgentState) -> bool:

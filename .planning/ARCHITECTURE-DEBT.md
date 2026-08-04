@@ -2203,3 +2203,12 @@
 - **证据**：`src/agent/routing.py`、`src/api/routers/approvals.py`、`frontend/src/lib/api.ts`、`frontend/src/hooks/useAgentRun.ts`、`frontend/src/components/details/ApprovalTab.tsx`、`tests/test_agent_runs_api.py`、`tests/test_approval_api.py` 及对应 frontend contract/hook/component tests。
 - **验证**：terminal/recommendation/lifecycle/API 聚合 → `255 passed, 3 warnings`；approval service/API 聚合 → `62 passed, 1 warning`；frontend Vitest → `4 files / 36 tests passed`；production build 通过；mocked desktop/mobile Playwright → `10 passed`；相关 Ruff → `All checks passed!`。
 - **剩余风险**：🟡 网络层若在用户显式恢复重试时再次丢失响应，Console 保持 ambiguous 且不会自动再发 POST；需要用户查询最新状态后再决定。Phase 64.2/66/69 与 production external effects 的既定边界未改变。
+
+## 2026-08-04 — citation-invalid 无动作结果被误投影为 unresolved action ✅已修复验证
+
+- **子系统**：RAG 引用成员校验 / recommendation generation / final response 终态。
+- **问题现象 / 根因**：当 LLM 的全部 citation 都不属于当前 verified evidence package 时，`recommendation_generation` 会把 `recommended_action` 改为 `citation_invalid`；但随后仍调用 executable-action taxonomy 解析该安全哨兵值，生成 `canonical_action.disposition=manual_review` 与 `manual_review_required`。`project_run_terminal()` 因而在 final response 的既有 `citation_invalid -> insufficient_evidence` 分支之前，把结果误分类为 `unresolved_action / manual_review`。
+- **影响**：无效引用仍不会创建动作，但用户可见终态、trace 与预期的证据不足语义不一致；旧 facade integration 回归稳定失败为 `manual_review != insufficient_evidence`。
+- **处理状态**：✅ 已将 `insufficient_evidence`、`citation_invalid`、`retrieval_error` 统一为 recommendation 层 no-action 集合；这些值不再生成 canonical action 或 manual-review risk signal，并新增 membership-invalid 回归断言。
+- **证据**：`src/agent/nodes/recommendation_generation.py`、`tests/agent/test_nodes/test_recommendation_generation.py`、`tests/knowledge/test_facade_integration.py`；focused recommendation/final/routing 聚合为 `164 passed, 2 warnings`；最终 CI 等价全量为 `4211 passed, 4 skipped, 126 warnings`；全仓 Ruff check/format 与 Phase 58 strict classifier 均通过。
+- **剩余风险**：无本条已知阻塞；现有 LangGraph annotation、Alembic 配置与部分 AsyncMock runtime warnings 为既有告警，未改变本条 no-action 终态结论。

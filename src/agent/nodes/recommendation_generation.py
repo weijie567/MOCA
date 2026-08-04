@@ -33,6 +33,9 @@ from src.tools.contracts import BusinessFactRefV1
 
 logger = logging.getLogger(__name__)
 _TRUNCATION_MARKER = " [truncated]"
+_NO_ACTION_RECOMMENDATIONS = frozenset({"insufficient_evidence", "citation_invalid", "retrieval_error"})
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -157,7 +160,7 @@ async def recommendation_generation(state: AgentState, config: RunnableConfig = 
     """Canonical recommendation generation graph node."""
     started_at = _now_iso()
     existing_draft = state.get("recommendation_draft") or {}
-    if existing_draft.get("recommended_action") in {"insufficient_evidence", "retrieval_error"}:
+    if existing_draft.get("recommended_action") in _NO_ACTION_RECOMMENDATIONS:
         return {
             "canonical_action": None,
             "risk_signals": [],
@@ -240,8 +243,11 @@ async def recommendation_generation(state: AgentState, config: RunnableConfig = 
                         evidence_models,
                     )
             draft["citation_validation"] = validation.model_dump()
-            action_resolution = resolve_action_text(draft.get("recommended_action"))
-            canonical_action = asdict(action_resolution)
+            action_resolution = None
+            canonical_action = None
+            if draft.get("recommended_action") not in _NO_ACTION_RECOMMENDATIONS:
+                action_resolution = resolve_action_text(draft.get("recommended_action"))
+                canonical_action = asdict(action_resolution)
             draft["canonical_action"] = canonical_action
             material_claims = _material_claims_from_draft(draft, cited_evidence_ids, state)
             material_claim_payloads = [claim.model_dump(mode="json") for claim in material_claims]
@@ -268,7 +274,7 @@ async def recommendation_generation(state: AgentState, config: RunnableConfig = 
                     )
                 ],
             }
-            if action_resolution.executable_action_type is None:
+            if action_resolution is not None and action_resolution.executable_action_type is None:
                 node_result["risk_signals"] = ["manual_review_required"]
             return node_result
         except (ValidationError, ValueError, TimeoutError) as exc:
@@ -317,7 +323,9 @@ def _verified_package_from_state(state: AgentState) -> VerifiedEvidencePackageV1
     if value is None:
         return None
     try:
-        return value if isinstance(value, VerifiedEvidencePackageV1) else VerifiedEvidencePackageV1.model_validate(value)
+        return (
+            value if isinstance(value, VerifiedEvidencePackageV1) else VerifiedEvidencePackageV1.model_validate(value)
+        )
     except Exception:
         return None
 
@@ -395,7 +403,8 @@ def _insufficient_verified_package_result(
         "risk_signals": [],
         "llm_outputs": outputs,
         "evidence_refs": [],
-        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("insufficient_evidence", started_at, context_chars=0)],
+        "trace_steps": (state.get("trace_steps") or [])
+        + [_trace_step("insufficient_evidence", started_at, context_chars=0)],
     }
 
 
@@ -501,7 +510,9 @@ def _evidence_by_id_from_package(
     evidence_by_id: dict[str, EvidenceRefV1] = {}
     for evidence_id, value in raw_map.items():
         try:
-            evidence_by_id[str(evidence_id)] = value if isinstance(value, EvidenceRefV1) else EvidenceRefV1.model_validate(value)
+            evidence_by_id[str(evidence_id)] = (
+                value if isinstance(value, EvidenceRefV1) else EvidenceRefV1.model_validate(value)
+            )
         except Exception:
             continue
     return evidence_by_id

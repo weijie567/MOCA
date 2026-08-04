@@ -32,7 +32,13 @@ from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
 from src.platform.context_projections import project_missing_trusted_visibility_context, project_to_tool_context
 from src.platform.trusted_context import TrustedContext
-from src.tools.contracts import ToolCallContext, ToolResultProjectionV1, ToolResultPromptSummary, ToolResultV2, ToolViewV1
+from src.tools.contracts import (
+    ToolCallContext,
+    ToolResultProjectionV1,
+    ToolResultPromptSummary,
+    ToolResultV2,
+    ToolViewV1,
+)
 from src.tools.platform import ToolPlatform
 from src.tools.validation import validate_json_value
 
@@ -258,7 +264,9 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
     visibility_ctx = _build_visibility_context(trusted_context, configurable, state)
     visibility_caller = visibility_ctx.caller_node
     tool_views = await tool_platform.visible_tools(
-        caller=visibility_caller, ctx=visibility_ctx, session=session,
+        caller=visibility_caller,
+        ctx=visibility_ctx,
+        session=session,
     )
     if trusted_context is None:
         termination_reason = "unrecoverable_error"
@@ -584,7 +592,9 @@ def _record_planner_fallback(context: dict[str, Any], error: dict[str, Any]) -> 
     context.setdefault("planner_errors", []).append(error)
 
 
-def _validate_planner_step(step: Any, tool_views: list[ToolViewV1], tool_platform: Any | None = None) -> dict[str, Any] | None:
+def _validate_planner_step(
+    step: Any, tool_views: list[ToolViewV1], tool_platform: Any | None = None
+) -> dict[str, Any] | None:
     views_by_name = {view.name: view for view in tool_views}
     if not isinstance(step, dict):
         return _safe_error("INVALID_PLANNER_OUTPUT", "Planner output failed validation", "planner")
@@ -609,7 +619,11 @@ def _validate_planner_step(step: Any, tool_views: list[ToolViewV1], tool_platfor
         return _safe_error("INVALID_PLANNER_ARGS", "Planner tool arguments failed validation", "planner")
     if not isinstance(step.get("reason"), str) or not step["reason"].strip():
         return _safe_error("INVALID_PLANNER_OUTPUT", "Planner tool reason failed validation", "planner")
-    descriptor = tool_platform.descriptor(tool_name) if tool_platform is not None and hasattr(tool_platform, "descriptor") else None
+    descriptor = (
+        tool_platform.descriptor(tool_name)
+        if tool_platform is not None and hasattr(tool_platform, "descriptor")
+        else None
+    )
     descriptor_error = _validate_investigate_tool_descriptor(descriptor)
     if descriptor_error is not None:
         return descriptor_error
@@ -631,7 +645,9 @@ def _validate_investigate_tool_descriptor(descriptor: Any) -> dict[str, Any] | N
     if getattr(descriptor, "side_effect", None) not in {"read_only", "retrieval"}:
         return _safe_error("INVALID_PLANNER_TOOL", "Planner selected a side-effecting tool", "planner")
     if "investigate" not in (getattr(descriptor, "caller_allowlist", None) or []):
-        return _safe_error("INVALID_PLANNER_TOOL", "Planner selected a tool outside investigate caller scope", "planner")
+        return _safe_error(
+            "INVALID_PLANNER_TOOL", "Planner selected a tool outside investigate caller scope", "planner"
+        )
     if getattr(descriptor, "exposure", None) != "planner_visible":
         return _safe_error("INVALID_PLANNER_TOOL", "Planner selected a non-visible tool", "planner")
     return None
@@ -817,7 +833,8 @@ def _project_tool_result(
             tool_name=tool_name,
             status=result.status,
             summary=result.summary,
-            prompt_summary=prompt_text or _safe_prompt_summary(
+            prompt_summary=prompt_text
+            or _safe_prompt_summary(
                 tool_name=tool_name,
                 status=result.status,
                 summary=result.summary,
@@ -951,9 +968,7 @@ def _accumulate_tool_result(
     if result.status in FACT_STATUSES:
         _discover_loop_slots_from_projection(context, tool_name, full_projection)
         if tool_name == "search_case_memory":
-            context.setdefault("case_memory", []).extend(
-                _case_memory_items_from_projection(normalized)
-            )
+            context.setdefault("case_memory", []).extend(_case_memory_items_from_projection(normalized))
         if result.business_fact_refs:
             for ref in result.business_fact_refs:
                 ref_data = ref.model_dump(mode="json")
@@ -1159,11 +1174,7 @@ def _safe_business_query_result(result: ToolResultV2) -> BusinessQueryResultV1 |
         return None
     # Validate only the stable BusinessQueryResultV1 contract fields. Raw executor/debug
     # keys may exist in malformed tool data but must not enter drilldown state.
-    stable_payload = {
-        key: value
-        for key, value in payload.items()
-        if key in BusinessQueryResultV1.model_fields
-    }
+    stable_payload = {key: value for key, value in payload.items() if key in BusinessQueryResultV1.model_fields}
     try:
         return BusinessQueryResultV1.model_validate(stable_payload)
     except ValidationError:
@@ -1415,10 +1426,17 @@ def _case_memory_items_from_projection(normalized: dict[str, Any]) -> list[dict[
             continue
         entry: dict[str, Any] = {}
         for key in (
-            "case_id", "case_memory_id", "memory_id", "id",
-            "similarity", "score",
-            "snippet", "excerpt",
-            "outcome", "applicability", "caveats",
+            "case_id",
+            "case_memory_id",
+            "memory_id",
+            "id",
+            "similarity",
+            "score",
+            "snippet",
+            "excerpt",
+            "outcome",
+            "applicability",
+            "caveats",
         ):
             if key in item and isinstance(item[key], (str, int, float, bool)):
                 entry[key] = item[key]

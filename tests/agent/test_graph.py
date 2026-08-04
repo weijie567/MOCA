@@ -623,7 +623,11 @@ class _GraphInvestigatePlanner:
 
         if intent == "policy_qa":
             if "search_policy" not in attempted:
-                return {"next_tool": "search_policy", "args": {"query": planner_input["user_query"]}, "reason": "policy"}
+                return {
+                    "next_tool": "search_policy",
+                    "args": {"query": planner_input["user_query"]},
+                    "reason": "policy",
+                }
             return {"stop": True, "stop_reason": "no_more_useful_tools"}
 
         if slots.get("order_id") and "get_order" not in attempted:
@@ -723,9 +727,7 @@ class FakeGraphPolicyKnowledgeService:
             ClaimVerificationResultV1(
                 claim_id=(claim.claim_id if isinstance(claim, MaterialClaimV1) else str(claim.get("claim_id"))),
                 claim_type=(
-                    claim.claim_type
-                    if isinstance(claim, MaterialClaimV1)
-                    else str(claim.get("claim_type") or "policy")
+                    claim.claim_type if isinstance(claim, MaterialClaimV1) else str(claim.get("claim_type") or "policy")
                 ),
                 support_status="supported",
                 supporting_evidence_refs=safe_refs,
@@ -746,6 +748,7 @@ class FakeGraphPolicyKnowledgeService:
             reason_codes=[],
             verifier_policy_version="material_claim_verifier.v1",
         )
+
 
 def _patch_graph_dependencies(
     monkeypatch: pytest.MonkeyPatch,
@@ -1113,10 +1116,9 @@ async def test_business_query_drilldown_followup_reuses_same_thread_answer_conte
     }
     assert second_state["active_slots"]["business_query_spec"] == tool_platform.calls[1][1]
     assert second_state["business_context"]["facts"]["business_query"]["rows"] == [{"order_no": "ORD-GRAPH-001"}]
-    assert (
-        second_state["llm_outputs"]["contextual_intent_resolve"]["classification_trace"]["reason_codes"]
-        == ["business_query_drilldown_field_request"]
-    )
+    assert second_state["llm_outputs"]["contextual_intent_resolve"]["classification_trace"]["reason_codes"] == [
+        "business_query_drilldown_field_request"
+    ]
 
 
 def _assert_business_query_drilldown_context_cleared(state: dict[str, Any]) -> None:
@@ -1453,19 +1455,20 @@ def test_graph_compiles_with_investigate():
 
 
 def test_phase58_graph_tests_and_fixtures_use_canonical_patch_seams_only():
+    join_fragment = "".join
     forbidden_fragments = {
         Path("tests/conftest.py"): [
-            "import src.agent.nodes.risk_gate as assess_" "node",
+            join_fragment(("import src.agent.nodes.risk_gate as assess_", "node")),
         ],
         Path("tests/agent/test_graph.py"): [
-            "as generate_" "recommendation_module",
-            "as assess_" "risk_module",
-            'target_' 'graph_' 'name("long_term_' "memory_retrieve\"",
-            'target_' 'graph_' 'name("extract_' "slots\"",
-            '"route_after_' 'slots": "route_after_slot_resolution"',
+            join_fragment(("as generate_", "recommendation_module")),
+            join_fragment(("as assess_", "risk_module")),
+            join_fragment(("target_", "graph_", 'name("long_term_', 'memory_retrieve"')),
+            join_fragment(("target_", "graph_", 'name("extract_', 'slots"')),
+            join_fragment(('"route_after_', 'slots": "route_after_slot_resolution"')),
         ],
         Path("tests/agent/test_empty_session_adapter.py"): [
-            "src.agent.nodes.session_" "memory_load",
+            join_fragment(("src.agent.nodes.session_", "memory_load")),
         ],
     }
 
@@ -1528,8 +1531,7 @@ def test_action_draft_uses_conditional_terminal_integrity_edge_without_direct_su
 
     assert any(edge.source == "action_draft" and edge.target == "final_response" and edge.conditional for edge in edges)
     assert not any(
-        edge.source == "action_draft" and edge.target == "final_response" and not edge.conditional
-        for edge in edges
+        edge.source == "action_draft" and edge.target == "final_response" and not edge.conditional for edge in edges
     )
     assert hasattr(__import__("src.agent.routing", fromlist=["route_after_action_draft"]), "route_after_action_draft")
 

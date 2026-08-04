@@ -497,7 +497,9 @@ async def _run_thread_id(session: AsyncSession, run_id: UUID) -> str | None:
     return (await session.execute(select(AgentRun.thread_id).where(AgentRun.id == run_id))).scalar_one_or_none()
 
 
-def _run_scope_matches_target(run: AgentRun | None, requested_target_merchant_id: str | None) -> tuple[bool, str | None]:
+def _run_scope_matches_target(
+    run: AgentRun | None, requested_target_merchant_id: str | None
+) -> tuple[bool, str | None]:
     if run is None:
         return False, "RUN_SCOPE_MISSING"
     if run.scope_classification == BUSINESS_MERCHANT:
@@ -604,7 +606,9 @@ def _approval_phase34_binding_matches(approval: ApprovalRequest, requested: dict
     claim_approval = bool(approval.claim_verification_ref or approval.claim_verification_summary)
     if claim_requested or claim_approval:
         claim_ref_matches = approval.claim_verification_ref == requested["claim_verification_ref"]
-        claim_summary_matches = _json_safe(approval.claim_verification_summary) == requested["claim_verification_summary"]
+        claim_summary_matches = (
+            _json_safe(approval.claim_verification_summary) == requested["claim_verification_summary"]
+        )
         if not (claim_ref_matches or claim_summary_matches):
             return False
     risk_requested = bool(requested["risk_decision_ref"] or requested["risk_decision"])
@@ -636,9 +640,7 @@ def _canonical_target_merchant_ref(value: dict[str, Any] | None) -> dict[str, An
 
 
 def _canonical_business_fact_refs(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    return [
-        BusinessFactRefV1.model_validate(_contract_json_safe(ref)).model_dump(mode="json") for ref in value or []
-    ]
+    return [BusinessFactRefV1.model_validate(_contract_json_safe(ref)).model_dump(mode="json") for ref in value or []]
 
 
 def _canonical_evidence_refs(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:

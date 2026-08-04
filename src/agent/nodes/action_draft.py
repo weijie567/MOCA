@@ -358,13 +358,14 @@ def _canonical_target_merchant_ref(value: Any) -> dict[str, Any] | None:
 
 def _canonical_business_fact_refs(value: Any) -> list[dict[str, Any]]:
     return [
-        BusinessFactRefV1.model_validate(_contract_json_safe(ref)).model_dump(mode="json")
-        for ref in _list_value(value)
+        BusinessFactRefV1.model_validate(_contract_json_safe(ref)).model_dump(mode="json") for ref in _list_value(value)
     ]
 
 
 def _canonical_evidence_refs(value: Any) -> list[dict[str, Any]]:
-    return [EvidenceRefV1.model_validate(_contract_json_safe(ref)).model_dump(mode="json") for ref in _list_value(value)]
+    return [
+        EvidenceRefV1.model_validate(_contract_json_safe(ref)).model_dump(mode="json") for ref in _list_value(value)
+    ]
 
 
 def _canonical_risk_decision(value: Any) -> dict[str, Any] | None:

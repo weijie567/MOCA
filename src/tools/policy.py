@@ -16,26 +16,30 @@ from src.tools.contracts import (
     ToolViewV1,
 )
 
-TOOL_POLICY_CORE_REASON_CODES: frozenset[str] = frozenset({
-    "visible",
-    "hidden_by_policy",
-    "caller_not_allowed",
-    "missing_permission",
-    "scope_denied",
-    "side_effect_blocked",
-    "schema_invalid",
-    "approval_required",
-    "safety_snapshot_required",
-    "idempotency_required",
-    "tool_unavailable",
-})
+TOOL_POLICY_CORE_REASON_CODES: frozenset[str] = frozenset(
+    {
+        "visible",
+        "hidden_by_policy",
+        "caller_not_allowed",
+        "missing_permission",
+        "scope_denied",
+        "side_effect_blocked",
+        "schema_invalid",
+        "approval_required",
+        "safety_snapshot_required",
+        "idempotency_required",
+        "tool_unavailable",
+    }
+)
 
-TOOL_POLICY_RUNTIME_ONLY_REASON_CODES: frozenset[str] = frozenset({
-    "schema_invalid",
-    "approval_required",
-    "safety_snapshot_required",
-    "idempotency_required",
-})
+TOOL_POLICY_RUNTIME_ONLY_REASON_CODES: frozenset[str] = frozenset(
+    {
+        "schema_invalid",
+        "approval_required",
+        "safety_snapshot_required",
+        "idempotency_required",
+    }
+)
 
 TOOL_POLICY_EXTENSION_REASON_PATTERN = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
 AUTO_ACTION_CAPABILITY_DISPATCH_REASON = "auto_action_capability.pending_verification"
@@ -159,9 +163,7 @@ def _denies_side_effect(
     resource_scope_binding: dict[str, Any],
 ) -> bool:
     del args, resource_scope_binding
-    return descriptor.side_effect == "write" and not (
-        ctx.caller_node == "action_draft" and descriptor.kind == "write"
-    )
+    return descriptor.side_effect == "write" and not (ctx.caller_node == "action_draft" and descriptor.kind == "write")
 
 
 def _denies_resource_scope(
@@ -239,10 +241,7 @@ def _project_schema_node(node: dict[str, Any]) -> dict[str, Any]:
         if key in _INTERNAL_SCHEMA_KEYS:
             continue
         if key == "properties" and isinstance(value, dict):
-            projected[key] = {
-                prop_name: _project_schema_node(prop_schema)
-                for prop_name, prop_schema in value.items()
-            }
+            projected[key] = {prop_name: _project_schema_node(prop_schema) for prop_name, prop_schema in value.items()}
             continue
         if key == "items" and isinstance(value, dict):
             projected[key] = _project_schema_node(value)

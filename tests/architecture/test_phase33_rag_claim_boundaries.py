@@ -321,9 +321,7 @@ def test_rag_claim_safe_summary_strips_raw_package_and_verifier_projection_field
         "verified_evidence_package": {
             "status": "verified",
             "evidence_map": {
-                "policy_refund_timeout/chunk_001@v3": {
-                    "evidence_id": "policy_refund_timeout/chunk_001@v3"
-                }
+                "policy_refund_timeout/chunk_001@v3": {"evidence_id": "policy_refund_timeout/chunk_001@v3"}
             },
             "rejected_candidate_refs": [{"evidence_id": "candidate-only"}],
             "debug_projection": {"raw": "DEBUG_PROJECTION_SHOULD_NOT_LEAK"},

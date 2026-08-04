@@ -63,7 +63,9 @@ def _base_envelope(**overrides: object) -> dict[str, object]:
     return payload
 
 
-async def _create_run(session: AsyncSession, *, thread_id: str = "decision-event-thread") -> tuple[uuid.UUID, uuid.UUID]:
+async def _create_run(
+    session: AsyncSession, *, thread_id: str = "decision-event-thread"
+) -> tuple[uuid.UUID, uuid.UUID]:
     run_id = uuid.uuid4()
     tenant_id = uuid.uuid4()
     now = datetime.now(UTC)

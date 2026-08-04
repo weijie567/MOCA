@@ -167,8 +167,7 @@ class ToolResultProjector:
             normalized["business_fact_refs"] = self._business_fact_refs_from_envelope(result)
         if result.policy_evidence_refs:
             normalized["policy_evidence_refs"] = [
-                {"evidence_id": ref.evidence_id, "doc_key": ref.doc_key}
-                for ref in result.policy_evidence_refs
+                {"evidence_id": ref.evidence_id, "doc_key": ref.doc_key} for ref in result.policy_evidence_refs
             ]
 
         # Audit ref from the result envelope.
@@ -193,8 +192,7 @@ class ToolResultProjector:
 
     def _business_fact_refs_from_envelope(self, result: ToolResultV2) -> list[dict[str, Any]]:
         return [
-            {"resource_type": ref.resource_type, "resource_id": ref.resource_id}
-            for ref in result.business_fact_refs
+            {"resource_type": ref.resource_type, "resource_id": ref.resource_id} for ref in result.business_fact_refs
         ]
 
     def _extract_policy_evidence_refs(self, data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -225,10 +223,17 @@ class ToolResultProjector:
                 continue
             safe_entry: dict[str, Any] = {}
             for key in (
-                "case_id", "case_memory_id", "memory_id", "id",
-                "similarity", "score",
-                "snippet", "excerpt",
-                "outcome", "applicability", "caveats",
+                "case_id",
+                "case_memory_id",
+                "memory_id",
+                "id",
+                "similarity",
+                "score",
+                "snippet",
+                "excerpt",
+                "outcome",
+                "applicability",
+                "caveats",
             ):
                 if key in item:
                     value = item[key]
@@ -253,8 +258,7 @@ class ToolResultProjector:
             safe_ref = {
                 str(key): value
                 for key, value in ref.items()
-                if str(key).lower() not in _RAW_SENTINEL_KEYS
-                and isinstance(value, (str, int, float, bool))
+                if str(key).lower() not in _RAW_SENTINEL_KEYS and isinstance(value, (str, int, float, bool))
             }
             if safe_ref:
                 safe_refs.append(safe_ref)
@@ -347,9 +351,9 @@ class ToolResultProjector:
         if isinstance(filters, dict):
             status_filter = filters.get("status_filter")
             metric["filters"] = {
-                "status_filter": [
-                    item for item in status_filter if isinstance(item, str)
-                ] if isinstance(status_filter, list) else [],
+                "status_filter": [item for item in status_filter if isinstance(item, str)]
+                if isinstance(status_filter, list)
+                else [],
                 "merchant_filter_applied": isinstance(filters.get("merchant_id"), str),
             }
 
@@ -407,7 +411,7 @@ class ToolResultProjector:
             parts.append(f"error: {prompt_projection['safe_error']['safe_message']}")
         text = " — ".join(parts)
         if len(text) > _MAX_TEXT_FOR_PROMPT:
-            text = text[:_MAX_TEXT_FOR_PROMPT - 3] + "..."
+            text = text[: _MAX_TEXT_FOR_PROMPT - 3] + "..."
         return text
 
     @staticmethod

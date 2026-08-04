@@ -54,7 +54,9 @@ def _pytest_command_snippets(path: Path) -> list[str]:
         if automated_match and "pytest" in automated_match.group(1):
             snippets.append(automated_match.group(1).strip())
             continue
-        if re.match(r"^(?:UV_CACHE_DIR=\S+\s+)?(?:uv run pytest|pytest|python -m pytest|\.venv/bin/pytest)\b", stripped):
+        if re.match(
+            r"^(?:UV_CACHE_DIR=\S+\s+)?(?:uv run pytest|pytest|python -m pytest|\.venv/bin/pytest)\b", stripped
+        ):
             snippets.append(stripped)
             continue
         for snippet in re.findall(r"`([^`]*pytest[^`]*)`", stripped):
@@ -98,9 +100,10 @@ def test_phase48_1_plan_pytest_entrypoints_use_moca_runner() -> None:
 
     assert snippets
     for path, snippet in snippets:
-        assert snippet.startswith(
-            ("UV_CACHE_DIR=/tmp/uv-cache uv run pytest", ".venv/bin/pytest")
-        ), (path.name, snippet)
+        assert snippet.startswith(("UV_CACHE_DIR=/tmp/uv-cache uv run pytest", ".venv/bin/pytest")), (
+            path.name,
+            snippet,
+        )
 
 
 def test_thread_case_active_readers_use_thread_case_links() -> None:

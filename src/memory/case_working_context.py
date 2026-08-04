@@ -217,8 +217,7 @@ def dehydrate_content(content: CaseWorkingContextContentV1) -> dict[str, Any]:
 
 def hydrate_content(row: CaseWorkingContext) -> CaseWorkingContextContentV1:
     payload = {
-        content_field: getattr(row, column_name)
-        for content_field, column_name in _CWC_CONTENT_COLUMN_MAP.items()
+        content_field: getattr(row, column_name) for content_field, column_name in _CWC_CONTENT_COLUMN_MAP.items()
     }
     return CaseWorkingContextContentV1.model_validate(payload)
 

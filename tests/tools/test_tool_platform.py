@@ -183,11 +183,14 @@ def _ctx(
         tenant_id=tenant_id or str(uuid4()),
         user_id=user_id or str(uuid4()),
         role=role,
-        permissions=[f"tool:{name}" for name in ("get_order", "get_refund_case")] if permissions is None else permissions,
+        permissions=[f"tool:{name}" for name in ("get_order", "get_refund_case")]
+        if permissions is None
+        else permissions,
         merchant_scope=(
             merchant_scope.model_dump()
             if hasattr(merchant_scope, "model_dump")
-            else merchant_scope if merchant_scope is not None
+            else merchant_scope
+            if merchant_scope is not None
             else {"merchant_ids": ["*"]}
         ),
         session_id=None,
@@ -281,7 +284,11 @@ async def test_investigate_visible_tools_exactly_match_metric_tool_allowlist() -
     )
 
     assert {view.name for view in views} == _INVESTIGATE_METRIC_TOOL_ALLOWLIST
-    assert {descriptor.name for descriptor in ToolCatalog().descriptors() if descriptor.name in _INVESTIGATE_METRIC_TOOL_ALLOWLIST} == _INVESTIGATE_METRIC_TOOL_ALLOWLIST
+    assert {
+        descriptor.name
+        for descriptor in ToolCatalog().descriptors()
+        if descriptor.name in _INVESTIGATE_METRIC_TOOL_ALLOWLIST
+    } == _INVESTIGATE_METRIC_TOOL_ALLOWLIST
     assert all(view.input_schema for view in views)
     assert "create_coupon_grant_draft" not in {view.name for view in views}
 
@@ -301,7 +308,9 @@ async def test_each_investigate_allowlisted_tool_dispatches_through_tool_platfor
     assert set(outcomes) == _INVESTIGATE_METRIC_TOOL_ALLOWLIST
     assert all(isinstance(outcome, ToolInvocationOutcome) for outcome in outcomes.values())
     assert all(outcome.tool_result.status in _SAFE_TERMINAL_TOOL_STATUSES for outcome in outcomes.values())
-    assert all(outcome.projection.prompt_projection["tool_name"] == tool_name for tool_name, outcome in outcomes.items())
+    assert all(
+        outcome.projection.prompt_projection["tool_name"] == tool_name for tool_name, outcome in outcomes.items()
+    )
 
 
 @pytest.mark.asyncio
@@ -1163,6 +1172,8 @@ async def test_tool_platform_business_query_dispatches_to_service_runtime(
 ) -> None:
     from src.tools.platform import ToolPlatform
 
+    seeded_session["order"].created_at = datetime(2026, 7, 8, 2, 0, tzinfo=UTC)
+    await session.flush()
     platform = ToolPlatform.with_defaults(session)
 
     outcome = await platform.invoke(
@@ -1173,7 +1184,7 @@ async def test_tool_platform_business_query_dispatches_to_service_runtime(
             "metric_id": "order_count",
             "time_preset": "this_week",
         },
-        _seeded_ctx(seeded_session),
+        _seeded_ctx(seeded_session).model_copy(update={"effective_at": "2026-07-09T12:00:00+08:00"}),
         session=None,
     )
 

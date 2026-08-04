@@ -226,9 +226,7 @@ def test_route_after_recommendation_sends_claims_and_actions_to_claim_verify() -
         route_after_recommendation(
             {
                 "recommendation_draft": {
-                    "user_visible_claims": [
-                        {"claim_type": "business_fact", "claim_text": "Refund case is eligible."}
-                    ]
+                    "user_visible_claims": [{"claim_type": "business_fact", "claim_text": "Refund case is eligible."}]
                 }
             }
         )
@@ -269,9 +267,7 @@ def test_route_after_recommendation_fails_closed_for_unresolved_canonical_action
         ),
         (
             {
-                "claim_verification_bundle": _continue_bundle(
-                    claim_results=[_allowed_action_claim_result()]
-                ),
+                "claim_verification_bundle": _continue_bundle(claim_results=[_allowed_action_claim_result()]),
                 "proposed_action": {"type": "create_compensation_review"},
             },
             "risk_gate",
@@ -297,9 +293,7 @@ def test_route_after_recommendation_fails_closed_for_unresolved_canonical_action
         ),
         (
             {
-                "claim_verification_bundle": _continue_bundle(
-                    claim_results=[_allowed_action_claim_result()]
-                ),
+                "claim_verification_bundle": _continue_bundle(claim_results=[_allowed_action_claim_result()]),
                 "risk_signals": ["manual_review_required"],
             },
             "risk_gate",

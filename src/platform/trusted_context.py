@@ -140,9 +140,7 @@ class TrustedContextFactory:
         role = str(user.role)
         trusted_scopes = set(verified_token_scopes) & set(ROLE_SCOPES.get(role, []))
         permissions = [
-            tool_permission
-            for scope, tool_permission in SCOPE_TO_TOOL_PERMISSION.items()
-            if scope in trusted_scopes
+            tool_permission for scope, tool_permission in SCOPE_TO_TOOL_PERMISSION.items() if scope in trusted_scopes
         ]
         permissions = list(dict.fromkeys(permissions + cls._validated_server_tool_permissions(server_tool_permissions)))
         merchant_scope = cls._merchant_scope_from_user(
@@ -189,10 +187,13 @@ class TrustedContextFactory:
     def _base_merchant_scope_from_user(user: Any, *, role: str) -> MerchantScopeV1:
         if role in MERCHANT_BOUND_ROLES:
             merchant_id = getattr(user, "merchant_id", None)
-            if requires_business_merchant_binding(
-                role,
-                is_active=getattr(user, "is_active", True),
-            ) and merchant_id is None:
+            if (
+                requires_business_merchant_binding(
+                    role,
+                    is_active=getattr(user, "is_active", True),
+                )
+                and merchant_id is None
+            ):
                 return MerchantScopeV1(merchant_ids=[])
             return MerchantScopeV1(merchant_ids=[str(merchant_id)] if merchant_id is not None else [])
 

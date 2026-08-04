@@ -608,7 +608,8 @@ class CiKnowledgeService:
                     claim_type=claim_type,
                     support_status="supported",
                     supporting_evidence_refs=[
-                        ref if isinstance(ref, EvidenceRefV1) else EvidenceRefV1.model_validate(ref) for ref in cited_refs
+                        ref if isinstance(ref, EvidenceRefV1) else EvidenceRefV1.model_validate(ref)
+                        for ref in cited_refs
                     ],
                     business_fact_refs=business_fact_refs,
                     rule_checks=[],
@@ -680,7 +681,10 @@ def _ci_planner_tool_step(case: dict[str, Any], tool_name: str) -> dict[str, Any
     if tool_name == "get_order":
         return {"next_tool": tool_name, "args": {"order_no": _extract_seed_id(case["query"], "ORD-") or "ORD-2024-001"}}
     if tool_name == "get_refund_case":
-        return {"next_tool": tool_name, "args": {"refund_case_no": _extract_seed_id(case["query"], "RF-") or "RF-CI-001"}}
+        return {
+            "next_tool": tool_name,
+            "args": {"refund_case_no": _extract_seed_id(case["query"], "RF-") or "RF-CI-001"},
+        }
     if tool_name == "get_ticket":
         return {"next_tool": tool_name, "args": {"ticket_id": _extract_seed_id(case["query"], "TK-") or "TK-CI-001"}}
     if tool_name == "search_policy":
@@ -862,7 +866,11 @@ def _expected_nodes_for_case(case: dict[str, Any]) -> list[str]:
     if case.get("expected_evidence_doc_keys"):
         nodes.append("rag_context_build")
     nodes.extend(["recommendation_generation", "claim_verify"])
-    if case.get("expected_approval_required") or category in {"approval_approved", "approval_rejected", "approval_required"}:
+    if case.get("expected_approval_required") or category in {
+        "approval_approved",
+        "approval_rejected",
+        "approval_required",
+    }:
         nodes.append("risk_gate")
     if category == "approval_approved":
         _resume_command = Command(resume={"decision": "approve", "reason": "CI test"})

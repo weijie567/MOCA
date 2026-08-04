@@ -184,7 +184,9 @@ def _validate_row(row: Phase35CoverageRow, matrix_gate_levels: list[str], errors
         if assertion.assertion_type not in ALLOWED_ASSERTION_TYPES:
             errors.append(f"{prefix}unknown assertion_type {assertion.assertion_type!r}")
         if assertion.test_path not in acceptance_tests:
-            errors.append(f"{prefix}decision assertion test_path {assertion.test_path!r} is absent from acceptance_tests")
+            errors.append(
+                f"{prefix}decision assertion test_path {assertion.test_path!r} is absent from acceptance_tests"
+            )
         if not assertion.asserts.strip():
             errors.append(f"{prefix}decision assertion {assertion.assertion_id!r} has empty asserts")
         if required_assertion == assertion.assertion_id and assertion.test_path == MATRIX_SELF_TEST_PATH:
@@ -211,8 +213,7 @@ def _contains_unscoped_pytest_entrypoint(value: str) -> bool:
     if "pytest" not in value:
         return False
     return any(
-        not _is_approved_pytest_entrypoint(match.group("entrypoint"))
-        for match in PYTEST_ENTRYPOINT_RE.finditer(value)
+        not _is_approved_pytest_entrypoint(match.group("entrypoint")) for match in PYTEST_ENTRYPOINT_RE.finditer(value)
     )
 
 

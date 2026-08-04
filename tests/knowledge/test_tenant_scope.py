@@ -8,7 +8,13 @@ from uuid import UUID, uuid4
 import pytest
 
 from src.knowledge.retrieval import PolicyRetrievalEngine
-from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest, MaterialClaimV1
+from src.knowledge.schemas import (
+    EvidenceRefV1,
+    KnowledgeContext,
+    KnowledgeSearchFilters,
+    KnowledgeSearchRequest,
+    MaterialClaimV1,
+)
 from src.knowledge.service import PolicyKnowledgeService
 from src.knowledge.text_hash import evidence_text_hash
 from src.platform.context_projections import project_to_knowledge_context

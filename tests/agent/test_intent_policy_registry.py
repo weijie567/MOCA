@@ -102,8 +102,14 @@ def test_no_per_metric_intents_are_admitted() -> None:
 
 def test_classification_prompt_documents_generic_metric_examples() -> None:
     assert "- business_metric_query:" in CLASSIFY_INTENT_SYSTEM
-    assert "\"primary_intent\":\"business_metric_query\"" in CLASSIFY_INTENT_SYSTEM
-    for phrase in ("当前有多少订单", "今天有多少退款单", "待处理工单有多少", "本周补偿券发了多少", "某商家的退款率是多少"):
+    assert '"primary_intent":"business_metric_query"' in CLASSIFY_INTENT_SYSTEM
+    for phrase in (
+        "当前有多少订单",
+        "今天有多少退款单",
+        "待处理工单有多少",
+        "本周补偿券发了多少",
+        "某商家的退款率是多少",
+    ):
         assert phrase in CLASSIFY_INTENT_SYSTEM
 
 

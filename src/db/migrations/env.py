@@ -12,7 +12,9 @@ from src.db.models import Base
 
 
 config = context.config
-database_url = config.attributes.get("database_url") or settings.database_url or config.get_main_option("sqlalchemy.url")
+database_url = (
+    config.attributes.get("database_url") or settings.database_url or config.get_main_option("sqlalchemy.url")
+)
 config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:
@@ -36,8 +38,7 @@ def run_migrations_offline() -> None:
 def do_run_migrations(connection: Connection) -> None:
     if connection.dialect.name == "postgresql":
         connection.exec_driver_sql(
-            "CREATE TABLE IF NOT EXISTS alembic_version "
-            "(version_num VARCHAR(128) NOT NULL PRIMARY KEY)"
+            "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(128) NOT NULL PRIMARY KEY)"
         )
         connection.exec_driver_sql("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
         if connection.in_transaction():

@@ -175,11 +175,7 @@ def _safe_source(value: Any, *, fallback: str) -> str:
 def _safe_reason_codes(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
-    return [
-        code.strip()
-        for code in value
-        if isinstance(code, str) and _SAFE_REASON_CODE_RE.fullmatch(code.strip())
-    ]
+    return [code.strip() for code in value if isinstance(code, str) and _SAFE_REASON_CODE_RE.fullmatch(code.strip())]
 
 
 def _non_empty_str(value: Any) -> str | None:

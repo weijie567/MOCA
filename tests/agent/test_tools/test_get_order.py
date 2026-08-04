@@ -181,7 +181,9 @@ async def test_get_order_allows_admin_other_same_tenant_merchant(session: AsyncS
 
 
 @pytest.mark.asyncio
-async def test_get_order_rejects_persisting_merchant_bound_user_missing_merchant_id(session: AsyncSession, seeded_session):
+async def test_get_order_rejects_persisting_merchant_bound_user_missing_merchant_id(
+    session: AsyncSession, seeded_session
+):
     support = seeded_session["users"]["cs_zhang"]
     support.merchant_id = None
 

@@ -287,11 +287,15 @@ async def _count_rows(session: AsyncSession, model, *filters) -> int:
     return int(result.scalar_one())
 
 
-async def _messages_for_run(session: AsyncSession, *, run_id: UUID, role: str | None = None) -> list[ConversationMessage]:
+async def _messages_for_run(
+    session: AsyncSession, *, run_id: UUID, role: str | None = None
+) -> list[ConversationMessage]:
     filters = [ConversationMessage.run_id == run_id, ConversationMessage.deleted_at.is_(None)]
     if role is not None:
         filters.append(ConversationMessage.role == role)
-    result = await session.execute(select(ConversationMessage).where(*filters).order_by(ConversationMessage.message_index))
+    result = await session.execute(
+        select(ConversationMessage).where(*filters).order_by(ConversationMessage.message_index)
+    )
     return list(result.scalars().all())
 
 
@@ -1270,9 +1274,7 @@ async def test_attach_info_changed_payload_supersedes_without_unbound_replacemen
     payload = response.json()
     await session.refresh(bundle.approval)
     rows = (
-        (
-            await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == bundle.approval.run_id))
-        )
+        (await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == bundle.approval.run_id)))
         .scalars()
         .all()
     )
@@ -1552,12 +1554,15 @@ async def test_approval_resume_action_failure_uses_terminal_guard_without_node_e
     assert "must-not-leak" not in str(run.final_response)
     assert finalizer_calls == []
     assert await _count_rows(session, ActionDraft, ActionDraft.run_id == run.id) == 0
-    assert await _count_rows(
-        session,
-        ConversationMessage,
-        ConversationMessage.run_id == run.id,
-        ConversationMessage.role == "assistant",
-    ) == 0
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == run.id,
+            ConversationMessage.role == "assistant",
+        )
+        == 0
+    )
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
     assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
     assert len(await _finalizer_steps(session, run_id=run.id)) == 0
@@ -1711,16 +1716,12 @@ async def test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decis
     )
     await session.refresh(bundle.approval)
     rows_after_failure = (
-        (
-            await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == bundle.approval.run_id))
-        )
+        (await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == bundle.approval.run_id)))
         .scalars()
         .all()
     )
     decisions_after_failure = (
-        (
-            await session.execute(select(ApprovalDecision).where(ApprovalDecision.run_id == bundle.approval.run_id))
-        )
+        (await session.execute(select(ApprovalDecision).where(ApprovalDecision.run_id == bundle.approval.run_id)))
         .scalars()
         .all()
     )
@@ -1771,9 +1772,7 @@ async def test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decis
         .all()
     )
     decisions = (
-        (
-            await session.execute(select(ApprovalDecision).where(ApprovalDecision.run_id == bundle.approval.run_id))
-        )
+        (await session.execute(select(ApprovalDecision).where(ApprovalDecision.run_id == bundle.approval.run_id)))
         .scalars()
         .all()
     )
@@ -1961,7 +1960,9 @@ def test_phase58_retry_route_compatibility_is_historical_persisted_data_read_onl
     assert "LEGACY_RISK_ROUTE" not in source
     assert "HISTORICAL_RETRY_ROUTE_TO_CANONICAL" in source
     legacy_lines = [
-        line.strip() for line in source.splitlines() if "assess_risk_and_approval" in line and not line.strip().startswith("#")
+        line.strip()
+        for line in source.splitlines()
+        if "assess_risk_and_approval" in line and not line.strip().startswith("#")
     ]
     assert legacy_lines == ['HISTORICAL_RETRY_ROUTE_TO_CANONICAL = {"assess_risk_and_approval": CANONICAL_RISK_ROUTE}']
 
@@ -2198,16 +2199,24 @@ async def test_manager_approval_review_paths_deny_cross_merchant(
     assert list_response.json()["data"]["total"] == 0
     assert get_response.status_code == absent_get_response.status_code == 404
     assert decide_response.status_code == absent_decide_response.status_code == 404
-    assert get_response.json()["error"] == absent_get_response.json()["error"] == {
-        "code": "NOT_FOUND",
-        "message": "Approval not found",
-        "details": {},
-    }
-    assert decide_response.json()["error"] == absent_decide_response.json()["error"] == {
-        "code": "NOT_FOUND",
-        "message": "Approval not found",
-        "details": {},
-    }
+    assert (
+        get_response.json()["error"]
+        == absent_get_response.json()["error"]
+        == {
+            "code": "NOT_FOUND",
+            "message": "Approval not found",
+            "details": {},
+        }
+    )
+    assert (
+        decide_response.json()["error"]
+        == absent_decide_response.json()["error"]
+        == {
+            "code": "NOT_FOUND",
+            "message": "Approval not found",
+            "details": {},
+        }
+    )
 
 
 @pytest.mark.asyncio
@@ -2259,11 +2268,15 @@ async def test_manager_cross_merchant_resume_retry_is_hidden_before_binding_chec
     )
 
     assert hidden_response.status_code == absent_response.status_code == 404
-    assert hidden_response.json()["error"] == absent_response.json()["error"] == {
-        "code": "NOT_FOUND",
-        "message": "Approval not found",
-        "details": {},
-    }
+    assert (
+        hidden_response.json()["error"]
+        == absent_response.json()["error"]
+        == {
+            "code": "NOT_FOUND",
+            "message": "Approval not found",
+            "details": {},
+        }
+    )
     assert len(graph.calls) == 1
 
 

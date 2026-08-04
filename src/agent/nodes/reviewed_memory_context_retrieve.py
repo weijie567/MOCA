@@ -316,7 +316,9 @@ def _reviewed_bundle_with_cwc(
 
 
 def _metrics(memory_context: Mapping[str, Any]) -> dict[str, Any]:
-    long_term_items = memory_context.get("long_term_items") if isinstance(memory_context.get("long_term_items"), list) else []
+    long_term_items = (
+        memory_context.get("long_term_items") if isinstance(memory_context.get("long_term_items"), list) else []
+    )
     case_items = memory_context.get("case_items") if isinstance(memory_context.get("case_items"), list) else []
     status_ref = memory_context.get("status_ref") if isinstance(memory_context.get("status_ref"), Mapping) else {}
     fallback_reason = status_ref.get("fallback_reason")

@@ -150,7 +150,9 @@ async def test_session_memory_bundle_facade_loads_all_short_term_surfaces(
         raw_result_hash="sha256:sessionmemorybundle",
     )
     stored_tool_result = (
-        await session.execute(select(ToolResultRecord).where(ToolResultRecord.tool_result_id == "tool-result-session-memory-bundle"))
+        await session.execute(
+            select(ToolResultRecord).where(ToolResultRecord.tool_result_id == "tool-result-session-memory-bundle")
+        )
     ).scalar_one()
     stored_tool_result.prompt_summary = (
         "Prompt-safe get_order summary for ORD-BUNDLE-CURRENT. "
@@ -181,7 +183,9 @@ async def test_session_memory_bundle_facade_loads_all_short_term_surfaces(
     assert prior_summary is not None
     assert bundle.rolling_summary.summary_id == str(prior_summary.id)
     assert "ORD-BUNDLE-PRIOR" in bundle.rolling_summary.summary_text
-    assert [message.content for message in bundle.recent_messages][-1] == "follow-up: 继续查这个订单 ORD-BUNDLE-CURRENT。"
+    assert [message.content for message in bundle.recent_messages][
+        -1
+    ] == "follow-up: 继续查这个订单 ORD-BUNDLE-CURRENT。"
     assert bundle.tool_summaries[0].tool_call_id == str(operation_id)
     assert bundle.tool_summaries[0].tool_name == "get_order"
     assert "Prompt-safe get_order summary" in bundle.tool_summaries[0].prompt_summary

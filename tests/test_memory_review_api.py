@@ -402,13 +402,17 @@ async def test_admin_preference_save_rejects_hard_rule_text_without_insert(
         headers=_auth_header(admin, ["memory:write"]),
     )
     rows = (
-        await session.execute(
-            select(LongTermMemory).where(
-                LongTermMemory.tenant_id == seeded_session["tenant"].id,
-                LongTermMemory.content == "低于10元必须退款。",
+        (
+            await session.execute(
+                select(LongTermMemory).where(
+                    LongTermMemory.tenant_id == seeded_session["tenant"].id,
+                    LongTermMemory.content == "低于10元必须退款。",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     assert response.status_code == 422
     assert rows == []
@@ -443,13 +447,17 @@ async def test_admin_preference_save_skips_sensitive_pii_without_insert(
     )
     data = response.json()["data"]
     rows = (
-        await session.execute(
-            select(LongTermMemory).where(
-                LongTermMemory.tenant_id == seeded_session["tenant"].id,
-                LongTermMemory.content == content,
+        (
+            await session.execute(
+                select(LongTermMemory).where(
+                    LongTermMemory.tenant_id == seeded_session["tenant"].id,
+                    LongTermMemory.content == content,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     assert response.status_code == 200
     assert data["decision"] == "skip"

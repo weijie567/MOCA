@@ -189,7 +189,9 @@ def test_complaint_modifier_folded_with_safety_note_metadata() -> None:
 )
 def test_independent_secondary_intents_are_not_folded(secondary_intent: IntentLiteral) -> None:
     root_intent: IntentLiteral = "policy_qa" if secondary_intent != "policy_qa" else "order_status_inquiry"
-    requested_operation: RequestedOperationLiteral = "execute_action" if secondary_intent == "action_request" else "read_status"
+    requested_operation: RequestedOperationLiteral = (
+        "execute_action" if secondary_intent == "action_request" else "read_status"
+    )
     semantic = _semantic(root_intent, "read_status", {"order_id": "ORD-1", "action_type": "refund"})
 
     plan, normalization = build_task_plan(

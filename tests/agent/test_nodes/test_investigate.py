@@ -135,7 +135,11 @@ class FakePlatform:
         return None
 
     async def visible_tools(
-        self, *, caller: str, ctx: ToolCallContext, session: Any = None,
+        self,
+        *,
+        caller: str,
+        ctx: ToolCallContext,
+        session: Any = None,
     ) -> list[ToolViewV1]:
         from src.tools.policy import ToolPolicyEngine, project_prompt_safe_input_schema
 
@@ -161,12 +165,19 @@ class FakePlatform:
         return views
 
     async def invoke(
-        self, tool_name: str, args: dict[str, Any], ctx: ToolCallContext, *, session: Any = None,
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        ctx: ToolCallContext,
+        *,
+        session: Any = None,
     ) -> ToolInvocationOutcome:
         self.calls.append((tool_name, args, ctx))
         result = self.results[tool_name]
         projection = self._projector.project(
-            tool_name=tool_name, result=result, tool_call_id=ctx.tool_call_id,
+            tool_name=tool_name,
+            result=result,
+            tool_call_id=ctx.tool_call_id,
         )
         _status_to_reason = {
             "unavailable": "tool_unavailable",
@@ -178,7 +189,8 @@ class FakePlatform:
             decision_stage="runtime_auth",
             decision="allowed" if result.status == "success" else "denied",
             reason_codes=(
-                ["visible"] if result.status == "success"
+                ["visible"]
+                if result.status == "success"
                 else [_status_to_reason.get(result.status, "missing_permission")]
             ),
             required_scopes=[],
@@ -200,7 +212,11 @@ class _CaptureMissingContextPlatform:
         self.visibility_contexts: list[tuple[str, ToolCallContext]] = []
 
     async def visible_tools(
-        self, *, caller: str, ctx: ToolCallContext, session: Any = None,
+        self,
+        *,
+        caller: str,
+        ctx: ToolCallContext,
+        session: Any = None,
     ) -> list[ToolViewV1]:
         self.visibility_contexts.append((caller, ctx))
         merchant_ids = (ctx.merchant_scope or {}).get("merchant_ids")
@@ -221,7 +237,12 @@ class _CaptureMissingContextPlatform:
         return []
 
     async def invoke(
-        self, tool_name: str, args: dict[str, Any], ctx: ToolCallContext, *, session: Any = None,
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        ctx: ToolCallContext,
+        *,
+        session: Any = None,
     ) -> ToolInvocationOutcome:
         raise AssertionError("missing trusted context must not execute business tools")
 
@@ -234,7 +255,12 @@ class _CaptureMissingContextPlatform:
 
 class _RaisingInvokePlatform(FakePlatform):
     async def invoke(
-        self, tool_name: str, args: dict[str, Any], ctx: ToolCallContext, *, session: Any = None,
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        ctx: ToolCallContext,
+        *,
+        session: Any = None,
     ) -> ToolInvocationOutcome:
         self.calls.append((tool_name, args, ctx))
         raise RuntimeError("platform unavailable")
@@ -897,9 +923,7 @@ async def test_max_attempts_caps_repeated_planner_same_tool_args():
 @pytest.mark.asyncio
 async def test_tool_platform_exception_terminates_fail_closed_without_throwing():
     events: list[dict[str, Any]] = []
-    planner = _PlannerSequence(
-        [{"next_tool": "get_order", "args": {"order_no": "ORD-ERROR-001"}, "reason": "load"}]
-    )
+    planner = _PlannerSequence([{"next_tool": "get_order", "args": {"order_no": "ORD-ERROR-001"}, "reason": "load"}])
     manager = _RaisingInvokePlatform({"get_order": _business_success()})
 
     result = await investigate(_state([]), _config(manager, events, investigate_planner=planner))
@@ -1302,7 +1326,13 @@ async def test_investigate_consumes_trusted_context_config_not_agentstate_permis
     # AgentState merchant_scope and permissions must never be authority for tool calls.
     tool_context = manager.calls[0][2]
     assert tool_context.permissions == ["tool:get_order"]
-    assert tool_context.merchant_scope == {"schema_version": "merchant_scope.v1", "merchant_ids": ["merchant-from-trusted-config"], "categories": None, "risk_levels": None, "match_rule": "all_provided_dimensions"}
+    assert tool_context.merchant_scope == {
+        "schema_version": "merchant_scope.v1",
+        "merchant_ids": ["merchant-from-trusted-config"],
+        "categories": None,
+        "risk_levels": None,
+        "match_rule": "all_provided_dimensions",
+    }
     assert tool_context.trace_id == "trace-from-trusted-config"
 
 
@@ -1722,10 +1752,19 @@ async def test_investigate_planner_surface_exposes_only_tool_view_fields():
         tenant_id=str(uuid4()),
         user_id=str(uuid4()),
         role="support",
-        permissions=[f"tool:{name}" for name in (
-            "get_order", "get_refund_case", "get_ticket", "get_logistics",
-            "get_merchant_risk", "search_policy", "search_sop", "search_case_memory",
-        )],
+        permissions=[
+            f"tool:{name}"
+            for name in (
+                "get_order",
+                "get_refund_case",
+                "get_ticket",
+                "get_logistics",
+                "get_merchant_risk",
+                "search_policy",
+                "search_sop",
+                "search_case_memory",
+            )
+        ],
         merchant_scope={"merchant_ids": ["*"]},
         session_id=None,
         thread_id="thread-1",

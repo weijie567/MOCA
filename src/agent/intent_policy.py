@@ -337,9 +337,7 @@ class IntentPolicyRegistry:
         return frozenset(ACTION_BOUND_INTENTS)
 
     def critical_route_intents(self) -> frozenset[str]:
-        return frozenset(
-            name for name, definition in INTENT_DEFINITIONS.items() if definition.critical_route_class
-        )
+        return frozenset(name for name, definition in INTENT_DEFINITIONS.items() if definition.critical_route_class)
 
     def route_for_intent(self, intent: str) -> IntentRouteLiteral | None:
         return INTENT_ROUTE_POLICY.get(intent)
@@ -478,9 +476,7 @@ class SlotPolicyRegistry:
 
     def intents_with_required_slots(self) -> tuple[str, ...]:
         return tuple(
-            intent
-            for intent, expression in REQUIRED_SLOT_POLICY.items()
-            if expression.all_of or expression.any_of
+            intent for intent, expression in REQUIRED_SLOT_POLICY.items() if expression.all_of or expression.any_of
         )
 
 
@@ -734,7 +730,11 @@ def detect_pre_route(query: str) -> PreRouteDecision:
             requires_clarification=True,
         )
 
-    action_match = None if _is_policy_rule_question_without_business_reference(text, lowered) else detect_pre_route_action_request(text)
+    action_match = (
+        None
+        if _is_policy_rule_question_without_business_reference(text, lowered)
+        else detect_pre_route_action_request(text)
+    )
     if action_match is not None:
         return PreRouteDecision(
             disposition="safety_sensitive",
@@ -794,7 +794,9 @@ def derive_keyword_signals(query: str) -> tuple[IntentLiteral, ...]:
     signals: list[IntentLiteral] = []
     if any(token in lowered for token in ("appeal", "unban")) or any(token in text for token in ("申诉", "解封")):
         _append_signal(signals, "appeal_or_unban")
-    if any(token in lowered for token in ("complaint", "escalate")) or any(token in text for token in ("投诉", "升级", "主管")):
+    if any(token in lowered for token in ("complaint", "escalate")) or any(
+        token in text for token in ("投诉", "升级", "主管")
+    ):
         _append_signal(signals, "complaint_escalation")
     if _has_compensation_action_cue(text, lowered):
         _append_signal(signals, "compensation_suggestion")
@@ -818,7 +820,9 @@ def arbitrate_intent(
     text = query or ""
     lowered = text.lower()
     operation = _valid_operation(requested_operation)
-    compensation_action_requested = primary_intent == "compensation_suggestion" or "compensation_suggestion" in keyword_signals
+    compensation_action_requested = (
+        primary_intent == "compensation_suggestion" or "compensation_suggestion" in keyword_signals
+    )
 
     if primary_intent == "action_request" and operation == "advise" and _is_next_step_advice_query(text, lowered):
         return "refund_troubleshooting", "read_status", ["next_step_advice_normalized"]
@@ -838,7 +842,10 @@ def arbitrate_intent(
     if (
         primary_intent == "policy_qa"
         and requested_operation == "advise"
-        and not any(candidate in {"appeal_or_unban", "complaint_escalation", "compensation_suggestion"} for candidate in valid_candidates)
+        and not any(
+            candidate in {"appeal_or_unban", "complaint_escalation", "compensation_suggestion"}
+            for candidate in valid_candidates
+        )
         and (any(token in lowered for token in ("policy", "rule")) or any(token in text for token in ("政策", "规则")))
     ):
         return "policy_qa", "advise", []

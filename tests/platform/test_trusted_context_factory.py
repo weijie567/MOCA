@@ -239,9 +239,7 @@ def test_factory_accepts_explicit_server_tool_permissions_without_token_scope_wi
 
 def test_factory_rejects_non_tool_server_permissions() -> None:
     with pytest.raises(ValueError):
-        TrustedContextFactory.create_from_request(
-            **_factory_kwargs(server_tool_permissions=["approvals:review"])
-        )
+        TrustedContextFactory.create_from_request(**_factory_kwargs(server_tool_permissions=["approvals:review"]))
 
 
 @pytest.mark.parametrize(

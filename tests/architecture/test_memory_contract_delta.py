@@ -20,7 +20,9 @@ MEMORY_POLICY_PATH = ROOT / "src" / "memory" / "policy.py"
 MEMORY_WRITE_SERVICE_PATH = ROOT / "src" / "memory" / "write_service.py"
 SESSION_MEMORY_SERVICE_PATH = ROOT / "src" / "memory" / "service.py"
 MEMORY_CONTEXT_REFS_PATH = ROOT / "src" / "memory" / "context_refs.py"
-MEMORY_WRITE_AUDIT_MIGRATION_PATH = ROOT / "src" / "db" / "migrations" / "versions" / "020_memory_write_event_policy_audit.py"
+MEMORY_WRITE_AUDIT_MIGRATION_PATH = (
+    ROOT / "src" / "db" / "migrations" / "versions" / "020_memory_write_event_policy_audit.py"
+)
 LONG_TERM_REPOSITORY_PATH = ROOT / "src" / "memory" / "repository.py"
 CASE_MEMORY_PATH = ROOT / "src" / "memory" / "case_memory.py"
 MEMORY_REVIEW_API_PATH = ROOT / "src" / "api" / "routers" / "memory.py"
@@ -181,8 +183,12 @@ def test_memory_contract_boundary_tests_are_present() -> None:
 
     assert "test_session_memory_modules_do_not_import_evidence_ref_v1" in memory_authority_tests
     assert "test_reviewed_memory_cannot_satisfy_policy_evidence_or_action_authority" in memory_authority_tests
-    assert "test_contextual_only_memory_refs_do_not_become_evidence_ref_v1_or_business_authority" in memory_authority_tests
-    assert "test_trusted_session_memory_rejects_wrong_tenant_user_thread_expired_and_incompatible" in required_slots_tests
+    assert (
+        "test_contextual_only_memory_refs_do_not_become_evidence_ref_v1_or_business_authority" in memory_authority_tests
+    )
+    assert (
+        "test_trusted_session_memory_rejects_wrong_tenant_user_thread_expired_and_incompatible" in required_slots_tests
+    )
     assert "test_current_business_object_long_term_candidate_is_skipped" in long_term_tests
     assert "test_llm_candidate_is_skipped" in long_term_tests
     assert "test_case_memory_tombstone_blocks_writes_by_content_hash_and_source_identity" in case_memory_tests

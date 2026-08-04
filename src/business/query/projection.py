@@ -189,8 +189,10 @@ def _validate_normalized_business_query(payload: dict[str, Any]) -> BusinessQuer
 
 
 def _looks_projected_api_payload(payload: dict[str, Any]) -> bool:
-    return isinstance(payload, dict) and payload.get("operation") in BUSINESS_QUERY_REGISTRY.operation_ids() and (
-        "resource_label" in payload or "result_label" in payload
+    return (
+        isinstance(payload, dict)
+        and payload.get("operation") in BUSINESS_QUERY_REGISTRY.operation_ids()
+        and ("resource_label" in payload or "result_label" in payload)
     )
 
 
@@ -224,11 +226,11 @@ def _sanitize_projected_rows(rows: list[Any]) -> list[dict[str, Any]]:
 
 
 def _safe_projected_row_fields() -> frozenset[str]:
-    return frozenset(
-        descriptor.id
-        for descriptor in BUSINESS_QUERY_REGISTRY.fields().values()
-        if descriptor.safe_for_ui
-    ) | _SAFE_AGGREGATE_ROW_FIELDS | _SAFE_ANALYTIC_ROW_FIELDS
+    return (
+        frozenset(descriptor.id for descriptor in BUSINESS_QUERY_REGISTRY.fields().values() if descriptor.safe_for_ui)
+        | _SAFE_AGGREGATE_ROW_FIELDS
+        | _SAFE_ANALYTIC_ROW_FIELDS
+    )
 
 
 def _safe_rows(result: BusinessQueryResultV1) -> list[dict[str, Any]]:

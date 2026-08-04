@@ -323,8 +323,7 @@ def _pre_route_for_task_plan(
         "modifier_folded:complaint_as_severity",
     }
     plan_handled_multiple_requests = step_count > 1 or (
-        bool(normalization)
-        and all(record in lossless_single_step_normalizations for record in normalization)
+        bool(normalization) and all(record in lossless_single_step_normalizations for record in normalization)
     )
     if not plan_handled_multiple_requests:
         return pre_route
@@ -483,7 +482,9 @@ def _is_identifier_like_answer(text: str) -> bool:
     )
 
 
-def _trace_step_without_llm(started_at: str, context_chars: int, source: str, reason_codes: list[str]) -> dict[str, Any]:
+def _trace_step_without_llm(
+    started_at: str, context_chars: int, source: str, reason_codes: list[str]
+) -> dict[str, Any]:
     return {
         "node": "contextual_intent_resolve",
         "status": "completed",
@@ -994,7 +995,9 @@ def _business_query_drilldown_update(
     expected_slot_type = str(drilldown_slots["expected_slot_type"])
     reason_codes = [str(drilldown_slots["reason_code"])]
     candidate_slots = {"business_query_spec": drilldown_slots["business_query_spec"]}
-    expected_context = state.get("expected_slot_context") if isinstance(state.get("expected_slot_context"), dict) else {}
+    expected_context = (
+        state.get("expected_slot_context") if isinstance(state.get("expected_slot_context"), dict) else {}
+    )
     return _deterministic_classification_update(
         state,
         started_at=started_at,

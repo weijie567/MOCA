@@ -51,7 +51,9 @@ async def _append_operation_event(
         thread_id=thread_id,
         event_type=event_type,
         actor={"type": "agent", "id": "moca"},
-        resource_refs={"operation_ref": event_type.removesuffix("_started").removesuffix("_completed").removesuffix("_failed")},
+        resource_refs={
+            "operation_ref": event_type.removesuffix("_started").removesuffix("_completed").removesuffix("_failed")
+        },
         redacted_payload={"status": event_type.rsplit("_", maxsplit=1)[-1]},
         operation_id=operation_id,
         parent_operation_id=parent_operation_id,

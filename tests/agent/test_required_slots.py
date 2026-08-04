@@ -478,10 +478,16 @@ def test_metric_explicit_time_range_is_inclusive_start_exclusive_end_and_validat
 
 def test_metric_conditional_completeness_for_snapshot_event_and_rate_metrics() -> None:
     pending_ticket = _metric_state(extracted_slots={"metric_id": "pending_ticket_count"})
-    current_orders = _metric_state(extracted_slots={"metric_id": "order_count", "metric_time_preset": "current_snapshot"})
+    current_orders = _metric_state(
+        extracted_slots={"metric_id": "order_count", "metric_time_preset": "current_snapshot"}
+    )
     merchant_rate_missing = _metric_state(extracted_slots={"metric_id": "merchant_refund_rate"})
     merchant_rate_complete = _metric_state(
-        extracted_slots={"metric_id": "merchant_refund_rate", "merchant_id": "merchant-a", "metric_time_preset": "this_month"}
+        extracted_slots={
+            "metric_id": "merchant_refund_rate",
+            "merchant_id": "merchant-a",
+            "metric_time_preset": "this_month",
+        }
     )
 
     pending_result = _slot_resolution(pending_ticket)
@@ -784,7 +790,7 @@ def test_current_turn_business_id_replacement_records_cross_intent_conflict_prov
 
 
 def test_legacy_slot_route_delegate_is_not_public_current_route_authority():
-    legacy_route_helper = "route_after_" "slots"
+    legacy_route_helper = "".join(("route_after_", "slots"))
     state = _trusted_state(value="ORD-SESSION")
 
     assert routing_module.route_after_slot_resolution(state) == "investigate"

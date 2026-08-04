@@ -247,11 +247,7 @@ def _candidates_from_business_context(state: Mapping[str, Any]) -> tuple[list[_S
             ref = BusinessFactRefV1.model_validate(raw_ref)
         except ValidationError:
             return [], ["malformed_business_fact_ref"]
-        if (
-            tenant_id is not None
-            and ref.tenant_id == tenant_id
-            and ref.source_system in _TRUSTED_FACT_SOURCES
-        ):
+        if tenant_id is not None and ref.tenant_id == tenant_id and ref.source_system in _TRUSTED_FACT_SOURCES:
             refs_by_key.setdefault((ref.resource_type, ref.resource_id), ref)
 
     candidates: list[_ScopeCandidate] = []

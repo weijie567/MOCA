@@ -187,9 +187,9 @@ def graph_conditional_edge_mappings(path: Path = GRAPH_PATH) -> dict[tuple[str, 
 
         mappings[(source, router)] = {}
         for key, value in zip(route_map.keys, route_map.values, strict=True):
-            mappings[(source, router)][
-                _string_literal(key, context=f"{source}.{router} route key")
-            ] = _string_literal(value, context=f"{source}.{router} route destination")
+            mappings[(source, router)][_string_literal(key, context=f"{source}.{router} route key")] = _string_literal(
+                value, context=f"{source}.{router} route destination"
+            )
     return mappings
 
 
@@ -201,10 +201,7 @@ def _string_set_literals(path: Path) -> dict[str, frozenset[str]]:
             continue
         if not isinstance(node.value, ast.Set):
             continue
-        values = {
-            _string_literal(element, context=f"{node.targets[0].id} set literal")
-            for element in node.value.elts
-        }
+        values = {_string_literal(element, context=f"{node.targets[0].id} set literal") for element in node.value.elts}
         sets[node.targets[0].id] = frozenset(values)
     return sets
 

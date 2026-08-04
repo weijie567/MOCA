@@ -78,7 +78,9 @@ class ToolRuntime:
         descriptor = self._catalog.descriptor(tool_name)
         if descriptor is None:
             decision = self._policy_engine.runtime_auth(
-                tool_name=tool_name, args=args, ctx=ctx,
+                tool_name=tool_name,
+                args=args,
+                ctx=ctx,
                 availability_map=self._build_availability_map(),
             )
             return await self._fail(
@@ -88,7 +90,8 @@ class ToolRuntime:
                 session=session,
                 status="not_found",
                 summary="Requested tool is not registered",
-                code="TOOL_NOT_FOUND", source="caller",
+                code="TOOL_NOT_FOUND",
+                source="caller",
             )
 
         # Step 2: Input schema validation (BEFORE runtime_auth so unvalidated
@@ -97,7 +100,8 @@ class ToolRuntime:
             validate_json_value(args, descriptor.input_schema)
         except (TypeError, ValueError):
             decision = self._denied_decision(
-                tool_name=tool_name, ctx=ctx,
+                tool_name=tool_name,
+                ctx=ctx,
                 reason_codes=["schema_invalid"],
                 required_scopes=[descriptor.required_permission],
             )
@@ -108,14 +112,17 @@ class ToolRuntime:
                 session=session,
                 status="invalid_request",
                 summary="Tool input failed validation",
-                code="INVALID_TOOL_INPUT", source="caller",
+                code="INVALID_TOOL_INPUT",
+                source="caller",
             )
 
         # Step 3: Runtime auth decision (after schema validation so only
         # validated args enter resource_scope_binding)
         availability_map = self._build_availability_map()
         decision = self._policy_engine.runtime_auth(
-            tool_name=tool_name, args=args, ctx=ctx,
+            tool_name=tool_name,
+            args=args,
+            ctx=ctx,
             availability_map=availability_map,
         )
 
@@ -133,7 +140,8 @@ class ToolRuntime:
         executor = self._executors.get(descriptor.executor) if descriptor.executor else None
         if executor is None or not executor.has_tool(tool_name):
             decision = self._denied_decision(
-                tool_name=tool_name, ctx=ctx,
+                tool_name=tool_name,
+                ctx=ctx,
                 reason_codes=["tool_unavailable"],
                 required_scopes=[descriptor.required_permission],
                 runtime_available=False,
@@ -146,7 +154,8 @@ class ToolRuntime:
                 session=session,
                 status="unavailable",
                 summary="Tool is declared but unavailable",
-                code="TOOL_UNAVAILABLE", source="tool",
+                code="TOOL_UNAVAILABLE",
+                source="tool",
             )
 
         try:
@@ -159,7 +168,8 @@ class ToolRuntime:
                 session=session,
                 status="error",
                 summary="Tool executor failed",
-                code="EXECUTOR_ERROR", source="adapter",
+                code="EXECUTOR_ERROR",
+                source="adapter",
             )
 
         if not isinstance(tool_result, ToolResultV2):
@@ -170,12 +180,15 @@ class ToolRuntime:
                 session=session,
                 status="invalid_response",
                 summary="Tool executor returned an invalid response",
-                code="INVALID_EXECUTOR_RESPONSE", source="adapter",
+                code="INVALID_EXECUTOR_RESPONSE",
+                source="adapter",
             )
 
         # Step 7: Output schema validation
         try:
-            should_validate_output = tool_result.status in {"success", "partial_success"} or tool_result.data is not None
+            should_validate_output = (
+                tool_result.status in {"success", "partial_success"} or tool_result.data is not None
+            )
             if should_validate_output:
                 validate_json_value(tool_result.data, descriptor.output_schema)
         except (TypeError, ValueError):
@@ -186,17 +199,22 @@ class ToolRuntime:
                 session=session,
                 status="invalid_response",
                 summary="Tool executor returned an invalid response",
-                code="INVALID_EXECUTOR_RESPONSE", source="adapter",
+                code="INVALID_EXECUTOR_RESPONSE",
+                source="adapter",
             )
 
         # Step 8: Result projection
         projection = self._projector.project(
-            tool_name=tool_name, result=tool_result, tool_call_id=ctx.tool_call_id,
+            tool_name=tool_name,
+            result=tool_result,
+            tool_call_id=ctx.tool_call_id,
         )
 
         # Step 10: Decision event emission (success path)
         event_id = await self._emit_decision_event(
-            decision=decision, ctx=ctx, session=session,
+            decision=decision,
+            ctx=ctx,
+            session=session,
         )
 
         return tool_result, decision, event_id, projection
@@ -209,9 +227,7 @@ class ToolRuntime:
                 availability[descriptor.name] = False
                 continue
             executor = self._executors.get(descriptor.executor)
-            availability[descriptor.name] = (
-                executor is not None and executor.has_tool(descriptor.name)
-            )
+            availability[descriptor.name] = executor is not None and executor.has_tool(descriptor.name)
         return availability
 
     def _denied_decision(

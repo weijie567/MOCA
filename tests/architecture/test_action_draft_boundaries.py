@@ -64,9 +64,7 @@ def _attribute_call_sites(attribute: str) -> list[str]:
     for path in sorted((ROOT / "src").glob("**/*.py")):
         tree = ast.parse(_source(path))
         if any(
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == attribute
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == attribute
             for node in ast.walk(tree)
         ):
             sites.append(str(path.relative_to(ROOT)))
@@ -160,9 +158,9 @@ def test_capability_is_fixed_to_demo_draft_handler_without_permission_widening()
     assert 'auto_action_capability_ref=args.get("auto_action_capability_ref")' in executor_source
     assert '"auto_action_capability_ref": {"type": "string", "minLength": 32}' in catalog_source
     assert '"auto_allowed_binding": {"type": "object"}' not in catalog_source
-    assert 'descriptor.name == AUTO_ACTION_CAPABILITY_HANDLER' in policy_source
+    assert "descriptor.name == AUTO_ACTION_CAPABILITY_HANDLER" in policy_source
     assert 'ctx.caller_node == "action_draft"' in policy_source
-    assert 'ctx.approval_ref is None' in policy_source
+    assert "ctx.approval_ref is None" in policy_source
     assert 'not args.get("approval_request_id")' in policy_source
     assert 'is_opaque_capability_ref(args.get("auto_action_capability_ref"))' in policy_source
     assert '"target_merchant_id"' in policy_source

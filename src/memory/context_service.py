@@ -310,7 +310,9 @@ class MemoryContextService:
             reason_code=_memory_write_decision_reason_code(result),
             policy_version=str(result.get("policy_version") or "memory_write_policy.v1"),
             blocked_by=_string_list(result.get("blocked_by") or result.get("blocked_by_json")),
-            fallback_reason=fallback_reason if fallback_reason is not None else _optional_str(result.get("fallback_reason")),
+            fallback_reason=fallback_reason
+            if fallback_reason is not None
+            else _optional_str(result.get("fallback_reason")),
         )
 
 
@@ -499,9 +501,19 @@ def _reviewed_memory_scopes(
 
 def _identity_effective_scopes(trusted: TrustedContext) -> list[dict[str, Any]]:
     return [
-        {"scope_type": "tenant", "scope_id": trusted.tenant_id, "source": "trusted_context", "usage": "identity_filter"},
+        {
+            "scope_type": "tenant",
+            "scope_id": trusted.tenant_id,
+            "source": "trusted_context",
+            "usage": "identity_filter",
+        },
         {"scope_type": "user", "scope_id": trusted.user_id, "source": "trusted_context", "usage": "identity_filter"},
-        {"scope_type": "thread", "scope_id": trusted.thread_id, "source": "trusted_context", "usage": "identity_filter"},
+        {
+            "scope_type": "thread",
+            "scope_id": trusted.thread_id,
+            "source": "trusted_context",
+            "usage": "identity_filter",
+        },
     ]
 
 
@@ -518,9 +530,7 @@ def _append_scope(
     if scope in retrieval_scopes:
         return
     retrieval_scopes.append(scope)
-    effective_scopes.append(
-        {"scope_type": scope_type, "scope_id": scope_id, "source": source, "usage": usage}
-    )
+    effective_scopes.append({"scope_type": scope_type, "scope_id": scope_id, "source": source, "usage": usage})
 
 
 def _requests_tenant_or_global_memory(requested_scopes: list[dict[str, Any]] | None) -> bool:
@@ -651,9 +661,7 @@ def _reviewed_case_items(
     for item in items:
         raw = _mapping(item)
         projected = _select_item_keys(raw, _CASE_ITEM_KEYS)
-        memory_id = _optional_str(
-            projected.get("case_memory_id") or projected.get("memory_id") or projected.get("id")
-        )
+        memory_id = _optional_str(projected.get("case_memory_id") or projected.get("memory_id") or projected.get("id"))
         if memory_id is None:
             continue
         scope_type, scope_id = fallback_scope

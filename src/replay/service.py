@@ -13,7 +13,12 @@ from src.agent.rag_claim_summary import build_rag_claim_summary_from_sources, sa
 from src.db.models import AgentRun, AgentTraceEvent
 from src.replay.pairing import OperationPairingStatus, validate_operation_pairing
 from src.replay.schemas import ReplayEventV3, ReplayResponseV3
-from src.replay.validators import guard_redacted_payload, guard_resource_refs, retention_for_event_type, validate_event_type
+from src.replay.validators import (
+    guard_redacted_payload,
+    guard_resource_refs,
+    retention_for_event_type,
+    validate_event_type,
+)
 
 
 class ReplayService:

@@ -158,7 +158,7 @@ def test_current_router_mappings_account_for_legacy_destinations() -> None:
     assert route_maps[("rag_context_build", "route_after_rag_context")]["recommendation_generation"] == (
         "recommendation_generation"
     )
-    legacy_recommendation_edge = ("generate_" "recommendation", "route_after_recommendation")
+    legacy_recommendation_edge = ("generate_recommendation", "route_after_recommendation")
     assert legacy_recommendation_edge not in route_maps
     assert route_maps[("recommendation_generation", "route_after_recommendation")] == {
         "claim_verify": "claim_verify",
@@ -256,17 +256,13 @@ def test_final_no_debt_gate_is_marked_phase58_scope() -> None:
     assert "def route_after_slots(" not in routing_source
 
     router_values = {
-        route_value
-        for route_values in graph_router_route_values().values()
-        for route_value in route_values
+        route_value for route_values in graph_router_route_values().values() for route_value in route_values
     }
     assert router_values.isdisjoint(LEGACY_GRAPH_NAMES)
     assert router_values <= TARGET_CANONICAL_GRAPH_NODES | CURRENT_CONTROL_ROUTE_KEYS
 
     current_node_entries = {
-        entry.legacy_name
-        for entry in graph_vocabulary._ENTRIES
-        if entry.kind == "node" and entry.status == "runtime"
+        entry.legacy_name for entry in graph_vocabulary._ENTRIES if entry.kind == "node" and entry.status == "runtime"
     }
     assert current_node_entries == TARGET_CANONICAL_GRAPH_NODES
 
@@ -382,6 +378,18 @@ def test_phase58_legacy_hit_classifier_excludes_generated_validation_artifact(tm
     payload = json.loads(result.stdout)
     assert payload["total_hits"] == 0
     assert str(PHASE58_DIR / "58-VALIDATION.md") in payload["excluded_paths"]
+
+
+def test_phase58_legacy_hit_classifier_excludes_graphify_generated_output(tmp_path: Path) -> None:
+    graphify_output = tmp_path / "src" / "graphify-out" / "graph.json"
+    graphify_output.parent.mkdir(parents=True)
+    graphify_output.write_text('{"node": "classify_intent"}\n', encoding="utf-8")
+
+    result = _run_phase58_classifier("--strict", "--root", str(tmp_path), "--roots", "src")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["total_hits"] == 0
 
 
 def _run_phase58_classifier(*args: str) -> subprocess.CompletedProcess[str]:

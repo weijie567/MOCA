@@ -127,8 +127,8 @@ def test_tool_policy_migration_event_type_check_matches_replay_event_registry():
     assert 'down_revision: str | None = "016_agent_run_memory_idempotency"' in source
     assert "tool_policy_visibility_recorded" in source
     assert "tool_policy_runtime_auth_recorded" in source
-    assert 'op.drop_constraint("ck_agent_trace_events_event_type"' in source
-    assert 'op.create_check_constraint("ck_agent_trace_events_event_type"' in source
+    assert re.search(r'op\.drop_constraint\(\s*"ck_agent_trace_events_event_type"', source)
+    assert re.search(r'op\.create_check_constraint\(\s*"ck_agent_trace_events_event_type"', source)
     assert _event_type_check_values(source) == REPLAY_EVENT_TYPES
 
 

@@ -16,6 +16,10 @@ from src.db.models import Order
 from src.tools.contracts import ToolCallContext
 
 
+REFERENCE_ORDER_AT = datetime(2026, 7, 8, 2, 0, tzinfo=UTC)
+OUT_OF_WINDOW_ORDER_AT = datetime(2026, 6, 1, 2, 0, tzinfo=UTC)
+
+
 def _ctx(seeded_session: dict, user_key: str = "cs_zhang", **updates: object) -> ToolCallContext:
     user = seeded_session["users"][user_key]
     tenant = seeded_session["tenant"]
@@ -83,11 +87,24 @@ async def _add_order(
     return order
 
 
+async def _set_seeded_order_created_at(
+    session: AsyncSession,
+    seeded_session: dict,
+    created_at: datetime,
+) -> None:
+    order = seeded_session["order"]
+    order.created_at = created_at
+    order.updated_at = created_at
+    order.paid_at = created_at
+    await session.flush()
+
+
 @pytest.mark.asyncio
 async def test_business_query_aggregate_order_count_matches_metric_semantics(
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
+    await _set_seeded_order_created_at(session, seeded_session, REFERENCE_ORDER_AT)
     service = BusinessFactService.with_default_registry(session)
 
     result = await service.query_business(
@@ -118,6 +135,7 @@ async def test_business_query_list_orders_applies_scope_before_limit_and_returns
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
+    await _set_seeded_order_created_at(session, seeded_session, OUT_OF_WINDOW_ORDER_AT)
     service = BusinessFactService.with_default_registry(session)
     in_scope = seeded_session["merchant"]
     out_of_scope = seeded_session["second_merchant"]
@@ -278,6 +296,7 @@ async def test_business_query_breakdown_and_compare_execute_runtime_paths(
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
+    await _set_seeded_order_created_at(session, seeded_session, REFERENCE_ORDER_AT)
     service = BusinessFactService.with_default_registry(session)
 
     breakdown = await service.query_business(
@@ -320,6 +339,7 @@ async def test_business_query_compare_handles_week_boundary_and_empty_previous_p
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
+    await _set_seeded_order_created_at(session, seeded_session, OUT_OF_WINDOW_ORDER_AT)
     service = BusinessFactService.with_default_registry(session)
 
     result = await service.query_business(
@@ -386,6 +406,7 @@ async def test_query_business_metric_delegates_to_business_query_and_preserves_m
     seeded_session: dict,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    await _set_seeded_order_created_at(session, seeded_session, REFERENCE_ORDER_AT)
     service = BusinessFactService.with_default_registry(session)
     calls: list[BusinessQuerySpec] = []
     original = service.query_business

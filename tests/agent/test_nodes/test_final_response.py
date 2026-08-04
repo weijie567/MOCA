@@ -761,7 +761,9 @@ async def test_business_query_final_response_is_operation_specific_and_has_no_ra
     rows: list[dict],
     expected: str,
 ):
-    result = await final_response(_business_query_state(base_state, _business_query_payload(operation=operation, rows=rows)))
+    result = await final_response(
+        _business_query_state(base_state, _business_query_payload(operation=operation, rows=rows))
+    )
 
     assert expected in result["final_response"]
     assert "范围：当前权限范围" in result["final_response"]
@@ -1009,9 +1011,7 @@ async def test_final_response_complaint_folded_note_visible_without_deferred_ste
             },
             "risk_assessment": {"approval_required": False},
             "deferred_steps": [],
-            "classification_trace": {
-                "plan_normalization": ["modifier_folded:complaint_as_severity"]
-            },
+            "classification_trace": {"plan_normalization": ["modifier_folded:complaint_as_severity"]},
         }
     )
 

@@ -102,7 +102,9 @@ def _column_names(table_name: str) -> set[str]:
     return set(_table(table_name).c.keys())
 
 
-def _named_schema_items(table_name: str) -> dict[str, UniqueConstraint | CheckConstraint | ForeignKeyConstraint | Index]:
+def _named_schema_items(
+    table_name: str,
+) -> dict[str, UniqueConstraint | CheckConstraint | ForeignKeyConstraint | Index]:
     table = _table(table_name)
     named_items: dict[str, UniqueConstraint | CheckConstraint | ForeignKeyConstraint | Index] = {}
     for item in [*table.constraints, *table.indexes]:

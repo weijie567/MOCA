@@ -17,7 +17,7 @@ pytestmark = pytest.mark.asyncio
 
 async def test_phase58_interception_rate_patches_canonical_risk_gate_module() -> None:
     source = Path(__file__).read_text(encoding="utf-8")
-    legacy_alias = "risk_" "node"
+    legacy_alias = "".join(("risk_", "node"))
 
     assert legacy_alias not in source
     assert "from src.agent.nodes import risk_gate as risk_gate_module" in source
@@ -54,9 +54,7 @@ async def test_hr01_compensation_over_500_requires_approval():
 
 
 async def test_hr02_full_refund_on_delivered_order_requires_approval():
-    result = await _assess(
-        _state(recommended_action="full_refund", reasoning_summary="建议对已送达订单全额退款。")
-    )
+    result = await _assess(_state(recommended_action="full_refund", reasoning_summary="建议对已送达订单全额退款。"))
 
     assert result["risk_assessment"]["approval_required"] is True
     assert result["risk_assessment"]["rule_ref"] == "HR-02"

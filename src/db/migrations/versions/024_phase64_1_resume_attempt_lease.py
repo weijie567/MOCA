@@ -43,8 +43,7 @@ def upgrade() -> None:
     op.create_check_constraint(
         "ck_approval_requests_resume_attempt_status",
         "approval_requests",
-        "resume_attempt_status IS NULL OR "
-        "resume_attempt_status IN ('attempted', 'completed', 'failed', 'abandoned')",
+        "resume_attempt_status IS NULL OR resume_attempt_status IN ('attempted', 'completed', 'failed', 'abandoned')",
     )
     op.create_check_constraint(
         "ck_approval_requests_resume_attempt_identity",

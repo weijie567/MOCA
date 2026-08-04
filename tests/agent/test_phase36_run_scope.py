@@ -293,7 +293,9 @@ def test_untrusted_or_denied_business_fact_results_do_not_classify_business_merc
         _business_fact_result(merchant_id="merchant-1", source_system="raw_tool_payload"),
         _business_fact_result(merchant_id="merchant-1", status="not_found"),
     ):
-        facts = classify_agent_run_scope({"business_fact_results": [payload], "current_intent": "refund_troubleshooting"})
+        facts = classify_agent_run_scope(
+            {"business_fact_results": [payload], "current_intent": "refund_troubleshooting"}
+        )
         assert facts.scope_classification == UNKNOWN_LEGACY
         assert facts.target_merchant_id is None
         assert facts.target_merchant_ref is None

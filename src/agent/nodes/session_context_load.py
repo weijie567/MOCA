@@ -172,15 +172,15 @@ def _apply_current_turn_and_merchant_scope(
     explicit_slots = _current_turn_slots(state)
     explicit_merchant_id = explicit_slots.get("merchant_id")
     trusted_merchant_ids = _trusted_merchant_ids(trusted_context)
-    effective_merchant_id = explicit_merchant_id or (trusted_merchant_ids[0] if len(trusted_merchant_ids) == 1 else None)
+    effective_merchant_id = explicit_merchant_id or (
+        trusted_merchant_ids[0] if len(trusted_merchant_ids) == 1 else None
+    )
     inherited_slots = dict(context.slot_continuity.active_slots)
     inherited_merchant_id = inherited_slots.get("merchant_id")
     filter_reasons: list[str] = []
 
     cross_merchant = bool(
-        effective_merchant_id
-        and inherited_merchant_id
-        and str(inherited_merchant_id) != str(effective_merchant_id)
+        effective_merchant_id and inherited_merchant_id and str(inherited_merchant_id) != str(effective_merchant_id)
     )
     denied_by_trusted_scope = bool(
         inherited_merchant_id
@@ -197,7 +197,9 @@ def _apply_current_turn_and_merchant_scope(
             filter_reasons.append(_MERCHANT_SCOPE_DENIED_REASON)
         if explicit_merchant_id:
             filter_reasons.append(_EXPLICIT_MERCHANT_REASON)
-        return _filtered_context(context, replacement_slots=replacement_slots, filter_reasons=filter_reasons), filter_reasons
+        return _filtered_context(
+            context, replacement_slots=replacement_slots, filter_reasons=filter_reasons
+        ), filter_reasons
 
     if explicit_slots:
         merged_slots = {**inherited_slots, **explicit_slots}

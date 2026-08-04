@@ -219,7 +219,12 @@ def _deterministic_risk_assessment(
     validated = _validated_rules(rules)
     if validated is None:
         return risk_assessment_with_disposition(
-            {"risk_level": "medium", "risk_reason": "Risk rule configuration is unavailable or invalid.", "approval_required": False, "rule_ref": "RISK-CONFIG-INVALID"},
+            {
+                "risk_level": "medium",
+                "risk_reason": "Risk rule configuration is unavailable or invalid.",
+                "approval_required": False,
+                "rule_ref": "RISK-CONFIG-INVALID",
+            },
             disposition="manual_review",
             severity="medium",
             reason="risk_config_invalid",
@@ -229,14 +234,24 @@ def _deterministic_risk_assessment(
             if _rule_matches(rule, draft, context):
                 severity, disposition, approval_required = _GROUP_DECISIONS[group]
                 return risk_assessment_with_disposition(
-                    {"risk_level": severity, "risk_reason": rule["description"], "approval_required": approval_required, "rule_ref": rule["id"]},
+                    {
+                        "risk_level": severity,
+                        "risk_reason": rule["description"],
+                        "approval_required": approval_required,
+                        "rule_ref": rule["id"],
+                    },
                     disposition=disposition,
                     severity=severity,
                 )
     action = draft.get("recommended_action")
     if action not in NO_ACTION_RECOMMENDATIONS and canonical_executable_action_type(action) is None:
         return risk_assessment_with_disposition(
-            {"risk_level": "medium", "risk_reason": "Action candidate is unknown or non-executable.", "approval_required": False, "rule_ref": "RISK-ACTION-UNKNOWN"},
+            {
+                "risk_level": "medium",
+                "risk_reason": "Action candidate is unknown or non-executable.",
+                "approval_required": False,
+                "rule_ref": "RISK-ACTION-UNKNOWN",
+            },
             disposition="manual_review",
             severity="medium",
             reason="unknown_action_candidate",
@@ -245,12 +260,22 @@ def _deterministic_risk_assessment(
         if _rule_matches(rule, draft, context):
             severity, disposition, approval_required = _GROUP_DECISIONS["low_risk"]
             return risk_assessment_with_disposition(
-                {"risk_level": severity, "risk_reason": rule["description"], "approval_required": approval_required, "rule_ref": rule["id"]},
+                {
+                    "risk_level": severity,
+                    "risk_reason": rule["description"],
+                    "approval_required": approval_required,
+                    "rule_ref": rule["id"],
+                },
                 disposition=disposition,
                 severity=severity,
             )
     return risk_assessment_with_disposition(
-        {"risk_level": "medium", "risk_reason": "No deterministic risk rule matched.", "approval_required": False, "rule_ref": "RISK-RULE-UNMATCHED"},
+        {
+            "risk_level": "medium",
+            "risk_reason": "No deterministic risk rule matched.",
+            "approval_required": False,
+            "rule_ref": "RISK-RULE-UNMATCHED",
+        },
         disposition="manual_review",
         severity="medium",
         reason="risk_rule_unmatched",
@@ -275,7 +300,8 @@ def _merge_llm_assessment(deterministic: dict[str, Any], llm: dict[str, Any]) ->
     det_disposition = str(deterministic.get("risk_disposition") or "manual_review")
     llm_disposition = str(llm_normalized.get("risk_disposition") or "manual_review")
     if (severity_rank.get(llm_severity, 1), disposition_rank.get(llm_disposition, 2)) > (
-        severity_rank.get(det_severity, 1), disposition_rank.get(det_disposition, 2)
+        severity_rank.get(det_severity, 1),
+        disposition_rank.get(det_disposition, 2),
     ):
         merged = dict(llm_normalized)
     else:
@@ -1263,8 +1289,7 @@ async def risk_gate(state: AgentState, config: RunnableConfig = None) -> dict:
         return {
             "risk_assessment": assessment,
             "proposed_action": None,
-            "trace_steps": (state.get("trace_steps") or [])
-            + [_trace_step("completed", started_at)],
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
     if state.get("current_intent") == "policy_qa":
         low_rule = (rules.get("low_risk") or [{}])[0]
@@ -1272,15 +1297,15 @@ async def risk_gate(state: AgentState, config: RunnableConfig = None) -> dict:
             "risk_assessment": risk_assessment_with_disposition(
                 {
                     "risk_level": "low",
-                    "risk_reason": low_rule.get("description") or "Policy explanation only; no customer action proposed.",
+                    "risk_reason": low_rule.get("description")
+                    or "Policy explanation only; no customer action proposed.",
                     "approval_required": False,
                     "rule_ref": low_rule.get("id"),
                 },
                 disposition="allow",
             ),
             "proposed_action": None,
-            "trace_steps": (state.get("trace_steps") or [])
-            + [_trace_step("completed", started_at)],
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
 
     prompt_assembly = await _assemble_risk_prompt(
@@ -1312,8 +1337,7 @@ async def risk_gate(state: AgentState, config: RunnableConfig = None) -> dict:
                 {"pending_snapshot": True}
                 if draft.get("recommended_action") not in NO_ACTION_RECOMMENDATIONS
                 and (
-                    assessment.get("approval_required")
-                    or is_actionable_recommendation(draft.get("recommended_action"))
+                    assessment.get("approval_required") or is_actionable_recommendation(draft.get("recommended_action"))
                 )
                 else None
             )

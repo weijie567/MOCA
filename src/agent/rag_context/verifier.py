@@ -756,10 +756,7 @@ def _business_authority_passed(claim: MaterialClaim, context: Mapping[str, Any])
         return False
     if any(ref.tenant_id != trusted_tenant for ref in claim.business_fact_refs):
         return False
-    context_refs = [
-        ref for ref in _context_business_refs(context)
-        if ref.tenant_id == trusted_tenant
-    ]
+    context_refs = [ref for ref in _context_business_refs(context) if ref.tenant_id == trusted_tenant]
     context_keys = {_business_ref_key(ref) for ref in context_refs}
     return all(_business_ref_key(ref) in context_keys for ref in claim.business_fact_refs)
 
@@ -831,9 +828,7 @@ def _contextual_source_reason_codes(
         or contextual.get("tool_prompt_summaries")
     )
     has_raw_repository_rows = bool(
-        contextual.get("raw_repository_rows")
-        or contextual.get("repository_rows")
-        or contextual.get("raw_rows")
+        contextual.get("raw_repository_rows") or contextual.get("repository_rows") or contextual.get("raw_rows")
     )
     if authority_class == MaterialClaimAuthorityClass.POLICY_CLAIM:
         if has_memory:

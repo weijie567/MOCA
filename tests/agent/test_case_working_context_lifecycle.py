@@ -689,7 +689,9 @@ async def test_write_after_terminal_success_skips_missing_and_unresolved_case_be
         final_state={"candidate_slots": {"refund_case_id": "RF-CANDIDATE"}},
         final_response="退款单还在审核中。",
     )
-    unresolved = await CaseWorkingContextLifecycleAdapter(case_resolver=not_found_resolver).write_after_terminal_success(
+    unresolved = await CaseWorkingContextLifecycleAdapter(
+        case_resolver=not_found_resolver
+    ).write_after_terminal_success(
         session=object(),
         tenant_id=uuid.uuid4(),
         user_id=uuid.uuid4(),

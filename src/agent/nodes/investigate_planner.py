@@ -39,12 +39,15 @@ class InvestigatePlannerDecision(BaseModel):
     args: dict[str, Any] | None = None
     reason: str | None = None
     stop: Literal[True] | None = None
-    stop_reason: Literal[
-        "enough_evidence",
-        "no_more_useful_tools",
-        "max_iterations_reached",
-        "unrecoverable_error",
-    ] | None = None
+    stop_reason: (
+        Literal[
+            "enough_evidence",
+            "no_more_useful_tools",
+            "max_iterations_reached",
+            "unrecoverable_error",
+        ]
+        | None
+    ) = None
 
     @model_validator(mode="after")
     def _validate_choice(self) -> "InvestigatePlannerDecision":

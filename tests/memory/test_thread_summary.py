@@ -283,16 +283,20 @@ async def test_thread_rolling_summary_is_idempotent_for_same_source_end(
         since_message_id=None,
     )
     rows = (
-        await session.execute(
-            select(ConversationSummary).where(
-                ConversationSummary.tenant_id == tenant_id,
-                ConversationSummary.thread_id == thread_id,
-                ConversationSummary.summary_type == "thread_rolling",
-                ConversationSummary.source_end_message_id == assistant_message.message_id,
-                ConversationSummary.deleted_at.is_(None),
+        (
+            await session.execute(
+                select(ConversationSummary).where(
+                    ConversationSummary.tenant_id == tenant_id,
+                    ConversationSummary.thread_id == thread_id,
+                    ConversationSummary.summary_type == "thread_rolling",
+                    ConversationSummary.source_end_message_id == assistant_message.message_id,
+                    ConversationSummary.deleted_at.is_(None),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     assert first is not None
     assert second is not None

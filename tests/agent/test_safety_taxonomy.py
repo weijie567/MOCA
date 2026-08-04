@@ -28,9 +28,7 @@ from src.agent.safety.taxonomy import (
 
 
 def test_public_collections_and_registry_views_are_immutable() -> None:
-    assert EXECUTABLE_ACTION_TYPES == frozenset(
-        {"issue_coupon", "approve_refund", "full_refund", "partial_refund"}
-    )
+    assert EXECUTABLE_ACTION_TYPES == frozenset({"issue_coupon", "approve_refund", "full_refund", "partial_refund"})
     assert NON_EXECUTABLE_DISPOSITIONS == frozenset({"manual_review", "blocked"})
     assert RISK_SEVERITIES == frozenset({"low", "medium", "high"})
     assert {"allow", "approval_required", "manual_review", "blocked"}.issubset(RISK_DISPOSITIONS)

@@ -112,10 +112,13 @@ def test_knowledge_projection_fails_closed_for_restrictive_scope_dimensions() ->
 
     assert project_merchant_scope_for_knowledge(restricted.merchant_scope.model_dump()) == []
     assert knowledge_context.merchant_scope == []
-    assert project_tool_context_to_knowledge_context(
-        tool_context,
-        effective_at="2026-06-22T12:00:00Z",
-    ).merchant_scope == []
+    assert (
+        project_tool_context_to_knowledge_context(
+            tool_context,
+            effective_at="2026-06-22T12:00:00Z",
+        ).merchant_scope
+        == []
+    )
     assert tool_context.merchant_scope["merchant_ids"] == ["*"]
     assert tool_context.merchant_scope["categories"] == ["refund"]
     assert tool_context.merchant_scope["risk_levels"] == ["high"]
