@@ -177,7 +177,9 @@ def test_frontend_serializer_echoes_one_context_without_legacy_or_defaults() -> 
     assert "??" not in serializer
     assert "||" not in serializer
     assert "parseApprovalDecisionContext(structuredClone(context))" in api_source
-    assert "const frozen = latest.data.decision_context" in _source(FRONTEND_HOOK_PATH)
+    hook_source = _source(FRONTEND_HOOK_PATH)
+    assert "isExactApprovalDecisionContext(reviewedContext, latest.data.decision_context)" in hook_source
+    assert "const frozen = reviewedContext" in hook_source
 
 
 def test_capability_mint_and_consume_are_single_owner_fixed_handler_paths() -> None:
