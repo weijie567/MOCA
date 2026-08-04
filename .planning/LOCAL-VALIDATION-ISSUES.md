@@ -21513,7 +21513,7 @@ Docker 路径失败是 Docker Hub 网络传输问题；cleanup 失败是命令�
 将 forbidden fragment 构造改为运行时 `"".join` tuple 片段，确保断言值不变，同时完整禁用字符串不会以连续文本出现在被扫描源码中。已通过该文件 Ruff check、Ruff format 稳定性检查和定向 pytest。
 
 **剩余问题和下次继续排查入口**
-需要从头重跑与 CI 相同的完整 pytest 命令；若通过，再以远端 GitHub Actions 的 PostgreSQL service + lint/test 双 job 作为最终闭环证据。
+已从头完成与 CI 相同的完整 pytest 命令，结果为 `4211 passed, 4 skipped, 126 warnings in 1674.29s`；全仓 Ruff check/format 与 Phase 58 strict classifier 也均通过。远端最终闭环入口仍是提交推送后确认 GitHub Actions 的 `lint` / `test` 双 job 变绿。
 
 ## 2026-08-04 — GitHub Actions 检查命令的 zsh 重定向位置错误
 
@@ -21674,3 +21674,50 @@ Phase 64.1 follow-up deep review 发现，`reset_demo_data()` 先删除 `approva
 
 **剩余问题和下次继续排查入口**
 真实 PostgreSQL 新用例尚未在本地执行，因为共享 `moca_test` 持续存在外部 active/idle-in-transaction 会话；必须由本次 Draft PR 的隔离 GitHub Actions `test` job 验证。若 CI 失败，从 `tests/test_seed_demo.py::test_reset_demo_data_clears_resume_decision_reference_before_deleting_decision` 的真实 constraint 错误继续排查。
+
+## 2026-08-04 — GitHub CI baseline 全量收口暴露格式、自扫描与历史夹具漂移
+
+**问题现象**
+为修复 GitHub Actions 首轮 `lint` 与 `test` 双 job 失败，在加入 PostgreSQL service 并执行 Ruff 0.15.12 全仓格式化后，使用 CI 完全相同的 pytest 命令逐步暴露多类既有测试漂移：源码自扫描 guard 被 formatter 合并字符串后命中自身；固定 2026-07 查询窗口依赖 `datetime.now()` seed；Phase 44 migration 测试仍用 `-1` 假设 022 是 head；`citation_invalid` 被 recommendation action taxonomy 错投影成 `manual_review`；长期记忆 tombstone 测试仍用已禁止发布的 `deterministic_tool_result`；migration 源码测试依赖单行排版；延迟诊断和 merchant-scope 静态清单仍使用 Phase 58 已删除节点名；`reset_demo_data` mock 少一批 approval-level select 结果。期间还两次遇到外部 pytest 与本任务共享固定 `moca_test`，导致 INSERT 与 DROP/CREATE TABLE 互锁或 `pg_type` 重复。
+
+**如何检测/复现**
+主入口为 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/ -x --ignore=tests/integration -q --tb=short`。格式门禁为 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .` 与 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .`；Phase 58 静态门禁为 `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict`。每个断点均先用原节点或原文件定向复现，再在修复后跑文件级/相关聚合，最后从头跑完整命令。
+
+**关键证据或命令**
+- formatter 自扫描类失败先后位于 `tests/agent/test_graph.py`、`src/memory/session_bundle.py`、多个 Phase 22/knowledge/approval/routing guard 与 `tests/eval/test_phase35_replay_eval_gates.py`；改用运行时 `"".join(...)` 后 focused tests 通过。
+- strict classifier 的 15 个 unclassified rows 全部来自未跟踪生成物 `src/graphify-out/`；加入生成目录排除及回归后 `active_runtime_legacy=0`、`current_docs_legacy_authority=0`、`unclassified_rows=0`。
+- `tests/business/test_business_query_service.py` 与 `tests/tools/test_tool_platform.py` 的 order count 为 0，证据是查询 `effective_at`/预期窗口固定在 2026-07，而 `tests/conftest.py` 的订单时间取运行日；固定测试订单和 effective time 后相关 business 文件 `10 passed`、tool-platform 聚合 `60 passed`。
+- Phase 44 downgrade guard 在 head=024 时 `command.downgrade(cfg, "-1")` 只执行 024；改为显式目标 `021_thread_case_links` 后真实 migration round trip 通过。
+- facade state 显示 `recommended_action=citation_invalid` 同时被写成 `canonical_action.disposition=manual_review`、`reason_code=unresolved_action`；统一 no-action sentinel 后 recommendation/final/routing 聚合 `164 passed`。
+- tombstone 失败现场的 `write_result` 为 `status=skipped, memory_id=None, reason_code=source_type_not_allowed`；测试改用允许的 `explicit_user_preference` 并断言初始写入成功后文件 `8 passed`。
+- replay migration contract 改为 whitespace-tolerant regex 后文件 `6 passed`；latency、merchant-scope 与 seed-demo 历史夹具更新后各自 focused tests 通过。
+- 最终完整命令结果：`4211 passed, 4 skipped, 126 warnings in 1674.29s`。随后全仓 Ruff 为 `All checks passed!` / `500 files already formatted`，strict classifier 三个阻断计数均为 0。
+
+**当前判断/根因**
+GitHub 首轮 CI 的直接根因仍是 workflow 缺 PostgreSQL 与仓库未提交当前 Ruff baseline。全量复验额外发现的是长期未被完整门禁覆盖的历史夹具漂移、formatter 形态依赖，以及一处真实的 RAG recommendation no-action 终态 bug；它们不是 README push 导致。共享数据库 deadlock 属于本地多任务并发编排问题，独占运行后未复现，最终全量已通过。
+
+**已做处理**
+CI test job 加入 `pgvector/pgvector:pg16` PostgreSQL service；全仓 Python 文件建立 Ruff 0.15.12 格式基线；自扫描与生成物扫描改为 formatter/生成目录稳定；时间、migration、memory policy、canonical node 与 mock 查询夹具改为当前契约；`citation_invalid` 不再生成 canonical action 或 manual-review risk signal。未删除或终止其他任务的 pytest，也未把本地 `graphify-out/`、`tmp/`、study plan 或用户 planning 改动纳入发布范围。
+
+**剩余问题和下次继续排查入口**
+本地 CI 等价门禁已完成；剩余闭环是推送后确认 GitHub Actions 的 `lint` / `test` 两个 job 真实变绿。若远端失败，以对应 run 的 failed log 为准；PostgreSQL 优先核对 service health/extension/database creation，lint 优先核对 uv.lock 所解析的 Ruff 版本。共享固定 `moca_test` 的跨任务隔离仍是 Phase 67 可继续治理的问题，但不再阻断本次远端单 job CI。
+
+## 2026-08-04 — Draft PR 首轮 CI 暴露 `reset_demo_data` 回归夹具 flush 顺序错误
+
+**问题现象**
+Draft PR #1 的隔离 GitHub Actions 已成功跑到 backend suite 95%，但新增真实 PostgreSQL 回归 `test_reset_demo_data_clears_resume_decision_reference_before_deleting_decision` 在准备数据时失败：插入 `approval_requests` 时，`requested_by` 指向的 `users` 行尚未落库。排查前第一版 `uv run python -c` 数据库会话检查还因在分号后声明 `async def` 触发 Python `SyntaxError`，该只读预检没有执行。
+
+**如何检测/复现**
+GitHub run `30901461541` 执行 `uv run pytest tests/ -x --ignore=tests/integration -q --tb=short`；失败日志指向 `tests/test_seed_demo.py:158` 的首个 `session.flush()`。修正后本地运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_seed_demo.py -q --tb=short`。
+
+**关键证据或命令**
+CI 结果为 `1 failed, 4042 passed, 4 skipped, 126 warnings in 1298.39s`；错误是 `approval_requests_requested_by_fkey` 违反，缺失目标 `users.id`。测试原先把 tenant、user、run、request、level、assignment、decision 一次性 `add_all` 后 flush，只设置了 UUID 外键，没有 ORM relationship 依赖。改为按 tenant/user → run → request → level → assignment → decision 分层 flush 后，本地真实 PostgreSQL 文件验证为 `2 passed, 1 warning in 1.47s`，Ruff check/format check 均通过。数据库会话预检命令改用显式 event loop 后成功执行并确认当时 `moca_test` 无其他连接。
+
+**当前判断/根因**
+这是本轮新增测试夹具的持久化顺序错误，不是 `reset_demo_data()` 生产修复失败，也不是 PostgreSQL service 配置问题。SQLAlchemy 在只有标量 UUID 外键、没有相应 ORM relationship 依赖的同批 flush 中，不保证按该对象图期望的逐层顺序写入。预检 `SyntaxError` 则是 Python 语法限制：compound statement `async def` 不能直接放在分号后的 simple-statement 列表中。
+
+**已做处理**
+回归夹具按真实外键层级逐段 `session.add(...)` / `session.flush()`，保持数据库全部约束开启；未删除或弱化任何 FK/check constraint。只读数据库预检改为事件循环逐次 `run_until_complete`，未终止任何外部会话。
+
+**剩余问题和下次继续排查入口**
+本地定向验证已通过；仍需 push 修复并等待 Draft PR 新一轮隔离 CI 从头跑完整 suite，只有 `lint` 与 `test` 都通过后才能关闭本次发布门禁。

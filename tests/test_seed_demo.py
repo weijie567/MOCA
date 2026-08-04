@@ -154,7 +154,17 @@ async def test_reset_demo_data_clears_resume_decision_reference_before_deleting_
         decision_type="approve",
         actor_id=user.id,
     )
-    session.add_all([tenant, user, run, request, level, assignment, decision])
+    session.add_all([tenant, user])
+    await session.flush()
+    session.add(run)
+    await session.flush()
+    session.add(request)
+    await session.flush()
+    session.add(level)
+    await session.flush()
+    session.add(assignment)
+    await session.flush()
+    session.add(decision)
     await session.flush()
     request.resume_attempt_id = uuid4()
     request.resume_attempt_decision_id = decision.id
