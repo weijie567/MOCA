@@ -864,6 +864,24 @@ class ApprovalRequest(TimestampMixin, Base):
             "status IN ('pending', 'needs_info', 'approved', 'rejected', 'cancelled', 'expired', 'superseded')",
             name="ck_approval_requests_status",
         ),
+        CheckConstraint(
+            "resume_attempt_status IS NULL OR "
+            "resume_attempt_status IN ('attempted', 'completed', 'failed', 'abandoned')",
+            name="ck_approval_requests_resume_attempt_status",
+        ),
+        CheckConstraint(
+            "(resume_attempt_status IS NULL AND resume_attempt_id IS NULL "
+            "AND resume_attempt_decision_id IS NULL AND resume_attempt_started_at IS NULL "
+            "AND resume_attempt_updated_at IS NULL AND resume_lease_expires_at IS NULL) OR "
+            "(resume_attempt_status IS NOT NULL AND resume_attempt_id IS NOT NULL "
+            "AND resume_attempt_decision_id IS NOT NULL AND resume_attempt_started_at IS NOT NULL "
+            "AND resume_attempt_updated_at IS NOT NULL)",
+            name="ck_approval_requests_resume_attempt_identity",
+        ),
+        CheckConstraint(
+            "resume_attempt_status <> 'attempted' OR resume_lease_expires_at IS NOT NULL",
+            name="ck_approval_requests_resume_attempt_lease",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -904,6 +922,19 @@ class ApprovalRequest(TimestampMixin, Base):
     reason: Mapped[str | None] = mapped_column(Text)
     decided_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resume_attempt_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    resume_attempt_decision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "approval_decisions.id",
+            name="fk_approval_requests_resume_attempt_decision",
+            use_alter=True,
+        ),
+    )
+    resume_attempt_status: Mapped[str | None] = mapped_column(String(32))
+    resume_lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resume_attempt_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resume_attempt_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     thread_id: Mapped[str] = mapped_column(String(128), nullable=False)
     # thread_id is persisted so resume can reconstruct checkpoint_thread_id later.
@@ -926,6 +957,11 @@ class ApprovalRequest(TimestampMixin, Base):
 Index("ix_approval_requests_tenant_status", ApprovalRequest.tenant_id, ApprovalRequest.status)
 Index("ix_approval_requests_tenant_action_hash", ApprovalRequest.tenant_id, ApprovalRequest.action_payload_hash)
 Index("ix_approval_requests_tenant_target_merchant", ApprovalRequest.tenant_id, ApprovalRequest.target_merchant_id)
+Index(
+    "ix_approval_requests_resume_attempt",
+    ApprovalRequest.resume_attempt_status,
+    ApprovalRequest.resume_lease_expires_at,
+)
 Index(
     "uq_approval_requests_active_revision",
     ApprovalRequest.tenant_id,

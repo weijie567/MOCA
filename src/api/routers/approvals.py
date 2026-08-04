@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime
-from uuid import UUID
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Security
 from langgraph.errors import GraphInterrupt
@@ -55,10 +56,33 @@ router = APIRouter(tags=["approvals"])
 APPROVAL_ROLES = {"admin", "manager"}
 RESUMABLE_DECISIONS = {"accept", "approve", "reject", "ignore", "edit"}
 RESUME_RETRY_STATUSES = {"approved", "rejected", "cancelled", "superseded"}
-RESUME_INCOMPLETE_STATUSES = {"attempted", "failed"}
+RESUME_INCOMPLETE_STATUSES = {"failed", "abandoned"}
+RESUME_OBSERVED_STATUSES = {*RESUME_INCOMPLETE_STATUSES, "attempted", "completed"}
+RESUME_ATTEMPT_LEASE = timedelta(minutes=15)
 ACTION_DRAFT_PERMISSION = "tool:create_coupon_grant_draft"
 CANONICAL_RISK_ROUTE = "risk_gate"
 HISTORICAL_RETRY_ROUTE_TO_CANONICAL = {"assess_risk_and_approval": CANONICAL_RISK_ROUTE}
+
+
+@dataclass(frozen=True)
+class ResumeAttemptState:
+    status: str
+    attempt_id: UUID | None
+    lease_expires_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ResumeAttemptLease:
+    attempt_id: UUID | None
+    already_completed: bool = False
+
+
+class ResumeAttemptInProgress(RuntimeError):
+    """A durable, unexpired resume lease already owns graph invocation."""
+
+
+class ResumeAttemptSuperseded(RuntimeError):
+    """A completion/failure tried to finalize a different durable attempt."""
 
 
 @router.post("/{approval_id}/decide", response_model=ApiResponse)
@@ -279,22 +303,17 @@ async def list_pending_approvals(
 async def _run_resume_lifecycle(
     *, request: Request, session: AsyncSession, result: ApprovalDecisionResult, actor_id: UUID, actor_user: User
 ) -> None:
+    lease: ResumeAttemptLease | None = None
     try:
-        if await _record_resume_completed_event_once(
+        lease = await _acquire_resume_attempt(
             session=session,
             result=result,
             actor_id=actor_id,
-            require_terminal_finalizer=True,
-        ):
-            return
-
-        await _record_resume_event(
-            session=session,
-            result=result,
-            actor_id=actor_id,
-            resume_status="attempted",
         )
-        await session.commit()
+        if lease.already_completed:
+            return
+        if lease.attempt_id is None:
+            raise RuntimeError("approval resume attempt identity missing")
 
         await _resume_graph_after_decision(
             request=request,
@@ -309,18 +328,40 @@ async def _run_resume_lifecycle(
             result=result,
             actor_id=actor_id,
             require_terminal_finalizer=require_terminal_finalizer,
+            attempt_id=lease.attempt_id,
         ):
             raise RuntimeError("approval resume completed run missing terminal finalizer evidence")
+    except ResumeAttemptInProgress as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "APPROVAL_RESUME_IN_PROGRESS",
+                "message": "Approval resume is already in progress for this decision.",
+            },
+        ) from exc
+    except ResumeAttemptSuperseded as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "APPROVAL_RESUME_CONFLICT",
+                "message": "Approval resume attempt no longer matches this decision.",
+            },
+        ) from exc
     except Exception as exc:
         await session.rollback()
-        await _record_resume_event(
-            session=session,
-            result=result,
-            actor_id=actor_id,
-            resume_status="failed",
-            error=exc,
-        )
-        await session.commit()
+        if lease is not None and lease.attempt_id is not None:
+            try:
+                await _record_resume_failed_event_once(
+                    session=session,
+                    result=result,
+                    actor_id=actor_id,
+                    attempt_id=lease.attempt_id,
+                    error=exc,
+                )
+            except ResumeAttemptSuperseded:
+                await session.rollback()
         raise HTTPException(
             status_code=500,
             detail={
@@ -505,6 +546,9 @@ async def _record_resume_event(
     result: ApprovalDecisionResult,
     actor_id: UUID,
     resume_status: str,
+    attempt_id: UUID,
+    lease_expires_at: datetime | None = None,
+    status_reason: str | None = None,
     error: Exception | None = None,
 ) -> ApprovalEvent:
     approval = await session.get(ApprovalRequest, result.approval_id)
@@ -514,7 +558,12 @@ async def _record_resume_event(
         "resume_status": resume_status,
         "decision_type": result.decision_type,
         "resume_payload_schema": (result.resume_payload or {}).get("schema_version"),
+        "resume_attempt_id": str(attempt_id),
     }
+    if lease_expires_at is not None:
+        metadata["lease_expires_at"] = lease_expires_at.isoformat()
+    if status_reason is not None:
+        metadata["status_reason"] = status_reason
     if error is not None:
         metadata["error_type"] = type(error).__name__
     return await emit_approval_resumed(
@@ -527,10 +576,13 @@ async def _record_resume_event(
             "approval_revision": result.revision,
             "approval_request_version": result.request_version,
             "approval_decision_ref": f"approval_decision:{result.decision_id}",
+            "resume_attempt_ref": f"approval_resume_attempt:{attempt_id}",
         },
         redacted_payload={
             "resume_status": resume_status,
             "decision_type": result.decision_type,
+            "resume_attempt_id": str(attempt_id),
+            **({"status_reason": status_reason} if status_reason is not None else {}),
         },
     )
 
@@ -549,8 +601,15 @@ async def _recoverable_resume_retry_result(
     if body.decision_type not in RESUMABLE_DECISIONS:
         return None
 
-    latest_resume_status = await _latest_resume_status(session, approval)
-    if latest_resume_status not in RESUME_INCOMPLETE_STATUSES:
+    if (
+        approval.decision != body.decision_type
+        or approval.revision != body.expected_revision
+        or approval.action_payload_hash != body.action_payload_hash
+        or approval.safety_snapshot_hash != body.safety_snapshot_hash
+    ):
+        raise ApprovalTransitionError("approval_conflict")
+
+    if approval.resume_attempt_status not in {*RESUME_INCOMPLETE_STATUSES, "attempted"}:
         return None
 
     run = await session.get(AgentRun, approval.run_id)
@@ -561,24 +620,167 @@ async def _recoverable_resume_retry_result(
         elif run.final_status not in {"interrupted", "running", "pending"}:
             return None
 
-    if (
-        approval.decision != body.decision_type
-        or approval.revision != body.expected_revision
-        or approval.action_payload_hash != body.action_payload_hash
-        or approval.safety_snapshot_hash != body.safety_snapshot_hash
-    ):
+    retry_result = await _terminal_decision_result_for_retry(session, approval, body)
+    if approval.resume_attempt_decision_id != retry_result.decision_id:
         raise ApprovalTransitionError("approval_conflict")
+    return retry_result
 
-    return await _terminal_decision_result_for_retry(session, approval, body)
 
-
-async def _lock_approval_request_for_resume(session: AsyncSession, approval_id: UUID) -> ApprovalRequest:
+async def _lock_approval_request_for_resume(
+    session: AsyncSession,
+    approval_id: UUID,
+    tenant_id: UUID,
+) -> ApprovalRequest:
     approval = (
-        await session.execute(select(ApprovalRequest).where(ApprovalRequest.id == approval_id).with_for_update())
+        await session.execute(
+            select(ApprovalRequest)
+            .where(
+                ApprovalRequest.id == approval_id,
+                ApprovalRequest.tenant_id == tenant_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     ).scalar_one_or_none()
     if approval is None:
         raise ApprovalTransitionError("approval_not_found")
     return approval
+
+
+def _resume_attempt_state(approval: ApprovalRequest) -> ResumeAttemptState | None:
+    if approval.resume_attempt_status is None:
+        return None
+    lease_expires_at = approval.resume_lease_expires_at
+    if lease_expires_at is not None and lease_expires_at.tzinfo is None:
+        lease_expires_at = lease_expires_at.replace(tzinfo=UTC)
+    return ResumeAttemptState(
+        status=approval.resume_attempt_status,
+        attempt_id=approval.resume_attempt_id,
+        lease_expires_at=lease_expires_at,
+    )
+
+
+def _set_resume_attempt_state(
+    approval: ApprovalRequest,
+    *,
+    attempt_id: UUID,
+    decision_id: UUID,
+    status: str,
+    now: datetime,
+    lease_expires_at: datetime | None,
+    preserve_started_at: bool,
+) -> None:
+    approval.resume_attempt_id = attempt_id
+    approval.resume_attempt_decision_id = decision_id
+    approval.resume_attempt_status = status
+    approval.resume_lease_expires_at = lease_expires_at
+    if not preserve_started_at or approval.resume_attempt_started_at is None:
+        approval.resume_attempt_started_at = now
+    approval.resume_attempt_updated_at = now
+
+
+async def _acquire_resume_attempt(
+    *,
+    session: AsyncSession,
+    result: ApprovalDecisionResult,
+    actor_id: UUID,
+) -> ResumeAttemptLease:
+    approval = await _lock_approval_request_for_resume(session, result.approval_id, result.tenant_id)
+    state = _resume_attempt_state(approval)
+    if approval.resume_attempt_decision_id not in {None, result.decision_id}:
+        raise ResumeAttemptSuperseded("approval resume decision identity changed")
+    if state is not None and state.status == "completed":
+        return ResumeAttemptLease(attempt_id=state.attempt_id, already_completed=True)
+    now = datetime.now(UTC)
+    if state is not None and state.status == "attempted":
+        if state.attempt_id is None:
+            raise ResumeAttemptSuperseded("approval resume attempt identity missing")
+        if state.lease_expires_at is not None and state.lease_expires_at > now:
+            raise ResumeAttemptInProgress("approval resume lease is still active")
+        if await _completed_resume_finalizer_reconciliation_ready(session=session, result=result):
+            _set_resume_attempt_state(
+                approval,
+                attempt_id=state.attempt_id,
+                decision_id=result.decision_id,
+                status="completed",
+                now=now,
+                lease_expires_at=None,
+                preserve_started_at=True,
+            )
+            await _record_resume_event(
+                session=session,
+                result=result,
+                actor_id=actor_id,
+                resume_status="completed",
+                attempt_id=state.attempt_id,
+            )
+            await session.commit()
+            return ResumeAttemptLease(attempt_id=state.attempt_id, already_completed=True)
+        _set_resume_attempt_state(
+            approval,
+            attempt_id=state.attempt_id,
+            decision_id=result.decision_id,
+            status="abandoned",
+            now=now,
+            lease_expires_at=None,
+            preserve_started_at=True,
+        )
+        await _record_resume_event(
+            session=session,
+            result=result,
+            actor_id=actor_id,
+            resume_status="abandoned",
+            attempt_id=state.attempt_id,
+            lease_expires_at=state.lease_expires_at,
+            status_reason="resume_lease_expired",
+        )
+        state = _resume_attempt_state(approval)
+
+    if state is not None and state.status == "failed" and state.attempt_id is not None:
+        if await _completed_resume_finalizer_reconciliation_ready(session=session, result=result):
+            _set_resume_attempt_state(
+                approval,
+                attempt_id=state.attempt_id,
+                decision_id=result.decision_id,
+                status="completed",
+                now=now,
+                lease_expires_at=None,
+                preserve_started_at=True,
+            )
+            await _record_resume_event(
+                session=session,
+                result=result,
+                actor_id=actor_id,
+                resume_status="completed",
+                attempt_id=state.attempt_id,
+            )
+            await session.commit()
+            return ResumeAttemptLease(attempt_id=state.attempt_id, already_completed=True)
+
+    if state is not None and state.status not in RESUME_INCOMPLETE_STATUSES:
+        raise ResumeAttemptSuperseded("approval resume attempt is not recoverable")
+
+    attempt_id = uuid4()
+    lease_expires_at = now + RESUME_ATTEMPT_LEASE
+    _set_resume_attempt_state(
+        approval,
+        attempt_id=attempt_id,
+        decision_id=result.decision_id,
+        status="attempted",
+        now=now,
+        lease_expires_at=lease_expires_at,
+        preserve_started_at=False,
+    )
+    await _record_resume_event(
+        session=session,
+        result=result,
+        actor_id=actor_id,
+        resume_status="attempted",
+        attempt_id=attempt_id,
+        lease_expires_at=lease_expires_at,
+    )
+    await session.commit()
+    return ResumeAttemptLease(attempt_id=attempt_id)
 
 
 async def _record_resume_completed_event_once(
@@ -587,23 +789,72 @@ async def _record_resume_completed_event_once(
     result: ApprovalDecisionResult,
     actor_id: UUID,
     require_terminal_finalizer: bool,
+    attempt_id: UUID,
 ) -> bool:
-    approval = await _lock_approval_request_for_resume(session, result.approval_id)
-    latest_resume_status = await _latest_resume_status(session, approval)
-    if latest_resume_status == "completed":
+    approval = await _lock_approval_request_for_resume(session, result.approval_id, result.tenant_id)
+    if approval.resume_attempt_id != attempt_id or approval.resume_attempt_decision_id != result.decision_id:
+        raise ResumeAttemptSuperseded("approval resume attempt identity changed")
+    if approval.resume_attempt_status == "completed":
         return True
-    if latest_resume_status not in RESUME_INCOMPLETE_STATUSES:
+    if approval.resume_attempt_status != "attempted":
         return False
     if require_terminal_finalizer and not await _completed_resume_finalizer_reconciliation_ready(
         session=session,
         result=result,
     ):
         return False
+    now = datetime.now(UTC)
+    _set_resume_attempt_state(
+        approval,
+        attempt_id=attempt_id,
+        decision_id=result.decision_id,
+        status="completed",
+        now=now,
+        lease_expires_at=None,
+        preserve_started_at=True,
+    )
     await _record_resume_event(
         session=session,
         result=result,
         actor_id=actor_id,
         resume_status="completed",
+        attempt_id=attempt_id,
+    )
+    await session.commit()
+    return True
+
+
+async def _record_resume_failed_event_once(
+    *,
+    session: AsyncSession,
+    result: ApprovalDecisionResult,
+    actor_id: UUID,
+    attempt_id: UUID,
+    error: Exception,
+) -> bool:
+    approval = await _lock_approval_request_for_resume(session, result.approval_id, result.tenant_id)
+    if approval.resume_attempt_id != attempt_id or approval.resume_attempt_decision_id != result.decision_id:
+        raise ResumeAttemptSuperseded("approval resume attempt identity changed")
+    if approval.resume_attempt_status == "failed":
+        return True
+    if approval.resume_attempt_status != "attempted":
+        raise ResumeAttemptSuperseded("approval resume attempt is no longer active")
+    _set_resume_attempt_state(
+        approval,
+        attempt_id=attempt_id,
+        decision_id=result.decision_id,
+        status="failed",
+        now=datetime.now(UTC),
+        lease_expires_at=None,
+        preserve_started_at=True,
+    )
+    await _record_resume_event(
+        session=session,
+        result=result,
+        actor_id=actor_id,
+        resume_status="failed",
+        attempt_id=attempt_id,
+        error=error,
     )
     await session.commit()
     return True
@@ -649,7 +900,7 @@ async def _latest_resume_status(session: AsyncSession, approval: ApprovalRequest
         if (event.resource_refs_json or {}).get("resume_key") != resume_key:
             continue
         status = (event.metadata_json or {}).get("resume_status")
-        if status in {*RESUME_INCOMPLETE_STATUSES, "completed"}:
+        if status in RESUME_OBSERVED_STATUSES:
             return str(status)
     return None
 
@@ -725,6 +976,8 @@ async def _terminal_decision_result_for_retry(
         body.expected_request_version not in {decision.request_version, approval.version}
         or body.expected_level_version not in {decision.level_version, level.version}
         or body.expected_assignment_version not in {decision.assignment_version, assignment.version}
+        or body.reason != decision.reason
+        or body.response_text != decision.response_text
     ):
         raise ApprovalTransitionError("approval_conflict")
 
@@ -744,6 +997,8 @@ async def _terminal_decision_result_for_retry(
             or resume_route != CANONICAL_RISK_ROUTE
         ):
             raise ApprovalTransitionError("approval_conflict")
+    elif body.edited_action is not None or decision.edited_action_json is not None:
+        raise ApprovalTransitionError("approval_conflict")
 
     decided_at = approval.decided_at or decision.created_at
     binding_fields = _approval_binding_fields(approval)

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.agent.trace import write_agent_run
 from src.api.main import app
@@ -33,6 +34,7 @@ from src.db.models import (
     MemoryWriteEvent,
     User,
 )
+from src.db.session import get_session
 from src.knowledge.schemas import EvidenceRefV1
 from tests.approvals.test_service_transitions import _create_command, _phase34_binding_overrides
 
@@ -61,6 +63,41 @@ class FakeResumeGraph:
             ],
             **self.extra_state,
         }
+
+
+class FailingResumeGraph:
+    def __init__(self):
+        self.calls = 0
+
+    async def ainvoke(self, command, config):
+        self.calls += 1
+        raise RuntimeError("simulated graph resume failure")
+
+
+class BlockingResumeGraph(FakeResumeGraph):
+    def __init__(self):
+        super().__init__("approved response")
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.active = 0
+        self.max_active = 0
+
+    async def ainvoke(self, command, config):
+        self.calls.append((command, config))
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        self.started.set()
+        try:
+            await self.release.wait()
+            return {
+                "final_response": self.final_response,
+                "trace_steps": [
+                    {"node": "approval_gate", "status": "completed"},
+                    {"node": "final_response", "status": "completed"},
+                ],
+            }
+        finally:
+            self.active -= 1
 
 
 class FakeInterrupt:
@@ -727,6 +764,121 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
 
 
 @pytest.mark.asyncio
+async def test_concurrent_exact_resume_retries_are_single_flight_under_postgres_request_lock(
+    client: AsyncClient,
+    test_engine,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-concurrent-resume-single-flight")
+    decision_body = _decision_body(bundle, "approve")
+    admin = seeded_session["users"]["admin_user"]
+    headers = _auth_header(admin, ["approvals:review"])
+    failing_graph = FailingResumeGraph()
+    monkeypatch.setattr(app.state, "agent_graph", failing_graph, raising=False)
+
+    initial_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=decision_body,
+        headers=headers,
+    )
+    assert initial_response.status_code == 500
+    assert initial_response.json()["error"]["code"] == "APPROVAL_RESUME_FAILED"
+    assert failing_graph.calls == 1
+
+    blocking_graph = BlockingResumeGraph()
+    monkeypatch.setattr(app.state, "agent_graph", blocking_graph, raising=False)
+    session_factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+    prior_override = app.dependency_overrides[get_session]
+
+    async def independent_request_session():
+        async with session_factory() as worker_session:
+            yield worker_session
+
+    app.dependency_overrides[get_session] = independent_request_session
+    transport = ASGITransport(app=app)
+    first_response = None
+    second_response = None
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as concurrent_client:
+            first_task = asyncio.create_task(
+                concurrent_client.post(
+                    f"/api/v1/approvals/{bundle.approval.id}/decide",
+                    json=decision_body,
+                    headers=headers,
+                )
+            )
+            await asyncio.wait_for(blocking_graph.started.wait(), timeout=5)
+            second_response = await asyncio.wait_for(
+                concurrent_client.post(
+                    f"/api/v1/approvals/{bundle.approval.id}/decide",
+                    json=decision_body,
+                    headers=headers,
+                ),
+                timeout=5,
+            )
+            assert second_response.status_code == 409
+            assert second_response.json()["error"] == {
+                "code": "APPROVAL_RESUME_IN_PROGRESS",
+                "message": "Approval resume is already in progress for this decision.",
+                "details": {},
+            }
+            assert len(blocking_graph.calls) == 1
+            assert blocking_graph.max_active == 1
+            blocking_graph.release.set()
+            first_response = await asyncio.wait_for(first_task, timeout=15)
+
+            reconciled_response = await concurrent_client.post(
+                f"/api/v1/approvals/{bundle.approval.id}/decide",
+                json=decision_body,
+                headers=headers,
+            )
+            assert reconciled_response.status_code == 409
+            assert reconciled_response.json()["error"]["code"] == "CONFLICT"
+    finally:
+        blocking_graph.release.set()
+        app.dependency_overrides[get_session] = prior_override
+
+    assert first_response is not None and first_response.status_code == 200
+    assert second_response is not None
+    assert len(blocking_graph.calls) == 1
+    assert blocking_graph.max_active == 1
+    async with session_factory() as verify_session:
+        persisted_request = await verify_session.get(ApprovalRequest, bundle.approval.id)
+        decision_count = await verify_session.scalar(
+            select(func.count())
+            .select_from(ApprovalDecision)
+            .where(ApprovalDecision.approval_request_id == bundle.approval.id)
+        )
+        events = (
+            (
+                await verify_session.execute(
+                    select(ApprovalEvent)
+                    .where(
+                        ApprovalEvent.approval_request_id == bundle.approval.id,
+                        ApprovalEvent.event_type == "approval_resumed",
+                    )
+                    .order_by(ApprovalEvent.created_at)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert persisted_request is not None
+    assert persisted_request.resume_attempt_status == "completed"
+    assert persisted_request.resume_attempt_id is not None
+    assert persisted_request.resume_attempt_decision_id is not None
+    assert decision_count == 1
+    status_by_attempt: dict[str, list[str]] = {}
+    for event_row in events:
+        status_by_attempt.setdefault(event_row.metadata_json["resume_attempt_id"], []).append(
+            event_row.metadata_json["resume_status"]
+        )
+    assert sorted(status_by_attempt.values()) == [["attempted", "completed"], ["attempted", "failed"]]
+
+
+@pytest.mark.asyncio
 async def test_approval_resume_trace_persistence_failure_fails_closed_after_terminal_surfaces(
     client: AsyncClient,
     session: AsyncSession,
@@ -839,23 +991,22 @@ async def test_completed_resume_reconciliation_rechecks_status_under_lock(
     bundle = await _create_approval(session, seeded_session, thread_id="thread-resume-lock-recheck")
     admin = seeded_session["users"]["admin_user"]
     result = _approved_decision_result(bundle, admin.id)
+    attempt_id = uuid4()
+    bundle.approval.resume_attempt_id = attempt_id
+    bundle.approval.resume_attempt_decision_id = result.decision_id
+    bundle.approval.resume_attempt_status = "completed"
     calls: list[str] = []
 
-    async def fake_lock(session: AsyncSession, approval_id: UUID) -> ApprovalRequest:
+    async def fake_lock(session: AsyncSession, approval_id: UUID, tenant_id: UUID) -> ApprovalRequest:
         calls.append("lock")
         assert approval_id == bundle.approval.id
+        assert tenant_id == bundle.approval.tenant_id
         return bundle.approval
-
-    async def fake_latest_status(session: AsyncSession, approval: ApprovalRequest) -> str:
-        calls.append("latest")
-        assert approval.id == bundle.approval.id
-        return "completed"
 
     async def fail_record_resume_event(**kwargs):
         raise AssertionError("duplicate completed resume event should not be recorded")
 
     monkeypatch.setattr(approvals_router, "_lock_approval_request_for_resume", fake_lock)
-    monkeypatch.setattr(approvals_router, "_latest_resume_status", fake_latest_status)
     monkeypatch.setattr(approvals_router, "_record_resume_event", fail_record_resume_event)
 
     recorded = await approvals_router._record_resume_completed_event_once(
@@ -863,10 +1014,11 @@ async def test_completed_resume_reconciliation_rechecks_status_under_lock(
         result=result,
         actor_id=admin.id,
         require_terminal_finalizer=True,
+        attempt_id=attempt_id,
     )
 
     assert recorded is True
-    assert calls == ["lock", "latest"]
+    assert calls == ["lock"]
 
 
 @pytest.mark.asyncio
