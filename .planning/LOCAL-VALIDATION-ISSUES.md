@@ -21196,6 +21196,145 @@ Phase 64 plan 阶段按 GSD workflow 启动 `gsd-phase-researcher` 子代理生�
 **剩余问题和下次继续排查入口**
 无产品实现遗留。后续 64-03 迁移 metrics 时继续保持 `_level3_triggered` 风险提示 marker 与 routing reason code 的映射边界。
 
+## 2026-07-10 — GSD phase.insert 无法识别 ROADMAP 中的 Phase 64
+
+**问题现象**
+为源码架构审计发现注册紧急 Phase 64.1 时，`gsd-sdk query init.phase-op 64` 能正确返回 `phase_found: true`，但随后执行 `gsd-sdk query phase.insert 64 "Runtime Safety And Approval Contract Repair"` 却返回 `Error: Phase 64 not found in ROADMAP.md`。
+
+**如何检测/复现**
+在本次修复前的仓库根目录依次运行 `gsd-sdk query init.phase-op 64` 和 `gsd-sdk query phase.insert 64 "Runtime Safety And Approval Contract Repair"`。前者通过，后者失败。
+
+**关键证据或命令**
+读取 GSD SDK 的 `extractCurrentMilestone(...)` 与 `phaseInsert(...)` 后确认：SDK 按 `## Current Milestone: v2.2 ...` 到下一个同级 milestone heading 截取当前 roadmap；原 `.planning/ROADMAP.md` 在 Phase 61 后先出现 `## Last Completed Milestone: v2.1 ...`，而 Phase 62-68 被放在其后的 `## Next` 下，因此 phase mutation 只看见 Phase 61。`init.phase-op` 还能通过 phase 目录定位 Phase 64，导致两个入口结果不一致。
+
+**当前判断/根因**
+这是 ROADMAP current-milestone 章节结构与 GSD SDK mutation parser 的契约不一致，不是 Phase 64 缺失，也不是新 phase 描述或编号错误。若不修复，`phase.insert` 无法插入 64.x，`phase.add` 还可能从当前片段错误计算下一整数 phase。
+
+**已做处理**
+保持已完成 Phase 61-64 内容不变，将 `Last Completed Milestone: v2.1` 区块移动到当前 v2.2 全部 phase 之后，并用 `---` 分隔 current/last milestone。随后重新执行 GSD workflow，成功注册 Phase 64.1、64.2、69、70、71；最后逐个运行 `gsd-sdk query init.phase-op 64.1 64.2 65 66 67 68 69 70 71` 的等价单 phase命令，均返回 `phase_found: true` 且目录、编号、slug 正确。
+
+**剩余问题和下次继续排查入口**
+当前 ROADMAP/STATE 已恢复一致，`git diff --check` 通过。后续修改 milestone 结构时，必须保证当前 milestone 的所有 phase detail section 位于下一个 milestone heading 之前；每次 `state.*` 或 `phase.*` helper 后立即复核 `.planning/STATE.md`、phase 顺序和目录编号。
+
+## 2026-07-10 — Phase 64.1-01 focused suite 的 investigate route allowlist 过期
+
+**问题现象**
+Task 1 RED 与 Task 2 首轮 GREEN 的完整 focused suite 除预期 canonical-action 失败外，还出现 `tests/test_graph_routing.py::test_route_after_investigate_totality[state6]` 失败：runtime 返回 `rag_context_build`，测试常量 `VALID_INVESTIGATE_KEYS` 未包含该已注册 route。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_safety_taxonomy.py tests/agent/test_nodes/test_recommendation_generation.py tests/agent/rag_context/test_routing.py tests/test_graph_routing.py -q --tb=short`。
+
+**关键证据或命令**
+失败输出为 `assert 'rag_context_build' in {'clarification_gate', 'final_response', 'recommendation_generation'}`；当前 `route_after_investigate` 与 graph mapping 已将 `rag_context_build` 作为 canonical registered key。
+
+**当前判断/根因**
+这是既有 totality 测试 allowlist 未随 canonical graph route 更新，不是本次 action candidate 实现导致的产品回归，但会阻塞 plan 规定的完整 focused gate。
+
+**已做处理**
+将 `rag_context_build` 加入 `tests/test_graph_routing.py` 的 `VALID_INVESTIGATE_KEYS`；重跑同一 focused suite得到 `226 passed, 1 warning`，ruff 通过。
+
+**剩余问题和下次继续排查入口**
+本条无剩余阻塞。后续 graph route 改动应同步 architecture baseline 与 totality allowlist，避免注册表和测试常量漂移。
+
+## 2026-07-10 — Phase 64.1-01 补充回归命令使用了不存在的 action_draft 测试路径
+
+**问题现象**
+补跑 taxonomy 下游回归时使用 `tests/agent/test_nodes/test_action_draft.py`，pytest 返回 `file or directory not found`。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_safety_taxonomy_boundaries.py tests/agent/test_nodes/test_action_draft.py -q --tb=short`。
+
+**关键证据或命令**
+`rg --files tests | rg 'action_draft|execute_action'` 显示真实测试位于 `tests/actions/test_action_draft_v2.py`、`tests/actions/test_phase34_action_draft_bindings.py`、`tests/architecture/test_action_draft_boundaries.py` 和 `tests/test_execute_action.py`。
+
+**当前判断/根因**
+这是本地验证路径选择错误，不是产品代码或测试 collection 问题。
+
+**已做处理**
+保留已通过的 `tests/architecture/test_safety_taxonomy_boundaries.py` 结果，并改用真实 action-draft 测试路径补跑。
+
+**剩余问题和下次继续排查入口**
+无产品遗留；后续先用 `rg --files tests` 确认测试路径。
+## 2026-07-10 — Phase 64.1-02 RED gate 使用 zsh 保留变量 `status`
+
+**问题现象**
+首次执行 Task 1 RED gate 时，pytest 正确产生预期失败，但用于断言非零退出码的 shell 尾部报 `zsh: read-only variable: status`。
+
+**如何检测/复现**
+在 zsh 中运行 plan pytest 后执行 `status=$?`。
+
+**关键证据或命令**
+pytest 输出 `15 failed, 50 passed`，随后 shell 输出 `zsh:1: read-only variable: status`。`status` 是 zsh 的特殊只读参数，不可作为普通退出码变量。
+
+**当前判断/根因**
+这是本地验证包装命令的变量命名错误，不是 MOCA 产品代码或测试环境错误；pytest 本身使用了规定的 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` 入口。
+
+**已做处理**
+后续退出码变量改用 `rc`，并直接重跑完整 focused suite；最终 `69 passed`，ruff 通过。
+
+**剩余问题和下次继续排查入口**
+无产品遗留。zsh 验证脚本避免使用 `status` 作为自定义变量名。
+
+## 2026-07-10 — Phase 64.1-03 approval integration fixtures 与 Plan 01 路由语义漂移
+
+**问题现象**
+Plan 03 首次运行规定的 backend focused suite 时，4 个 `tests/test_approval_integration.py` 用例未进入 approval interrupt：三个高风险用例拿不到 `approval_id`，一个低风险用例得到 `insufficient_evidence` 而不是旧预期的 `completed`。同轮另有一项 SSE 敏感字段断言因新 decision context 初版投影完整 proposed action 而失败。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/approvals/test_service_transitions.py tests/test_approval_api.py tests/test_approval_integration.py tests/test_agent_runs_api.py -q --tb=short`。
+
+**关键证据或命令**
+首次结果为 `5 failed, 136 passed`。单独复现 `test_high_risk_approve_flow_interrupts_resumes_executes_action` 时，chat 返回澄清文本“我需要订单号、退款单号或工单号来定位具体售后对象”，执行节点停在 `clarification_gate`，表明既有 fixture/query 已不满足 Plan 01 后的 canonical action/slot 路由前置条件；SSE 失败明确指出 `decision_context.proposed_action.args` 进入序列化 payload。
+
+**当前判断/根因**
+4 个 integration 失败是既有测试输入与 Plan 01 canonical fail-closed/slot resolution 行为漂移，不由 Plan 03 approval contract 引入。SSE 失败属于本次 projector 初版的安全投影缺陷。
+
+**已做处理**
+将 backend-owned decision context 的 `proposed_action` 收敛为共享安全摘要字段，SSE 敏感字段测试与 decision-context fixture shape 测试均通过；approval integration fixture 漂移未在 Plan 03 越界修复，保留给后续测试基线对齐。Plan 03 的 service/API/SSE 定向测试、ruff、frontend 20 项 contract/hook/component tests 与 build 均单独验证。
+
+**剩余问题和下次继续排查入口**
+后续应在拥有 graph fixture/slot 前置条件的计划中更新 `tests/test_approval_integration.py` 的 mock 输入，使其先满足 canonical action 与 identifier contract，再继续验证 approval interrupt；不得通过放宽 fail-closed 路由恢复旧用例。
+
+## 2026-07-10 — Phase 64.1-03 approval integration fixture 漂移完成修复
+
+**问题现象**
+继续处理上一条遗留时，`tests/test_approval_integration.py` 仍有 4 个用例未到达预期 approval 边界：三个高风险用例缺少 `approval_id`，低风险 policy query 返回 `insufficient_evidence`。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_integration.py -q --tb=short`，修复前结果为 `4 failed, 1 passed`；再检查失败 run 的 LangGraph checkpoint state 与 `business_context.tool_results`。
+
+**关键证据或命令**
+checkpoint state 证明 canonical/identifier 前置条件其实已满足：`active_slots` 与 `slot_resolution_trace.resolved_slots` 均包含 `order_id=ORD-TEST-001` 和 `action_type=issue_coupon`。真正阻断路径的是 `get_order` 被 ToolRuntime 投影为 `status=invalid_response`、`code=INVALID_EXECUTOR_RESPONSE`，随后 `business_context.missing_required_facts=['order']` 触发 clarification。对照 `src/tools/catalog.py` 后确认测试 executor 的 order payload 缺少当前 `_ORDER_OUTPUT_SCHEMA` 要求的 `currency`、buyer/item、时间和 `relation_hints` 字段；policy fixture 的 `search_policy` payload 也缺少 `_SEARCH_POLICY_OUTPUT_SCHEMA` 要求的 `summary`。
+
+**当前判断/根因**
+这是 test fixture 没有同步声明式工具输出 schema 的本地验证基线漂移，不是 canonical slot 解析失败，也不是 approval runtime 缺陷。上一条记录准确捕捉了外部症状和 fail-closed 路径，但把根因停留在“fixture/query 未满足 slot 前置条件”这一层；本次 checkpoint 证据将根因收窄为 mock tool output schema 过期。
+
+**已做处理**
+只修改 `tests/conftest.py`：补齐 `_ApprovalGraphBusinessExecutor` 的合法 order 输出和 `_ApprovalGraphKnowledgeExecutor` 的 policy summary；未修改或放宽任何 runtime fail-closed 行为，也未削弱 approval interrupt/resume/action-draft 断言。定向 suite 得到 `5 passed`；规定 aggregate gate `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/approvals/test_service_transitions.py tests/test_approval_api.py tests/test_approval_integration.py tests/test_agent_runs_api.py -q --tb=short` 得到 `142 passed, 11 warnings`；`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check tests/conftest.py tests/test_approval_integration.py` 通过。
+
+**剩余问题和下次继续排查入口**
+本条无剩余产品或测试阻塞。现有 11 条 warning 为 LangGraph/LangChain 既有 deprecation/type annotation warning，不影响本次 gate；该问题属于本地测试 fixture 漂移，不追加架构债务台账。
+
+## 2026-07-10 — Phase 64.1-04 capability 验证进程与测试契约对齐
+
+**问题现象**
+Plan 04 执行期间出现三类本地验证事故：早期长时间 pytest 通过嵌套执行器启动后没有持续回收 session，遗留进程争用共享 `moca_test`；graph auto-allow 用例把 `requested_amount=100.00` 当成 low risk，但确定性规则将 100–500 CNY 归为 medium/manual review；补齐 merchant-scope 强绑定后，三个既有 capability 测试 helper 未传新增的 `merchant_scope` 参数。另有一次临时 `uv run python -c` 把 `async def` 接在分号后导致 SyntaxError。
+
+**如何检测/复现**
+通过进程检查发现遗留 pytest PID 并观察共享测试库阻塞；运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_graph_routing.py::test_auto_allowed_path_persists_durable_snapshot_row_before_action_draft_route -q --tb=short` 得到 `auto_allowed is False`，风险原因为 `Compensation between 100 and 500 CNY`；运行 Plan 04 Task 3 aggregate 时，三个 `tests/actions/test_phase34_action_draft_bindings.py` 用例报 `AutoActionCapabilityService.mint() missing ... merchant_scope`。
+
+**关键证据或命令**
+清理了本次启动的遗留 PID `6568 6569 6783 6802`，之后所有长测试均保留并轮询返回的 session id 直至 exit。对照 `rules/risk_rules.yaml` 的 MR-02 条件确认 `compensation_amount >= 100 and <= 500`。最终 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/actions tests/test_execute_action.py tests/architecture/test_action_draft_boundaries.py -q --tb=short` 得到 `110 passed`；graph/risk/tool 相关回归得到 `197 passed`；Alembic upgrade/downgrade/re-upgrade 与 Ruff 均通过。
+
+**当前判断/根因**
+遗留进程和 SyntaxError 属于本地命令编排错误；100 CNY 失败属于测试数据与仓库确定性风险规则不一致；三个 TypeError 属于 capability contract 增加 trusted merchant-scope 后测试 helper 未同步。均不是产品运行时的未解决错误。
+
+**已做处理**
+终止本次遗留进程，后续统一对长命令显式保留并轮询 session；将 low-risk fixture 改为 50 CNY；所有 capability mint/consume helper 补入 canonical merchant scope，并新增 out-of-scope、无通用 permission 的 ToolPolicy 与服务边界负向覆盖。
+
+**剩余问题和下次继续排查入口**
+Plan 04 规定门禁无剩余阻塞。额外宽跑 `tests/agent/test_graph.py` 时仍有两个 policy-QA 旧断言失败：`test_happy_path_policy_qa_uses_investigate_manager` 与 `test_planner_cannot_bypass_router_approval_or_action_path` 预期 `risk_assessment is None`，当前实际保留 Phase 02 确定性 low/allow assessment。Plan 04 的 graph 差异只替换 risk 后的 auto-binding 路由，当前没有找到这两个状态断言由 Plan 04 引入的依据；其是否属于 Phase 02 后的测试期望漂移仍标记为未确认，交给 `64.1-05/06` phase-wide matrix 裁决，不在 capability plan 内放宽或改写风险语义。后续长测试不得丢弃返回的 session id；auto-allow fixture 必须选用 `<100 CNY` 的确定性 low-risk 数据；capability contract 新增 binding 时同步更新 mint 与 consume 两侧 helper。经核实的工具调用架构结论按 Plan 04 约定由 `64.1-06` 统一登记到 `.planning/ARCHITECTURE-DEBT.md`。
+
 ## 2026-07-10 — Phase 64.1-05 终态完整性验证中的测试基线与进程输出漂移
 
 **问题现象**
@@ -21295,3 +21434,243 @@ matrix 改从 canonical graph owner 导入 route；Playwright 使用 `with { typ
 
 **剩余问题和下次继续排查入口**
 无剩余阻塞。后续 approval mutation 测试凡需在 commit 后重用绑定字段，应在请求前冻结原始标量/body，避免从 expired ORM 对象隐式触发异步查询。
+
+## 2026-08-04 — Phase 64.1 第三轮 code-review fix 前端契约与共享测试库并发事故
+
+**问题现象**
+接手中断前的未提交实现后，首次前端聚焦验证为 `6 failed / 30 passed`：5 个 hook 旧测试仍无参调用已改为必须携带 exact reviewed context 的 `approveRun`，另一个真实 UI 回归是 `contextInvalidated` 同时禁用了与审批内容无关的“重试恢复”确认按钮。修正后首次 production build 又发现集成测试把 pending fixture 声明成 nullable `ApprovalRecord`。后端验证中曾并行运行完整 approval API 与 Alembic round-trip；两者同时重建同一个 `moca_test.public` schema，migration 用例报 PostgreSQL `pg_type_typname_nsp_index` duplicate key。
+
+**如何检测/复现**
+运行 `cd frontend && npm test -- --run src/components/details/ApprovalTab.test.tsx src/hooks/useAgentRun.test.ts` 可复现旧签名与 resume 按钮失败；运行 `cd frontend && npm run build` 可检测 pending fixture 类型过宽。DDL 冲突只在同时运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py -q --tb=short` 与 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/db/test_phase64_1_resume_attempt_migration.py -q --tb=short` 时出现，串行运行 migration 文件不会复现。
+
+**关键证据或命令**
+修正后前端聚焦结果为 `4 files passed / 37 tests passed`，production build 为 `1766 modules transformed`；完整 approval API 为 `44 passed, 1 warning in 122.71s`；migration 串行重跑为 `2 passed, 4 warnings in 1.76s`。新增集成用例真实连接 `useAgentRun -> DetailsPanel -> ApprovalTab`，证明页面仍显示 V1 时收到 SSE V2 后按钮 fail-closed 且 POST=0，只有刷新展示 V2 并重新确认后才提交 V2 exact versions。
+
+**当前判断/根因**
+无参 hook 调用和 nullable fixture 属于中断实现后的测试契约未同步；resume 按钮禁用是新增 invalidation gate 范围过宽造成的真实前端回归；PostgreSQL duplicate key 是两个会重建同一共享测试 schema 的测试进程并发执行造成的本地验证编排事故，不是 024 migration 结构错误。
+
+**已做处理**
+所有 hook 测试显式传入用户实际审阅的 context；确认按钮只在非 resume 决定且 context invalidated 时禁用；pending/V2 fixture 收窄为 `DecidableApprovalRecord`；新增完整 V1/SSE V2/refresh/re-review 集成回归。后端完整 API 结束后串行重跑 migration round-trip，确认 upgrade/downgrade/re-upgrade 均通过。
+
+**剩余问题和下次继续排查入口**
+本条无剩余产品或测试阻塞。以后不得并行运行会 `DROP SCHEMA public` 的 migration round-trip 与依赖同一 `moca_test` 的 API/DB 测试；approval UI callback 改签名时必须同时跑 Vitest 与 `tsc -b`，并保留“显示 context 与提交 context 完全相同”的跨组件测试。
+
+## 2026-08-04 — Phase 64.1 secure-phase 架构 guard 与最终 reviewed-context 合同漂移
+
+**问题现象**
+`gsd-secure-phase` 的动态聚合复验得到 `229 passed / 1 failed`；唯一失败是 `tests/architecture/test_runtime_safety_boundaries.py::test_frontend_serializer_echoes_one_context_without_legacy_or_defaults`。架构 guard 仍硬编码旧实现 `const frozen = latest.data.decision_context`，而 final review fix `21fd121` 已将提交权威改为用户页面实际显示并复核的 `reviewedContext`。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_runtime_safety_boundaries.py::test_frontend_serializer_echoes_one_context_without_legacy_or_defaults -q --tb=short`，或 secure-phase 聚合命令。
+
+**关键证据或命令**
+失败位于 `tests/architecture/test_runtime_safety_boundaries.py:180`。同期 frontend 集成回归 `4 files / 37 tests passed`，已证明 V1 显示后收到 SSE V2 时 `POST=0`，只有显式刷新、展示并重新复核 V2 后才提交。
+
+**当前判断/根因**
+这是 post-fix architecture guard 漂移，不是运行时 mitigation 缺失。旧 guard 锁定的是“提交最新 GET context”，与最终安全合同“提交用户实际 reviewed context，并要求 GET exact match”相反。
+
+**已做处理**
+架构 guard 改为同时锁定 `isExactApprovalDecisionContext(reviewedContext, latest.data.decision_context)` 和 `const frozen = reviewedContext`，不再要求旧的 latest-context authority。
+
+**剩余问题和下次继续排查入口**
+本条无剩余阻塞。focused guard 和 Ruff 在提交 `73a9125` 前已转绿；随后 secure-phase 以完全相同的聚合命令从新 HEAD 重跑得到 `230 passed, 1 warning in 101.42s`，T-64.1-09 已关闭。后续修改 approval context owner 时，架构 guard 必须锁定“displayed/reviewed context + authoritative GET exact match”两个条件，不能只锁其一。
+
+## 2026-08-04 — GitHub 公开发布前 secret scan 工具链环境问题
+
+**问题现象**
+公开发布前尝试通过 Docker 运行 Gitleaks 时，Docker Hub 拉取 `zricethezav/gitleaks:latest` 连续出现 registry 请求 `EOF`；随后带自动删除临时目录的扫描命令被本地命令安全策略拒绝。改从 GitHub Release 下载原生二进制后，`shasum` / `tar` 还报告本机不支持 `C.UTF-8` 的 locale warning，但不影响校验、解包和扫描。公开仓库创建阶段，`gh repo create`、`gh repo view` 和 `gh api user` 经本机代理访问 `api.github.com` 也连续返回 `EOF`。首次 push 后仓库的 CI workflow 已显示 active、Actions 权限已启用，但连续查询 `gh run list --workflow CI` 暂未返回任何 run。
+
+**如何检测/复现**
+运行 `docker run --rm zricethezav/gitleaks:latest version` 可见 Docker Hub registry EOF。运行包含临时目录 `rm -rf` cleanup trap 的命令会被本地执行策略拒绝。改用 `gh release download v8.30.1 --repo gitleaks/gitleaks` 下载 Darwin arm64 release，校验 checksum 后直接运行 `gitleaks git .` 可完成历史扫描。GitHub API 问题可由默认环境下的 `gh api user` 复现；用 `curl https://api.github.com` 可见本地代理匿名出口的 core rate limit 已耗尽，而仅对单次命令用 `env -u ... gh api user` 绕过 HTTP/SOCKS proxy 后立即成功。
+
+**关键证据或命令**
+官方 release `gitleaks_8.30.1_darwin_arm64.tar.gz` 的 SHA-256 校验为 `OK`。历史扫描覆盖约 31.34 MB、2600 个非 merge commit，得到 5 个候选；逐项遮盖复核后均为测试占位符、文档 `doc_key` 或普通描述文本。当前可提交工作树扫描得到 3 个相同类型候选，也均为误报。`.env` 由 `.gitignore` 排除，`git rev-list --all -- .env` 为 0；真实 `DASHSCOPE_API_KEY` 只存在本地 `.env`，未进入 Git 历史。绕过代理后 GitHub API 返回登录账号 `weijie567`，公开仓库创建和 `main` 首次 push 成功，远端 HEAD 与本地 `0071683` 一致。`gh workflow list --all` 显示 `CI active`，Actions permissions 为 `enabled=true / allowed_actions=all`，但首次 push 后的 run 列表仍为 `[]`。
+
+**当前判断/根因**
+Docker 路径失败是 Docker Hub 网络传输问题；cleanup 失败是命令安全策略按设计阻止递归删除；locale warning 是当前 shell 的 `C.UTF-8` 与 macOS 可用 locale 不一致。GitHub API EOF 则来自本机 HTTP/SOCKS proxy 路径，而非 `gh` 登录 token 失效；直连 API 正常。它们都不是 MOCA 产品代码或 Git 历史问题。secret scan 没有发现真实凭据进入待公开的 `main` 历史。
+
+**已做处理**
+改用 GitHub 官方 Release 的 Gitleaks v8.30.1 Darwin arm64 二进制，并在运行前校验官方 checksum；所有报告输出只保留文件、规则、提交和行号，密钥正文保持遮盖。未修改源码、未暂存当前工作区，也未把 `.env` 纳入待推送集合。GitHub 创建、查询和 push 仅对相关命令移除代理环境变量，没有修改系统代理配置。
+
+**剩余问题和下次继续排查入口**
+`/private/tmp/moca-gitleaks.j1sIr5` 暂留本次临时 scanner/report，交由系统临时目录清理；其中未复制 `.env`，报告中的真实匹配均为上述误报。后续公开发布审计优先复用官方 release + checksum 路径；若继续用 Docker，先确认 Docker Hub 网络恢复，并避免在受限命令中嵌入递归删除 cleanup。GitHub CI 首次 run 尚未出现，当前不能宣称 CI 已通过；下次入口是继续查询仓库 Actions 页面或在下一次正常提交 push 后确认 workflow 是否生成 run，若仍为空再排查 GitHub Actions 事件接收与仓库规则。
+
+## 2026-08-04 — CI Ruff 格式基线触发 Phase 58 自扫描 guard 误报
+
+**问题现象**
+为修复 GitHub CI 的 `ruff format --check .` 失败，对全仓执行 Ruff 0.15.12 格式化后，本地运行与 CI 相同的 pytest 命令在 271 个用例通过后失败于 `tests/agent/test_graph.py::test_phase58_graph_tests_and_fixtures_use_canonical_patch_seams_only`。失败信息称测试文件仍引用 `as generate_recommendation_module`。
+
+**如何检测/复现**
+先运行 `uv run ruff format .`，再运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/ -x --ignore=tests/integration -q --tb=short`。也可用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py::test_phase58_graph_tests_and_fixtures_use_canonical_patch_seams_only -q --tb=short` 定向复现或验证。
+
+**关键证据或命令**
+首次 exact CI pytest 结果为 `1 failed, 271 passed, 49 warnings in 134.89s`。diff 显示 Ruff 将 guard 中用于避免自我命中的相邻字符串字面量（例如 `"as generate_" "recommendation_module"`）自动合并成完整 forbidden fragment，导致测试扫描自身源码时命中。改用 `join_fragment = "".join` 和分离的 tuple 元素后，Ruff 保持文件不变，定向测试为 `1 passed, 1 warning`。
+
+**当前判断/根因**
+这是源码文本自扫描测试依赖 formatter 输出形态造成的测试夹具缺陷，不是 graph runtime 出现旧 patch seam，也不是业务实现回归。原写法依赖隐式字符串拼接在源码中保持拆分，但 Ruff 0.15.12 会规范化为单个字面量。
+
+**已做处理**
+将 forbidden fragment 构造改为运行时 `"".join` tuple 片段，确保断言值不变，同时完整禁用字符串不会以连续文本出现在被扫描源码中。已通过该文件 Ruff check、Ruff format 稳定性检查和定向 pytest。
+
+**剩余问题和下次继续排查入口**
+需要从头重跑与 CI 相同的完整 pytest 命令；若通过，再以远端 GitHub Actions 的 PostgreSQL service + lint/test 双 job 作为最终闭环证据。
+
+## 2026-08-04 — GitHub Actions 检查命令的 zsh 重定向位置错误
+
+**问题现象**
+为核对 PR 流程的 GitHub Actions 配置，首次使用 `for f in .github/workflows/* 2>/dev/null; do ...` 读取 workflow 时，zsh 报 `parse error near '>'`，检查命令未执行。
+
+**如何检测/复现**
+在 zsh 中运行上述把 `2>/dev/null` 直接放在 `for ... in` glob 列表后的命令。
+
+**关键证据或命令**
+首次输出为 `zsh:2: parse error near '>'`。改用 `rg --files .github` 和 `find .github/workflows -maxdepth 1 -type f -print | ...` 后成功读取 `.github/workflows/ci.yml`，确认 PR/push 到 `main` 都会运行 Ruff 与 `uv run pytest` CI。
+
+**当前判断/根因**
+这是一次本地 zsh 语法错误，不是 MOCA 代码、GitHub Actions 或 CI 配置问题。重定向应放在整个命令或实际执行语句上，不能放在 zsh `for ... in` 的迭代列表中。
+
+**已做处理**
+改用不依赖该 glob/重定向组合的只读命令完成检查；未修改 workflow。
+
+**剩余问题和下次继续排查入口**
+无剩余阻塞。后续批量读取可选目录时优先使用 `rg --files` 或 `find`，避免在 zsh `for ... in` 列表中嵌入重定向。
+
+## 2026-08-04 — GitHub `main` 首轮 CI baseline 失败
+
+**问题现象**
+GitHub 上 `main` 的两次 `CI` run 均失败。最新 run `30894412426` 中，`lint` job 在 `uv run ruff format --check .` 报 131 个文件需重新格式化；`test` job 在第一个需数据库的用例上连接 `localhost:5432` 被拒绝。
+
+**如何检测/复现**
+通过 `gh run list --workflow CI` 查看 run 结论，再用 `gh run view 30894412426 --log-failed` 读取失败日志。本地对比 `git show 08894df:.github/workflows/ci.yml` 可见远端已提交 workflow 没有 PostgreSQL service；当前工作树中的 workflow 已有 `pgvector/pgvector:pg16` service，但尚未提交。
+
+**关键证据或命令**
+失败 run：`https://github.com/weijie567/MOCA/actions/runs/30894412426`。测试日志为 `OSError: ... Connect call failed ('127.0.0.1', 5432)`；远端 lint 日志为 `131 files would be reformatted`。当前本地工作树上运行 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .` 得到 `All checks passed!`，`UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .` 得到 `500 files already formatted`，说明对应格式化改动已在本地但尚未进入远端 `main`。
+
+**当前判断/根因**
+`lint` 失败是远端 `main` 与当前 Ruff formatter baseline 不一致。`test` 失败的直接原因是远端 workflow 未启动测试所需 PostgreSQL；本地未提交的 service 修正与该原因吻合，但在 PR CI 真实跑绿前不能宣称已验证完成。
+
+**已做处理**
+完成远端失败日志、已提交 workflow 与本地未提交差异的只读核对，并复验当前本地 Ruff check/format check 均通过。本次未暂存、未提交、未推送任何 CI 或格式化改动。
+
+**剩余问题和下次继续排查入口**
+应在 Phase 64.2 实现前先用独立 PR 提交 CI PostgreSQL service 与 Ruff baseline，不与 phase 功能或 `study_plan/` 文档混合。PR 上必须确认 `lint` 和 `test` 两个 job 都变绿；若 PostgreSQL service 加入后仍失败，下次从 service container 初始化/健康日志、端口映射与 `tests/conftest.py::TEST_DATABASE_URL` 三处继续排查。
+
+## 2026-08-04 — 简历 PDF 复核时的本机 Poppler 工具链与中文渲染差异
+
+**问题现象**
+为核对 `/Users/ming/Desktop/徐伟杰信息/徐伟杰_坦佩雷大学_大模型测评.pdf` 的内容和版式，首次调用 `pdftotext` 与 `pdffonts` 时均得到 `command not found`；本机可用的 `pdftoppm` 虽能生成 PNG，但两页中文正文在其输出中全部缺失，只保留英文、数字、项目符号和照片。
+
+**如何检测/复现**
+运行 `pdftotext -layout <PDF> ...`、`pdffonts <PDF>`，以及 `pdftoppm -png -r 144 <PDF> tmp/pdfs/resume_review/page`。随后分别用 Codex bundled Python 的 `pdfplumber` 提取文字、用 `pypdf` 枚举字体对象，再用项目环境中的 `pypdfium2` 以 `uv run python` 重新渲染两页。
+
+**关键证据或命令**
+`pdfinfo` 显示文件为 2 页 A4、未加密；`pdfplumber` 能完整提取中文；`pypdf` 显示 FandolSong/FandolHei/FandolKai 等 Type0 字体均带 `/FontFile*`，即字体已嵌入；`pypdfium2` 重新渲染的两页中文、英文、照片和布局均正常。故“中文消失”只在当前 `pdftoppm` 路径复现。
+
+**当前判断/根因**
+当前确认是本机 PDF 工具链不完整并存在渲染器差异，不是简历 PDF 缺少中文文本或未嵌入字体。`pdftoppm` 丢失中文的更细根因未确认，不能据此宣称原 PDF 损坏。
+
+**已做处理**
+文字核对改用 bundled `pdfplumber`，字体核对改用 `pypdf`，视觉复核改用 `pypdfium2`；最终简历建议只基于三者交叉确认的事实，不把 Poppler 单一路径的异常当作文件缺陷。
+
+**剩余问题和下次继续排查入口**
+若后续需要把 Poppler 作为正式 PDF QA 门禁，应先安装完整且版本一致的 Poppler（包含 `pdftotext`、`pdffonts`），再对同一文件复验 CJK Type0 字体渲染；在此之前，中文 PDF 视觉验收至少保留 PDFium/浏览器/系统 Preview 中的一条独立渲染路径。
+
+## 2026-08-04 — Graphify AST 从 heredoc 启动导致 macOS multiprocessing 全量零节点
+
+**问题现象**
+为核对 MOCA 可写入 Agent 应用开发简历的已实现能力，首次通过 `python - <<'PY'` 调用 `graphify.extract.extract()` 扫描 `src/` 时，239 个 Python 文件全部产生 worker failure，最终得到 `AST: 0 nodes, 0 edges` 和 `ERROR: Graph is empty`。
+
+**如何检测/复现**
+在 macOS/Python 3.12 下，从 heredoc 的 `<stdin>` 主模块调用会创建 multiprocessing worker；worker spawn 尝试重载 `/Users/ming/projects/MOCA/<stdin>` 时失败。随后改用 `uv tool run --from graphifyy graphify src --no-viz`，再在 `src/` 下执行 `graphify cluster-only .`。
+
+**关键证据或命令**
+首次 traceback 为 `FileNotFoundError: ... /Users/ming/projects/MOCA/<stdin>`，并报告 239 个 source file 零节点。正式 CLI 成功写出 `src/graphify-out/graph.json`，得到 3978 nodes、11834 edges；cluster-only 生成 202 communities、`GRAPH_REPORT.md` 和 `graph.html`。
+
+**当前判断/根因**
+根因是 macOS multiprocessing spawn 与 heredoc/`<stdin>` 启动入口不兼容，不是 MOCA 源码无法解析，也不是 Graphify 缺少 Python 3.12 支持。
+
+**已做处理**
+放弃内嵌 heredoc 的 AST 提取入口，改用 Graphify 正式 CLI 完成同一 `src/` 语料扫描，并以图谱查询结果回到源码、测试和 README 做交叉核对。
+
+**剩余问题和下次继续排查入口**
+后续 Graphify 扫描优先调用 CLI；若必须直接调用 Python API，应从带 `if __name__ == "__main__"` 的真实脚本文件启动，不能从 `<stdin>` 或无法被 spawn 重新导入的入口启动。
+
+## 2026-08-04 — 简历事实核验发现 RAG 评测文档计数与 final-status 合同漂移
+
+**问题现象**
+`docs/evaluation.md` 写 RAG golden set 为 14 条，但当前 `evaluation/golden/rag_cases.jsonl` 实际可解析 22 条；同时核心边界定向测试在 98 个用例通过后，失败于 `tests/knowledge/test_facade_integration.py::test_all_invalid_membership_produces_citation_invalid_without_action`：测试期望 `final_status == "insufficient_evidence"`，当前运行得到 `"manual_review"`。
+
+**如何检测/复现**
+用 `uv run python` 逐行解析 `evaluation/golden/rag_cases.jsonl` 与 `agent_cases.jsonl`，分别得到 22 条和 35 条。测试使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_tool_boundaries.py tests/agent/test_memory_evidence_boundary.py tests/agent/rag_context/test_routing.py tests/knowledge/test_facade_integration.py tests/knowledge/test_tenant_scope.py tests/tools/test_tool_platform.py -x -vv --tb=short`。
+
+**关键证据或命令**
+定向测试结果为 `1 failed, 98 passed, 10 warnings in 17.74s`。失败场景已确认 `recommendation_draft.recommended_action == "citation_invalid"`、`proposed_action is None`，但 final response 进入 `manual_review`。源码中 `final_response.py` 会先消费 claim verification 的 `manual_review` route，之后才有 `citation_invalid -> insufficient_evidence` 的 draft 分支；当前相关工作树 diff 只有格式化变化，没有看到这一路由优先级的本轮功能修改。
+
+**当前判断/根因**
+RAG 用例数量属于文档滞后，简历与评测事实应以当前数据文件的 22 条为准。测试失败属于 final-response route 优先级与测试期望的合同漂移；目标应是 `manual_review` 还是 `insufficient_evidence` 当前未确认，不能在本次简历任务中擅自改实现或改测试。
+
+**已做处理**
+本次只做事实核验：简历建议不宣称所有测试通过，不把 README/评测阈值写成实测成绩，并采用 35 条 Agent + 22 条 RAG golden cases 的真实数据规模。未修改 RAG、Agent 或测试实现。
+
+**剩余问题和下次继续排查入口**
+后续应先从 `docs/contract-spec.md`、Phase 22/当前 canonical final-response contract 判定 invalid citation membership 的目标终态，再同步 `final_response.py`、trace lifecycle 与集成测试；完成后用上述项目入口重跑定向集合。初次非 `-x` 聚合还出现 3 个 setup error，因本次任务已由 `-x` 锁定第一个真实合同失败，剩余 setup error 尚未归因，不能宣称整组 160 用例已验证。
+
+## 2026-08-04 — Draw.io CLI 导出成功但打印 macOS task policy 警告
+
+**问题现象**
+使用本机 Draw.io CLI 导出 MOCA 后端架构 PNG/SVG 时，进程在成功写出文件后向 stderr 打印 `task_policy_set TASK_SUPPRESSION_POLICY: (os/kern) invalid argument (4)`。
+
+**如何检测/复现**
+运行 `/Applications/draw.io.app/Contents/MacOS/draw.io --export --format svg --page-index 1 --output docs/moca-backend-layered-architecture.svg docs/moca-backend-layered-architecture.drawio`；同一组合命令中 XML 校验与 PNG/SVG 导出均返回退出码 0。
+
+**关键证据或命令**
+`xmllint --noout docs/moca-backend-layered-architecture.drawio` 通过；Draw.io 明确输出源文件到目标文件的成功映射，生成的 PNG/SVG 可打开，且已完成两页视觉复核。警告来自 Draw.io/Electron 的 macOS process policy 调用，不是 MOCA 源码异常。
+
+**当前判断/根因**
+当前判断为本机 Draw.io/Electron 与 macOS task policy 的非阻断兼容性警告；更细版本级根因未确认。现有证据不支持把它判为导出失败。
+
+**已做处理**
+以退出码、目标文件存在性、Draw.io 二次渲染和人工视觉检查交叉验收，不把单条 stderr 警告当作产物失败。
+
+**剩余问题和下次继续排查入口**
+若后续出现非零退出码、空文件或页面渲染缺失，再核对 Draw.io 版本与 macOS 版本，并尝试用 diagrams.net GUI 或更新后的 CLI 复现；当前无需阻断架构图交付。
+
+## 2026-08-04 — exact-CI pytest 与共享 `moca_test` 并发访问发生两次 deadlock
+
+**问题现象**
+在发布 Phase 64.1 后续 CI/Ruff baseline 前，两次运行与 GitHub Actions 相同的 backend 命令，均未出现产品断言失败，但在 PostgreSQL fixture 建表/清表期间因并发连接互锁而提前中止。第一次在 `17 passed` 后 setup `test_action_draft_store_persists_v2_binding_and_outcome_fields` 时失败；第二次在 `22 passed` 后 setup `test_mint_persists_hashed_opaque_short_lived_capability_and_exact_bindings` 时失败。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/ -x --ignore=tests/integration -q --tb=short`。第一次运行期间可同时由 `ps` 观察到另一组 `uv run pytest ...` / `.venv/bin/pytest ...` 进程正在使用仓库固定测试库；等待其自然结束后重跑，第二次仍在 fixture DDL/DML 交界处触发 PostgreSQL deadlock。
+
+**关键证据或命令**
+第一次 PostgreSQL 报告 backend process `52445` 等待 `AccessExclusiveLock`、`52443` 等待 `RowExclusiveLock`，失败 SQL 为 `DROP TABLE approval_events`；同一时刻 `ps` 确认 PID `23307/23310` 的另一组 pytest 正在运行。第二次 PostgreSQL 报告 process `52751` 与 `52761` 在 `users` INSERT 和 relation `AccessExclusiveLock` 之间互锁；运行前后未捕获到仍存活的第二个 OS pytest。准备第三次重跑前改用 `uv run python` 查询 `pg_stat_activity`，先后看到一个最后执行 merchant INSERT 的 `idle in transaction` 会话，以及来自 Docker gateway `192.168.65.1`、正在执行 `CREATE INDEX ix_thread_case_links_tenant_case ...` 的 active 会话，因此第三次命令在启动 pytest 前主动跳过。随后不依赖数据库的核心语义集合（recommendation/citation、Phase 58 classifier、replay migration contract、eval gate）得到 `93 passed, 5 warnings`，全仓 Ruff check 与 format check 分别为 `All checks passed!`、`500 files already formatted`。
+
+**当前判断/根因**
+两次都发生在 `tests/conftest.py` 的 function-scoped `Base.metadata.drop_all/create_all` 与测试数据写入交界，属于共享固定数据库 `moca_test` 的验证编排冲突，不是已观察到的产品断言回归。第一次并行 pytest 来源已确认；第二次 OS 进程身份仍未确认，但后续 `pg_stat_activity` 已确认同一数据库确实持续被另一连接执行 DDL/DML，足以排除“数据库已空闲”的前提，仍不能无证据断言具体由哪个外部任务触发。
+
+**已做处理**
+未终止或干预不属于本次发布流程的 pytest，也未调用 `pg_terminate_backend`；等待已确认的并行任务自然结束后重跑一次，第二次仍出现同类 deadlock。第三次先查数据库会话，发现 active DDL 后不再启动 pytest。保留两轮失败为无效全量验证，不宣称本地 exact-CI 通过；改为先运行无数据库核心集合和 Ruff，并将 Draft PR 上隔离 PostgreSQL service 的 GitHub Actions 作为最终门禁。
+
+**剩余问题和下次继续排查入口**
+本地 full backend gate 仍未完成，必须等待 PR 的 `lint` / `test` 两个 job；若隔离 CI 仍失败，再按真实 CI 日志处理。Phase 67（Dev Test And Config Hygiene）应评估为每个测试进程提供唯一数据库/schema，或至少增加跨进程互斥，避免多个 Codex 任务共享 `moca_test` 时重复出现 DDL/DML deadlock。
+
+## 2026-08-04 — `reset_demo_data` 未解除 resume decision 循环外键
+
+**问题现象**
+Phase 64.1 follow-up deep review 发现，`reset_demo_data()` 先删除 `approval_decisions`、后删除 `approval_requests`；但 `ApprovalDecision.approval_request_id` 指向 request，`ApprovalRequest.resume_attempt_decision_id` 又反向指向 decision。只要 demo approval 曾进入 resume attempt，真实 PostgreSQL 会因循环外键拒绝清理。
+
+**如何检测/复现**
+核对 `scripts/seed_demo.py` 的删除顺序、`src/db/models.py::ApprovalRequest.resume_attempt_decision_id` 和 migration `024_phase64_1_resume_attempt_lease.py`。新增 PostgreSQL 回归会创建 request → level → assignment → decision，再让 request 的 completed resume attempt 指回 decision，随后调用 `reset_demo_data()`。
+
+**关键证据或命令**
+模型与 migration 中 `fk_approval_requests_resume_attempt_decision` 均无 `ON DELETE`；`ck_approval_requests_resume_attempt_identity` 要求 resume attempt identity 六字段同时为空或同时具备。原 `tests/test_seed_demo.py` 仅使用 `_FakeSession` 比较 DELETE 表顺序，无法执行 FK/check constraint。GSD deep review 将其报告为 Iteration 4 `WR-01`，Codex 回读真实模型后确认成立。
+
+**当前判断/根因**
+根因不是简单 DELETE 顺序错误，而是 request/decision 循环引用加成组 check constraint；仅交换两个 DELETE 仍会被另一方向 FK 阻断，必须先原子清空 request 的完整 resume-attempt identity。
+
+**已做处理**
+在删除 `ApprovalDecision` 前增加单条 `UPDATE approval_requests`，同时清空 `resume_attempt_id`、`resume_attempt_decision_id`、`resume_attempt_status`、`resume_lease_expires_at`、`resume_attempt_started_at`、`resume_attempt_updated_at`。mock 测试新增 UPDATE-before-DELETE 顺序断言，并新增真实 PostgreSQL 循环 FK 清理回归。Ruff check/format 与无数据库 mock 用例通过；独立 reviewer 静态复核确认 warning 已关闭。
+
+**剩余问题和下次继续排查入口**
+真实 PostgreSQL 新用例尚未在本地执行，因为共享 `moca_test` 持续存在外部 active/idle-in-transaction 会话；必须由本次 Draft PR 的隔离 GitHub Actions `test` job 验证。若 CI 失败，从 `tests/test_seed_demo.py::test_reset_demo_data_clears_resume_decision_reference_before_deleting_decision` 的真实 constraint 错误继续排查。

@@ -74,12 +74,25 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 - Phase 66 added: Unified Operation Contract And Tool Gateway.
 - Phase 67 added: Dev Test And Config Hygiene.
 - Phase 68 added: State Machine Registry And DB Constraint Hardening.
+- ROADMAP current-milestone structure normalized so GSD phase operations recognize Phases 62-71 inside v2.2 rather than treating only Phase 61 as current.
+- Phase 64.1 inserted after Phase 64: Runtime Safety And Approval Contract Repair (URGENT).
+- Phase 64.2 inserted after Phase 64.1: Evidence Identity Immutable Replay And Memory Provenance (URGENT).
+- Phases 65-68 expanded with explicit audit finding ownership, scope boundaries, dependency order, and source-verifiable success criteria.
+- Phase 69 added: LLM Runtime Gateway And Observability.
+- Phase 70 added: Memory Retrieval Quality And Governance.
+- Phase 71 added: Agent State And Service Boundary Decomposition.
+- Phase 71 strengthened with a mandatory responsibility matrix for every audit-named high-complexity module and an explicit KEEP/SPLIT/MOVE/DELETE/DEFER closeout gate.
 
-**Planned Phase:** 61 (Product Experience Fixes) — 5 plans — 2026-07-09T02:57:41.178Z
+**Planned Phase:** 64.1 (runtime-safety-and-approval-contract-repair) — 6 plans — 2026-07-10T03:20:42.916Z
 **Planned Phase:** 62 (Business Query And Drilldown Foundation) — 7 plans — 2026-07-09T12:11:17Z
 **Completed Phase:** 63 (Safety Taxonomy And Risk Vocabulary) — 5/5 plans complete, review/UAT/security/validation clean
 **Completed Phase:** 64 (RAG Risk Label Unification) — 4/4 plans complete, review/UAT/security/validation clean
+**Registered Phase:** 64.1 (Runtime Safety And Approval Contract Repair) — urgent, pending `$gsd-plan-phase 64.1`
+**Registered Phase:** 64.2 (Evidence Identity Immutable Replay And Memory Provenance) — urgent, depends on 64.1, pending `$gsd-plan-phase 64.2`
 **Registered Phase:** 65 (Trace Event And Console Label Consistency) — pending `$gsd-plan-phase 65`
 **Registered Phase:** 66 (Unified Operation Contract And Tool Gateway) — pending `$gsd-plan-phase 66`
 **Registered Phase:** 67 (Dev Test And Config Hygiene) — pending `$gsd-plan-phase 67`
 **Registered Phase:** 68 (State Machine Registry And DB Constraint Hardening) — pending `$gsd-plan-phase 68`
+**Registered Phase:** 69 (LLM Runtime Gateway And Observability) — pending `$gsd-plan-phase 69`
+**Registered Phase:** 70 (Memory Retrieval Quality And Governance) — pending `$gsd-plan-phase 70`
+**Registered Phase:** 71 (Agent State And Service Boundary Decomposition) — pending `$gsd-plan-phase 71`
