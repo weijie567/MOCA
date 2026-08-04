@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { DemoRole } from '@/hooks/useAuth'
-import type { ApprovalSubmissionOutcome } from '@/lib/api'
+import type { ApprovalDecisionContextV1, ApprovalSubmissionOutcome } from '@/lib/api'
 import type { SseEvent } from '@/types/events'
 import { ApprovalTab } from './ApprovalTab'
 import { BusinessQueryResultTab } from './BusinessQueryResultTab'
@@ -19,8 +19,9 @@ interface DetailsPanelProps {
   role: DemoRole
   status: string
   steps?: SseEvent[]
-  approveRun?: () => Promise<ApprovalSubmissionOutcome>
-  rejectRun?: (reason: string) => Promise<ApprovalSubmissionOutcome>
+  approvalContext?: ApprovalDecisionContextV1 | null
+  approveRun?: (reviewedContext: ApprovalDecisionContextV1) => Promise<ApprovalSubmissionOutcome>
+  rejectRun?: (reviewedContext: ApprovalDecisionContextV1, reason: string) => Promise<ApprovalSubmissionOutcome>
   retryApprovalResume?: () => Promise<ApprovalSubmissionOutcome>
 }
 
@@ -38,6 +39,7 @@ export function DetailsPanel({
   role,
   status,
   steps = [],
+  approvalContext,
   approveRun,
   rejectRun,
   retryApprovalResume,
@@ -93,6 +95,7 @@ export function DetailsPanel({
               riskLevel={approvalEvent?.payload?.risk_level ?? null}
               canApprove={role === 'manager' || role === 'admin'}
               status={status}
+              latestDecisionContext={approvalContext}
               onApprove={approveRun}
               onReject={rejectRun}
               onRetryResume={retryApprovalResume}

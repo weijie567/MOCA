@@ -17,10 +17,13 @@ import {
   getApproval,
   getPendingApprovals,
   getRunStatus,
+  isExactApprovalDecisionContext,
   isTerminalApprovalStatus,
+  shouldReplaceApprovalDecisionContext,
   submitFrozenApprovalSubmission,
 } from '@/lib/api'
 import type {
+  ApprovalDecisionContextV1,
   ApprovalRecord,
   ApprovalSubmissionOutcome,
   FrozenApprovalSubmission,
@@ -32,8 +35,9 @@ interface ApprovalTabProps {
   riskLevel?: string | null
   canApprove: boolean
   status: string
-  onApprove?: () => Promise<ApprovalSubmissionOutcome>
-  onReject?: (reason: string) => Promise<ApprovalSubmissionOutcome>
+  latestDecisionContext?: ApprovalDecisionContextV1 | null
+  onApprove?: (reviewedContext: ApprovalDecisionContextV1) => Promise<ApprovalSubmissionOutcome>
+  onReject?: (reviewedContext: ApprovalDecisionContextV1, reason: string) => Promise<ApprovalSubmissionOutcome>
   onRetryResume?: () => Promise<ApprovalSubmissionOutcome>
 }
 
@@ -85,6 +89,7 @@ export function ApprovalTab({
   approvalId,
   canApprove,
   status,
+  latestDecisionContext,
   onApprove,
   onReject,
   onRetryResume,
@@ -127,7 +132,8 @@ export function ApprovalTab({
       return currentRunApproval?.id ?? result.data.approvals[0]?.id ?? null
     })
   }, [approvalId, canApprove])
-  const entries = useMemo(() => actionEntries(activeApproval?.proposed_action), [activeApproval])
+  const displayedContext = activeApproval?.decision_context ?? null
+  const entries = useMemo(() => actionEntries(displayedContext?.proposed_action), [displayedContext])
   const decisionCopy =
     pendingDecision === 'approve'
       ? '确认批准此操作？系统将创建已授权的操作草稿；本页面不会直接执行生产外部操作。'
@@ -164,10 +170,25 @@ export function ApprovalTab({
     return () => { active = false }
   }, [canApprove, detailRefresh, selectedApprovalId])
 
+  useEffect(() => {
+    if (
+      !displayedContext
+      || !latestDecisionContext
+      || displayedContext.approval_id !== latestDecisionContext.approval_id
+      || isExactApprovalDecisionContext(displayedContext, latestDecisionContext)
+      || !shouldReplaceApprovalDecisionContext(displayedContext, latestDecisionContext)
+    ) {
+      return
+    }
+    setContextInvalidated(true)
+    setPendingDecision(null)
+    setStatusMessage('审批内容已更新，请刷新并重新复核后再决定。')
+  }, [displayedContext, latestDecisionContext])
+
   async function confirmDecision() {
     const decision = pendingDecision
     if (!decision || submitting) return
-    if (decision !== 'resume' && !activeApproval?.decision_context) return
+    if (decision !== 'resume' && (!activeApproval?.decision_context || contextInvalidated)) return
     if (decision === 'resume' && !resumeRetry) return
     setSubmitting(true)
     setStatusMessage(null)
@@ -204,8 +225,8 @@ export function ApprovalTab({
           : undefined
         if (activeCallback) {
           outcome = decision === 'approve'
-            ? await (activeCallback as NonNullable<typeof onApprove>)()
-            : await (activeCallback as NonNullable<typeof onReject>)(reason)
+            ? await (activeCallback as NonNullable<typeof onApprove>)(frozenContext)
+            : await (activeCallback as NonNullable<typeof onReject>)(frozenContext, reason)
           if (outcome.kind === 'resume_incomplete') newResumeRetry = { source: 'active' }
         } else {
           const result = await decideApproval(frozenContext, input)
@@ -278,7 +299,7 @@ export function ApprovalTab({
     setSubmitting(false)
   }
 
-  const context = activeApproval?.decision_context
+  const context = displayedContext
   const expired = context ? Date.parse(context.expires_at) <= Date.now() : true
   const canApproveDecision = Boolean(
     context
@@ -364,7 +385,7 @@ export function ApprovalTab({
         <CardHeader className="flex flex-row items-start justify-between gap-3">
           <CardTitle>审批操作</CardTitle>
           <Badge variant={riskVariant(activeApproval?.risk_level)}>
-            risk_level: {canApprove ? activeApproval?.risk_level ?? 'unknown' : 'hidden'}
+            risk_level: {canApprove ? context?.risk_level ?? 'unknown' : 'hidden'}
           </Badge>
         </CardHeader>
         <CardContent>
@@ -409,6 +430,17 @@ export function ApprovalTab({
             驳回
           </Button>
         </div>
+      ) : null}
+
+      {canApprove && contextInvalidated && activeApproval?.status === 'pending' && selectedApprovalId ? (
+        <Button
+          className="min-h-11 w-full"
+          variant="outline"
+          disabled={loadingDetail || submitting}
+          onClick={() => setDetailRefresh((current) => current + 1)}
+        >
+          刷新并复核最新审批
+        </Button>
       ) : null}
 
       {canApprove && resumeRetry ? (
@@ -466,7 +498,11 @@ export function ApprovalTab({
             </Button>
             <Button
               variant={pendingDecision === 'reject' ? 'destructive' : 'default'}
-              disabled={submitting || (pendingDecision === 'reject' && !reason.trim())}
+              disabled={
+                submitting
+                || (pendingDecision !== 'resume' && contextInvalidated)
+                || (pendingDecision === 'reject' && !reason.trim())
+              }
               onClick={() => void confirmDecision()}
             >
               {submitting

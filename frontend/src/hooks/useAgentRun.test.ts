@@ -1,4 +1,4 @@
-import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import fixture from '@contracts/fixtures/approval_decision_context_v1.json'
 import { createElement } from 'react'
 import { DetailsPanel } from '@/components/details/DetailsPanel'
@@ -7,11 +7,12 @@ import { TimelineStep } from '@/components/timeline/TimelineStep'
 import {
   createRun,
   getApproval,
+  getPendingApprovals,
   getRunStatus,
   parseApprovalDecisionContext,
   submitFrozenApprovalSubmission,
 } from '@/lib/api'
-import type { ApprovalRecord } from '@/lib/api'
+import type { ApprovalRecord, DecidableApprovalRecord } from '@/lib/api'
 import { connectToRunEvents } from '@/lib/sse'
 import type { SseEvent } from '@/types/events'
 import { useAgentRun } from './useAgentRun'
@@ -37,11 +38,12 @@ vi.mock('@/lib/sse', () => ({
 const createRunMock = vi.mocked(createRun)
 const submitFrozenApprovalSubmissionMock = vi.mocked(submitFrozenApprovalSubmission)
 const getApprovalMock = vi.mocked(getApproval)
+const getPendingApprovalsMock = vi.mocked(getPendingApprovals)
 const getRunStatusMock = vi.mocked(getRunStatus)
 const connectToRunEventsMock = vi.mocked(connectToRunEvents)
 let streamCallbacks: Map<string, Parameters<typeof connectToRunEvents>[1]>
 const approvalContext = parseApprovalDecisionContext({ ...fixture, run_id: 'run-1' })!
-const approvalRecord: ApprovalRecord = {
+const approvalRecord: DecidableApprovalRecord = {
   id: approvalContext.approval_id,
   run_id: approvalContext.run_id,
   status: 'pending',
@@ -57,6 +59,30 @@ const approvalRecord: ApprovalRecord = {
   expires_at: approvalContext.expires_at,
   created_at: approvalContext.created_at,
   decision_context: approvalContext,
+}
+
+function ApprovalDecisionHarness() {
+  const { state, submitQuery, approveRun, rejectRun, retryApprovalResume } = useAgentRun()
+  return createElement(
+    'div',
+    null,
+    createElement(
+      'button',
+      { type: 'button', onClick: () => void submitQuery('review approval context') },
+      'start approval flow',
+    ),
+    createElement(DetailsPanel, {
+      runId: state.runId,
+      approvalId: state.approvalId,
+      role: 'admin',
+      status: state.status,
+      steps: state.steps,
+      approvalContext: state.approvalContext,
+      approveRun,
+      rejectRun,
+      retryApprovalResume,
+    }),
+  )
 }
 
 function createMemoryStorage(): Storage {
@@ -490,7 +516,7 @@ describe('useAgentRun thread lifecycle', () => {
         }))
       })
       await act(async () => {
-        expect(await result.current.approveRun()).toEqual({ kind: 'submitted' })
+        expect(await result.current.approveRun(approvalContext)).toEqual({ kind: 'submitted' })
       })
       getRunStatusMock.mockResolvedValueOnce({
         success: true,
@@ -600,7 +626,7 @@ describe('useAgentRun thread lifecycle', () => {
     expect(result.current.state.approvalContextFresh).toBe(false)
 
     await act(async () => {
-      expect(await result.current.approveRun()).toEqual({ kind: 'submitted' })
+      expect(await result.current.approveRun(approvalContext)).toEqual({ kind: 'submitted' })
     })
 
     expect(submitFrozenApprovalSubmissionMock).toHaveBeenCalledTimes(1)
@@ -631,12 +657,83 @@ describe('useAgentRun thread lifecycle', () => {
     })
 
     await act(async () => {
-      expect(await result.current.approveRun()).toMatchObject({ kind: 'stale' })
+      expect(await result.current.approveRun(approvalContext)).toMatchObject({ kind: 'stale' })
     })
 
     expect(submitFrozenApprovalSubmissionMock).not.toHaveBeenCalled()
     expect(result.current.state.approvalContext).toEqual(newerContext)
     expect(result.current.state.approvalContextFresh).toBe(false)
+  })
+
+  it('blocks V1 displayed approval after SSE V2 until V2 is fetched and explicitly re-reviewed', async () => {
+    const newerContext = {
+      ...approvalContext,
+      request_version: approvalContext.request_version + 1,
+      level_version: approvalContext.level_version + 1,
+      assignment_version: approvalContext.assignment_version + 1,
+      revision: approvalContext.revision + 1,
+      proposed_action: { ...approvalContext.proposed_action, amount: 20 },
+    }
+    const newerRecord: DecidableApprovalRecord = {
+      ...approvalRecord,
+      proposed_action: newerContext.proposed_action,
+      decision_context: newerContext,
+    }
+    getPendingApprovalsMock.mockResolvedValue({
+      success: true,
+      data: { approvals: [approvalRecord], total: 1 },
+    })
+    getApprovalMock
+      .mockResolvedValueOnce({ success: true, data: approvalRecord })
+      .mockResolvedValue({ success: true, data: newerRecord })
+
+    const { unmount } = render(createElement(ApprovalDecisionHarness))
+    fireEvent.click(screen.getByRole('button', { name: 'start approval flow' }))
+    await waitFor(() => expect(streamCallbacks.has('run-1')).toBe(true))
+    act(() => {
+      streamCallbacks.get('run-1')?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: { approval_id: approvalContext.approval_id, decision_context: approvalContext },
+      }))
+    })
+
+    await screen.findByText('10')
+    expect((screen.getByRole('button', { name: '批准' }) as HTMLButtonElement).disabled).toBe(false)
+
+    act(() => {
+      streamCallbacks.get('run-1')?.onEvent(event({
+        event_type: 'approval_required',
+        status: 'waiting_approval',
+        payload: { approval_id: newerContext.approval_id, decision_context: newerContext },
+      }))
+    })
+
+    await screen.findByText('审批内容已更新，请刷新并重新复核后再决定。')
+    expect(screen.getByText('10')).toBeTruthy()
+    expect(screen.queryByText('20')).toBeNull()
+    const staleApprove = screen.getByRole('button', { name: '批准' }) as HTMLButtonElement
+    expect(staleApprove.disabled).toBe(true)
+    fireEvent.click(staleApprove)
+    expect(submitFrozenApprovalSubmissionMock).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新并复核最新审批' }))
+    await screen.findByText('20')
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: '批准' }) as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '批准' }))
+    fireEvent.click(screen.getAllByRole('button', { name: '批准' }).at(-1)!)
+    await waitFor(() => expect(submitFrozenApprovalSubmissionMock).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(submitFrozenApprovalSubmissionMock.mock.calls[0][0].body_json)).toMatchObject({
+      decision_type: 'approve',
+      expected_request_version: newerContext.request_version,
+      expected_level_version: newerContext.level_version,
+      expected_assignment_version: newerContext.assignment_version,
+      expected_revision: newerContext.revision,
+    })
+    unmount()
   })
 
   it('keeps a committed resume failure distinct until an explicit frozen retry succeeds', async () => {
@@ -671,7 +768,7 @@ describe('useAgentRun thread lifecycle', () => {
     })
 
     await act(async () => {
-      expect(await result.current.approveRun()).toEqual({
+      expect(await result.current.approveRun(approvalContext)).toEqual({
         kind: 'resume_incomplete',
         approval: terminalApproval,
         runStatus: 'running',
@@ -728,7 +825,7 @@ describe('useAgentRun thread lifecycle', () => {
     })
     let outcome
     await act(async () => {
-      outcome = await result.current.approveRun()
+      outcome = await result.current.approveRun(approvalContext)
     })
 
     expect(outcome).toEqual({ kind: 'reconciled', approval: terminalApproval })

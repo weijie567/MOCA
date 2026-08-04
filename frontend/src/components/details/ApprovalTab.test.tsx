@@ -129,6 +129,7 @@ describe('ApprovalTab decision safety', () => {
     await screen.findByText(expectedMessage)
     expect(screen.queryByText('审批决定已提交，正在同步运行状态。')).toBeNull()
     expect(onApprove).toHaveBeenCalledTimes(1)
+    expect(onApprove).toHaveBeenCalledWith(decisionContext)
   })
 
   it('reconciles committed-but-response-lost direct submission without replay', async () => {

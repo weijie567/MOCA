@@ -65,6 +65,7 @@ function App() {
             role={role}
             status={state.status}
             steps={state.steps}
+            approvalContext={state.approvalContext}
             approveRun={approveRun}
             rejectRun={rejectRun}
             retryApprovalResume={retryApprovalResume}

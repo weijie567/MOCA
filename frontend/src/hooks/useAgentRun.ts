@@ -641,9 +641,14 @@ export function useAgentRun() {
     [applyAuthoritativeApproval, startPolling],
   )
 
-  const approveRun = useCallback(async (): Promise<ApprovalSubmissionOutcome> => {
-    if (!state.approvalContext || !state.runId) return { kind: 'unavailable', approval: null }
-    const reviewedContext = state.approvalContext
+  const approveRun = useCallback(async (
+    reviewedContext: ApprovalDecisionContextV1,
+  ): Promise<ApprovalSubmissionOutcome> => {
+    if (
+      !state.runId
+      || reviewedContext.run_id !== state.runId
+      || reviewedContext.approval_id !== state.approvalId
+    ) return { kind: 'unavailable', approval: null }
     const approvalId = reviewedContext.approval_id
     try {
       const latest = await getApproval(approvalId)
@@ -651,8 +656,8 @@ export function useAgentRun() {
         setState((current) => ({ ...current, approvalContextFresh: false, error: '审批不可用，请刷新后重试。' }))
         return { kind: 'unavailable', approval: null }
       }
-      applyAuthoritativeApproval(latest.data, true)
       if (!latest.data.decision_context) {
+        applyAuthoritativeApproval(latest.data)
         if (isTerminalApprovalStatus(latest.data.status)) {
           startPolling(state.runId)
           return { kind: 'reconciled', approval: latest.data }
@@ -660,8 +665,10 @@ export function useAgentRun() {
         return { kind: 'unavailable', approval: null }
       }
       if (!isExactApprovalDecisionContext(reviewedContext, latest.data.decision_context)) {
+        applyAuthoritativeApproval(latest.data)
         return { kind: 'stale', approval: latest.data }
       }
+      applyAuthoritativeApproval(latest.data, true)
       const frozen = reviewedContext
       const submission = freezeApprovalSubmission(frozen, { decision_type: 'approve' })
       const result = await submitFrozenApprovalSubmission(submission)
@@ -685,12 +692,16 @@ export function useAgentRun() {
       setState((current) => ({ ...current, approvalContextFresh: false, error: '审批提交失败，请刷新后重试。' }))
       return { kind: 'unavailable', approval: null }
     }
-  }, [applyAuthoritativeApproval, recordResumeIncomplete, recoverApprovalAfterSubmission, startPolling, state.approvalContext, state.runId])
+  }, [applyAuthoritativeApproval, recordResumeIncomplete, recoverApprovalAfterSubmission, startPolling, state.approvalId, state.runId])
 
   const rejectRun = useCallback(
-    async (reason: string): Promise<ApprovalSubmissionOutcome> => {
-      if (!state.approvalContext || !state.runId || !reason.trim()) return { kind: 'unavailable', approval: null }
-      const reviewedContext = state.approvalContext
+    async (reviewedContext: ApprovalDecisionContextV1, reason: string): Promise<ApprovalSubmissionOutcome> => {
+      if (
+        !state.runId
+        || reviewedContext.run_id !== state.runId
+        || reviewedContext.approval_id !== state.approvalId
+        || !reason.trim()
+      ) return { kind: 'unavailable', approval: null }
       const approvalId = reviewedContext.approval_id
       try {
         const latest = await getApproval(approvalId)
@@ -698,8 +709,8 @@ export function useAgentRun() {
           setState((current) => ({ ...current, approvalContextFresh: false, error: '审批不可用，请刷新后重试。' }))
           return { kind: 'unavailable', approval: null }
         }
-        applyAuthoritativeApproval(latest.data, true)
         if (!latest.data.decision_context) {
+          applyAuthoritativeApproval(latest.data)
           if (isTerminalApprovalStatus(latest.data.status)) {
             startPolling(state.runId)
             return { kind: 'reconciled', approval: latest.data }
@@ -707,8 +718,10 @@ export function useAgentRun() {
           return { kind: 'unavailable', approval: null }
         }
         if (!isExactApprovalDecisionContext(reviewedContext, latest.data.decision_context)) {
+          applyAuthoritativeApproval(latest.data)
           return { kind: 'stale', approval: latest.data }
         }
+        applyAuthoritativeApproval(latest.data, true)
         const frozen = reviewedContext
         const submission = freezeApprovalSubmission(frozen, { decision_type: 'reject', reason })
         const result = await submitFrozenApprovalSubmission(submission)
@@ -743,7 +756,7 @@ export function useAgentRun() {
         return { kind: 'unavailable', approval: null }
       }
     },
-    [applyAuthoritativeApproval, recordResumeIncomplete, recoverApprovalAfterSubmission, startPolling, state.approvalContext, state.runId],
+    [applyAuthoritativeApproval, recordResumeIncomplete, recoverApprovalAfterSubmission, startPolling, state.approvalId, state.runId],
   )
 
   const retryApprovalResume = useCallback(async (): Promise<ApprovalSubmissionOutcome> => {
