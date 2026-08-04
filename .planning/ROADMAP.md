@@ -118,7 +118,7 @@ Plans:
 **Goal:** Repair the confirmed cross-layer safety breaks between recommendation generation, deterministic risk evaluation, approval APIs, frontend approval handling, and auto-allowed action drafting so every actionable recommendation is normalized, risk-classified, authorized, and auditable before it can reach an action draft or a successful final response.
 **Requirements**: SC-64.1-1, SC-64.1-2, SC-64.1-3, SC-64.1-4, SC-64.1-5
 **Depends on:** Phase 64
-**Plans:** 6 plans
+**Plans:** 6/6 plans complete
 
 **Audit findings owned:** Chinese/English actionable recommendations can bypass action claims and `risk_gate`; medium-risk rules disappear in fallback and can become low/auto-allowed; the frontend approval payload cannot satisfy the backend decision schema; normal auto-allowed runs lack a narrowly authorized draft capability; action-draft failures can be hidden by a successful final response.
 
@@ -132,12 +132,14 @@ Plans:
 5. End-to-end safety-matrix tests prove canonicalization -> claim verification -> deterministic risk -> approval or trusted auto-allow -> action draft behavior, and prove denied, stale, malformed, unsupported, or draft-failure paths cannot report successful completion or create a draft.
 
 Plans:
-- [ ] 64.1-01-PLAN.md — Canonical action candidate and fail-closed routing
-- [ ] 64.1-02-PLAN.md — Deterministic risk rule parity and fallback
-- [ ] 64.1-03-PLAN.md — Versioned approval decision contract across backend/API/SSE/frontend
-- [ ] 64.1-04-PLAN.md — Durable bounded auto-action capability
-- [ ] 64.1-05-PLAN.md — Conditional post-draft terminal integrity
-- [ ] 64.1-06-PLAN.md — End-to-end matrix, architecture guards, and closeout gates
+- [x] 64.1-01-PLAN.md — Canonical action candidate and fail-closed routing
+- [x] 64.1-02-PLAN.md — Deterministic risk rule parity and fallback
+- [x] 64.1-03-PLAN.md — Versioned approval decision contract across backend/API/SSE/frontend
+- [x] 64.1-04-PLAN.md — Durable bounded auto-action capability
+- [x] 64.1-05-PLAN.md — Conditional post-draft terminal integrity
+- [x] 64.1-06-PLAN.md — End-to-end matrix, architecture guards, and closeout gates
+
+**Closeout:** 6/6 plans complete; phase verification 20/20, automated UAT 7/7, code-review findings 3/3 fixed, `threats_open: 0`, and `nyquist_compliant: true` on 2026-08-04.
 
 ### Phase 64.2: Evidence Identity Immutable Replay And Memory Provenance (INSERTED)
 

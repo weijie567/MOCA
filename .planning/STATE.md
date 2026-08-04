@@ -2,37 +2,37 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
-status: planning
-last_updated: "2026-07-10T09:24:38+08:00"
-last_activity: 2026-07-10
+status: ready_to_plan
+last_updated: "2026-08-04T16:30:00+08:00"
+last_activity: 2026-08-04 -- Phase 64.1 completed; Phase 64.2 ready to plan
 progress:
-  total_phases: 8
-  completed_phases: 4
-  total_plans: 21
-  completed_plans: 21
-  percent: 50
+  total_phases: 13
+  completed_phases: 5
+  total_plans: 27
+  completed_plans: 27
+  percent: 38
 ---
 
 # Project State: MOCA
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-09)
+See: `.planning/PROJECT.md` (updated 2026-08-04)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 65 — trace-event-and-console-label-consistency
+**Current focus:** Phase 64.2 — evidence-identity-immutable-replay-and-memory-provenance
 
 ## Current Position
 
-Phase: 65 (trace-event-and-console-label-consistency) — READY TO PLAN
+Phase: 64.2 (evidence-identity-immutable-replay-and-memory-provenance) — READY TO PLAN
 Plan: 0/0 — planning not started
-Status: Phase 64 completed with RAG risk label registry, caller migrations, drift guards, code review, UAT, security, and validation gates clean.
-Last activity: 2026-07-10
-Next: Plan Phase 65 with `$gsd-phase-autopilot 65` or `$gsd-plan-phase 65`.
+Status: Phase 64.1 completed with 6/6 plans, phase verification, automated UAT, code-review fixes, security, and Nyquist validation clean.
+Last activity: 2026-08-04 -- Phase 64.1 completed
+Next: Plan Phase 64.2 with `$gsd-phase-autopilot 64.2` or `$gsd-plan-phase 64.2`.
 
-Resume file: none yet
+Resume file: none
 
-Progress: [█████░░░░░] 50%
+Progress: [████░░░░░░] 38%
 
 ## Last Completed Milestone
 

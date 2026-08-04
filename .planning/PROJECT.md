@@ -13,7 +13,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 ## Current State
 
 **Last shipped milestone:** v2.1 Core Subsystem Hardening (shipped 2026-07-08)
-**Current focus:** v2.2 follow-up architecture hardening is active. Phase 62 Business Query And Drilldown Foundation is complete; Phase 63 Safety Taxonomy And Risk Vocabulary is next.
+**Current focus:** v2.2 follow-up architecture hardening is active. Phase 64.1 Runtime Safety And Approval Contract Repair is complete; Phase 64.2 Evidence Identity Immutable Replay And Memory Provenance is next.
 
 MOCA now has hardened core subsystem boundaries across ToolPlatform, intent recognition, memory, RAG/claim routing, approval, canonical Agent Graph runtime, and the Phase 62 business-query/drilldown path. v2.1 closed all 24 tracked requirements and passed the milestone audit with no integration blockers.
 
@@ -249,6 +249,14 @@ _No active v2.2 requirements remain after Phase 61 completion._
 - [x] v2.2 improves Agent Console timeline, clarification, unsupported, and metric-result presentation.
 - [x] v2.2 adds repeatable UX regression coverage for the concrete local-demo pain points discovered during validation.
 
+### Validated In Phase 64.1
+
+- [x] Actionable Chinese/English recommendations resolve through one canonical taxonomy before claim and safety routing; unknown, ambiguous, and invalid candidates fail closed.
+- [x] One deterministic high/medium/low evaluator owns risk precedence, and LLM/config failures cannot downgrade an action into auto-allow.
+- [x] Approval list/get/SSE/decide and the Console share one exact versioned decision context; stale, cross-scope, ambiguous, and concurrent recovery paths fail closed without automatic replay.
+- [x] Low-risk demo draft creation requires a durable server-minted, fully bound capability and cannot widen general permissions or execute an external effect.
+- [x] Shared terminal projection prevents authorization, draft, audit, claim, or evidence failures from becoming completed API/SSE/final/memory state.
+
 ### Out of Scope
 
 - Real external action execution, outbox, reconciliation, and compensation — future External Action Execution milestone.
@@ -376,6 +384,8 @@ _No active v2.2 requirements remain after Phase 61 completion._
 | Close MER-01 as v1.9 runtime scope only | Runtime merchant boundaries are verified, but database/RLS/role cleanup and trace/replay authorization expansion remain named future scope | Adopted 2026-06-30 |
 | Archive v1.9 after formal audit closure | Phase 35.1 added missing formal verification artifacts, refreshed validation metadata, and produced a ready-to-archive milestone audit | Adopted 2026-06-30 |
 | Scope v2.2 to concrete Product Experience Fixes | v2.1 hardened internals but local demo validation exposed user-facing confusion: misleading direct responses, unsupported capability wording, missing metric answers, and timeline clarity gaps | Adopted 2026-07-09 |
+| Repair runtime safety as one cross-layer contract in Phase 64.1 | Canonical action, deterministic risk, exact approval context, bounded capability, and terminal integrity fail together when owned as isolated patches | Adopted and verified 2026-08-04 |
+| Keep Phase 64.1 draft-only and name downstream owners | Evidence/replay/memory identity, the general operation gateway, the LLM gateway, and production external effects require separate trust boundaries and threat models | Deferred explicitly to Phase 64.2, Phase 66, Phase 69, and a separately authorized external-effects phase |
 
 ## Evolution
 
@@ -395,4 +405,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-09 — completed Phase 61 Product Experience Fixes*
+*Last updated: 2026-08-04 — completed Phase 64.1 Runtime Safety And Approval Contract Repair*
