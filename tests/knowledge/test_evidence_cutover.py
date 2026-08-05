@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import (
     EvidenceIdentityRollout,
@@ -126,12 +128,8 @@ async def test_ingestion_allocates_one_sequence_and_reuses_unchanged_binding(ses
     assert await session.scalar(select(func.count()).select_from(PolicyDocumentVersion)) == 1
     assert await session.scalar(select(func.count()).select_from(PolicyChunkVersion)) == len(first_chunk_versions)
 
-    document = (
-        await session.execute(select(PolicyDocument).where(PolicyDocument.tenant_id == tenant_id))
-    ).scalar_one()
-    chunks = list(
-        (await session.execute(select(PolicyChunk).where(PolicyChunk.tenant_id == tenant_id))).scalars()
-    )
+    document = (await session.execute(select(PolicyDocument).where(PolicyDocument.tenant_id == tenant_id))).scalar_one()
+    chunks = list((await session.execute(select(PolicyChunk).where(PolicyChunk.tenant_id == tenant_id))).scalars())
     reused_document_version = (
         await session.execute(select(PolicyDocumentVersion).where(PolicyDocumentVersion.tenant_id == tenant_id))
     ).scalar_one()
@@ -188,12 +186,16 @@ async def test_changed_and_corrected_ingestion_link_immutable_history_and_roll_b
     )
     assert corrected.evidence_write_sequence == 2
     latest = (
-        await session.execute(
-            select(PolicyDocumentVersion)
-            .where(PolicyDocumentVersion.tenant_id == tenant_id)
-            .order_by(PolicyDocumentVersion.document_version.desc())
+        (
+            await session.execute(
+                select(PolicyDocumentVersion)
+                .where(PolicyDocumentVersion.tenant_id == tenant_id)
+                .order_by(PolicyDocumentVersion.document_version.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert latest is not None
     assert latest.supersedes_version_id == original.id
     assert latest.corrects_version_id == original.id
@@ -223,3 +225,57 @@ async def test_changed_and_corrected_ingestion_link_immutable_history_and_roll_b
         await session.execute(select(PolicyDocument).where(PolicyDocument.tenant_id == tenant_id))
     ).scalar_one()
     assert (after_document.version, after_document.content, after_document.evidence_write_sequence) == before_projection
+
+
+@pytest.mark.asyncio
+async def test_concurrent_changed_ingestions_serialize_under_one_rollout_epoch(test_engine, tmp_path: Path) -> None:
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with session_factory() as setup_session:
+        tenant_id = await _seed_inactive_rollout(setup_session)
+        rollout = await EvidenceVersionRepository(setup_session).activate_dual_write(
+            expected_rollout_version=0,
+            health_checked_at=datetime.now(UTC),
+        )
+        await setup_session.commit()
+        expected_epoch = rollout.rollout_version
+
+    first_dir = tmp_path / "writer-one"
+    second_dir = tmp_path / "writer-two"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    first_source = _write_policy(first_dir, "并发版本一")
+    second_source = _write_policy(second_dir, "并发版本二")
+
+    async def ingest(source: Path) -> int | None:
+        async with session_factory() as writer_session:
+            service = IngestionService(
+                session=writer_session,
+                embedder=_EmbeddingService(),
+                tenant_id=tenant_id,
+            )
+            result = await service.ingest_document(
+                source,
+                _metadata(),
+                expected_rollout_version=expected_epoch,
+            )
+            assert result.status == "success"
+            return result.evidence_write_sequence
+
+    sequences = await asyncio.gather(ingest(first_source), ingest(second_source))
+
+    async with session_factory() as verify_session:
+        versions = list(
+            (
+                await verify_session.execute(
+                    select(PolicyDocumentVersion.document_version)
+                    .where(PolicyDocumentVersion.tenant_id == tenant_id)
+                    .order_by(PolicyDocumentVersion.document_version)
+                )
+            ).scalars()
+        )
+        rollout_version = await verify_session.scalar(
+            select(EvidenceIdentityRollout.rollout_version).where(EvidenceIdentityRollout.id == 1)
+        )
+    assert sorted(sequences) == [1, 2]
+    assert versions == [1, 2]
+    assert rollout_version == expected_epoch

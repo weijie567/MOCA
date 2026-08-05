@@ -29,6 +29,24 @@ class PolicyChunkRepository:
         self.session.add_all(chunks)
         await self.session.flush()
 
+    async def list_by_document_id_for_update(
+        self,
+        document_id: UUID,
+        tenant_id: UUID,
+    ) -> list[PolicyChunk]:
+        """Lock current chunk heads after the rollout/document locks."""
+
+        stmt = (
+            select(PolicyChunk)
+            .where(
+                PolicyChunk.tenant_id == tenant_id,
+                PolicyChunk.doc_id == document_id,
+            )
+            .order_by(PolicyChunk.tenant_id, PolicyChunk.doc_id, PolicyChunk.id)
+            .with_for_update()
+        )
+        return list((await self.session.execute(stmt)).scalars())
+
     async def get_contents_by_evidence_keys(
         self,
         tenant_id: UUID,

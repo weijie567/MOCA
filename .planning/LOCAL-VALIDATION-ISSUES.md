@@ -22090,3 +22090,23 @@ case source-only tombstone 明确按新写入的 v2 profile 计算 source hash�
 
 **剩余问题和下次继续排查入口**
 Plan 03 精确测试和 scoped Ruff 均通过，无当前阻断。Plan 09 仍需用 AST ownership guard 防止本地 builder 回流；Plan 07/08 继续负责 reviewed provenance persistence 与 lifecycle 约束，不能把本次 profile 推断当作其替代。
+
+## 2026-08-05 — Phase 64.2 Plan 02 Task 1 GREEN 首轮暴露 rollback expired ORM 与 nullable effective date 回归
+
+**问题现象**
+Task 1 首轮 GREEN 的 PostgreSQL 原子回滚用例在 immutable append 故障后没有正常返回 fail-closed report，而是在读取已 rollback/expired 的 `RagIngestionJob.id` 时触发 SQLAlchemy `MissingGreenlet`。修复后补跑历史 ingestion/job suite，又发现一个既有 fake document 的 `effective_date=None` 被直接送入 fingerprint builder，导致应成功的 parser→embed→lock 测试返回 `failed`。
+
+**如何检测/复现**
+先运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/rag/test_ingestion_safety.py tests/knowledge/test_evidence_cutover.py -q --tb=short`；再运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_ingestion.py tests/rag/test_ingestion_jobs.py -q --tb=short`。
+
+**关键证据或命令**
+首轮 focused suite 为 `1 failed, 12 passed`，堆栈在 rollback 后通过 expired ORM attribute 触发 `sqlalchemy.exc.MissingGreenlet`；修复并补齐并发 writer 用例后 focused suite 为 `14 passed`。补充旧回归首轮为 `1 failed, 36 passed`，失败用例是 `test_parse_ocr_chunk_and_embed_complete_before_document_write_transaction`；补回 `date.today()` 兜底后，相关旧回归为 `37 passed, 1 warning`，scoped Ruff 通过。
+
+**当前判断 / 根因**
+真实 `AsyncSession.rollback()` 会 expire identity-map 对象，失败报告路径不能在同步属性访问中隐式发起 async reload；应在事务前保存 durable job id，并在 rollback 后显式 `await session.get(...)`。第二处是把旧的 `effective_date or doc.effective_date or date.today()` 重排时漏掉了 existing row 值为 `None` 的兜底，属于本 task 引入的兼容回归。
+
+**已做处理**
+在进入 writer 事务前保存 `durable_job_id`，rollback 后以显式 async get 重取 job 再记录安全失败，report 只使用已保存 id；effective date 重新固定为 request value → locked/current value → `date.today()` 的非空顺序。两条失败均按 Rule 1 在 Task 1 内修复并重跑原命令与相关旧回归。提交前补跑 `uv run ruff format --check` 时另发现 3 个 Task 1 文件需机械格式化，已通过项目入口执行 `uv run ruff format`，随后 format check 显示 `5 files already formatted`，pytest、Ruff check 与 whitespace gate 继续通过。
+
+**剩余问题和下次继续排查入口**
+当前无阻断。既有 LangGraph `allowed_objects` pending-deprecation warning 未由本次改动引入；后续若再改事务失败路径，继续从 rollback 后 ORM attribute access 与 `expire_on_commit/rollback` 语义检查，不能用同步属性读取替代显式 async reload。

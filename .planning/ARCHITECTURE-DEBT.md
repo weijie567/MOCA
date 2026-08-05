@@ -444,6 +444,16 @@
 - **验证**：从真实 PostgreSQL 024 schema seed mutable heads 后升级 025，证明 immutable/version/dependency 行数均为 0、head sequences 为 NULL、rollout inactive、sequence 严格递增；随后验证错误 scope insert、immutable content update、retained delete 与 downgrade 均 fail closed。Task 2 计划命令结果为 `9 passed, 4 warnings`，scoped Ruff/format/whitespace 门禁通过。
 - **剩余风险**：🟡 migration 025 有意不安装生产 dual-write、不复制 mutable heads、不启用 canonical reads；Plan 02 仍需以 rollout-first lock/CAS 安装 writer、watermarked reconciliation/backfill 与 operational rollback，Plan 06 才负责 production replay emitter/snapshot 写入。
 
+## 2026-08-05 — Phase 64.2 Plan 02 Task 1 ingestion 与 cutover 锁序/sequence/immutable binding 已收敛 ✅已修复验证
+
+- **子系统**：RAG ingestion / immutable evidence dual-write / rollout CAS。
+- **问题现象 / 根因**：Plan 01 前的生产 ingestion 只锁可变 `PolicyDocument`，更新 head 后删除并重建 chunks；writer 不参与 singleton rollout epoch，也不分配数据库原生 sequence，更不会在同一事务追加 immutable document/chunk version。相同内容重摄取仍替换 current chunks，因此无法证明 watermark 两侧的 unchanged write 复用同一 immutable binding。
+- **影响**：最终 zero-gap cutover 可能与仍在发布可变 head 的 writer 交错；成功写入可能没有可对账 sequence 或不可变版本；失败写入可能让 current projection 与 immutable history 分叉；exact `tenant_policy` scope/hash 只能停留在 schema，而未进入真实 writer。
+- **处理状态**：✅ 新增 `EvidenceVersionRepository` 作为 rollout lock/CAS、sequence、immutable append/exact binding 的唯一 owner；生产 `AsyncSession` writer 固定先锁 `evidence_identity_rollouts(id=1)` 并校验 expected epoch/dual-write，再锁 document/current chunks，成功 ingestion 恰分配一个 sequence。first/changed/correction 在同一事务写 exact `scope_type="tenant_policy"`、`scope_id=str(tenant_id)` 的 immutable document/chunk rows与 current projection；unchanged 只有在 document/chunk identity/hash 全量吻合时复用原 binding、保持 immutable row count，仅推进 current sequence。任一 append/current mutation 失败统一 rollback。
+- **证据**：Phase 64.2 Plan 02 Task 1；RED commit `73afc55`；`src/repositories/evidence_version_repo.py`、`src/repositories/policy_chunk_repo.py`、`src/rag/ingestion.py`、`tests/knowledge/test_evidence_cutover.py`。
+- **验证**：计划 Task 1 focused pytest 为 `14 passed, 1 warning`，并补跑既有 ingestion/job 回归；scoped Ruff 为 `All checks passed!`。PostgreSQL 断言覆盖 activation-before-backfill、stale epoch、first/unchanged/correction/concurrent-change sequence、stored scope/hash/binding row-count parity 与失败原子回滚。
+- **剩余风险**：🟡 Task 2 仍需让 migration 026 执行 staged watermark/backfill/reconciliation，并以真实双 session 两种边界交错证明 final activation 与 writer 共享同一锁/epoch；Task 3 仍需切换 canonical-only current reads 和 operational disable/quarantine/re-enable。当前 test-double compatibility 分支仅服务不具备 SQLAlchemy transaction/execute 能力的历史 parser 单元测试，不构成生产 writer fallback。
+
 ---
 
 # 4. 记忆（Memory）
