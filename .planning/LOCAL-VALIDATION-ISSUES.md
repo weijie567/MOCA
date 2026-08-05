@@ -22290,3 +22290,23 @@ Migration 两次失败都是测试未遵守仓库真实 staged-upgrade 与当前
 
 **剩余问题和下次继续排查入口**
 当前无 Plan 08 验证阻断、无残留 pytest。既有 LangGraph `allowed_objects` 与 Alembic `path_separator` warnings 未由本 plan 引入。后续 case-memory fixture 必须经 service 写入或同时建立完整 resolved provenance 与 matching durable claim；source tombstone 应显式复用 candidate identity result。
+
+## 2026-08-06 — Phase 64.2 Plan 09 Task 1 architecture guard 首轮误报
+
+**问题现象**
+Task 1 GREEN 首次精确命令为 `8 passed, 3 failed`。三个失败都来自新 architecture guard 把合法目标态枚举 `global_policy` 误判为当前 scope invention、用错 legacy adapter 注释文本、以及对 terminal claim 的源码字符串匹配过窄；真实 integration 链路已通过。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/integration/test_phase64_2_integrity_matrix.py tests/architecture/test_evidence_memory_integrity_boundaries.py -q --tb=short`。失败定位到 `test_phase64_2_canonical_owners_pass_boundary_guards`、repository-wide guard 与 exact-scope owner assertion。
+
+**关键证据或命令**
+`rg` 核对显示 `global_policy` 只存在于 `EvidenceItemV1.authority_level` 的目标态枚举，不是 Phase 64.2 当前 identity scope；replay owner 的真实注释为 `Read-only adapter for evidence JSON...`；CaseMemory 真实 no-resurrection 分支使用条件表达式选择 `identity_conflict`。收窄 guard 后相同 pytest 为 `11 passed, 1 existing warning`，随后 scoped Ruff 为 `All checks passed!`。
+
+**当前判断 / 根因**
+根因是 Plan 09 新增静态 guard 的文本匹配过宽/过窄，不是 production owner 或锁定契约漂移。目标态 authority vocabulary 与当前 MVP identity scope 必须分开检查。
+
+**已做处理**
+只在 canonical resolver 调用的 `expected_scope_type` 上拒绝非 `tenant_policy`；legacy read-only 与 claim conflict 改为匹配真实 owner contract；保留代表性 pre-phase mutation RED。另把导入的 replay helper 改为下划线别名，避免 pytest 重复收集同一个数据库测试。
+
+**剩余问题和下次继续排查入口**
+Task 1 精确 pytest/Ruff 已通过；唯一 warning 是既有 LangGraph `allowed_objects` pending deprecation。后续新增合法 target authority 枚举不应被当前 MVP scope guard 误伤，但任何 canonical identity resolver 的非 `tenant_policy` literal 仍必须失败。
