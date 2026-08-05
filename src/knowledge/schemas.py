@@ -11,8 +11,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.knowledge.evidence_identity import CanonicalEvidenceIdentityV1
 from src.knowledge.text_hash import evidence_text_hash
 
 
@@ -37,10 +38,37 @@ class EvidenceRefV1(BaseModel):
     chunk_id: str
     policy_version: str
     text_hash: str
+    scope_type: Literal["tenant_policy"] | None = None
+    scope_id: str | None = None
+    document_version_id: str | None = None
+    chunk_version_id: str | None = None
+    document_version: int | None = Field(default=None, gt=0)
+    chunk_version: int | None = Field(default=None, gt=0)
     retrieved_at: str
     retrieval_config_version: str
     score: float | None = None
     rank: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_optional_canonical_binding(self) -> EvidenceRefV1:
+        immutable_fields = (
+            self.scope_type,
+            self.scope_id,
+            self.document_version_id,
+            self.chunk_version_id,
+            self.document_version,
+            self.chunk_version,
+        )
+        if all(value is None for value in immutable_fields):
+            return self
+        if any(value is None for value in immutable_fields):
+            raise ValueError("canonical evidence refs require the complete immutable binding")
+        identity = self.to_canonical_identity()
+        if identity is None:  # pragma: no cover - guarded by the complete-field check above
+            raise ValueError("canonical evidence ref binding is incomplete")
+        if self.policy_version != f"v{identity.document_version}":
+            raise ValueError("policy_version must match the immutable document_version")
+        return self
 
     @classmethod
     def build(
@@ -67,6 +95,66 @@ class EvidenceRefV1(BaseModel):
             retrieval_config_version=retrieval_config_version,
             score=score,
             rank=rank,
+        )
+
+    @classmethod
+    def from_canonical_identity(
+        cls,
+        identity: CanonicalEvidenceIdentityV1,
+        *,
+        retrieved_at: str,
+        retrieval_config_version: str,
+        score: float | None = None,
+        rank: int | None = None,
+    ) -> EvidenceRefV1:
+        """Project the owner-produced immutable identity into the single evidence-ref schema."""
+
+        return cls(
+            tenant_id=identity.tenant_id,
+            evidence_id=identity.evidence_id,
+            doc_key=identity.doc_key,
+            chunk_id=identity.chunk_id,
+            policy_version=f"v{identity.document_version}",
+            text_hash=identity.text_hash,
+            scope_type=identity.scope_type,
+            scope_id=identity.scope_id,
+            document_version_id=identity.document_version_id,
+            chunk_version_id=identity.chunk_version_id,
+            document_version=identity.document_version,
+            chunk_version=identity.chunk_version,
+            retrieved_at=retrieved_at,
+            retrieval_config_version=retrieval_config_version,
+            score=score,
+            rank=rank,
+        )
+
+    def to_canonical_identity(self) -> CanonicalEvidenceIdentityV1 | None:
+        """Return the complete binding, or ``None`` for persisted legacy refs."""
+
+        immutable_fields = (
+            self.scope_type,
+            self.scope_id,
+            self.document_version_id,
+            self.chunk_version_id,
+            self.document_version,
+            self.chunk_version,
+        )
+        if all(value is None for value in immutable_fields):
+            return None
+        if any(value is None for value in immutable_fields):
+            raise ValueError("canonical evidence refs require the complete immutable binding")
+        return CanonicalEvidenceIdentityV1(
+            evidence_id=self.evidence_id,
+            tenant_id=self.tenant_id,
+            scope_type=self.scope_type,
+            scope_id=self.scope_id,
+            document_version_id=self.document_version_id,
+            chunk_version_id=self.chunk_version_id,
+            doc_key=self.doc_key,
+            document_version=self.document_version,
+            chunk_id=self.chunk_id,
+            chunk_version=self.chunk_version,
+            text_hash=self.text_hash,
         )
 
 
@@ -256,7 +344,7 @@ def canonical_evidence_projection(refs: list[EvidenceRefV1]) -> list[dict]:
     """Strip score and deterministically sort the producer-side hash projection."""
     items = []
     for ref in refs:
-        item = ref.model_dump()
+        item = ref.model_dump(exclude_none=True)
         item.pop("score", None)
         items.append(item)
 

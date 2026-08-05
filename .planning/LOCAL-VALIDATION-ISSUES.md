@@ -22010,3 +22010,43 @@ CI 总结为 `1 failed, 3171 passed, 1 skipped, 116 warnings in 862.00s`，错�
 - **已做处理**：改为在提示中列明必读文件和审核维度，让 Claude Code 在当前工作树中直接只读文件及必要源码；仍保留独立外部复审范围与判定标准。
 - **后续验证**：单次覆盖全部边界的仓库直读调用运行约 10 分钟仍未输出结论，进程有 CPU 活动但无法形成可消费结果，人工中止后只返回 `Execution error`。
 - **剩余问题和下次入口**：已进一步拆成 evidence/approval/replay、CWC/memory、closeout/依赖三组只读外部复审；如任一组仍失败，从 `.planning/autopilot/phase-64.2.md` 的 `claude_plan_review` 继续并只重跑失败组。
+
+## 2026-08-05 — Phase 64.2 Plan 01 隔离 worktree 首次 `uv run pytest` 缺少 dev extra
+
+**问题现象**
+首次执行 Task 1 RED 命令时，`UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` 没有使用项目 Python 3.12，而是命中系统 Python 3.9 的 pytest，在加载 `tests/conftest.py` 时因 `datetime.UTC` 不存在而 collection 失败。
+
+**如何检测/复现**
+在 `/tmp/moca-phase-64-2.3kXO0d/worktree` 新建但只同步 runtime dependencies 的 `.venv` 中执行计划原命令；随后对比 `UV_CACHE_DIR=/tmp/uv-cache uv run python --version` 与 `.venv/bin/pytest` 是否存在。
+
+**关键证据或命令**
+失败堆栈来自 `/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py`；同时 `uv run python --version` 为 `Python 3.12.13`，但 `.venv/bin/pytest` 不存在，说明 `uv` 为缺失的可执行文件回退到了外部 PATH，而不是项目解释器损坏。执行 `UV_CACHE_DIR=/tmp/uv-cache uv sync --locked --extra dev` 后，`.venv/bin/pytest` 的 shebang 指向当前 worktree `.venv/bin/python3`。
+
+**当前判断/根因**
+隔离 worktree 的虚拟环境只安装了主依赖，未安装 `pyproject.toml` 的 `dev` extra；因此计划规定的 `uv run pytest` 名称解析落到系统旧 pytest。这是环境入口准备问题，首次结果不是有效 RED 证据。
+
+**已做处理**
+使用 `UV_CACHE_DIR=/tmp/uv-cache uv sync --locked --extra dev` 补齐当前 worktree 的 pytest/Ruff，并原样重跑计划命令；有效 RED 结果为新模块缺失的预期 `ModuleNotFoundError`，实现后 GREEN 为 `26 passed, 1 warning`，scoped Ruff 通过。
+
+**剩余问题和下次继续排查入口**
+当前 worktree 无剩余阻断。后续隔离 worktree 执行测试前先确认 `.venv/bin/pytest` 与 `.venv/bin/ruff` 存在；仍必须使用 `UV_CACHE_DIR=/tmp/uv-cache uv run ...`，不能把系统 pytest 的结果当作验证证据。
+
+## 2026-08-05 — Phase 64.2 Plan 01 Task 1 首轮 Ruff format check 未通过
+
+**问题现象**
+Task 1 focused pytest 与 scoped Ruff check 已通过，但补跑 `ruff format --check` 时报告新建 identity 模块和测试文件需要格式化。
+
+**如何检测/复现**
+执行 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check src/knowledge/evidence_identity.py src/knowledge/schemas.py tests/knowledge/test_evidence_identity.py`。
+
+**关键证据或命令**
+首轮输出为 `Would reformat: src/knowledge/evidence_identity.py`、`Would reformat: tests/knowledge/test_evidence_identity.py`，汇总 `2 files would be reformatted, 1 file already formatted`；同轮逻辑 Ruff check 先前为通过。
+
+**当前判断/根因**
+手写的长类型签名与参数化测试布局不符合当前 Ruff formatter 的稳定输出，仅是格式门禁差异，不改变 identity/hash/scope 行为。
+
+**已做处理**
+使用 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format` 机械格式化两个文件，并重跑 Task 1 完整 pytest、scoped Ruff check、format check 与 `git diff --check`；结果为 `26 passed, 1 warning`、`All checks passed!`、`3 files already formatted`，whitespace 门禁通过。
+
+**剩余问题和下次继续排查入口**
+无剩余阻断；后续 Task 2 同样在提交前补跑 scoped format check。

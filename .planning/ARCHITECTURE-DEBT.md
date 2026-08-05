@@ -424,6 +424,16 @@
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_final_response.py -q --tb=short` → `21 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import asyncio; from scripts.eval_agent import DEFAULT_GOLDEN_SET, _load_cases, _run_ci_graph_contracts; failures = asyncio.run(_run_ci_graph_contracts(_load_cases(DEFAULT_GOLDEN_SET))); print({'failures': failures}); raise SystemExit(1 if failures else 0)"` → `{'failures': []}`。
 - **剩余风险**：🟡 本条只修复 legacy allow 字段与 canonical claim bundle allowed 状态的 final rendering 冲突；Phase 58 仍需清理 retained legacy verifier fields / compatibility alias surfaces。
 
+## 2026-08-05 — Phase 64.2 Plan 01 Task 1 证据 identity 多点别名与可变版本绑定已收敛 ✅已修复验证
+
+- **子系统**：RAG / evidence identity / tenant-scope trust boundary。
+- **问题现象 / 根因**：现有 `EvidenceRefV1.build` 与多个检索调用方使用 `doc_key/chunk_id@vN` 展示别名，identity 未覆盖 tenant、精确 policy scope、不可变 document/chunk version row 与完整 text hash；旧别名语法本身也没有可信持久化解析边界。
+- **影响**：调用方可本地重建或伪造看似有效的 evidence id；同 tenant 跨 scope、版本替换和 legacy ambiguity 无法由一个 owner 稳定区分，历史 replay 也不能据此证明消费的是原始不可变证据。
+- **处理状态**：✅ `src/knowledge/evidence_identity.py` 成为 `evidence_identity.v1` 唯一 hash/mint/validate/resolve owner，固定 `scope_type="tenant_policy"` 与 `scope_id=str(tenant_id)`，所有失败对外统一为 `evidence_unavailable`、对内保留稳定 reason code；`EvidenceRefV1` 仅扩展这一份 schema 承载完整 immutable binding，旧 alias 只能作为显式 compatibility input，不能凭语法升级为 canonical。
+- **证据**：Phase 64.2 Plan 01 Task 1；RED commit `4d9eff6`；`src/knowledge/evidence_identity.py`、`src/knowledge/schemas.py`、`tests/knowledge/test_evidence_identity.py`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_evidence_identity.py tests/knowledge/test_evidence_projection.py tests/knowledge/test_text_hash.py -q --tb=short` → `26 passed, 1 warning`；对应 scoped Ruff → `All checks passed!`。
+- **剩余风险**：🟡 当前 ingestion/retrieval 仍由后续 Plan 02 安装 dual-write、backfill/reconciliation 与 canonical-read cutover；Task 1 有意保留旧 `EvidenceRefV1.build` 为无 canonical binding 的兼容输入，不把它误报为已迁移生产 writer。
+
 ---
 
 # 4. 记忆（Memory）
