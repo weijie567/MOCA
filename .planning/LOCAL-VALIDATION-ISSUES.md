@@ -21861,3 +21861,23 @@ Homebrew 失败来自本机历史多版本依赖与当前 symlink 状态不一�
 
 **剩余问题和下次继续排查入口**
 用 fail-fast 命令重跑 metadata、链接、XML、JSON、隐私字符串和 `git diff --check`；全部成功后再提交。
+
+## 2026-08-05 — README 重命名后暂存命令引用已不存在的旧路径
+
+**问题现象**
+把中文 README 调整为默认入口后，暂存命令显式包含已由 `git mv` 移走的 `README.zh-CN.md`，Git 返回 `fatal: pathspec 'README.zh-CN.md' did not match any files`。
+
+**如何检测/复现**
+执行 `git mv README.zh-CN.md README.md` 后，再运行带旧路径的 `git add -A README.md README.en.md README.zh-CN.md`。
+
+**关键证据或命令**
+失败发生在 Git 解析 pathspec 阶段；`git status --short` 仍显示 `README.zh-CN.md` 的 staged deletion，以及 `README.md`、`README.en.md` 的 rename/修改状态，文件内容没有丢失。
+
+**当前判断/根因**
+这是重命名后的暂存路径编排错误，不是 README 内容、Git 历史或工作区损坏。旧路径的删除已经由先前的 `git mv` 记录，无需再次把不存在的文件作为 pathspec。
+
+**已做处理**
+改为暂存现存的 `README.md`、`README.en.md` 与本问题台账；随后用 staged diff、链接检查和 `git diff --check` 核对最终 rename。
+
+**剩余问题和下次继续排查入口**
+无预期阻断；若 rename 未被 Git 自动识别，以最终内容和删除/新增状态为准，不影响合并后的目录结果。
