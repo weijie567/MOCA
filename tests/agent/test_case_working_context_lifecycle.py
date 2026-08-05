@@ -14,6 +14,8 @@ from sqlalchemy.pool import NullPool
 import src.memory.case_working_context_lifecycle as lifecycle_module
 from src.conversation.repository import ConversationRepository
 from src.db.models import AgentRun, Base, CaseWorkingContext, Merchant, Order, RefundCase, Tenant, ThreadCaseLink, User
+from src.knowledge.evidence_identity import PersistedEvidenceIdentityMaterialV1, mint_canonical_evidence_identity
+from src.knowledge.schemas import EvidenceRefV1
 from src.memory.case_identity import CaseIdentityResult
 from src.memory.case_working_context_lifecycle import (
     CaseWorkingContextLifecycleAdapter,
@@ -23,8 +25,10 @@ from src.memory.case_working_context_lifecycle import (
     skipped_status,
     trusted_case_ref_from_state,
 )
-from src.memory.case_working_context_schemas import CaseWorkingContextWriteCandidate
+from src.memory.case_working_context_schemas import CaseWorkingContextContentV1, CaseWorkingContextWriteCandidate
 from src.memory.context_refs import CaseWorkingContextLifecycleStatusV1
+from src.memory.fact_promotion import FactPromotionCandidateV1, promote_verified_fact
+from src.tools.contracts import BusinessFactRefV1
 from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
 
 
@@ -272,6 +276,213 @@ def test_terminal_projection_result_contract() -> None:
     assert set(TerminalProjectionResult.__annotations__) == {"candidate", "status_ref"}
     assert result.candidate is None
     assert isinstance(result.status_ref, CaseWorkingContextLifecycleStatusV1)
+
+
+def _promotion_business_ref(tenant_id: uuid.UUID, *, observed_at: datetime) -> BusinessFactRefV1:
+    return BusinessFactRefV1(
+        tenant_id=str(tenant_id),
+        source_system="business_fact_service",
+        resource_type="refund_case",
+        resource_id="RF-PROMOTION-001",
+        resource_version="v7",
+        data_freshness_at=observed_at,
+        retrieved_at=observed_at,
+    )
+
+
+def _promotion_evidence_ref(tenant_id: uuid.UUID, *, observed_at: datetime) -> EvidenceRefV1:
+    material = PersistedEvidenceIdentityMaterialV1(
+        tenant_id=str(tenant_id),
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+        document_version_id=str(uuid.uuid4()),
+        chunk_version_id=str(uuid.uuid4()),
+        doc_key="refund-policy",
+        document_version=7,
+        chunk_id="refund-policy#001",
+        chunk_version=3,
+        text_hash=f"sha256:{'a' * 64}",
+    )
+    resolution = mint_canonical_evidence_identity(
+        material,
+        expected_tenant_id=str(tenant_id),
+        expected_scope_type="tenant_policy",
+        expected_scope_id=str(tenant_id),
+    )
+    assert resolution.identity is not None
+    return EvidenceRefV1.from_canonical_identity(
+        resolution.identity,
+        retrieved_at=observed_at.isoformat(),
+        retrieval_config_version="retrieval.v3",
+        rank=1,
+    )
+
+
+def _promotion_candidate(
+    *,
+    tenant_id: uuid.UUID,
+    observed_at: datetime,
+    authority_class: str,
+    status: str = "success",
+    business_fact_refs: list[BusinessFactRefV1] | None = None,
+    policy_evidence_refs: list[EvidenceRefV1] | None = None,
+    reference_validation: str = "valid",
+) -> FactPromotionCandidateV1:
+    return FactPromotionCandidateV1(
+        tenant_id=str(tenant_id),
+        summary="退款单状态为 reviewing",
+        authority_class=authority_class,
+        status=status,
+        completeness="complete",
+        scope_result="valid",
+        freshness_result="valid",
+        reference_validation=reference_validation,
+        observed_at=observed_at,
+        business_fact_refs=business_fact_refs or [],
+        policy_evidence_refs=policy_evidence_refs or [],
+    )
+
+
+def test_fact_promotion_contract_allows_only_typed_authoritative_sources() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    business_ref = _promotion_business_ref(tenant_id, observed_at=observed_at)
+    evidence_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
+
+    business = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="business_fact",
+            business_fact_refs=[business_ref],
+        )
+    )
+    policy = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="policy_evidence",
+            policy_evidence_refs=[evidence_ref],
+        )
+    )
+
+    assert (business.decision, business.reason_code) == ("promote", "authoritative_business_fact")
+    assert business.business_fact_refs == [business_ref]
+    assert (policy.decision, policy.reason_code) == ("promote", "authoritative_policy_evidence")
+    assert policy.policy_evidence_refs == [evidence_ref]
+    assert policy.policy_evidence_refs[0].model_dump(mode="json") == evidence_ref.model_dump(mode="json")
+    assert policy.policy_evidence_refs[0].scope_type == "tenant_policy"
+    assert policy.policy_evidence_refs[0].scope_id == str(tenant_id)
+
+
+@pytest.mark.parametrize(
+    ("authority_class", "expected_decision", "expected_reason"),
+    [
+        ("contextual_only", "observe", "contextual_only_non_authoritative"),
+        ("unknown", "reject", "unknown_authority"),
+    ],
+)
+def test_fact_promotion_contract_never_promotes_contextual_or_unknown_authority(
+    authority_class: str,
+    expected_decision: str,
+    expected_reason: str,
+) -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    result = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class=authority_class,
+            business_fact_refs=[_promotion_business_ref(tenant_id, observed_at=observed_at)],
+        )
+    )
+
+    assert (result.decision, result.reason_code) == (expected_decision, expected_reason)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "denied",
+        "unavailable",
+        "stale",
+        "malformed",
+        "partial",
+        "partial_success",
+        "timeout",
+        "error",
+        "invalid_request",
+        "invalid_response",
+        "not_found",
+        "legacy_unresolved",
+    ],
+)
+def test_fact_promotion_contract_keeps_every_prohibited_status_non_authoritative(status: str) -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    result = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="business_fact",
+            status=status,
+            business_fact_refs=[_promotion_business_ref(tenant_id, observed_at=observed_at)],
+        )
+    )
+
+    assert (result.decision, result.reason_code) == ("observe", "status_non_promotable")
+
+
+def test_fact_promotion_contract_rejects_summary_only_and_compatibility_only_sources() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    summary_only = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="business_fact",
+        )
+    )
+    compatibility_only = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="policy_evidence",
+            policy_evidence_refs=[_promotion_evidence_ref(tenant_id, observed_at=observed_at)],
+            reference_validation="compatibility_only",
+        )
+    )
+
+    assert (summary_only.decision, summary_only.reason_code) == ("observe", "missing_authoritative_ref")
+    assert (compatibility_only.decision, compatibility_only.reason_code) == (
+        "observe",
+        "compatibility_only_ref",
+    )
+
+
+def test_cwc_fact_schema_round_trips_full_canonical_policy_ref_without_reduced_shape() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    evidence_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
+    result = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="policy_evidence",
+            policy_evidence_refs=[evidence_ref],
+        )
+    )
+    content = CaseWorkingContextContentV1(
+        verified_facts=[result.to_verified_fact(source_ref={"source_type": "tool_result"})],
+        policy_refs=result.policy_evidence_refs,
+    )
+    restored = CaseWorkingContextContentV1.model_validate(content.model_dump(mode="json"))
+
+    assert restored.policy_refs == [evidence_ref]
+    assert restored.verified_facts[0].policy_evidence_refs == [evidence_ref]
+    assert restored.policy_refs[0].scope_type == "tenant_policy"
+    assert restored.policy_refs[0].scope_id == str(tenant_id)
 
 
 def test_project_terminal_write_candidate_returns_eligible_candidate_with_terminal_source_ref() -> None:
