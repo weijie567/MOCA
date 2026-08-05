@@ -2212,3 +2212,12 @@
 - **处理状态**：✅ 已将 `insufficient_evidence`、`citation_invalid`、`retrieval_error` 统一为 recommendation 层 no-action 集合；这些值不再生成 canonical action 或 manual-review risk signal，并新增 membership-invalid 回归断言。
 - **证据**：`src/agent/nodes/recommendation_generation.py`、`tests/agent/test_nodes/test_recommendation_generation.py`、`tests/knowledge/test_facade_integration.py`；focused recommendation/final/routing 聚合为 `164 passed, 2 warnings`；最终 CI 等价全量为 `4211 passed, 4 skipped, 126 warnings`；全仓 Ruff check/format 与 Phase 58 strict classifier 均通过。
 - **剩余风险**：无本条已知阻塞；现有 LangGraph annotation、Alembic 配置与部分 AsyncMock runtime warnings 为既有告警，未改变本条 no-action 终态结论。
+
+## 2026-08-05 — RAG evaluator 双实现与测试事实源漂移 ✅已修复验证
+
+- **子系统**：RAG 检索评测 / golden dataset / 诊断 trace。
+- **问题现象 / 根因**：`Makefile` 与聚合 evaluator 已使用 `scripts/eval_rag.py`，但单元测试仍导入保留完整旧实现的 `scripts/eval_rag_hit_at_5.py`；演进时未同步迁移 owner，造成 22 条与 14 条 golden、`0.85` 与 `0.80` 阈值、JSON report 与 hybrid trace 能力分叉。
+- **影响**：旧测试通过不能证明活跃 evaluator 的 CLI、报告、默认数据集和诊断投影受到保护，后续 benchmark 结果可能因入口不同而不可比较。
+- **处理状态**：✅ `scripts/eval_rag.py` 已成为唯一实现并保留 hybrid trace；legacy 文件已收为带弃用提示的兼容转发；测试直接覆盖 canonical CLI/report/scorer/22 条 golden schema，并增加 Makefile、`scripts/eval_all.py` 与 legacy delegation parity guard。
+- **证据**：quick fix（未提交）；`scripts/eval_rag.py:80-98,128-170`、`scripts/eval_rag_hit_at_5.py:1-60`、`tests/test_rag_eval.py:148-296`；focused pytest → `20 passed, 1 warning`；scoped Ruff check → `All checks passed!`；format check → `3 files already formatted`。
+- **剩余风险**：无当前架构阻断。legacy wrapper 是有意兼容面且不再拥有独立逻辑；旧 14 条数据文件不再被活跃入口或测试读取。DB-backed 指标质量与多格式 benchmark 扩充属于后续评测内容，不影响本条单一 evaluator owner 的关闭结论。

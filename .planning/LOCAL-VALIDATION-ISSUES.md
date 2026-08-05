@@ -21961,3 +21961,43 @@ CI 总结为 `1 failed, 3171 passed, 1 skipped, 116 warnings in 862.00s`，错�
 
 **剩余问题和下次继续排查入口**
 重跑结果为 `44 passed, 1 warning`、`All checks passed!`、`5 files already formatted`，旧路径扫描、归档目录存在性和 whitespace 门禁均通过；本项无剩余阻断。
+
+## 2026-08-05 — 活跃 RAG evaluator 与单元测试仍绑定不同脚本
+
+**问题现象**
+核对当前 RAG 评测可信度时发现，`Makefile` 的 `eval-rag` 实际运行 `scripts/eval_rag.py`，但 `tests/test_rag_eval.py` 导入并测试的是旧的 `scripts/eval_rag_hit_at_5.py`。两个脚本已经存在默认 golden、阈值、报告字段和 hybrid trace 投影差异，因此现有单元测试通过不能证明活跃 evaluator 的 scorer、CLI 和报告契约受到回归保护。
+
+**如何检测/复现**
+运行 `rg -n -C 3 '(eval-rag|eval:)' Makefile`、`rg -n 'eval_rag_hit_at_5' . --glob '!graphify-out/**'`，再执行 `diff -u scripts/eval_rag_hit_at_5.py scripts/eval_rag.py`。前者显示生产入口与测试 import 分离，后者可直接看到两个实现的行为漂移。
+
+**关键证据或命令**
+`Makefile:30-31` 调用 `uv run python scripts/eval_rag.py`；`tests/test_rag_eval.py:3` 从 `scripts.eval_rag_hit_at_5` 导入 `_parser`、`_ranked_evidence`、`_score_case`。活跃脚本默认读取 22 条 `evaluation/golden/rag_cases.jsonl`、阈值 `0.85` 并写 `evaluation/reports/rag_eval.json`；旧脚本默认读取 14 条 `eval/golden_rag_queries.jsonl`、阈值 `0.80`，同时保留活跃脚本未投影的 hybrid trace 字段。
+
+**当前判断/根因**
+这是 RAG evaluator 演进时保留 legacy CLI 后，测试事实源没有迁移到当前 Makefile 入口造成的验证漂移。它不直接证明活跃 scorer 已有功能错误，但会让该入口的未来回归漏过单元测试，也会使阈值和 golden 口径产生歧义。
+
+**已做处理**
+已用仓库真实入口、import 和脚本 diff 完成只读核对，并在当前评测方案中把“统一 canonical evaluator 与测试事实源”列为前置工作；本轮仅回答评测设计问题，没有擅自修改 evaluator 实现或删除 legacy 脚本。
+
+**剩余问题和下次继续排查入口**
+后续应先裁定 `scripts/eval_rag.py` 为唯一活跃 owner，把 `tests/test_rag_eval.py` 迁到该模块并补 CLI、报告、hybrid trace 与 22 条 golden schema 覆盖；核对所有 Makefile/文档调用方后再决定兼容包装或移除 `eval_rag_hit_at_5.py`。验证必须使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_rag_eval.py tests/test_rag_ablation_eval.py -q --tb=short`，并增加 active-entry parity test 防止再次漂移。
+
+## 2026-08-05 — 活跃 RAG evaluator 与测试事实源对齐完成
+
+**问题现象**
+承接上一条记录：生产入口使用 `scripts/eval_rag.py`，测试却覆盖 `scripts/eval_rag_hit_at_5.py`，导致同一项 RAG Hit@5 评测存在两套默认 golden、阈值与报告能力。
+
+**如何检测/复现**
+修复前执行 `rg -n 'scripts\.eval_rag_hit_at_5|eval_rag_hit_at_5\.py|eval/golden_rag_queries\.jsonl' --glob '!graphify-out/**' --glob '!*.md' .` 可看到测试和 legacy 文件仍持有旧实现；修复后同一扫描只剩兼容文件中的弃用提示和测试里的反漂移断言，`Makefile` 与 `scripts/eval_all.py` 均由回归测试锁定为导入/执行 `scripts.eval_rag`。
+
+**关键证据或命令**
+`scripts/eval_rag.py:80-98,128-170` 现在保留 hybrid 检索 trace；`scripts/eval_rag_hit_at_5.py:1-60` 仅转发 canonical evaluator 并给出弃用提示；`tests/test_rag_eval.py:148-296` 覆盖 hybrid trace、默认 CLI、JSON report、22 条 golden schema、active-entry parity 和 legacy delegation。`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_rag_eval.py tests/test_rag_ablation_eval.py -q --tb=short` → `20 passed, 1 warning`；scoped Ruff check 与 format check 均通过；canonical/legacy `--help` 均可正常退出，legacy 额外输出 `FutureWarning`。
+
+**当前判断/根因**
+根因是 evaluator 演进后没有同步迁移测试事实源，而非检索 scorer 本身已被证明错误。现在只有 `scripts/eval_rag.py` 持有实现、默认阈值和报告契约，legacy 文件不再形成第二实现。
+
+**已做处理**
+测试已迁移至 canonical 模块；主评测器补回旧实现中有价值的 `selected_by`、dense/sparse/fuzzy rank 与 RRF score 诊断字段；旧文件名保留为薄兼容入口；新增入口一致性回归，防止 Makefile、聚合 evaluator 与测试再次分叉。
+
+**剩余问题和下次继续排查入口**
+本次代码与契约对齐无剩余阻断。尚未运行依赖已启动 PostgreSQL、有效 tenant 和已摄入政策数据的 DB-backed 实际评测；正式扩充 benchmark 时应在可复现 seed 环境运行 `make eval-rag`，并把实际指标与生成报告作为该 benchmark 的验收证据。
