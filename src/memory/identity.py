@@ -194,8 +194,17 @@ def canonical_memory_identity_hash(
     )
 
 
-def canonical_source_identity_hash(source_ref: Mapping[str, Any]) -> str | None:
-    """Hash a typed memory source ref, or return ``None`` for an empty source ref."""
+def canonical_source_identity_hash(
+    source_ref: Mapping[str, Any],
+    *,
+    identity_profile: MemoryIdentityProfile = LEGACY_MEMORY_IDENTITY_PROFILE,
+) -> str | None:
+    """Hash a typed source ref without reinterpreting legacy callers."""
+
+    if identity_profile == MEMORY_IDENTITY_PROFILE:
+        return _source_identity_hash_v2(_normalize_source_ref_v2(source_ref))
+    if identity_profile != LEGACY_MEMORY_IDENTITY_PROFILE:
+        raise MemoryIdentityError(f"unknown memory identity profile: {identity_profile!r}")
 
     if not isinstance(source_ref, Mapping):
         raise MemoryIdentityError("source_ref must be a mapping")
@@ -270,10 +279,24 @@ def build_session_memory_candidate_identity(
 
 
 def build_long_term_memory_candidate_identity(
-    candidate: LongTermMemoryWriteCandidate | Mapping[str, Any],
+    candidate: LongTermMemoryWriteCandidate | Mapping[str, Any] | Any,
+    *,
+    source_ref: Mapping[str, Any] | None = None,
 ) -> MemoryCandidateIdentityV1:
     """Build identity for a reviewed long-term-memory candidate."""
 
+    if not isinstance(candidate, LongTermMemoryWriteCandidate | Mapping):
+        return _build_stored_candidate_identity(
+            tenant_id=str(candidate.tenant_id),
+            memory_type="long_term_fact",
+            scope_type=candidate.scope_type,
+            scope_id=candidate.scope_id,
+            content=candidate.content,
+            stored_content_hash=candidate.content_hash,
+            source_ref=source_ref if source_ref is not None else dict(candidate.source_ref_json or {}),
+            stored_source_identity_hash=candidate.source_identity_hash,
+            require_source_match=source_ref is None,
+        )
     typed = _validate_candidate(candidate, LongTermMemoryWriteCandidate)
     return _build_v2_candidate_identity(
         tenant_id=str(typed.tenant_id),
@@ -286,24 +309,39 @@ def build_long_term_memory_candidate_identity(
 
 
 def build_case_memory_candidate_identity(
-    candidate: CaseMemoryWriteCandidate | Mapping[str, Any],
+    candidate: CaseMemoryWriteCandidate | Mapping[str, Any] | Any,
 ) -> MemoryCandidateIdentityV1:
     """Build identity for a reviewed case-memory candidate."""
 
-    typed = _validate_candidate(candidate, CaseMemoryWriteCandidate)
-    content = typed.summary
-    if typed.source_type == "closed_case_cwc_candidate":
-        content = "\n".join(
-            part
-            for part in (
-                typed.summary,
-                typed.excerpt,
-                typed.applicability,
-                typed.outcome,
-                typed.caveats,
-            )
-            if part
+    if not isinstance(candidate, CaseMemoryWriteCandidate | Mapping):
+        source_ref = dict(candidate.source_ref_json or {})
+        content = _case_memory_content(
+            source_type=str(source_ref.get("source_type") or ""),
+            summary=candidate.summary,
+            excerpt=candidate.excerpt,
+            applicability=candidate.applicability,
+            outcome=candidate.outcome,
+            caveats=candidate.caveats,
         )
+        return _build_stored_candidate_identity(
+            tenant_id=str(candidate.tenant_id),
+            memory_type="case_memory",
+            scope_type=candidate.scope_type,
+            scope_id=candidate.scope_id,
+            content=content,
+            stored_content_hash=candidate.content_hash,
+            source_ref=source_ref,
+            stored_source_identity_hash=candidate.source_identity_hash,
+        )
+    typed = _validate_candidate(candidate, CaseMemoryWriteCandidate)
+    content = _case_memory_content(
+        source_type=typed.source_type,
+        summary=typed.summary,
+        excerpt=typed.excerpt,
+        applicability=typed.applicability,
+        outcome=typed.outcome,
+        caveats=typed.caveats,
+    )
     return _build_v2_candidate_identity(
         tenant_id=str(typed.tenant_id),
         memory_type="case_memory",
@@ -403,6 +441,84 @@ def _build_v2_candidate_identity(
     )
 
 
+def _build_stored_candidate_identity(
+    *,
+    tenant_id: str,
+    memory_type: str,
+    scope_type: str,
+    scope_id: str,
+    content: str,
+    stored_content_hash: str,
+    source_ref: Mapping[str, Any],
+    stored_source_identity_hash: str | None,
+    require_source_match: bool = True,
+) -> MemoryCandidateIdentityV1:
+    for identity_profile in (MEMORY_IDENTITY_PROFILE, LEGACY_MEMORY_IDENTITY_PROFILE):
+        content_hash = canonical_memory_content_hash(
+            memory_type=memory_type,
+            content=content,
+            identity_profile=identity_profile,
+        )
+        if content_hash != stored_content_hash:
+            continue
+        if identity_profile == MEMORY_IDENTITY_PROFILE:
+            try:
+                normalized_source_ref = _normalize_source_ref_v2(source_ref)
+                source_identity_hash = _source_identity_hash_v2(normalized_source_ref)
+            except MemoryIdentityError:
+                continue
+            candidate_hash = _candidate_hash_v2(
+                tenant_id=tenant_id,
+                memory_type=memory_type,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                content_hash=content_hash,
+                source_identity_hash=source_identity_hash,
+            )
+        else:
+            try:
+                normalized_source_ref = MemorySourceRefV1.model_validate(source_ref)
+            except ValidationError as exc:
+                raise MemoryIdentityError(str(exc)) from exc
+            source_identity_hash = canonical_source_identity_hash(source_ref)
+            candidate_hash = canonical_memory_candidate_hash(
+                tenant_id=tenant_id,
+                memory_type=memory_type,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                content_hash=content_hash,
+                source_identity_hash=source_identity_hash,
+            )
+        if require_source_match and source_identity_hash != stored_source_identity_hash:
+            continue
+        return MemoryCandidateIdentityV1(
+            identity_profile=identity_profile,
+            tenant_id=tenant_id,
+            memory_type=memory_type,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            normalized_source_ref=normalized_source_ref,
+            content_hash=content_hash,
+            source_identity_hash=source_identity_hash,
+            candidate_hash=candidate_hash,
+        )
+    raise MemoryIdentityError("stored memory identity does not match its legacy or current profile")
+
+
+def _case_memory_content(
+    *,
+    source_type: str,
+    summary: str,
+    excerpt: str | None,
+    applicability: str | None,
+    outcome: str | None,
+    caveats: str | None,
+) -> str:
+    if source_type != "closed_case_cwc_candidate":
+        return summary
+    return "\n".join(part for part in (summary, excerpt, applicability, outcome, caveats) if part)
+
+
 def _candidate_source_ref(
     candidate: LongTermMemoryWriteCandidate | CaseMemoryWriteCandidate,
 ) -> dict[str, Any]:
@@ -411,8 +527,9 @@ def _candidate_source_ref(
     if supplied_source_type is not None and supplied_source_type != candidate.source_type:
         raise MemoryIdentityError("source_ref.source_type must match candidate.source_type")
     source_ref["source_type"] = candidate.source_type
-    source_ref.setdefault("run_id", str(candidate.run_id))
-    source_ref.setdefault("agent_run_id", str(candidate.run_id))
+    if not any(_has_source_discriminator(source_ref.get(key)) for key in _SOURCE_IDENTITY_DISCRIMINATORS):
+        source_ref.setdefault("run_id", str(candidate.run_id))
+        source_ref["agent_run_id"] = str(candidate.run_id)
     return source_ref
 
 

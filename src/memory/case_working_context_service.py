@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import uuid
 from typing import Literal
 
@@ -15,11 +14,7 @@ from src.memory.case_working_context_schemas import (
     normalize_case_working_context_content_sources,
     normalize_case_working_context_source_ref,
 )
-from src.memory.identity import (
-    canonical_memory_candidate_hash,
-    canonical_memory_content_hash,
-    canonical_source_identity_hash,
-)
+from src.memory.identity import build_case_working_context_candidate_identity
 from src.memory.policy import (
     BLOCKED_MEMORY_WRITE_PII_CLASSIFICATIONS,
     MEMORY_POLICY_AUTHORITY_CLASS,
@@ -66,12 +61,9 @@ class CaseWorkingContextService:
                 tenant_id=trusted_candidate.tenant_id,
                 case_id=trusted_candidate.case_id,
             )
-            source_ref_json = trusted_candidate.source_ref.model_dump(mode="json", exclude_none=True)
-            source_identity_hash = canonical_source_identity_hash(source_ref_json)
-            candidate_hash = _candidate_hash(
-                candidate=trusted_candidate,
-                source_identity_hash=source_identity_hash,
-            )
+            identity = build_case_working_context_candidate_identity(trusted_candidate)
+            source_ref_json = identity.normalized_source_ref.model_dump(mode="json", exclude_none=True)
+            candidate_hash = identity.candidate_hash
 
             if trusted_candidate.pii_classification in BLOCKED_MEMORY_WRITE_PII_CLASSIFICATIONS:
                 event = await _emit_write_event(
@@ -217,31 +209,6 @@ async def _assert_case_belongs_to_tenant(
     )
     if result.scalar_one_or_none() is None:
         raise ValueError("case_id does not belong to tenant")
-
-
-def _candidate_hash(
-    *,
-    candidate: CaseWorkingContextWriteCandidate,
-    source_identity_hash: str | None,
-) -> str:
-    content_json = json.dumps(
-        candidate.content.model_dump(mode="json"),
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    content_hash = canonical_memory_content_hash(
-        memory_type=CASE_WORKING_CONTEXT_MEMORY_TYPE,
-        content=content_json,
-    )
-    return canonical_memory_candidate_hash(
-        tenant_id=str(candidate.tenant_id),
-        memory_type=CASE_WORKING_CONTEXT_MEMORY_TYPE,
-        scope_type="case",
-        scope_id=str(candidate.case_id),
-        content_hash=content_hash,
-        source_identity_hash=source_identity_hash,
-    )
 
 
 async def _emit_write_event(

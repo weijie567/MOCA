@@ -12,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import CaseMemory, MemoryTombstone, MemoryWriteEvent
 from src.memory.identity import (
     ALLOWED_SOURCE_REF_KEYS,
-    canonical_memory_candidate_hash,
-    canonical_memory_content_hash,
+    MEMORY_IDENTITY_PROFILE,
+    MemoryCandidateIdentityV1,
+    build_case_memory_candidate_identity,
     canonical_source_identity_hash,
 )
 from src.memory.policy import (
@@ -221,7 +222,14 @@ class CaseMemoryRepository:
     ) -> MemoryTombstone:
         now = _aware(now)
         source_ref_json = dict(source_ref_json or {})
-        resolved_source_identity_hash = source_identity_hash or source_identity_hash_for_tombstone(source_ref_json)
+        resolved_source_identity_hash = source_identity_hash or (
+            canonical_source_identity_hash(
+                source_ref_json,
+                identity_profile=MEMORY_IDENTITY_PROFILE,
+            )
+            if source_ref_json
+            else source_identity_hash_for_tombstone(source_ref_json)
+        )
         if content_hash is None and resolved_source_identity_hash is None:
             raise ValueError("content_hash or source_identity_hash is required for memory tombstone")
 
@@ -493,15 +501,15 @@ class CaseMemoryService:
         now: datetime | None = None,
     ) -> CaseMemoryWriteResult:
         now = _aware(now)
-        identity = _candidate_identity(candidate)
+        identity = build_case_memory_candidate_identity(candidate)
         policy_decision = _policy_decision_for_candidate(candidate)
         tombstone = await self.repository.check_tombstone_before_write(
             tenant_id=candidate.tenant_id,
             memory_type=CASE_MEMORY_TYPE,
             scope_type=candidate.scope_type,
             scope_id=candidate.scope_id,
-            content_hash=identity["content_hash"],
-            source_identity_hash=identity["source_identity_hash"],
+            content_hash=identity.content_hash,
+            source_identity_hash=identity.source_identity_hash,
             now=now,
         )
         if tombstone is not None:
@@ -513,8 +521,8 @@ class CaseMemoryService:
                 decision="skip",
                 reason_code="tombstone_match",
                 pii_classification=candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                source_ref_json=identity["source_ref_json"],
+                candidate_hash=identity.candidate_hash,
+                source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
                 blocked_by=["tombstone_match"],
             )
             return _write_result(
@@ -537,8 +545,8 @@ class CaseMemoryService:
                 decision="skip",
                 reason_code="pii_blocked",
                 pii_classification=candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                source_ref_json=identity["source_ref_json"],
+                candidate_hash=identity.candidate_hash,
+                source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
                 **_policy_event_kwargs(policy_decision),
             )
             return _write_result(
@@ -556,8 +564,8 @@ class CaseMemoryService:
             tenant_id=candidate.tenant_id,
             scope_type=candidate.scope_type,
             scope_id=candidate.scope_id,
-            content_hash=identity["content_hash"],
-            source_identity_hash=identity["source_identity_hash"],
+            content_hash=identity.content_hash,
+            source_identity_hash=identity.source_identity_hash,
             now=now,
         )
         if duplicate is not None:
@@ -570,8 +578,8 @@ class CaseMemoryService:
                 decision="skip",
                 reason_code=reason_code,
                 pii_classification=candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                source_ref_json=identity["source_ref_json"],
+                candidate_hash=identity.candidate_hash,
+                source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
                 blocked_by=[reason_code],
             )
             return _write_result(
@@ -588,9 +596,9 @@ class CaseMemoryService:
         review_status = policy_decision.review_status or "needs_review"
         memory = await self.repository.insert_case_memory(
             candidate,
-            content_hash=identity["content_hash"],
-            source_ref_json=identity["source_ref_json"],
-            source_identity_hash=identity["source_identity_hash"],
+            content_hash=identity.content_hash,
+            source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
+            source_identity_hash=identity.source_identity_hash,
             review_status=review_status,
             now=now,
             reviewed_by_user_id=None,
@@ -604,8 +612,8 @@ class CaseMemoryService:
             decision=policy_decision.decision,
             reason_code=policy_decision.reason_code,
             pii_classification=candidate.pii_classification,
-            candidate_hash=identity["candidate_hash"],
-            source_ref_json=identity["source_ref_json"],
+            candidate_hash=identity.candidate_hash,
+            source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
             **_policy_event_kwargs(policy_decision),
         )
         return _write_result(
@@ -641,7 +649,7 @@ class CaseMemoryService:
             decision="write",
             reason_code=decision.reason_code,
             pii_classification=memory.pii_classification,
-            candidate_hash=_candidate_hash_for_memory(memory),
+            candidate_hash=build_case_memory_candidate_identity(memory).candidate_hash,
             source_ref_json=dict(memory.source_ref_json or {}),
         )
 
@@ -667,7 +675,7 @@ class CaseMemoryService:
             decision="skip",
             reason_code=decision.reason_code,
             pii_classification=memory.pii_classification,
-            candidate_hash=_candidate_hash_for_memory(memory),
+            candidate_hash=build_case_memory_candidate_identity(memory).candidate_hash,
             source_ref_json=dict(memory.source_ref_json or {}),
         )
 
@@ -755,56 +763,9 @@ class CaseMemoryService:
             decision=event_decision,
             reason_code=reason_code,
             pii_classification=memory.pii_classification,
-            candidate_hash=_candidate_hash_for_memory(memory),
+            candidate_hash=build_case_memory_candidate_identity(memory).candidate_hash,
             source_ref_json=dict(memory.source_ref_json or {}),
         )
-
-
-def _candidate_identity(candidate: CaseMemoryWriteCandidate) -> dict[str, Any]:
-    source_ref_json = _source_ref_json(candidate)
-    content_hash = canonical_memory_content_hash(
-        memory_type=CASE_MEMORY_TYPE,
-        content=_candidate_content_identity_text(candidate),
-    )
-    source_identity_hash = canonical_source_identity_hash(source_ref_json)
-    candidate_hash = canonical_memory_candidate_hash(
-        tenant_id=str(candidate.tenant_id),
-        memory_type=CASE_MEMORY_TYPE,
-        scope_type=candidate.scope_type,
-        scope_id=candidate.scope_id,
-        content_hash=content_hash,
-        source_identity_hash=source_identity_hash,
-    )
-    return {
-        "source_ref_json": source_ref_json,
-        "content_hash": content_hash,
-        "source_identity_hash": source_identity_hash,
-        "candidate_hash": candidate_hash,
-    }
-
-
-def _candidate_content_identity_text(candidate: CaseMemoryWriteCandidate) -> str:
-    if candidate.source_type != "closed_case_cwc_candidate":
-        return candidate.summary
-    return "\n".join(
-        part
-        for part in (
-            candidate.summary,
-            candidate.excerpt,
-            candidate.applicability,
-            candidate.outcome,
-            candidate.caveats,
-        )
-        if part
-    )
-
-
-def _source_ref_json(candidate: CaseMemoryWriteCandidate) -> dict[str, Any]:
-    if candidate.source_ref is None:
-        return {"source_type": candidate.source_type}
-    source_ref_json = candidate.source_ref.model_dump(exclude_none=True)
-    source_ref_json["source_type"] = candidate.source_type
-    return source_ref_json
 
 
 def _review_status_for_source(source_type: str) -> str:
@@ -839,7 +800,7 @@ def _write_result(
     decision: str,
     reason_code: str,
     candidate: CaseMemoryWriteCandidate,
-    identity: dict[str, Any],
+    identity: MemoryCandidateIdentityV1,
     event_id: uuid.UUID,
 ) -> CaseMemoryWriteResult:
     return CaseMemoryWriteResult(
@@ -849,21 +810,10 @@ def _write_result(
         decision=decision,
         reason_code=reason_code,
         pii_classification=candidate.pii_classification,
-        candidate_hash=identity["candidate_hash"],
-        content_hash=identity["content_hash"],
-        source_identity_hash=identity["source_identity_hash"],
+        candidate_hash=identity.candidate_hash,
+        content_hash=identity.content_hash,
+        source_identity_hash=identity.source_identity_hash,
         event_id=event_id,
-    )
-
-
-def _candidate_hash_for_memory(memory: CaseMemory) -> str:
-    return canonical_memory_candidate_hash(
-        tenant_id=str(memory.tenant_id),
-        memory_type=CASE_MEMORY_TYPE,
-        scope_type=memory.scope_type,
-        scope_id=memory.scope_id,
-        content_hash=memory.content_hash,
-        source_identity_hash=memory.source_identity_hash,
     )
 
 

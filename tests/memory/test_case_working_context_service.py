@@ -504,15 +504,15 @@ async def test_candidate_hash_binds_tenant_and_source_identity(
         async with session.begin():
             scope = await _seed_case_scope(session)
 
-    captured_kwargs: dict | None = None
-    original = service_module.canonical_memory_candidate_hash
+    captured_identity = None
+    original = service_module.build_case_working_context_candidate_identity
 
-    def spy_candidate_hash(**kwargs):
-        nonlocal captured_kwargs
-        captured_kwargs = dict(kwargs)
-        return original(**kwargs)
+    def spy_candidate_identity(candidate):
+        nonlocal captured_identity
+        captured_identity = original(candidate)
+        return captured_identity
 
-    monkeypatch.setattr(service_module, "canonical_memory_candidate_hash", spy_candidate_hash)
+    monkeypatch.setattr(service_module, "build_case_working_context_candidate_identity", spy_candidate_identity)
 
     async with phase44_session_factory() as session:
         source_ref = _source_ref(agent_run_id=str(scope["run"].id), business_object_id=str(scope["refund_case"].id))
@@ -525,13 +525,14 @@ async def test_candidate_hash_binds_tenant_and_source_identity(
         )
 
     assert result.status == "written"
-    assert captured_kwargs is not None
-    assert captured_kwargs["tenant_id"] == str(scope["tenant"].id)
-    assert captured_kwargs["memory_type"] == "case_working_context"
-    assert captured_kwargs["scope_type"] == "case"
-    assert captured_kwargs["scope_id"] == str(scope["refund_case"].id)
-    assert captured_kwargs["source_identity_hash"] is not None
-    assert captured_kwargs["source_identity_hash"].startswith("sha256:")
+    assert captured_identity is not None
+    assert captured_identity.tenant_id == str(scope["tenant"].id)
+    assert captured_identity.memory_type == "case_working_context"
+    assert captured_identity.scope_type == "case"
+    assert captured_identity.scope_id == str(scope["refund_case"].id)
+    assert captured_identity.source_identity_hash is not None
+    assert captured_identity.source_identity_hash.startswith("sha256:")
+    assert result.candidate_hash == captured_identity.candidate_hash
 
 
 @pytest.mark.asyncio
