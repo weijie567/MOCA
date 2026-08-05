@@ -54,10 +54,12 @@ SKIPPED_DIR_NAMES = frozenset(
 CURRENT_DOC_PATHS = frozenset(
     {
         "README.md",
-        "docs/architecture-overview.md",
+        "docs/README.md",
+        "docs/architecture/agent-workflow.md",
+        "docs/architecture/system-overview.md",
         "docs/contract-spec.md",
-        "docs/current-langgraph-architecture.md",
-        "docs/target-agent-platform-architecture-plan.md",
+        "docs/reference/contracts.md",
+        "docs/reference/glossary.md",
     }
 )
 HISTORICAL_PROJECTION_PATHS = frozenset(

@@ -29,7 +29,7 @@
 - `.planning/milestones/v2.1-ROADMAP.md`
 - `.planning/milestones/v2.1-REQUIREMENTS.md`
 - `.planning/milestones/v2.1-MILESTONE-AUDIT.md`
-- Phase directories remain in `.planning/phases/` for now; use `$gsd-cleanup` later if desired.
+- `.planning/milestones/v2.1-phases/`（Phase 37-60 及 48.1，共 25 个已完成 phase 目录）
 
 **Known deferred items at close:**
 

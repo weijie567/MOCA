@@ -244,7 +244,7 @@ async def test_chunk_repository_expands_ordered_source_refs_through_document_blo
             "warning_codes": ["hidden_text_stripped"],
             "parser_dump": "must not project",
         },
-        ocr_metadata_json={"average_confidence": 88, "language": "chi_sim+eng", "local_path": "/Users/ming/raw.png"},
+        ocr_metadata_json={"average_confidence": 88, "language": "chi_sim+eng", "local_path": "/Users/example/raw.png"},
     )
 
     class _Result:
@@ -291,7 +291,7 @@ async def test_chunk_repository_expands_ordered_source_refs_through_document_blo
     }
     assert locator.ocr == {"average_confidence": 88, "language": "chi_sim+eng"}
     assert "parser_dump" not in repr(locator)
-    assert "/Users/ming" not in repr(locator)
+    assert "/Users/example" not in repr(locator)
 
 
 @pytest.mark.asyncio

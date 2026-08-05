@@ -1,10 +1,18 @@
-NOTE: This file is the primary accepted contract reference for MOCA agent architecture. Other docs (architecture-overview / migration-plan / eval-test-plan) are illustrative or process docs until their deltas are accepted here or in a named phase decision.
+# MOCA Agent Contract Specification
+
+> 文档类型：NORMATIVE
+> 描述范围：MOCA Agent 架构的详细已接受契约、目标语义与兼容边界
+> 最后核验：2026-08-04（文档入口与当前事实索引）
+> 权威来源：已接受契约、具名实现决策与 canonical schema owner
+> 更新触发：schema、owner、authority、状态语义、兼容策略或目标契约变化
+
+本文是 MOCA Agent 架构的主要详细契约参考。[公开文档入口](README.md)列出的 CURRENT、NORMATIVE 与 GUIDE 文档用于概括当前实现、已接受语义和可执行操作，但不能静默替换本文的详细契约。
 
 This file is also a living contract, not an immutable authority. Older sections may describe target contracts that were not fully implemented yet, or semantics that a later phase intentionally replaces. A phase must not treat historical text here as proof that the current code already behaves that way. When a new phase discovers conflict between this contract, the codebase, tests, and the accepted product model, the phase must surface the conflict, then amend this file or record an explicit MVP scope/deferral before implementation proceeds.
 
 ## 0.1 Target architecture delta sync rule
 
-`docs/target-agent-platform-architecture-plan.md` may describe proposed target vocabulary, service boundaries, runtime graph shapes, and schema deltas. Those proposals do not become normative until this file is amended or an implementation phase records an explicit mapping to the canonical contracts below. In particular, proposed registered nodes/routers, `TrustedContext` fields, AgentState fields, RAG/claim verification bundles, tool policy decisions, business fact refs, and decision event envelopes must not silently widen or rename the canonical contracts in this file.
+Design discussions, phase plans, and implementation proposals do not become normative until this file is amended or a named implementation decision records an explicit mapping to the canonical contracts below. In particular, proposed registered nodes/routers, `TrustedContext` fields, AgentState fields, RAG/claim verification bundles, tool policy decisions, business fact refs, and decision event envelopes must not silently widen or rename the canonical contracts in this file.
 
 Phase 0 target architecture delta accepted here:
 
@@ -32,7 +40,7 @@ This registry is the normative APF-02 ownership contract for the v1.9 agent plat
 
 ## 8. Service contracts (Knowledge / Business Tools)
 
-> Producer phase + schema_version annotation: Canonical `TrustedContext` (`trusted_context.v1`) — Phase 7 shared contract (§8.0). KnowledgeService facade and `evidence_ref.v1` / `knowledge_search_request.v2` / `knowledge_search_result.v2` — Phase 8. BusinessToolService facade and `ToolCallContext` / `ToolResultV2` — Phase 9. EvidenceRefV1 is the canonical schema owned by Phase 8; Phase 13 (snapshot) and Phase 15 (replay) must import it and must not define reduced variants. The illustrative module narrative for these layers lives in `docs/architecture-overview.md` §8; the normative contracts are here.
+> Producer phase + schema_version annotation: Canonical `TrustedContext` (`trusted_context.v1`) — Phase 7 shared contract (§8.0). KnowledgeService facade and `evidence_ref.v1` / `knowledge_search_request.v2` / `knowledge_search_result.v2` — Phase 8. BusinessToolService facade and `ToolCallContext` / `ToolResultV2` — Phase 9. EvidenceRefV1 is the canonical schema owned by Phase 8; Phase 13 (snapshot) and Phase 15 (replay) must import it and must not define reduced variants. The current module narrative lives in `docs/architecture/system-overview.md`, `docs/architecture/tools-and-business-facts.md`, and `docs/architecture/rag-and-grounding.md`; the normative contracts are here.
 
 ### 8.0 Canonical TrustedContext (normative)
 

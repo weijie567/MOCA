@@ -12,7 +12,13 @@ ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_SPEC_PATH = ROOT / "docs" / "contract-spec.md"
 DB_MODELS_PATH = ROOT / "src" / "db" / "models.py"
 MEMORY_DECISIONS_PATH = ROOT / ".planning" / "MEMORY-REDESIGN-DECISIONS.md"
-PHASE47_DIR = ROOT / ".planning" / "phases" / "47-case-precedent-repositioning-and-closed-case-candidate-gener"
+PHASE47_DIR = (
+    ROOT
+    / ".planning"
+    / "milestones"
+    / "v2.1-phases"
+    / "47-case-precedent-repositioning-and-closed-case-candidate-gener"
+)
 MIGRATIONS_DIR = ROOT / "src" / "db" / "migrations" / "versions"
 AGENT_RUN_MEMORY_PATH = ROOT / "src" / "api" / "services" / "agent_run_memory.py"
 CWC_LIFECYCLE_PATH = ROOT / "src" / "memory" / "case_working_context_lifecycle.py"

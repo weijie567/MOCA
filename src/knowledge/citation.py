@@ -2,7 +2,7 @@
 
 This module implements membership-only validation per D-C1/D-C2. It does not
 infer semantic claim support; that remains a separate deferred evaluation
-defined in eval-test-plan section 20.
+described in docs/quality/evaluation.md and the canonical claim contracts.
 """
 
 from __future__ import annotations

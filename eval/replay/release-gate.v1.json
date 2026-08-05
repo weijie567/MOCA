@@ -18,7 +18,7 @@
       "metric_id": "intent_hard_negatives",
       "gate_status": "statistical_gate_not_demonstrated",
       "required_min_n": 300,
-      "required_min_n_source": "docs/eval-test-plan.md section 20.4 release/M6 sample semantics",
+      "required_min_n_source": "docs/quality/evaluation.md section Intent and Replay gate manifests",
       "smoke_n": 1,
       "statistical_n": 0,
       "smoke_case_ids": [
@@ -33,7 +33,7 @@
       "metric_id": "rag_claim_support",
       "gate_status": "statistical_gate_not_demonstrated",
       "required_min_n": 300,
-      "required_min_n_source": "docs/eval-test-plan.md section 20.3 semantic groundedness/support and 20.4 release sample semantics",
+      "required_min_n_source": "docs/quality/evaluation.md section Intent and Replay gate manifests",
       "smoke_n": 1,
       "statistical_n": 0,
       "smoke_case_ids": [
@@ -48,7 +48,7 @@
       "metric_id": "approval_action_safety",
       "gate_status": "statistical_gate_not_demonstrated",
       "required_min_n": 300,
-      "required_min_n_source": "docs/eval-test-plan.md section 20.3 approval/action safety and 20.4 release sample semantics",
+      "required_min_n_source": "docs/quality/evaluation.md section Intent and Replay gate manifests",
       "smoke_n": 1,
       "statistical_n": 0,
       "smoke_case_ids": [

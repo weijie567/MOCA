@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_SPEC_PATH = ROOT / "docs" / "contract-spec.md"
 DB_MODELS_PATH = ROOT / "src" / "db" / "models.py"
 SESSION_MEMORY_MIGRATION_PATH = ROOT / "src" / "db" / "migrations" / "versions" / "007_session_memories.py"
-PHASE46_DIR = ROOT / ".planning" / "phases" / "46-session-context-repositioning"
+PHASE46_DIR = ROOT / ".planning" / "milestones" / "v2.1-phases" / "46-session-context-repositioning"
 MEMORY_DECISIONS_PATH = ROOT / ".planning" / "MEMORY-REDESIGN-DECISIONS.md"
 SESSION_RUNTIME_PATHS = (
     ROOT / "src" / "memory" / "session_bundle.py",

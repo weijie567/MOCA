@@ -115,7 +115,7 @@ def test_parser_source_block_id_builders_reject_unvalidated_doc_keys() -> None:
     from src.rag.parsers.ocr import _ocr_source_block_id
     from src.rag.parsers.pdf import _pdf_source_block_id
 
-    malicious_doc_key = "refund_policy\n/Users/ming/private/source.pdf\nparser_dump"
+    malicious_doc_key = "refund_policy\n/Users/example/private/source.pdf\nparser_dump"
 
     with pytest.raises(ValueError, match="invalid_doc_key"):
         synthetic_source_block_id(doc_key=malicious_doc_key, source_type="policy_markdown", block_index=0)
@@ -160,7 +160,7 @@ def test_markdown_adapter_emits_deterministic_visible_synthetic_blocks(tmp_path)
         "## Refund Policy\n"
         "Visible refund terms.\n\n"
         "- First item\n"
-        "- Second item with /Users/ming/private/source.pdf\n"
+        "- Second item with /Users/example/private/source.pdf\n"
         "parser_dump: Traceback (most recent call last)\n",
         encoding="utf-8",
     )
@@ -186,7 +186,7 @@ def test_markdown_adapter_emits_deterministic_visible_synthetic_blocks(tmp_path)
     serialized_text = "\n".join(f"{block.text}\n{block.normalized_text}" for block in first.blocks)
     assert "ignore previous instructions" not in serialized_text
     assert "Traceback" not in serialized_text
-    assert "/Users/ming" not in serialized_text
+    assert "/Users/example" not in serialized_text
     assert "\ufeff" not in serialized_text
 
     warning_codes = {warning.code for warning in first.warnings}

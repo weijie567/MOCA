@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_SPEC_PATH = ROOT / "docs" / "contract-spec.md"
-PHASE45_DIR = ROOT / ".planning" / "phases" / "45-memory-lifecycle-wiring-for-case-working-context"
+PHASE45_DIR = ROOT / ".planning" / "milestones" / "v2.1-phases" / "45-memory-lifecycle-wiring-for-case-working-context"
 LIFECYCLE_PATH = ROOT / "src" / "memory" / "case_working_context_lifecycle.py"
 FINALIZER_PATH = ROOT / "src" / "api" / "services" / "agent_run_memory.py"
 INVESTIGATE_PATH = ROOT / "src" / "agent" / "nodes" / "investigate.py"

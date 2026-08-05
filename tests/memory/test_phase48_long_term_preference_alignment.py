@@ -9,7 +9,7 @@ CONTRACT_SPEC_PATH = ROOT / "docs" / "contract-spec.md"
 DB_MODELS_PATH = ROOT / "src" / "db" / "models.py"
 SEMANTIC_EPISODE_PATH = ROOT / "src" / "memory" / "semantic_episode.py"
 REPOSITORY_PATH = ROOT / "src" / "memory" / "repository.py"
-PHASE48_DIR = ROOT / ".planning" / "phases" / "48-narrow-long-term-explicit-preference-memory"
+PHASE48_DIR = ROOT / ".planning" / "milestones" / "v2.1-phases" / "48-narrow-long-term-explicit-preference-memory"
 
 
 def _source(path: Path) -> str:

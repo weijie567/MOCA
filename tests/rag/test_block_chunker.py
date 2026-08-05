@@ -136,7 +136,7 @@ def test_existing_markdown_chunker_keeps_policy_chunk_content_faithful() -> None
 
 
 def test_chunkers_reject_unvalidated_doc_keys() -> None:
-    malicious_doc_key = "refund_policy\nsource_block_id=/Users/ming/private/source.pdf\nparser_dump"
+    malicious_doc_key = "refund_policy\nsource_block_id=/Users/example/private/source.pdf\nparser_dump"
     blocks = [_block(source_block_id="block-001", block_index=0, block_type="paragraph", text="可见政策")]
 
     with pytest.raises(ValueError, match="invalid_doc_key"):
