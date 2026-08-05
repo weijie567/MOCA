@@ -430,7 +430,7 @@
 - **问题现象 / 根因**：现有 `EvidenceRefV1.build` 与多个检索调用方使用 `doc_key/chunk_id@vN` 展示别名，identity 未覆盖 tenant、精确 policy scope、不可变 document/chunk version row 与完整 text hash；旧别名语法本身也没有可信持久化解析边界。
 - **影响**：调用方可本地重建或伪造看似有效的 evidence id；同 tenant 跨 scope、版本替换和 legacy ambiguity 无法由一个 owner 稳定区分，历史 replay 也不能据此证明消费的是原始不可变证据。
 - **处理状态**：✅ `src/knowledge/evidence_identity.py` 成为 `evidence_identity.v1` 唯一 hash/mint/validate/resolve owner，固定 `scope_type="tenant_policy"` 与 `scope_id=str(tenant_id)`，所有失败对外统一为 `evidence_unavailable`、对内保留稳定 reason code；`EvidenceRefV1` 仅扩展这一份 schema 承载完整 immutable binding，旧 alias 只能作为显式 compatibility input，不能凭语法升级为 canonical。
-- **证据**：Phase 64.2 Plan 01 Task 1；RED commit `4d9eff6`；`src/knowledge/evidence_identity.py`、`src/knowledge/schemas.py`、`tests/knowledge/test_evidence_identity.py`。
+- **证据**：Phase 64.2 Plan 01 Task 1；RED commit `4d9eff6`，GREEN commit `cb6ded5`，format commit `74d0f1b`；`src/knowledge/evidence_identity.py`、`src/knowledge/schemas.py`、`tests/knowledge/test_evidence_identity.py`。
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_evidence_identity.py tests/knowledge/test_evidence_projection.py tests/knowledge/test_text_hash.py -q --tb=short` → `26 passed, 1 warning`；对应 scoped Ruff → `All checks passed!`。
 - **剩余风险**：🟡 当前 ingestion/retrieval 仍由后续 Plan 02 安装 dual-write、backfill/reconciliation 与 canonical-read cutover；Task 1 有意保留旧 `EvidenceRefV1.build` 为无 canonical binding 的兼容输入，不把它误报为已迁移生产 writer。
 
@@ -440,7 +440,7 @@
 - **问题现象 / 根因**：现有 `PolicyDocument` 版本号和内容原地更新，`PolicyChunk` 在 re-ingestion 时整批替换；数据库没有保留 exact document/chunk version content、精确 scope/hash/locator，也没有 replay snapshot 到历史证据的 restrictive dependency。旧 migration chain 因而无法阻止审计保留期内的历史证据被改写或删除。
 - **影响**：旧 run 只能再次解析可变 head/别名，不能证明原始版本；expiry/tombstone/purge 或 schema downgrade 可能丢失 replay 所需内容与 locator；并发 cutover 也缺少数据库单调 sequence 与 CAS rollout 基础。
 - **处理状态**：✅ migration 025 以 expansion-only 方式新增 append-only `policy_document_versions` / `policy_chunk_versions`、精确 `tenant_policy` 字符串 scope/composite identity FK/hash/locator constraints、immutable update 与 retention delete triggers、`evidence_snapshot_dependencies` restrictive FK、nullable head sequence/snapshot columns、数据库原生 `evidence_ingestion_write_seq`，以及默认 inactive 的 singleton rollout/CAS row；downgrade 在存在历史、snapshot dependency/JSON 或 active rollout state 时拒绝执行。
-- **证据**：Phase 64.2 Plan 01 Task 2；RED commit `d3b8be3`；`src/db/models.py`、`src/db/migrations/versions/025_phase64_2_immutable_evidence.py`、`tests/knowledge/test_immutable_evidence_migration.py`。
+- **证据**：Phase 64.2 Plan 01 Task 2；RED commit `d3b8be3`，GREEN commit `b175ae1`；`src/db/models.py`、`src/db/migrations/versions/025_phase64_2_immutable_evidence.py`、`tests/knowledge/test_immutable_evidence_migration.py`。
 - **验证**：从真实 PostgreSQL 024 schema seed mutable heads 后升级 025，证明 immutable/version/dependency 行数均为 0、head sequences 为 NULL、rollout inactive、sequence 严格递增；随后验证错误 scope insert、immutable content update、retained delete 与 downgrade 均 fail closed。Task 2 计划命令结果为 `9 passed, 4 warnings`，scoped Ruff/format/whitespace 门禁通过。
 - **剩余风险**：🟡 migration 025 有意不安装生产 dual-write、不复制 mutable heads、不启用 canonical reads；Plan 02 仍需以 rollout-first lock/CAS 安装 writer、watermarked reconciliation/backfill 与 operational rollback，Plan 06 才负责 production replay emitter/snapshot 写入。
 
