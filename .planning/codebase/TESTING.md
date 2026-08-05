@@ -53,8 +53,7 @@ npm run build
 
 **Evaluation fixtures:**
 - `evaluation/golden/`
-- `eval/golden_rag_queries.jsonl`
-- `evals/golden_set_phase3.json`
+- `evaluation/rag_sources/`
 
 ## Test Structure
 
