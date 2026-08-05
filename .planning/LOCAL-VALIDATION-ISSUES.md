@@ -22270,3 +22270,23 @@ Task 1 引入完整 source authority、canonical evidence/business refs 与 reso
 
 **剩余问题和下次继续排查入口**
 当前无残留进程或数据库阻断。后续本仓库长 pytest 若外层工具返回 running/cell ID，必须持续 wait/poll 到 exit code；遇到 `pg_type_typname_nsp_index` 或建表后表消失时，先查并发 pytest，再判断 migration 缺陷。
+
+## 2026-08-05 — Phase 64.2 Plan 08 lifecycle migration 与严格 identity fixture 漂移
+
+**问题现象**
+Task 1 的真实 PostgreSQL migration 测试首次直接升级到 revision 027 时被 migration 026 的 staged dual-write activation gate 拒绝；修正升级顺序后，手工插入的 `agent_runs` fixture 又缺少非空 `scope_classification`。Task 2 扩展回归首次为 `49 passed, 9 failed`，旧用例仍表达 content-only 去重、terminal tombstone 返回既有 winner、pending 直插 row 不需要 durable claim、reduced policy ref、无 resolved provenance 等旧契约。
+
+**如何检测 / 复现**
+Task 1 使用计划原样命令运行 lifecycle/retrieval/migration 套件；Task 2 顺序运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_memory_retrieval.py tests/memory/test_case_memory_provenance.py tests/memory/test_case_precedent_generation.py tests/memory/test_memory_tombstones.py tests/memory/test_reviewed_memory_context_boundary.py -q --tb=short`。并发验证前后均用 `ps -axo pid=,command= | rg '[p]ytest' || true` 确认无后台 pytest。
+
+**关键证据或命令**
+Migration fixture 改为先升级 025、写入 healthy rollout 后再升级 026/027，并补 `scope_classification='unknown_legacy'`。九个旧回归仅迁移直接 fixture/expectation后，同一扩展命令为 `58 passed, 1 warning`；Task 1/2/3 精确门禁分别为 `19 passed, 8 warnings`、`60 passed, 5 warnings`、`28 passed, 5 warnings`，所有 scoped Ruff 均通过。
+
+**当前判断 / 根因**
+Migration 两次失败都是测试未遵守仓库真实 staged-upgrade 与当前非空 schema。九个回归属于 Plan 03/07 后 fixture 仍使用 legacy identity/provenance 形状；production 不应恢复 content-only winner、释放 terminal claim 或接受 reduced ref。另发现 tombstone helper 的默认 legacy source hash 与 v2 candidate 不同，测试必须显式保存 candidate 已计算的 v2 source identity，不能据此放宽生产匹配。
+
+**已做处理**
+只迁移获批的直接 fixture 与断言：canonical `EvidenceRefV1` 同步完整 provenance；pending 直插 row 补 matching active claim；fake repository 补严格 claim 接口；source-distinct 改为两个 owner；terminal exact retry 改为 generic conflict/no winner；context row 补完整 Plan 07 identity/provenance。没有新增 legacy fallback。Task 3 初版 10 个 race 已绿，补充 concurrent identical correction retry 后稳定 RED 为一个 `case memory conflict`，修复严格 payload/lineage/provenance/event replay 后 11 个 race 全绿。
+
+**剩余问题和下次继续排查入口**
+当前无 Plan 08 验证阻断、无残留 pytest。既有 LangGraph `allowed_objects` 与 Alembic `path_separator` warnings 未由本 plan 引入。后续 case-memory fixture 必须经 service 写入或同时建立完整 resolved provenance 与 matching durable claim；source tombstone 应显式复用 candidate identity result。
