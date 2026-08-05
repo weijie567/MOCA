@@ -10,6 +10,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import (
+    Base,
     EvidenceIdentityRollout,
     PolicyChunk,
     PolicyChunkVersion,
@@ -22,6 +23,8 @@ from src.repositories.evidence_version_repo import (
     EvidenceVersionRepository,
     RolloutEpochMismatch,
 )
+
+MIGRATION_026 = Path("src/db/migrations/versions/026_phase64_2_evidence_cutover.py")
 
 
 class _EmbeddingService:
@@ -279,3 +282,197 @@ async def test_concurrent_changed_ingestions_serialize_under_one_rollout_epoch(t
     assert sorted(sequences) == [1, 2]
     assert versions == [1, 2]
     assert rollout_version == expected_epoch
+
+
+def test_migration_026_declares_staged_health_watermark_reconciliation_and_guarded_downgrade() -> None:
+    source = MIGRATION_026.read_text(encoding="utf-8")
+    normalized = " ".join(source.split()).lower()
+
+    assert 'revision: str = "026_phase64_2_evidence_cutover"' in source
+    assert 'down_revision: str | none = "025_phase64_2_immutable_evidence"' in normalized
+    assert "dual_write_enabled_at is null" in normalized
+    assert "dual_write_health_checked_at" in normalized
+    assert "nextval('evidence_ingestion_write_seq')" in normalized
+    assert "backfill_watermark_sequence" in normalized
+    assert "legacy_unresolved" in normalized
+    assert "reconciled_through_sequence" in normalized
+    assert "canonical_reads_enabled = true" in normalized
+    assert "rollout_version = rollout_version + 1" in normalized
+    assert "refusing downgrade" in normalized
+
+
+@pytest.mark.asyncio
+async def test_unchanged_ingestions_on_both_sides_of_watermark_reconcile_by_binding_parity(
+    session,
+    tmp_path: Path,
+) -> None:
+    tenant_id = await _seed_inactive_rollout(session)
+    repository = EvidenceVersionRepository(session)
+    rollout = await repository.activate_dual_write(
+        expected_rollout_version=0,
+        health_checked_at=datetime.now(UTC),
+    )
+    await session.commit()
+    source = _write_policy(tmp_path, "watermark 内容")
+    service = IngestionService(session=session, embedder=_EmbeddingService(), tenant_id=tenant_id)
+    first = await service.ingest_document(source, _metadata(), expected_rollout_version=rollout.rollout_version)
+    before = await service.ingest_document(source, _metadata(), expected_rollout_version=rollout.rollout_version)
+    immutable_ids = tuple(
+        (
+            await session.execute(
+                select(PolicyChunkVersion.id)
+                .where(PolicyChunkVersion.tenant_id == tenant_id)
+                .order_by(PolicyChunkVersion.id)
+            )
+        ).scalars()
+    )
+
+    watermark = await repository.reserve_backfill_watermark(expected_rollout_version=rollout.rollout_version)
+    await session.commit()
+    after = await service.ingest_document(source, _metadata(), expected_rollout_version=rollout.rollout_version)
+    activated = await repository.reconcile_and_enable_canonical_reads(
+        expected_rollout_version=rollout.rollout_version,
+    )
+    await session.commit()
+
+    final_ids = tuple(
+        (
+            await session.execute(
+                select(PolicyChunkVersion.id)
+                .where(PolicyChunkVersion.tenant_id == tenant_id)
+                .order_by(PolicyChunkVersion.id)
+            )
+        ).scalars()
+    )
+    assert (first.evidence_write_sequence, before.evidence_write_sequence) == (1, 2)
+    assert watermark == 3
+    assert after.evidence_write_sequence == 4
+    assert final_ids == immutable_ids
+    assert activated.canonical_reads_enabled is True
+    assert activated.reconciled_through_sequence == 4
+    assert activated.audit_counts_json["binding_reused_after_watermark"] == 1
+    assert activated.audit_counts_json["unresolved_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_writer_and_cutover_share_rollout_lock_epoch(test_engine, tmp_path: Path) -> None:
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def reset_and_seed(label: str) -> tuple[UUID, int, Path]:
+        async with test_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+        async with session_factory() as setup_session:
+            tenant_id = await _seed_inactive_rollout(setup_session)
+            rollout = await EvidenceVersionRepository(setup_session).activate_dual_write(
+                expected_rollout_version=0,
+                health_checked_at=datetime.now(UTC),
+            )
+            await setup_session.commit()
+            source_dir = tmp_path / label
+            source_dir.mkdir()
+            source = _write_policy(source_dir, f"{label} initial")
+            service = IngestionService(
+                session=setup_session,
+                embedder=_EmbeddingService(),
+                tenant_id=tenant_id,
+            )
+            initial = await service.ingest_document(
+                source,
+                _metadata(),
+                expected_rollout_version=rollout.rollout_version,
+            )
+            assert initial.evidence_write_sequence == 1
+            await EvidenceVersionRepository(setup_session).reserve_backfill_watermark(
+                expected_rollout_version=rollout.rollout_version
+            )
+            await setup_session.commit()
+            return tenant_id, rollout.rollout_version, source_dir
+
+    # Activator first: it keeps the rollout lock after the final zero-gap scan,
+    # so the writer cannot allocate a sequence until activation commits.
+    tenant_id, epoch, source_dir = await reset_and_seed("activator-first")
+    zero_gap_checked = asyncio.Event()
+    release_activation = asyncio.Event()
+
+    async def pause_after_zero_gap() -> None:
+        zero_gap_checked.set()
+        await release_activation.wait()
+
+    async def activate_first() -> int:
+        async with session_factory() as activation_session:
+            state = await EvidenceVersionRepository(activation_session).reconcile_and_enable_canonical_reads(
+                expected_rollout_version=epoch,
+                after_zero_gap=pause_after_zero_gap,
+            )
+            await activation_session.commit()
+            return state.rollout_version
+
+    async def write_after_activation() -> object:
+        async with session_factory() as writer_session:
+            writer = IngestionService(
+                session=writer_session,
+                embedder=_EmbeddingService(),
+                tenant_id=tenant_id,
+            )
+            changed = _write_policy(source_dir, "activator-first changed")
+            return await writer.ingest_document(changed, _metadata())
+
+    activation_task = asyncio.create_task(activate_first())
+    await asyncio.wait_for(zero_gap_checked.wait(), timeout=2)
+    writer_task = asyncio.create_task(write_after_activation())
+    await asyncio.sleep(0.1)
+    assert writer_task.done() is False
+    async with test_engine.connect() as observer:
+        assert await observer.scalar(text("SELECT last_value FROM evidence_ingestion_write_seq")) == 2
+    release_activation.set()
+    activated_epoch, writer_result = await asyncio.gather(activation_task, writer_task)
+    assert activated_epoch == epoch + 1
+    assert writer_result.status == "success"
+    assert writer_result.rollout_version == activated_epoch
+    assert writer_result.evidence_write_sequence == 3
+
+    # Writer first: the activator waits on the same rollout row and must include
+    # the committed writer sequence in its continuously locked reconciliation.
+    tenant_id, epoch, source_dir = await reset_and_seed("writer-first")
+    writer_has_lock = asyncio.Event()
+    release_writer = asyncio.Event()
+
+    async with session_factory() as writer_session:
+        writer = IngestionService(
+            session=writer_session,
+            embedder=_EmbeddingService(),
+            tenant_id=tenant_id,
+        )
+        original_allocate = writer.evidence_repo.allocate_ingestion_sequence
+
+        async def pause_before_sequence() -> int:
+            writer_has_lock.set()
+            await release_writer.wait()
+            return await original_allocate()
+
+        writer.evidence_repo.allocate_ingestion_sequence = pause_before_sequence  # type: ignore[method-assign]
+        changed = _write_policy(source_dir, "writer-first changed")
+        held_writer = asyncio.create_task(writer.ingest_document(changed, _metadata()))
+        await asyncio.wait_for(writer_has_lock.wait(), timeout=2)
+
+        async def activate_after_writer() -> tuple[int, int | None]:
+            async with session_factory() as activation_session:
+                state = await EvidenceVersionRepository(activation_session).reconcile_and_enable_canonical_reads(
+                    expected_rollout_version=epoch,
+                )
+                await activation_session.commit()
+                return state.rollout_version, state.reconciled_through_sequence
+
+        waiting_activator = asyncio.create_task(activate_after_writer())
+        await asyncio.sleep(0.1)
+        assert waiting_activator.done() is False
+        release_writer.set()
+        writer_result, (activated_epoch, reconciled_through) = await asyncio.gather(
+            held_writer,
+            waiting_activator,
+        )
+    assert writer_result.status == "success"
+    assert writer_result.evidence_write_sequence == 3
+    assert activated_epoch == epoch + 1
+    assert reconciled_through == writer_result.evidence_write_sequence
