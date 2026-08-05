@@ -15,6 +15,7 @@ from src.approvals.snapshot_service import compute_action_payload_hash, persist_
 from src.db.models import (
     ActionSafetySnapshot,
     ApprovalAssignment,
+    ApprovalDecision,
     ApprovalEvent,
     ApprovalLevel,
     ApprovalRequest,
@@ -29,11 +30,13 @@ from tests.approvals.test_service_transitions import (
     _business_fact_ref,
     _create_command,
     _create_run,
+    _decision_command,
     _mark_run_business_scope,
     _proposed_action,
     _risk_decision_payload,
     _target_merchant_ref,
 )
+from tests.approvals.test_needs_info_resume import _info_command, _respond
 
 
 APPROVAL_OWNED_TABLES = (
@@ -41,6 +44,7 @@ APPROVAL_OWNED_TABLES = (
     ApprovalRequest,
     ApprovalLevel,
     ApprovalAssignment,
+    ApprovalDecision,
     ApprovalEvent,
 )
 
@@ -202,6 +206,91 @@ async def _assert_create_rejected_atomically(
         await ApprovalService(session).create_request(command)
     assert exc.value.code == "approval_not_executable"
     assert await _approval_counts(session) == before
+
+
+async def _approval_bundle_with_refs(
+    session: AsyncSession,
+    seeded_session,
+    refs: Sequence[EvidenceRefV1],
+    *,
+    thread_id: str,
+) -> tuple[ApprovalRequest, ApprovalLevel, ApprovalAssignment]:
+    command = await _create_command_with_canonical_evidence(
+        session,
+        seeded_session,
+        refs,
+        verified_refs=refs,
+        thread_id=thread_id,
+    )
+    created = await ApprovalService(session).create_request(command)
+    request = await session.get(ApprovalRequest, created.approval_id)
+    assert request is not None
+    level = (
+        await session.execute(select(ApprovalLevel).where(ApprovalLevel.approval_request_id == request.id))
+    ).scalar_one()
+    assignment = (
+        await session.execute(select(ApprovalAssignment).where(ApprovalAssignment.approval_level_id == level.id))
+    ).scalar_one()
+    return request, level, assignment
+
+
+def _replacement_action(
+    request: ApprovalRequest,
+    refs: Sequence[EvidenceRefV1],
+    *,
+    verified_refs: Sequence[EvidenceRefV1] | None = None,
+) -> dict[str, Any]:
+    action = {
+        **request.proposed_action,
+        "amount": "88.00",
+        "reason": "Evidence changed after review.",
+        "evidence_refs": canonical_evidence_projection(list(refs)),
+    }
+    if verified_refs is not None:
+        action["verified_evidence_refs"] = canonical_evidence_projection(list(verified_refs))
+    return action
+
+
+async def _assert_mutation_rejected_atomically(
+    session: AsyncSession,
+    *,
+    request: ApprovalRequest,
+    level: ApprovalLevel,
+    assignment: ApprovalAssignment,
+    operation,
+) -> None:
+    before_counts = await _approval_counts(session)
+    before_state = (
+        request.status,
+        request.version,
+        request.revision,
+        request.action_payload_hash,
+        request.safety_snapshot_ref,
+        request.safety_snapshot_hash,
+        level.status,
+        level.version,
+        assignment.status,
+        assignment.version,
+    )
+    with pytest.raises(ApprovalTransitionError) as exc:
+        await operation()
+    assert exc.value.code == "approval_not_executable"
+    await session.refresh(request)
+    await session.refresh(level)
+    await session.refresh(assignment)
+    assert await _approval_counts(session) == before_counts
+    assert (
+        request.status,
+        request.version,
+        request.revision,
+        request.action_payload_hash,
+        request.safety_snapshot_ref,
+        request.safety_snapshot_hash,
+        level.status,
+        level.version,
+        assignment.status,
+        assignment.version,
+    ) == before_state
 
 
 @pytest.mark.asyncio
@@ -391,3 +480,263 @@ async def test_create_rejects_existing_snapshot_with_divergent_evidence_without_
 
     assert exc.value.code == "approval_not_executable"
     assert await _approval_counts(session) == before
+
+
+@pytest.mark.asyncio
+async def test_edit_changed_evidence_uses_one_repository_canonical_binding(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    actor_id = seeded_session["users"]["admin_user"].id
+    original = await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix="edit-original")
+    first = await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix="edit-first", rank=2)
+    second = await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix="edit-second", rank=1)
+    request, level, assignment = await _approval_bundle_with_refs(
+        session,
+        seeded_session,
+        [original],
+        thread_id="phase64-2-edit-canonical",
+    )
+    edited_action = _replacement_action(request, [first, second], verified_refs=[first, second])
+
+    result = await ApprovalService(session).decide(
+        _decision_command(
+            request,
+            level,
+            assignment,
+            actor_id=actor_id,
+            decision_type="edit",
+            edited_action=edited_action,
+        )
+    )
+
+    expected_refs = canonical_evidence_projection([first, second])
+    expected_action = {**edited_action, "evidence_refs": expected_refs}
+    expected_action.pop("verified_evidence_refs")
+    decision = await session.get(ApprovalDecision, result.decision_id)
+    snapshot = (
+        await session.execute(
+            select(ActionSafetySnapshot).where(ActionSafetySnapshot.action_payload_hash == result.new_action_payload_hash)
+        )
+    ).scalar_one()
+
+    assert result.status == "superseded"
+    assert result.edited_action == expected_action
+    assert result.new_action_payload_hash == compute_action_payload_hash(expected_action)
+    assert decision is not None
+    assert decision.edited_action_json == expected_action
+    assert snapshot.snapshot_json["evidence"] == [
+        EvidenceRefV1.model_validate(item).model_dump(mode="json") for item in expected_refs
+    ]
+
+
+@pytest.mark.asyncio
+async def test_attach_info_changed_evidence_uses_one_repository_canonical_binding(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    actor_id = seeded_session["users"]["admin_user"].id
+    original = await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix="attach-original")
+    first = await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix="attach-first", rank=2)
+    second = await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix="attach-second", rank=1)
+    request, level, assignment = await _approval_bundle_with_refs(
+        session,
+        seeded_session,
+        [original],
+        thread_id="phase64-2-attach-canonical",
+    )
+    await _respond(session, request, level, assignment, actor_id=actor_id)
+    proposed_action = _replacement_action(request, [first, second], verified_refs=[first, second])
+
+    result = await ApprovalService(session).attach_info(
+        _info_command(
+            request,
+            actor_id=actor_id,
+            info_payload={
+                "response_text": "confirmed",
+                "proposed_action": proposed_action,
+                "evidence_refs": canonical_evidence_projection([first, second]),
+                "verified_evidence_refs": canonical_evidence_projection([first, second]),
+            },
+        )
+    )
+
+    expected_refs = canonical_evidence_projection([first, second])
+    expected_action = {**proposed_action, "evidence_refs": expected_refs}
+    expected_action.pop("verified_evidence_refs")
+    snapshot = (
+        await session.execute(
+            select(ActionSafetySnapshot).where(ActionSafetySnapshot.action_payload_hash == result.new_action_payload_hash)
+        )
+    ).scalar_one()
+    event = (
+        await session.execute(
+            select(ApprovalEvent).where(
+                ApprovalEvent.approval_request_id == request.id,
+                ApprovalEvent.event_type == "approval_info_attached",
+            )
+        )
+    ).scalar_one()
+
+    assert result.status == "superseded"
+    assert result.new_action_payload_hash == compute_action_payload_hash(expected_action)
+    assert event.resource_refs_json["new_action_payload_hash"] == result.new_action_payload_hash
+    assert snapshot.snapshot_json["evidence"] == [
+        EvidenceRefV1.model_validate(item).model_dump(mode="json") for item in expected_refs
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation_kind", ["edit", "attach_info"])
+@pytest.mark.parametrize(
+    ("case_name", "mutation"),
+    [
+        ("forged_id", lambda ref, _other: _forged_ref(ref, evidence_id="sha256:" + "f" * 64)),
+        ("changed_hash", lambda ref, _other: _forged_ref(ref, text_hash="sha256:" + "f" * 64)),
+        ("wrong_document_version", lambda ref, _other: _forged_ref(ref, document_version=2, policy_version="v2")),
+        ("wrong_chunk_version", lambda ref, _other: _forged_ref(ref, chunk_version=2)),
+        ("same_tenant_cross_scope", lambda ref, _other: _forged_ref(ref, scope_id="merchant-request-scope")),
+        ("cross_tenant", lambda _ref, other: other),
+        ("legacy_ambiguous", lambda ref, _other: _legacy_ref(ref)),
+    ],
+)
+async def test_replacement_rejects_untrusted_evidence_atomically(
+    session: AsyncSession,
+    seeded_session,
+    operation_kind: str,
+    case_name: str,
+    mutation,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    actor_id = seeded_session["users"]["admin_user"].id
+    original = await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix=f"{operation_kind}-old-{case_name}")
+    valid = await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix=f"{operation_kind}-new-{case_name}")
+    await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix=f"{operation_kind}-ambiguous-{case_name}")
+    other = await _seed_canonical_evidence(
+        session,
+        tenant_id=seeded_session["other_tenant"].id,
+        suffix=f"{operation_kind}-cross-{case_name}",
+    )
+    request, level, assignment = await _approval_bundle_with_refs(
+        session,
+        seeded_session,
+        [original],
+        thread_id=f"phase64-2-{operation_kind}-invalid-{case_name}",
+    )
+    candidate = mutation(valid, other)
+    action = _replacement_action(request, [candidate])
+    service = ApprovalService(session)
+    if operation_kind == "edit":
+        command = _decision_command(
+            request,
+            level,
+            assignment,
+            actor_id=actor_id,
+            decision_type="edit",
+            edited_action=action,
+        )
+
+        async def operation():
+            return await service.decide(command)
+    else:
+        await _respond(session, request, level, assignment, actor_id=actor_id)
+        command = _info_command(
+            request,
+            actor_id=actor_id,
+            info_payload={"response_text": "confirmed", "proposed_action": action},
+        )
+
+        async def operation():
+            return await service.attach_info(command)
+
+    await _assert_mutation_rejected_atomically(
+        session,
+        request=request,
+        level=level,
+        assignment=assignment,
+        operation=operation,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation_kind", ["edit", "attach_info"])
+@pytest.mark.parametrize(
+    "case_name",
+    ["missing", "extra", "forged", "mixed", "cross_tenant", "same_tenant_cross_scope"],
+)
+async def test_replacement_rejects_divergent_verified_evidence_atomically(
+    session: AsyncSession,
+    seeded_session,
+    operation_kind: str,
+    case_name: str,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    actor_id = seeded_session["users"]["admin_user"].id
+    suffix = f"{operation_kind[:1]}-{case_name[:12]}"
+    original = await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix=f"vo-{suffix}")
+    first = await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix=f"vf-{suffix}")
+    second = await _seed_canonical_evidence(
+        session,
+        tenant_id=tenant_id,
+        suffix=f"vs-{suffix}",
+        rank=2,
+    )
+    extra = await _seed_canonical_evidence(session, tenant_id=tenant_id, suffix=f"ve-{suffix}", rank=3)
+    cross_tenant = await _seed_canonical_evidence(
+        session,
+        tenant_id=seeded_session["other_tenant"].id,
+        suffix=f"vc-{suffix}",
+    )
+    request, level, assignment = await _approval_bundle_with_refs(
+        session,
+        seeded_session,
+        [original],
+        thread_id=f"phase64-2-{operation_kind}-verified-{case_name}",
+    )
+    verified_cases = {
+        "missing": [first],
+        "extra": [first, second, extra],
+        "forged": [_forged_ref(first, evidence_id="sha256:" + "f" * 64), second],
+        "mixed": [first, _forged_ref(second, text_hash="sha256:" + "f" * 64)],
+        "cross_tenant": [first, cross_tenant],
+        "same_tenant_cross_scope": [first, _forged_ref(second, scope_id="merchant-request-scope")],
+    }
+    verified = verified_cases[case_name]
+    action = _replacement_action(request, [first, second], verified_refs=verified)
+    service = ApprovalService(session)
+    if operation_kind == "edit":
+        command = _decision_command(
+            request,
+            level,
+            assignment,
+            actor_id=actor_id,
+            decision_type="edit",
+            edited_action=action,
+        )
+
+        async def operation():
+            return await service.decide(command)
+    else:
+        await _respond(session, request, level, assignment, actor_id=actor_id)
+        command = _info_command(
+            request,
+            actor_id=actor_id,
+            info_payload={
+                "response_text": "confirmed",
+                "proposed_action": action,
+                "verified_evidence_refs": canonical_evidence_projection(verified),
+            },
+        )
+
+        async def operation():
+            return await service.attach_info(command)
+
+    await _assert_mutation_rejected_atomically(
+        session,
+        request=request,
+        level=level,
+        assignment=assignment,
+        operation=operation,
+    )
