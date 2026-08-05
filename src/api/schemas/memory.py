@@ -19,6 +19,23 @@ class MemoryReviewActionRequest(BaseModel):
     review_reason: str | None = Field(default=None, max_length=1500)
 
 
+class CaseMemoryReviewActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: UUID
+    expected_lifecycle_version: int = Field(gt=0)
+    reason_code: str | None = Field(default=None, min_length=1, max_length=64)
+    review_reason: str | None = Field(default=None, max_length=1500)
+
+
+class CaseMemoryCorrectionRequest(CaseMemoryReviewActionRequest):
+    summary: str = Field(min_length=1, max_length=4000)
+    excerpt: str = Field(min_length=1, max_length=1500)
+    applicability: str | None = Field(default=None, max_length=1500)
+    outcome: str | None = Field(default=None, max_length=1500)
+    caveats: str | None = Field(default=None, max_length=1500)
+
+
 class MemorySourceAuthorityItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

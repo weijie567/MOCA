@@ -14,10 +14,19 @@ from src.knowledge.evidence_identity import (
 )
 from src.knowledge.schemas import EvidenceRefV1
 from src.memory.case_memory import CASE_MEMORY_TYPE, CaseMemoryRepository, CaseMemoryService
-from src.memory.identity import canonical_memory_content_hash
+from src.memory.identity import (
+    build_case_memory_candidate_identity,
+    build_long_term_memory_candidate_identity,
+    canonical_memory_content_hash,
+)
 from src.memory.repository import LONG_TERM_MEMORY_TYPE, LongTermMemoryRepository
 from src.memory.long_term import LongTermMemoryService
-from src.memory.schemas import CaseMemoryWriteCandidate, LongTermMemoryWriteCandidate
+from src.memory.schemas import (
+    CaseMemoryProvenanceV1,
+    CaseMemorySourceAuthorityV1,
+    CaseMemoryWriteCandidate,
+    LongTermMemoryWriteCandidate,
+)
 
 
 async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str = "memory-tombstones") -> uuid.UUID:
@@ -108,7 +117,7 @@ def _case_candidate(
 ) -> CaseMemoryWriteCandidate:
     refund_case = seeded_session["refund_case"]
     policy_ref = _canonical_policy_ref(tenant_id=refund_case.tenant_id)
-    return CaseMemoryWriteCandidate(
+    candidate = CaseMemoryWriteCandidate(
         tenant_id=refund_case.tenant_id,
         run_id=run_id,
         scope_type="case",
@@ -132,6 +141,32 @@ def _case_candidate(
         embedding=[1.0, *([0.0] * 1023)],
         pii_classification="none",
     )
+    identity = build_case_memory_candidate_identity(candidate)
+    assert identity.normalized_source_ref is not None
+    assert identity.source_identity_hash is not None
+    provenance = CaseMemoryProvenanceV1(
+        resolution_status="canonical",
+        tenant_id=candidate.tenant_id,
+        scope_type=candidate.scope_type,
+        scope_id=candidate.scope_id,
+        source_authorities=[
+            CaseMemorySourceAuthorityV1(
+                source_kind="policy_evidence",
+                source_ref=identity.normalized_source_ref,
+                source_status="success",
+                source_authority_class="policy_evidence",
+                evidence_refs=[policy_ref],
+            )
+        ],
+        source_run_id=run_id,
+        source_event_id=identity.normalized_source_ref.event_id,
+        evidence_refs=[policy_ref],
+        identity_profile=identity.identity_profile,
+        candidate_hash=identity.candidate_hash,
+        content_hash=identity.content_hash,
+        source_identity_hash=identity.source_identity_hash,
+    )
+    return candidate.model_copy(update={"provenance": provenance})
 
 
 def _canonical_policy_ref(*, tenant_id: uuid.UUID) -> EvidenceRefV1:
@@ -291,10 +326,18 @@ async def test_tombstone_blocks_rewrite_by_source_identity_fallback(
     repository = LongTermMemoryRepository(session)
     service = LongTermMemoryService(repository)
     source_ref = _source_ref(
-        source_type="deterministic_tool_result",
+        source_type="explicit_user_preference",
         run_id=run_id,
         business_object_id=str(seeded_session["merchant"].id),
     )
+    candidate = _candidate(
+        seeded_session,
+        run_id=run_id,
+        content="Source generated an updated profile sentence with different text.",
+        source_type="explicit_user_preference",
+        source_ref=source_ref,
+    )
+    identity = build_long_term_memory_candidate_identity(candidate)
     await repository.create_tombstone(
         tenant_id=seeded_session["tenant"].id,
         memory_type=LONG_TERM_MEMORY_TYPE,
@@ -302,17 +345,11 @@ async def test_tombstone_blocks_rewrite_by_source_identity_fallback(
         scope_id=str(seeded_session["merchant"].id),
         content_hash=None,
         source_ref_json=source_ref,
+        source_identity_hash=identity.source_identity_hash,
         reason_code="source_forget",
         created_by_run_id=run_id,
     )
 
-    candidate = _candidate(
-        seeded_session,
-        run_id=run_id,
-        content="Source generated an updated profile sentence with different text.",
-        source_type="deterministic_tool_result",
-        source_ref=source_ref,
-    )
     result = await service.write_memory(candidate)
     events = await _events(session, run_id)
 
@@ -535,6 +572,7 @@ async def test_case_memory_tombstone_blocks_rewrite_by_content_hash_and_source_i
         tenant_id=original.tenant_id,
         case_memory_id=write_result.memory_id,
         run_id=run_id,
+        expected_lifecycle_version=1,
         reason_code="case_forget",
     )
 

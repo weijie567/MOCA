@@ -419,14 +419,14 @@ async def test_duplicate_closed_case_generation_uses_existing_duplicate_handling
     assert first.status == "needs_review"
     assert duplicate.status == "skipped"
     assert duplicate.memory_id == first.memory_id
-    assert duplicate.reason_code.startswith("duplicate_active")
+    assert duplicate.reason_code == "duplicate_exact_identity"
     assert [row.id for row in rows] == [first.memory_id]
     assert events[-1].decision == "skip"
     assert events[-1].reason_code == duplicate.reason_code
 
 
 @pytest.mark.asyncio
-async def test_different_close_event_with_same_content_dedupes_by_content_hash_reason(
+async def test_different_close_event_with_same_content_creates_distinct_exact_identity(
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
@@ -443,9 +443,8 @@ async def test_different_close_event_with_same_content_dedupes_by_content_hash_r
     )
 
     assert first.status == "needs_review"
-    assert duplicate.status == "skipped"
-    assert duplicate.memory_id == first.memory_id
-    assert duplicate.reason_code == "duplicate_active_identity"
+    assert duplicate.status == "needs_review"
+    assert duplicate.memory_id != first.memory_id
 
 
 @pytest.mark.asyncio

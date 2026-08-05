@@ -9,9 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.schemas.common import ApiResponse
 from src.api.schemas.memory import (
+    CaseMemoryCorrectionRequest,
     CaseMemoryDetailResponse,
     CaseMemoryLineageItem,
     CaseMemoryLineageLinkItem,
+    CaseMemoryReviewActionRequest,
     LongTermPreferenceSaveRequest,
     LongTermPreferenceSaveResponse,
     MemoryPendingItem,
@@ -32,6 +34,7 @@ from src.memory.long_term import LongTermMemoryService
 from src.memory.preference_capture import classify_preference_pii, validate_soft_preference_text
 from src.memory.repository import LongTermMemoryRepository
 from src.memory.schemas import (
+    CaseMemoryCorrection,
     CaseMemoryProvenanceV1,
     CaseMemoryReviewDecision,
     CaseMemorySourceAuthorityV1,
@@ -219,7 +222,7 @@ async def forget_long_term_memory(
 @router.post("/case/{memory_id}/approve", response_model=ApiResponse)
 async def approve_case_memory(
     memory_id: str,
-    body: MemoryReviewActionRequest,
+    body: CaseMemoryReviewActionRequest,
     request: Request,
     session: AsyncSession = Depends(get_session),
     user: User = Security(get_current_user, scopes=["approvals:review"]),
@@ -276,7 +279,7 @@ async def get_case_memory_detail(
 @router.post("/case/{memory_id}/reject", response_model=ApiResponse)
 async def reject_case_memory(
     memory_id: str,
-    body: MemoryReviewActionRequest,
+    body: CaseMemoryReviewActionRequest,
     request: Request,
     session: AsyncSession = Depends(get_session),
     user: User = Security(get_current_user, scopes=["approvals:review"]),
@@ -294,7 +297,7 @@ async def reject_case_memory(
 @router.post("/case/{memory_id}/delete", response_model=ApiResponse)
 async def delete_case_memory(
     memory_id: str,
-    body: MemoryReviewActionRequest,
+    body: CaseMemoryReviewActionRequest,
     request: Request,
     session: AsyncSession = Depends(get_session),
     user: User = Security(get_current_user, scopes=["approvals:review"]),
@@ -312,7 +315,7 @@ async def delete_case_memory(
 @router.post("/case/{memory_id}/forget", response_model=ApiResponse)
 async def forget_case_memory(
     memory_id: str,
-    body: MemoryReviewActionRequest,
+    body: CaseMemoryReviewActionRequest,
     request: Request,
     session: AsyncSession = Depends(get_session),
     user: User = Security(get_current_user, scopes=["approvals:review"]),
@@ -325,6 +328,54 @@ async def forget_case_memory(
         user=user,
         action="forget",
     )
+
+
+@router.post("/case/{memory_id}/correct", response_model=ApiResponse)
+async def correct_case_memory(
+    memory_id: str,
+    body: CaseMemoryCorrectionRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Security(get_current_user, scopes=["approvals:review"]),
+) -> ApiResponse:
+    _assert_memory_reviewer(user)
+    memory_uuid = _parse_memory_id(memory_id)
+    await _ensure_run_in_tenant(session=session, tenant_id=user.tenant_id, run_id=body.run_id)
+    repository = CaseMemoryRepository(session)
+    try:
+        event = await CaseMemoryService(repository).correct_case_memory(
+            CaseMemoryCorrection(
+                tenant_id=user.tenant_id,
+                run_id=body.run_id,
+                case_memory_id=memory_uuid,
+                reviewer_user_id=user.id,
+                expected_lifecycle_version=body.expected_lifecycle_version,
+                reason_code=body.reason_code or "corrected",
+                review_reason=body.review_reason,
+                summary=body.summary,
+                excerpt=body.excerpt,
+                applicability=body.applicability,
+                outcome=body.outcome,
+                caveats=body.caveats,
+            )
+        )
+        corrected = await repository.get_resolved_case_memory(
+            tenant_id=user.tenant_id,
+            case_memory_id=event.memory_id,
+        )
+        if corrected is None:  # pragma: no cover - service owns the inserted row
+            raise ValueError("case memory not found")
+        provenance = resolved_case_memory_provenance(corrected)
+        if provenance is None:  # pragma: no cover - service validates before insert
+            raise ValueError("case memory not found")
+        lineage = await repository.list_lineage(tenant_id=user.tenant_id, case_memory_id=corrected.id)
+        await session.commit()
+    except ValueError as exc:
+        await session.rollback()
+        raise _memory_action_error(exc) from exc
+    payload = _case_detail(corrected, provenance, lineage).model_dump(mode="json")
+    payload.update({"event_id": str(event.id), "decision": event.decision, "reason_code": event.reason_code})
+    return ApiResponse(success=True, data=payload, trace_id=getattr(request.state, "trace_id", None))
 
 
 async def _run_long_term_action(
@@ -381,7 +432,7 @@ async def _run_long_term_action(
 async def _run_case_action(
     *,
     memory_id: str,
-    body: MemoryReviewActionRequest,
+    body: CaseMemoryReviewActionRequest,
     request: Request,
     session: AsyncSession,
     user: User,
@@ -406,6 +457,7 @@ async def _run_case_action(
                     run_id=body.run_id,
                     case_memory_id=memory_uuid,
                     reviewer_user_id=user.id,
+                    expected_lifecycle_version=body.expected_lifecycle_version,
                     reason_code=reason_code,
                     review_reason=body.review_reason,
                 )
@@ -417,6 +469,7 @@ async def _run_case_action(
                     run_id=body.run_id,
                     case_memory_id=memory_uuid,
                     reviewer_user_id=user.id,
+                    expected_lifecycle_version=body.expected_lifecycle_version,
                     reason_code=reason_code,
                     review_reason=body.review_reason,
                 )
@@ -426,6 +479,7 @@ async def _run_case_action(
                 tenant_id=user.tenant_id,
                 case_memory_id=memory_uuid,
                 run_id=body.run_id,
+                expected_lifecycle_version=body.expected_lifecycle_version,
                 reason_code=reason_code,
             )
         else:
@@ -433,6 +487,7 @@ async def _run_case_action(
                 tenant_id=user.tenant_id,
                 case_memory_id=memory_uuid,
                 run_id=body.run_id,
+                expected_lifecycle_version=body.expected_lifecycle_version,
                 reason_code=reason_code,
             )
         memory = await repository.get_resolved_case_memory(
@@ -679,6 +734,8 @@ def _memory_action_error(exc: ValueError) -> HTTPException:
     message = str(exc)
     if "not found" in message:
         return HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Memory not found"})
+    if "case memory conflict" in message:
+        return HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "Memory state conflict"})
     return HTTPException(status_code=409, detail={"code": "CONFLICT", "message": message})
 
 

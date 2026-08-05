@@ -11,11 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import AgentRun, CaseMemory, LongTermMemory, MemoryTombstone
 from src.memory.case_memory import CASE_MEMORY_TYPE, CaseMemoryRepository, CaseMemoryService
-from src.memory.identity import canonical_memory_content_hash, canonical_source_identity_hash
+from src.memory.identity import (
+    MEMORY_IDENTITY_PROFILE,
+    build_case_memory_candidate_identity,
+    canonical_memory_content_hash,
+    canonical_source_identity_hash,
+)
 from src.memory.long_term import LongTermMemoryService
 from src.memory.repository import LONG_TERM_MEMORY_TYPE, LongTermMemoryRepository
 from src.memory.schemas import (
     CaseMemoryReviewDecision,
+    CaseMemoryProvenanceV1,
     CaseMemorySearchRequest,
     CaseMemoryWriteCandidate,
     LongTermMemoryWriteCandidate,
@@ -195,12 +201,54 @@ def _case_row(
     tenant_id: uuid.UUID,
     merchant_id: str,
     summary: str,
-    review_status: str = "approved",
+    review_status: str = "auto_approved",
     deleted_at: datetime | None = None,
     expires_at: datetime | None = None,
     pii_classification: str = "none",
     source_identity_hash: str | None = None,
 ) -> CaseMemory:
+    source_run_id = uuid.UUID(int=0)
+    source_ref = (
+        {"source_type": "human_reviewed", "event_id": "case-source-delete"}
+        if source_identity_hash is not None
+        else {
+            "source_type": "human_reviewed",
+            "event_id": f"case-row:{summary}",
+            "business_object_type": "merchant",
+            "business_object_id": merchant_id,
+        }
+    )
+    candidate = CaseMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        run_id=source_run_id,
+        scope_type="merchant",
+        scope_id=merchant_id,
+        case_type="refund_dispute",
+        summary=summary,
+        excerpt=f"{summary} excerpt.",
+        applicability="Applies only to reviewed merchant precedents.",
+        outcome="Contextual only.",
+        caveats="Not authority.",
+        source_type="human_reviewed",
+        source_ref=source_ref,
+        pii_classification=pii_classification,
+        expires_at=expires_at,
+    )
+    identity = build_case_memory_candidate_identity(candidate)
+    assert identity.normalized_source_ref is not None
+    assert identity.source_identity_hash is not None
+    provenance = CaseMemoryProvenanceV1(
+        resolution_status="canonical",
+        tenant_id=tenant_id,
+        scope_type="merchant",
+        scope_id=merchant_id,
+        source_run_id=source_run_id,
+        source_event_id=identity.normalized_source_ref.event_id,
+        identity_profile=identity.identity_profile,
+        candidate_hash=identity.candidate_hash,
+        content_hash=identity.content_hash,
+        source_identity_hash=identity.source_identity_hash,
+    )
     return CaseMemory(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
@@ -212,10 +260,14 @@ def _case_row(
         applicability="Applies only to reviewed merchant precedents.",
         outcome="Contextual only.",
         caveats="Not authority.",
-        content_hash=canonical_memory_content_hash(memory_type=CASE_MEMORY_TYPE, content=summary),
+        content_hash=identity.content_hash,
         policy_refs_json=[],
-        source_ref_json={"source_type": "human_reviewed", "business_object_id": merchant_id},
-        source_identity_hash=source_identity_hash,
+        source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
+        source_identity_hash=identity.source_identity_hash,
+        identity_algorithm_version="memory_identity.v1",
+        candidate_hash=identity.candidate_hash,
+        identity_resolution_status="canonical",
+        provenance_json=provenance.model_dump(mode="json", exclude_none=True),
         review_status=review_status,
         pii_classification=pii_classification,
         expires_at=expires_at,
@@ -306,7 +358,10 @@ async def test_reviewed_memory_context_excludes_deleted_expired_rejected_superse
         merchant_id=merchant_a,
         content="Tombstoned long-term memory must not surface.",
     )
-    source_hash = canonical_source_identity_hash({"source_type": "human_reviewed", "event_id": "case-source-delete"})
+    source_hash = canonical_source_identity_hash(
+        {"source_type": "human_reviewed", "event_id": "case-source-delete"},
+        identity_profile=MEMORY_IDENTITY_PROFILE,
+    )
     tombstoned_case = _case_row(
         tenant_id=tenant_id,
         merchant_id=merchant_a,
@@ -611,6 +666,7 @@ async def test_memory_write_decision_projection_tombstone_blocks_same_content_an
         tenant_id=tenant_id,
         case_memory_id=write_result.memory_id,
         run_id=run_id,
+        expected_lifecycle_version=1,
         reason_code="user_forget_case_memory",
     )
 
@@ -633,8 +689,8 @@ async def test_memory_write_decision_projection_tombstone_blocks_same_content_an
 
     assert tombstone_decision["schema_version"] == "memory_write_decision.v2"
     assert tombstone_decision["decision"] in {"tombstone", "delete"}
-    assert rewrite_result.status == "skipped"
-    assert rewrite_result.reason_code == "tombstone_match"
+    assert rewrite_result.status == "error"
+    assert rewrite_result.reason_code == "identity_conflict"
     assert reviewed_cases.items == []
 
 

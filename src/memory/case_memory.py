@@ -7,10 +7,17 @@ from typing import Any
 import uuid
 
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import and_, literal, or_, select, update
+from sqlalchemy import and_, delete, literal, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import CaseMemory, CaseMemoryLineageLink, MemoryTombstone, MemoryWriteEvent
+from src.db.models import (
+    CaseMemory,
+    CaseMemoryIdentityClaim,
+    CaseMemoryLineageLink,
+    MemoryTombstone,
+    MemoryWriteEvent,
+)
 from src.knowledge.schemas import EvidenceRefV1
 from src.memory.identity import (
     ALLOWED_SOURCE_REF_KEYS,
@@ -29,6 +36,7 @@ from src.memory.policy import (
     is_blocked_memory_write_pii_classification,
 )
 from src.memory.schemas import (
+    CaseMemoryCorrection,
     CaseMemoryReviewDecision,
     CaseMemoryProvenanceEnvelope,
     CaseMemoryProvenanceV1,
@@ -69,9 +77,11 @@ class CaseMemoryRepository:
         now: datetime | None = None,
         reviewed_by_user_id: uuid.UUID | None = None,
         review_reason: str | None = None,
+        memory_id: uuid.UUID | None = None,
     ) -> CaseMemory:
         provenance = CaseMemoryProvenanceV1.model_validate(provenance_json)
         memory = CaseMemory(
+            id=memory_id or uuid.uuid4(),
             tenant_id=candidate.tenant_id,
             scope_type=candidate.scope_type,
             scope_id=candidate.scope_id,
@@ -106,6 +116,81 @@ class CaseMemoryRepository:
         self.session.add(memory)
         await self.session.flush()
         return memory
+
+    async def create_identity_claim(
+        self,
+        *,
+        memory: CaseMemory,
+    ) -> CaseMemoryIdentityClaim | None:
+        stmt = (
+            pg_insert(CaseMemoryIdentityClaim)
+            .values(
+                id=uuid.uuid4(),
+                identity_algorithm_version=memory.identity_algorithm_version,
+                tenant_id=memory.tenant_id,
+                scope_type=memory.scope_type,
+                scope_id=memory.scope_id,
+                candidate_hash=memory.candidate_hash,
+                content_hash=memory.content_hash,
+                source_identity_hash=memory.source_identity_hash,
+                owner_case_memory_id=memory.id,
+                claim_state="active",
+                lifecycle_version=memory.lifecycle_version,
+            )
+            .on_conflict_do_nothing(constraint="uq_case_memory_identity_claims_exact_identity")
+            .returning(CaseMemoryIdentityClaim.id)
+        )
+        claim_id = (await self.session.execute(stmt)).scalar_one_or_none()
+        if claim_id is None:
+            return None
+        return await self.session.get(CaseMemoryIdentityClaim, claim_id)
+
+    async def get_exact_identity_claim(
+        self,
+        *,
+        identity_algorithm_version: str,
+        tenant_id: uuid.UUID,
+        scope_type: str,
+        scope_id: str,
+        candidate_hash: str,
+        content_hash: str,
+        source_identity_hash: str,
+        for_update: bool = False,
+    ) -> CaseMemoryIdentityClaim | None:
+        stmt = select(CaseMemoryIdentityClaim).where(
+            CaseMemoryIdentityClaim.identity_algorithm_version == identity_algorithm_version,
+            CaseMemoryIdentityClaim.tenant_id == tenant_id,
+            CaseMemoryIdentityClaim.scope_type == scope_type,
+            CaseMemoryIdentityClaim.scope_id == scope_id,
+            CaseMemoryIdentityClaim.candidate_hash == candidate_hash,
+            CaseMemoryIdentityClaim.content_hash == content_hash,
+            CaseMemoryIdentityClaim.source_identity_hash == source_identity_hash,
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        result = await self.session.execute(stmt.execution_options(populate_existing=True))
+        return result.scalar_one_or_none()
+
+    async def lock_owner_claim(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        case_memory_id: uuid.UUID,
+    ) -> CaseMemoryIdentityClaim | None:
+        result = await self.session.execute(
+            select(CaseMemoryIdentityClaim)
+            .where(
+                CaseMemoryIdentityClaim.tenant_id == tenant_id,
+                CaseMemoryIdentityClaim.owner_case_memory_id == case_memory_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
+
+    async def remove_unclaimed_candidate(self, memory: CaseMemory) -> None:
+        await self.session.execute(delete(CaseMemory).where(CaseMemory.id == memory.id))
+        await self.session.flush()
 
     async def emit_write_event(
         self,
@@ -184,20 +269,113 @@ class CaseMemoryRepository:
         )
         return list(result.scalars().all())
 
-    async def list_pending_review(self, *, tenant_id: uuid.UUID, limit: int = 50) -> list[CaseMemory]:
+    async def list_pending_review(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        limit: int = 50,
+        now: datetime | None = None,
+    ) -> list[CaseMemory]:
+        now = _aware(now)
+        await self._retire_expired_pending(tenant_id=tenant_id, now=now)
         result = await self.session.execute(
             select(CaseMemory)
+            .join(
+                CaseMemoryIdentityClaim,
+                and_(
+                    CaseMemoryIdentityClaim.tenant_id == CaseMemory.tenant_id,
+                    CaseMemoryIdentityClaim.owner_case_memory_id == CaseMemory.id,
+                    CaseMemoryIdentityClaim.identity_algorithm_version == CaseMemory.identity_algorithm_version,
+                    CaseMemoryIdentityClaim.scope_type == CaseMemory.scope_type,
+                    CaseMemoryIdentityClaim.scope_id == CaseMemory.scope_id,
+                    CaseMemoryIdentityClaim.candidate_hash == CaseMemory.candidate_hash,
+                    CaseMemoryIdentityClaim.content_hash == CaseMemory.content_hash,
+                    CaseMemoryIdentityClaim.source_identity_hash == CaseMemory.source_identity_hash,
+                ),
+            )
             .where(
                 CaseMemory.tenant_id == tenant_id,
                 CaseMemory.review_status == "needs_review",
                 CaseMemory.identity_resolution_status.in_(_RESOLVED_PROVENANCE_STATUSES),
                 CaseMemory.deleted_at.is_(None),
+                or_(CaseMemory.expires_at.is_(None), CaseMemory.expires_at > now),
+                CaseMemoryIdentityClaim.claim_state == "active",
             )
             .order_by(CaseMemory.created_at.desc())
             .limit(max(1, min(limit, 100)))
             .execution_options(populate_existing=True)
         )
         return [memory for memory in result.scalars().all() if resolved_case_memory_provenance(memory) is not None]
+
+    async def _retire_expired_pending(self, *, tenant_id: uuid.UUID, now: datetime) -> None:
+        result = await self.session.execute(
+            select(CaseMemory, CaseMemoryIdentityClaim)
+            .join(
+                CaseMemoryIdentityClaim,
+                and_(
+                    CaseMemoryIdentityClaim.tenant_id == CaseMemory.tenant_id,
+                    CaseMemoryIdentityClaim.owner_case_memory_id == CaseMemory.id,
+                ),
+            )
+            .where(
+                CaseMemory.tenant_id == tenant_id,
+                CaseMemory.review_status == "needs_review",
+                CaseMemory.deleted_at.is_(None),
+                CaseMemory.expires_at.is_not(None),
+                CaseMemory.expires_at <= now,
+                CaseMemoryIdentityClaim.claim_state == "active",
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        for memory, claim in result.all():
+            provenance = resolved_case_memory_provenance(memory)
+            if provenance is None:
+                continue
+            memory.review_status = "superseded"
+            memory.review_reason = "pending_review_expired"
+            memory.lifecycle_version += 1
+            claim.claim_state = "terminal"
+            claim.terminal_status = "superseded"
+            claim.terminal_reason = "pending_review_expired"
+            claim.terminal_at = now
+            claim.lifecycle_version = memory.lifecycle_version
+            await self.emit_write_event(
+                tenant_id=memory.tenant_id,
+                run_id=memory.created_by_run_id or provenance.source_run_id,
+                memory_type=CASE_MEMORY_TYPE,
+                memory_id=memory.id,
+                decision="supersede",
+                reason_code="pending_review_expired",
+                pii_classification=memory.pii_classification,
+                candidate_hash=memory.candidate_hash,
+                source_ref_json=dict(memory.source_ref_json or {}),
+            )
+        await self.session.flush()
+
+    async def latest_transition_event(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        case_memory_id: uuid.UUID,
+        run_id: uuid.UUID,
+        decision: str,
+        reason_code: str,
+    ) -> MemoryWriteEvent | None:
+        result = await self.session.execute(
+            select(MemoryWriteEvent)
+            .where(
+                MemoryWriteEvent.tenant_id == tenant_id,
+                MemoryWriteEvent.memory_type == CASE_MEMORY_TYPE,
+                MemoryWriteEvent.memory_id == case_memory_id,
+                MemoryWriteEvent.run_id == run_id,
+                MemoryWriteEvent.decision == decision,
+                MemoryWriteEvent.reason_code == reason_code,
+            )
+            .order_by(MemoryWriteEvent.created_at.desc(), MemoryWriteEvent.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def approve_case_memory(
         self,
@@ -589,6 +767,22 @@ class CaseMemoryService:
         identity = build_case_memory_candidate_identity(candidate)
         provenance = _resolved_candidate_provenance(candidate=candidate, identity=identity)
         policy_decision = _policy_decision_for_candidate(candidate)
+        existing_claim = await self.repository.get_exact_identity_claim(
+            identity_algorithm_version="memory_identity.v1",
+            tenant_id=candidate.tenant_id,
+            scope_type=candidate.scope_type,
+            scope_id=candidate.scope_id,
+            candidate_hash=identity.candidate_hash,
+            content_hash=identity.content_hash,
+            source_identity_hash=identity.source_identity_hash,
+        )
+        if existing_claim is not None:
+            return await self._existing_claim_result(
+                candidate=candidate,
+                identity=identity,
+                claim=existing_claim,
+                now=now,
+            )
         tombstone = await self.repository.check_tombstone_before_write(
             tenant_id=candidate.tenant_id,
             memory_type=CASE_MEMORY_TYPE,
@@ -646,40 +840,8 @@ class CaseMemoryService:
                 event_id=event.id,
             )
 
-        duplicate = await self.repository.get_active_duplicate(
-            tenant_id=candidate.tenant_id,
-            scope_type=candidate.scope_type,
-            scope_id=candidate.scope_id,
-            content_hash=identity.content_hash,
-            source_identity_hash=identity.source_identity_hash,
-            now=now,
-        )
-        if duplicate is not None:
-            memory, reason_code = duplicate
-            event = await self.repository.emit_write_event(
-                tenant_id=candidate.tenant_id,
-                run_id=candidate.run_id,
-                memory_type=CASE_MEMORY_TYPE,
-                memory_id=memory.id,
-                decision="skip",
-                reason_code=reason_code,
-                pii_classification=candidate.pii_classification,
-                candidate_hash=identity.candidate_hash,
-                source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
-                blocked_by=[reason_code],
-            )
-            return _write_result(
-                status="skipped",
-                memory_id=memory.id,
-                review_status=memory.review_status,
-                decision="skip",
-                reason_code=reason_code,
-                candidate=candidate,
-                identity=identity,
-                event_id=event.id,
-            )
-
         review_status = policy_decision.review_status or "needs_review"
+        memory_id = uuid.uuid4()
         memory = await self.repository.insert_case_memory(
             candidate,
             content_hash=identity.content_hash,
@@ -694,7 +856,29 @@ class CaseMemoryService:
             now=now,
             reviewed_by_user_id=None,
             review_reason=None,
+            memory_id=memory_id,
         )
+        claim = await self.repository.create_identity_claim(memory=memory)
+        if claim is None:
+            await self.repository.remove_unclaimed_candidate(memory)
+            existing_claim = await self.repository.get_exact_identity_claim(
+                identity_algorithm_version="memory_identity.v1",
+                tenant_id=candidate.tenant_id,
+                scope_type=candidate.scope_type,
+                scope_id=candidate.scope_id,
+                candidate_hash=identity.candidate_hash,
+                content_hash=identity.content_hash,
+                source_identity_hash=identity.source_identity_hash,
+                for_update=True,
+            )
+            if existing_claim is None:  # pragma: no cover - guarded by the unique conflict
+                raise RuntimeError("exact identity claim conflict lost its durable owner")
+            return await self._existing_claim_result(
+                candidate=candidate,
+                identity=identity,
+                claim=existing_claim,
+                now=now,
+            )
         event = await self.repository.emit_write_event(
             tenant_id=candidate.tenant_id,
             run_id=candidate.run_id,
@@ -718,30 +902,61 @@ class CaseMemoryService:
             event_id=event.id,
         )
 
+    async def _existing_claim_result(
+        self,
+        *,
+        candidate: CaseMemoryWriteCandidate,
+        identity: MemoryCandidateIdentityV1,
+        claim: CaseMemoryIdentityClaim,
+        now: datetime,
+    ) -> CaseMemoryWriteResult:
+        memory = await self.repository.get_resolved_case_memory(
+            tenant_id=candidate.tenant_id,
+            case_memory_id=claim.owner_case_memory_id,
+        )
+        is_live_owner = (
+            claim.claim_state == "active"
+            and memory is not None
+            and memory.review_status in ACTIVE_CASE_DUPLICATE_REVIEW_STATUSES
+            and memory.deleted_at is None
+            and (memory.expires_at is None or _aware(memory.expires_at) > now)
+            and memory.lifecycle_version == claim.lifecycle_version
+        )
+        reason_code = "duplicate_exact_identity" if is_live_owner else "identity_conflict"
+        event = await self.repository.emit_write_event(
+            tenant_id=candidate.tenant_id,
+            run_id=candidate.run_id,
+            memory_type=CASE_MEMORY_TYPE,
+            memory_id=memory.id if is_live_owner and memory is not None else None,
+            decision="skip",
+            reason_code=reason_code,
+            pii_classification=candidate.pii_classification,
+            candidate_hash=identity.candidate_hash,
+            source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
+            blocked_by=[reason_code],
+        )
+        return _write_result(
+            status="skipped" if is_live_owner else "error",
+            memory_id=memory.id if is_live_owner and memory is not None else None,
+            review_status=memory.review_status if is_live_owner and memory is not None else None,
+            decision="skip",
+            reason_code=reason_code,
+            candidate=candidate,
+            identity=identity,
+            event_id=event.id,
+        )
+
     async def approve_case_memory(
         self,
         decision: CaseMemoryReviewDecision,
         now: datetime | None = None,
     ) -> MemoryWriteEvent:
-        memory = await self.repository.approve_case_memory(
-            tenant_id=decision.tenant_id,
-            case_memory_id=decision.case_memory_id,
-            reviewer_user_id=decision.reviewer_user_id,
-            review_reason=decision.review_reason,
+        return await self._review_case_memory(
+            review_status="approved",
+            event_decision="write",
+            terminal=False,
+            decision=decision,
             now=now,
-        )
-        if memory is None:
-            raise ValueError("case memory not found")
-        return await self.repository.emit_write_event(
-            tenant_id=decision.tenant_id,
-            run_id=decision.run_id,
-            memory_type=CASE_MEMORY_TYPE,
-            memory_id=memory.id,
-            decision="write",
-            reason_code=decision.reason_code,
-            pii_classification=memory.pii_classification,
-            candidate_hash=build_case_memory_candidate_identity(memory).candidate_hash,
-            source_ref_json=dict(memory.source_ref_json or {}),
         )
 
     async def reject_case_memory(
@@ -749,24 +964,98 @@ class CaseMemoryService:
         decision: CaseMemoryReviewDecision,
         now: datetime | None = None,
     ) -> MemoryWriteEvent:
-        memory = await self.repository.reject_case_memory(
-            tenant_id=decision.tenant_id,
-            case_memory_id=decision.case_memory_id,
-            reviewer_user_id=decision.reviewer_user_id,
-            review_reason=decision.review_reason,
+        return await self._review_case_memory(
+            review_status="rejected",
+            event_decision="skip",
+            terminal=True,
+            decision=decision,
             now=now,
         )
-        if memory is None:
+
+    async def _review_case_memory(
+        self,
+        *,
+        review_status: str,
+        event_decision: str,
+        terminal: bool,
+        decision: CaseMemoryReviewDecision,
+        now: datetime | None,
+    ) -> MemoryWriteEvent:
+        if decision.reviewer_user_id is None:
+            raise ValueError("case memory review requires reviewer provenance")
+        now = _aware(now)
+        claim = await self.repository.lock_owner_claim(
+            tenant_id=decision.tenant_id,
+            case_memory_id=decision.case_memory_id,
+        )
+        memory = await self.repository.get_resolved_case_memory(
+            tenant_id=decision.tenant_id,
+            case_memory_id=decision.case_memory_id,
+        )
+        if claim is None or memory is None:
             raise ValueError("case memory not found")
+
+        persisted = resolved_case_memory_provenance(memory)
+        if (
+            memory.lifecycle_version == decision.expected_lifecycle_version + 1
+            and claim.lifecycle_version == memory.lifecycle_version
+            and memory.review_status == review_status
+            and persisted is not None
+            and persisted.review_decision == review_status
+            and persisted.reviewer_user_id == decision.reviewer_user_id
+            and persisted.review_reason == decision.review_reason
+            and claim.claim_state == ("terminal" if terminal else "active")
+        ):
+            existing_event = await self.repository.latest_transition_event(
+                tenant_id=decision.tenant_id,
+                case_memory_id=decision.case_memory_id,
+                run_id=decision.run_id,
+                decision=event_decision,
+                reason_code=decision.reason_code,
+            )
+            if existing_event is not None:
+                return existing_event
+
+        if (
+            claim.claim_state != "active"
+            or claim.lifecycle_version != decision.expected_lifecycle_version
+            or memory.lifecycle_version != decision.expected_lifecycle_version
+            or memory.review_status != "needs_review"
+            or memory.deleted_at is not None
+            or (memory.expires_at is not None and _aware(memory.expires_at) <= now)
+        ):
+            raise ValueError("case memory conflict")
+
+        provenance = _require_resolved_case_memory_provenance(memory)
+        memory.review_status = review_status
+        memory.reviewed_by_user_id = decision.reviewer_user_id
+        memory.reviewed_at = now
+        memory.review_reason = decision.review_reason
+        memory.lifecycle_version += 1
+        memory.provenance_json = provenance.model_copy(
+            update={
+                "review_decision": review_status,
+                "reviewer_user_id": decision.reviewer_user_id,
+                "reviewed_at": now,
+                "review_reason": decision.review_reason,
+            }
+        ).model_dump(mode="json", exclude_none=True)
+        claim.lifecycle_version = memory.lifecycle_version
+        if terminal:
+            claim.claim_state = "terminal"
+            claim.terminal_status = review_status
+            claim.terminal_reason = decision.reason_code
+            claim.terminal_at = now
+        await self.repository.session.flush()
         return await self.repository.emit_write_event(
             tenant_id=decision.tenant_id,
             run_id=decision.run_id,
             memory_type=CASE_MEMORY_TYPE,
             memory_id=memory.id,
-            decision="skip",
+            decision=event_decision,
             reason_code=decision.reason_code,
             pii_classification=memory.pii_classification,
-            candidate_hash=build_case_memory_candidate_identity(memory).candidate_hash,
+            candidate_hash=memory.candidate_hash,
             source_ref_json=dict(memory.source_ref_json or {}),
         )
 
@@ -776,6 +1065,7 @@ class CaseMemoryService:
         tenant_id: uuid.UUID,
         case_memory_id: uuid.UUID,
         run_id: uuid.UUID,
+        expected_lifecycle_version: int,
         reason_code: str = "deleted",
         now: datetime | None = None,
     ) -> MemoryWriteEvent:
@@ -783,6 +1073,7 @@ class CaseMemoryService:
             tenant_id=tenant_id,
             case_memory_id=case_memory_id,
             run_id=run_id,
+            expected_lifecycle_version=expected_lifecycle_version,
             reason_code=reason_code,
             review_status="deleted",
             event_decision="delete",
@@ -796,6 +1087,7 @@ class CaseMemoryService:
         tenant_id: uuid.UUID,
         case_memory_id: uuid.UUID,
         run_id: uuid.UUID,
+        expected_lifecycle_version: int,
         reason_code: str = "forgotten",
         now: datetime | None = None,
     ) -> MemoryWriteEvent:
@@ -803,6 +1095,7 @@ class CaseMemoryService:
             tenant_id=tenant_id,
             case_memory_id=case_memory_id,
             run_id=run_id,
+            expected_lifecycle_version=expected_lifecycle_version,
             reason_code=reason_code,
             review_status="tombstoned",
             event_decision="tombstone",
@@ -812,8 +1105,145 @@ class CaseMemoryService:
     async def retrieve_reviewed(self, request: CaseMemorySearchRequest) -> CaseMemorySearchResult:
         return await self.repository.search_reviewed(request)
 
-    async def list_pending_review(self, *, tenant_id: uuid.UUID, limit: int = 50) -> list[CaseMemory]:
-        return await self.repository.list_pending_review(tenant_id=tenant_id, limit=limit)
+    async def list_pending_review(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        limit: int = 50,
+        now: datetime | None = None,
+    ) -> list[CaseMemory]:
+        return await self.repository.list_pending_review(tenant_id=tenant_id, limit=limit, now=now)
+
+    async def correct_case_memory(
+        self,
+        correction: CaseMemoryCorrection,
+        now: datetime | None = None,
+    ) -> MemoryWriteEvent:
+        now = _aware(now)
+        claim = await self.repository.lock_owner_claim(
+            tenant_id=correction.tenant_id,
+            case_memory_id=correction.case_memory_id,
+        )
+        old = await self.repository.get_resolved_case_memory(
+            tenant_id=correction.tenant_id,
+            case_memory_id=correction.case_memory_id,
+        )
+        if claim is None or old is None:
+            raise ValueError("case memory not found")
+        if (
+            claim.claim_state != "active"
+            or claim.lifecycle_version != correction.expected_lifecycle_version
+            or old.lifecycle_version != correction.expected_lifecycle_version
+            or old.review_status not in ACTIVE_CASE_DUPLICATE_REVIEW_STATUSES
+            or old.deleted_at is not None
+            or (old.expires_at is not None and _aware(old.expires_at) <= now)
+        ):
+            raise ValueError("case memory conflict")
+
+        old_provenance = _require_resolved_case_memory_provenance(old)
+        source_ref = {
+            "source_type": "human_reviewed",
+            "run_id": str(correction.run_id),
+            "agent_run_id": str(correction.run_id),
+            "event_id": f"case-memory-correction:{old.id}:v{correction.expected_lifecycle_version}",
+            "business_object_type": str((old.source_ref_json or {}).get("business_object_type") or old.scope_type),
+            "business_object_id": str((old.source_ref_json or {}).get("business_object_id") or old.scope_id),
+            "outcome_id": f"case-memory-correction:{old.id}:v{correction.expected_lifecycle_version}",
+        }
+        candidate = CaseMemoryWriteCandidate(
+            tenant_id=old.tenant_id,
+            run_id=correction.run_id,
+            scope_type=old.scope_type,
+            scope_id=old.scope_id,
+            case_type=old.case_type,
+            summary=correction.summary,
+            excerpt=correction.excerpt,
+            applicability=correction.applicability if correction.applicability is not None else old.applicability,
+            outcome=correction.outcome if correction.outcome is not None else old.outcome,
+            caveats=correction.caveats if correction.caveats is not None else old.caveats,
+            source_type="human_reviewed",
+            source_ref=source_ref,
+            policy_family=old.policy_family,
+            policy_version=old.policy_version,
+            policy_refs=list(old.policy_refs_json or []),
+            embedding=old.embedding,
+            pii_classification=old.pii_classification,
+            expires_at=old.expires_at,
+        )
+        identity = build_case_memory_candidate_identity(candidate)
+        if identity.normalized_source_ref is None or identity.source_identity_hash is None:  # pragma: no cover
+            raise ValueError("case memory correction requires resolved identity")
+        provenance = CaseMemoryProvenanceV1(
+            resolution_status="canonical",
+            tenant_id=candidate.tenant_id,
+            scope_type=candidate.scope_type,
+            scope_id=candidate.scope_id,
+            source_authorities=old_provenance.source_authorities,
+            source_run_id=correction.run_id,
+            source_event_id=identity.normalized_source_ref.event_id,
+            evidence_refs=old_provenance.evidence_refs,
+            business_fact_refs=old_provenance.business_fact_refs,
+            identity_algorithm_version="memory_identity.v1",
+            identity_profile=identity.identity_profile,
+            candidate_hash=identity.candidate_hash,
+            content_hash=identity.content_hash,
+            source_identity_hash=identity.source_identity_hash,
+            review_decision="approved",
+            reviewer_user_id=correction.reviewer_user_id,
+            reviewed_at=now,
+            review_reason=correction.review_reason,
+            corrects_case_memory_id=old.id,
+            supersedes_case_memory_id=old.id,
+        )
+        candidate = candidate.model_copy(update={"provenance": provenance})
+
+        old.review_status = "superseded"
+        old.review_reason = correction.review_reason
+        old.lifecycle_version += 1
+        claim.claim_state = "terminal"
+        claim.terminal_status = "superseded"
+        claim.terminal_reason = correction.reason_code
+        claim.terminal_at = now
+        claim.lifecycle_version = old.lifecycle_version
+        new = await self.repository.insert_case_memory(
+            candidate,
+            content_hash=identity.content_hash,
+            source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
+            source_identity_hash=identity.source_identity_hash,
+            identity_algorithm_version="memory_identity.v1",
+            candidate_hash=identity.candidate_hash,
+            identity_resolution_status=provenance.resolution_status,
+            provenance_json=provenance.model_dump(mode="json", exclude_none=True),
+            lifecycle_version=1,
+            review_status="approved",
+            now=now,
+            reviewed_by_user_id=correction.reviewer_user_id,
+            review_reason=correction.review_reason,
+        )
+        if await self.repository.create_identity_claim(memory=new) is None:
+            await self.repository.remove_unclaimed_candidate(new)
+            raise ValueError("case memory conflict")
+        self.repository.session.add(
+            CaseMemoryLineageLink(
+                tenant_id=old.tenant_id,
+                survivor_case_memory_id=new.id,
+                related_case_memory_id=old.id,
+                relation="correction",
+                ordinal=1,
+            )
+        )
+        await self.repository.session.flush()
+        return await self.repository.emit_write_event(
+            tenant_id=correction.tenant_id,
+            run_id=correction.run_id,
+            memory_type=CASE_MEMORY_TYPE,
+            memory_id=new.id,
+            decision="supersede",
+            reason_code=correction.reason_code,
+            pii_classification=new.pii_classification,
+            candidate_hash=new.candidate_hash,
+            source_ref_json=dict(new.source_ref_json or {}),
+        )
 
     async def _delete_or_tombstone(
         self,
@@ -821,19 +1251,57 @@ class CaseMemoryService:
         tenant_id: uuid.UUID,
         case_memory_id: uuid.UUID,
         run_id: uuid.UUID,
+        expected_lifecycle_version: int,
         reason_code: str,
         review_status: str,
         event_decision: str,
         now: datetime | None = None,
     ) -> MemoryWriteEvent:
-        memory = await self.repository.mark_deleted(
+        now = _aware(now)
+        claim = await self.repository.lock_owner_claim(
             tenant_id=tenant_id,
             case_memory_id=case_memory_id,
-            review_status=review_status,
-            now=now,
         )
-        if memory is None:
+        memory = await self.repository.get_resolved_case_memory(
+            tenant_id=tenant_id,
+            case_memory_id=case_memory_id,
+        )
+        if claim is None or memory is None:
             raise ValueError("case memory not found")
+        if (
+            memory.lifecycle_version == expected_lifecycle_version + 1
+            and claim.lifecycle_version == memory.lifecycle_version
+            and claim.claim_state == "terminal"
+            and claim.terminal_status == review_status
+            and claim.terminal_reason == reason_code
+        ):
+            event = await self.repository.latest_transition_event(
+                tenant_id=tenant_id,
+                case_memory_id=case_memory_id,
+                run_id=run_id,
+                decision=event_decision,
+                reason_code=reason_code,
+            )
+            if event is not None:
+                return event
+        if (
+            claim.claim_state != "active"
+            or claim.lifecycle_version != expected_lifecycle_version
+            or memory.lifecycle_version != expected_lifecycle_version
+            or memory.review_status not in ACTIVE_CASE_DUPLICATE_REVIEW_STATUSES
+            or memory.deleted_at is not None
+        ):
+            raise ValueError("case memory conflict")
+        memory.review_status = review_status
+        memory.deleted_at = now
+        memory.review_reason = reason_code
+        memory.lifecycle_version += 1
+        claim.claim_state = "terminal"
+        claim.terminal_status = review_status
+        claim.terminal_reason = reason_code
+        claim.terminal_at = now
+        claim.lifecycle_version = memory.lifecycle_version
+        await self.repository.session.flush()
         await self.repository.create_tombstone(
             tenant_id=memory.tenant_id,
             memory_type=CASE_MEMORY_TYPE,

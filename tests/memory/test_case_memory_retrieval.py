@@ -8,7 +8,14 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import AgentRun, CaseMemory, MemoryTombstone, MemoryWriteEvent, SessionMemory
+from src.db.models import (
+    AgentRun,
+    CaseMemory,
+    CaseMemoryIdentityClaim,
+    MemoryTombstone,
+    MemoryWriteEvent,
+    SessionMemory,
+)
 from src.knowledge.evidence_identity import (
     PersistedEvidenceIdentityMaterialV1,
     mint_canonical_evidence_identity,
@@ -407,6 +414,21 @@ async def test_case_memory_service_lists_active_pending_review_rows(
     )
     session.add_all([pending, approved, deleted_pending, cross_tenant_pending])
     await session.flush()
+    session.add(
+        CaseMemoryIdentityClaim(
+            identity_algorithm_version=pending.identity_algorithm_version,
+            tenant_id=pending.tenant_id,
+            scope_type=pending.scope_type,
+            scope_id=pending.scope_id,
+            candidate_hash=pending.candidate_hash,
+            content_hash=pending.content_hash,
+            source_identity_hash=pending.source_identity_hash,
+            owner_case_memory_id=pending.id,
+            claim_state="active",
+            lifecycle_version=pending.lifecycle_version,
+        )
+    )
+    await session.flush()
 
     rows = await CaseMemoryService(CaseMemoryRepository(session)).list_pending_review(tenant_id=tenant_id)
 
@@ -445,10 +467,10 @@ async def test_duplicate_active_case_memory_write_returns_skipped_existing_memor
     assert duplicate.status == "skipped"
     assert duplicate.memory_id == first.memory_id
     assert duplicate.review_status == "needs_review"
-    assert duplicate.reason_code == "duplicate_active_identity"
+    assert duplicate.reason_code == "duplicate_exact_identity"
     assert [row.id for row in rows] == [first.memory_id]
     assert events[-1].decision == "skip"
-    assert events[-1].reason_code == "duplicate_active_identity"
+    assert events[-1].reason_code == "duplicate_exact_identity"
     assert events[-1].memory_id == first.memory_id
 
 
@@ -910,6 +932,7 @@ async def test_case_memory_tombstone_blocks_writes_by_content_hash_and_source_id
         tenant_id=original.tenant_id,
         case_memory_id=write_result.memory_id,
         run_id=run_id,
+        expected_lifecycle_version=1,
         reason_code="case_forget",
     )
 

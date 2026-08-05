@@ -509,8 +509,26 @@ class CaseMemoryReviewDecision(BaseModel):
     run_id: uuid.UUID
     case_memory_id: uuid.UUID
     reviewer_user_id: uuid.UUID | None = None
+    expected_lifecycle_version: int = Field(gt=0)
     reason_code: str = Field(min_length=1, max_length=64)
     review_reason: str | None = Field(default=None, max_length=1500)
+
+
+class CaseMemoryCorrection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: uuid.UUID
+    run_id: uuid.UUID
+    case_memory_id: uuid.UUID
+    reviewer_user_id: uuid.UUID
+    expected_lifecycle_version: int = Field(gt=0)
+    reason_code: str = Field(min_length=1, max_length=64)
+    review_reason: str | None = Field(default=None, max_length=1500)
+    summary: str = Field(min_length=1, max_length=4000)
+    excerpt: str = Field(min_length=1, max_length=1500)
+    applicability: str | None = Field(default=None, max_length=1500)
+    outcome: str | None = Field(default=None, max_length=1500)
+    caveats: str | None = Field(default=None, max_length=1500)
 
 
 class CaseMemoryWriteResult(BaseModel):

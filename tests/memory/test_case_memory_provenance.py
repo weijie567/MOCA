@@ -312,12 +312,15 @@ class _CapturingRepository:
     async def check_tombstone_before_write(self, **kwargs):
         return None
 
-    async def get_active_duplicate(self, **kwargs):
+    async def get_exact_identity_claim(self, **kwargs):
         return None
 
     async def insert_case_memory(self, candidate, **kwargs):
         self.insert_kwargs = kwargs
         return SimpleNamespace(id=uuid.uuid4(), review_status=kwargs["review_status"])
+
+    async def create_identity_claim(self, *, memory):
+        return SimpleNamespace(owner_case_memory_id=memory.id)
 
     async def emit_write_event(self, **kwargs):
         return SimpleNamespace(id=uuid.uuid4())
