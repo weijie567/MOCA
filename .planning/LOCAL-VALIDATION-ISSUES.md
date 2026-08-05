@@ -22001,3 +22001,12 @@ CI 总结为 `1 failed, 3171 passed, 1 skipped, 116 warnings in 862.00s`，错�
 
 **剩余问题和下次继续排查入口**
 本次代码与契约对齐无剩余阻断。尚未运行依赖已启动 PostgreSQL、有效 tenant 和已摄入政策数据的 DB-backed 实际评测；正式扩充 benchmark 时应在可复现 seed 环境运行 `make eval-rag`，并把实际指标与生成报告作为该 benchmark 的验收证据。
+## 2026-08-05：Phase 64.2 外部计划复审首轮提示超过 Claude CLI 长度限制
+
+- **问题现象**：`claude -p - --permission-mode plan` 在把 PROJECT、REQUIREMENTS、ROADMAP、CONTEXT、RESEARCH 和 9 份 PLAN 全量内联后直接返回 `Prompt is too long`，未产生复审结论。
+- **检测/复现**：在 Phase 64.2 隔离工作树中，将约 1900 行规划材料拼入标准输入后调用 Claude Code 2.1.222。
+- **关键证据或命令**：命令退出码为 1，唯一输出为 `Prompt is too long`；`claude auth status` 同时确认 OAuth 登录有效，因此不是认证或配额问题。
+- **当前判断/根因**：外部复审提示将仓库内可直接读取的材料重复全量内联，超过 CLI 单次提示上限。
+- **已做处理**：改为在提示中列明必读文件和审核维度，让 Claude Code 在当前工作树中直接只读文件及必要源码；仍保留独立外部复审范围与判定标准。
+- **后续验证**：单次覆盖全部边界的仓库直读调用运行约 10 分钟仍未输出结论，进程有 CPU 活动但无法形成可消费结果，人工中止后只返回 `Execution error`。
+- **剩余问题和下次入口**：已进一步拆成 evidence/approval/replay、CWC/memory、closeout/依赖三组只读外部复审；如任一组仍失败，从 `.planning/autopilot/phase-64.2.md` 的 `claude_plan_review` 继续并只重跑失败组。
