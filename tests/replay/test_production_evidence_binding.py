@@ -6,7 +6,9 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes.investigate import investigate
@@ -14,6 +16,7 @@ from src.db.models import (
     AgentRun,
     AgentTraceEvent,
     EvidenceSnapshotDependency,
+    PolicyChunk,
     PolicyChunkVersion,
     PolicyDocument,
     PolicyDocumentVersion,
@@ -23,6 +26,7 @@ from src.knowledge.text_hash import evidence_text_hash
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.repositories.evidence_version_repo import EvidenceVersionRepository
 from src.replay.service import ReplayService
+from src.replay.schemas import ReplayEvidenceSnapshotV1
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import (
     ToolCallContext,
@@ -168,7 +172,20 @@ async def _canonical_fixture(
     )
     session.add_all([run, document, document_version])
     await session.flush()
-    session.add(chunk_version)
+    current_chunk = PolicyChunk(
+        id=uuid4(),
+        tenant_id=tenant.id,
+        doc_id=document.id,
+        chunk_id="refund_001",
+        section="Refund",
+        content=chunk_content,
+        search_text=chunk_content,
+        source_block_refs_json=[{"source_block_id": "block-1"}],
+        ocr_metadata_json={},
+        risk_level="medium",
+        effective_date=date(2026, 1, 1),
+    )
+    session.add_all([current_chunk, chunk_version])
     await session.flush()
 
     resolution = await EvidenceVersionRepository(session).mint_for_chunk_version(
@@ -423,3 +440,204 @@ async def _row_counts(session: AsyncSession, run_id: UUID) -> tuple[int, int, in
         .where(AgentTraceEvent.run_id == run_id)
     )
     return int(event_count or 0), int(snapshot_count or 0), int(dependency_count or 0)
+
+
+@pytest.mark.asyncio
+async def test_minimal_decision_projection_exposes_optional_typed_snapshot(
+    session: AsyncSession,
+    seeded_session: dict[str, Any],
+) -> None:
+    run, ref, _, _ = await _canonical_fixture(session, seeded_session)
+
+    event = await ReplayService(session).append_event(
+        run_id=run.id,
+        tenant_id=run.tenant_id,
+        thread_id=run.thread_id,
+        event_type="rag_retrieval_completed",
+        actor={"type": "agent", "id": "moca"},
+        resource_refs={"tool": "search_policy"},
+        redacted_payload={"status": "completed"},
+        operation_id=uuid4(),
+        attempt=1,
+        schema_version="minimal_event_envelope.v1",
+        canonical_evidence_refs=[ref],
+    )
+
+    assert ReplayEvidenceSnapshotV1.model_validate(event["evidence_snapshot_refs"][0])
+
+
+@pytest.mark.asyncio
+async def test_replay_resolves_retained_original_through_lifecycle_changes_and_blocks_purge(
+    session: AsyncSession,
+    seeded_session: dict[str, Any],
+) -> None:
+    run, ref, original_document, original_chunk = await _canonical_fixture(session, seeded_session)
+    original_content = original_chunk.content
+    original_hash = original_chunk.text_hash
+    original_locator = dict(original_chunk.source_locator_json)
+    await investigate(
+        _state(run),
+        _config(run, _CanonicalPolicyPlatform(_tool_result(ref)), session=session, event_emitter=None),
+    )
+
+    current_document = await session.get(PolicyDocument, original_document.policy_document_id)
+    assert current_document is not None
+    current_chunk = (
+        await session.execute(
+            select(PolicyChunk).where(
+                PolicyChunk.tenant_id == run.tenant_id,
+                PolicyChunk.doc_id == current_document.id,
+                PolicyChunk.chunk_id == original_chunk.chunk_id,
+            )
+        )
+    ).scalar_one()
+    current_document.version = 4
+    current_document.content = "退款政策重新摄取后的文档"
+    current_chunk.content = "新版本允许不同的退款渠道。"
+    current_chunk.search_text = current_chunk.content
+    await EvidenceVersionRepository(session).append_immutable_version(
+        tenant_id=run.tenant_id,
+        document=current_document,
+        chunks=[current_chunk],
+        write_sequence=2,
+    )
+
+    for stored_status, expected_status in (
+        ("superseded", "superseded"),
+        ("corrected", "corrected"),
+        ("expired", "expired"),
+        ("tombstoned", "tombstoned"),
+    ):
+        original_document.lifecycle_status = stored_status
+        original_chunk.lifecycle_status = stored_status
+        if stored_status == "expired":
+            original_document.expired_at = original_chunk.expired_at = datetime.now(UTC)
+        if stored_status == "tombstoned":
+            original_document.tombstoned_at = original_chunk.tombstoned_at = datetime.now(UTC)
+        await session.flush()
+
+        replay = await ReplayService(session).get_replay(run.id)
+        terminal = replay["timeline"][-1]
+        resolved = terminal["evidence_snapshot_refs"][0]
+        assert resolved["canonical_evidence_ref"] == ref.model_dump(mode="python")
+        assert resolved["scope_type"] == "tenant_policy"
+        assert resolved["scope_id"] == str(run.tenant_id)
+        assert resolved["document_version_id"] == str(original_document.id)
+        assert resolved["chunk_version_id"] == str(original_chunk.id)
+        assert resolved["retained_content"] == original_content
+        assert resolved["retained_content_hash"] == original_hash
+        assert resolved["retained_content_locator"] == original_locator
+        assert resolved["current_lifecycle_status"] == expected_status
+        assert "新版本允许不同的退款渠道" not in str(resolved)
+
+    await session.commit()
+    retained_chunk = await session.get(PolicyChunkVersion, original_chunk.id)
+    assert retained_chunk is not None
+    await session.delete(retained_chunk)
+    with pytest.raises(IntegrityError):
+        await session.flush()
+    await session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_persisted_legacy_json_resolves_only_from_existing_event_and_marks_unresolved(
+    session: AsyncSession,
+    seeded_session: dict[str, Any],
+) -> None:
+    run, ref, _, original_chunk = await _canonical_fixture(session, seeded_session)
+    legacy_ref = EvidenceRefV1.build(
+        tenant_id=str(run.tenant_id),
+        doc_key=ref.doc_key,
+        chunk_id=ref.chunk_id,
+        policy_version=ref.policy_version,
+        text=original_chunk.content,
+        retrieved_at=ref.retrieved_at,
+        retrieval_config_version=ref.retrieval_config_version,
+        rank=ref.rank,
+    ).model_dump(mode="json")
+    missing_ref = dict(legacy_ref)
+    missing_ref["evidence_id"] = "missing/chunk@v1"
+    missing_ref["doc_key"] = "missing"
+    missing_ref["chunk_id"] = "chunk"
+    missing_ref["policy_version"] = "v1"
+    session.add_all(
+        [
+            AgentTraceEvent(
+                event_id=uuid4(),
+                run_id=run.id,
+                sequence=1,
+                tenant_id=run.tenant_id,
+                thread_id=run.thread_id,
+                event_type="approval_requested",
+                schema_version="minimal_event_envelope.v1",
+                occurred_at=datetime.now(UTC),
+                actor={"type": "system", "id": "legacy-import"},
+                resource_refs={},
+                redaction_policy_version="redaction.v1",
+                redacted_payload={"status": "pending"},
+                evidence_refs_json=[legacy_ref],
+            ),
+            AgentTraceEvent(
+                event_id=uuid4(),
+                run_id=run.id,
+                sequence=2,
+                tenant_id=run.tenant_id,
+                thread_id=run.thread_id,
+                event_type="approval_requested",
+                schema_version="minimal_event_envelope.v1",
+                occurred_at=datetime.now(UTC),
+                actor={"type": "system", "id": "legacy-import"},
+                resource_refs={},
+                redaction_policy_version="redaction.v1",
+                redacted_payload={"status": "pending"},
+                evidence_refs_json=[missing_ref],
+            ),
+        ]
+    )
+    await session.flush()
+
+    replay = await ReplayService(session).get_replay(run.id)
+
+    resolved = replay["timeline"][0]["evidence_snapshot_refs"][0]
+    assert resolved["compatibility_provenance"] == {
+        "resolution_status": "legacy_resolved",
+        "source": "persisted_legacy_event",
+    }
+    assert resolved["retained_content"] == original_chunk.content
+    assert replay["timeline"][1]["evidence_snapshot_refs"] == []
+    assert replay["timeline"][1]["provenance"]["evidence_resolution_status"] == "legacy_unresolved"
+
+
+@pytest.mark.asyncio
+async def test_replay_api_returns_generic_404_for_forged_snapshot_binding(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session: dict[str, Any],
+) -> None:
+    run, ref, _, _ = await _canonical_fixture(session, seeded_session)
+    await investigate(
+        _state(run),
+        _config(run, _CanonicalPolicyPlatform(_tool_result(ref)), session=session, event_emitter=None),
+    )
+    terminal = (
+        await session.execute(
+            select(AgentTraceEvent)
+            .where(AgentTraceEvent.run_id == run.id)
+            .order_by(AgentTraceEvent.sequence.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    forged = [dict(item) for item in terminal.evidence_snapshot_refs_json or []]
+    forged[0] = {**forged[0], "scope_id": str(uuid4())}
+    terminal.evidence_snapshot_refs_json = forged
+    await session.commit()
+
+    login = await client.post("/api/v1/auth/login", json={"username": "cs_zhang", "password": "moca2024"})
+    response = await client.get(
+        f"/api/v1/agent-runs/{run.id}/replay",
+        headers={"Authorization": f"Bearer {login.json()['data']['access_token']}"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "NOT_FOUND"
+    assert ref.evidence_id not in response.text
