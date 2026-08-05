@@ -35,11 +35,14 @@ from src.approvals.schemas import (
 )
 from src.approvals.snapshot_service import (
     ActionSafetySnapshotPersistenceError,
+    compute_action_payload_hash,
     persist_action_safety_snapshot,
 )
 from src.common.canonical_hash import CanonicalHashError
 from src.db.models import AgentRun, ApprovalAssignment, ApprovalLevel, ApprovalRequest
+from src.knowledge.evidence_identity import EvidenceIdentityResolutionStatus
 from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
+from src.repositories.evidence_version_repo import EvidenceVersionRepository
 from src.tools.contracts import BusinessFactRefV1
 
 
@@ -122,7 +125,31 @@ class ApprovalService:
                     target_merchant_id=command.target_merchant_id,
                     target_merchant_ref=self._json_dump(command.target_merchant_ref),
                 )
-                snapshot = await self._load_or_persist_snapshot(command)
+                canonical_evidence_refs = await self._validate_canonical_snapshot_evidence(
+                    command.tenant_id,
+                    command.evidence_refs,
+                )
+                self._assert_exact_canonical_evidence(
+                    canonical_evidence_refs,
+                    command.verified_evidence_refs,
+                    reason="verified_evidence_mismatch",
+                    empty_means_derive=True,
+                )
+                self._assert_exact_canonical_evidence(
+                    canonical_evidence_refs,
+                    command.proposed_action.get("verified_evidence_refs"),
+                    reason="proposed_action_verified_evidence_mismatch",
+                    empty_means_derive=True,
+                )
+                proposed_action = self._canonical_proposed_action(
+                    command.proposed_action,
+                    canonical_evidence_refs,
+                )
+                snapshot = await self._load_or_persist_snapshot(
+                    command,
+                    proposed_action=proposed_action,
+                    canonical_evidence_refs=canonical_evidence_refs,
+                )
                 assignment_plan = self.policy.default_single_level_assignment(
                     now=command.created_at,
                     required_role=command.required_role,
@@ -133,7 +160,7 @@ class ApprovalService:
                     run_id=command.run_id,
                     thread_id=command.thread_id,
                     requested_by=command.requested_by,
-                    proposed_action=command.proposed_action,
+                    proposed_action=proposed_action,
                     approval_policy_id=command.approval_policy_id,
                     policy_version=command.policy_version,
                     risk_level=command.risk_level,
@@ -150,9 +177,7 @@ class ApprovalService:
                     target_merchant_id=command.target_merchant_id,
                     target_merchant_ref=self._json_dump(command.target_merchant_ref),
                     business_fact_refs=[ref.model_dump(mode="json") for ref in command.business_fact_refs],
-                    verified_evidence_refs=[
-                        ref.model_dump(mode="json") for ref in (command.verified_evidence_refs or command.evidence_refs)
-                    ],
+                    verified_evidence_refs=[ref.model_dump(mode="json") for ref in canonical_evidence_refs],
                     claim_verification_ref=command.claim_verification_ref,
                     claim_verification_summary=command.claim_verification_summary,
                     risk_decision_ref=command.risk_decision_ref,
@@ -181,7 +206,7 @@ class ApprovalService:
                     **self._request_binding_fields(request),
                     graph_thread_id=request.thread_id,
                 )
-        except ActionSafetySnapshotPersistenceError as exc:
+        except (ActionSafetySnapshotPersistenceError, CanonicalHashError, ValidationError) as exc:
             raise ApprovalTransitionError("approval_not_executable", str(exc)) from exc
 
     async def get_request(self, approval_id: UUID, tenant_id: UUID) -> ApprovalRequest | None:
@@ -364,22 +389,42 @@ class ApprovalService:
             )
             return request
 
-    async def _load_or_persist_snapshot(self, command: ApprovalRequestCreateCommand) -> _SnapshotBinding:
+    async def _load_or_persist_snapshot(
+        self,
+        command: ApprovalRequestCreateCommand,
+        *,
+        proposed_action: dict[str, Any],
+        canonical_evidence_refs: list[EvidenceRefV1],
+    ) -> _SnapshotBinding:
         if command.safety_snapshot_ref and command.safety_snapshot_hash:
             if not command.action_payload_hash:
                 raise ApprovalTransitionError("approval_not_executable")
+            try:
+                canonical_action_hash = compute_action_payload_hash(proposed_action)
+            except CanonicalHashError as exc:
+                raise self._canonical_evidence_error("proposed_action_invalid") from exc
             snapshot = await self.repository.get_snapshot_by_ref_or_hash(
                 tenant_id=command.tenant_id,
                 safety_snapshot_ref=command.safety_snapshot_ref,
                 safety_snapshot_hash=command.safety_snapshot_hash,
             )
-            if snapshot is None or snapshot.action_payload_hash != command.action_payload_hash:
+            if (
+                snapshot is None
+                or snapshot.action_payload_hash != command.action_payload_hash
+                or snapshot.action_payload_hash != canonical_action_hash
+            ):
                 raise ApprovalTransitionError("approval_not_executable")
             self._assert_snapshot_scope_matches_binding(
                 snapshot=snapshot,
                 target_merchant_id=command.target_merchant_id,
                 target_merchant_ref=self._json_dump(command.target_merchant_ref),
                 business_fact_refs=[ref.model_dump(mode="json") for ref in command.business_fact_refs],
+            )
+            snapshot_json = snapshot.snapshot_json if isinstance(snapshot.snapshot_json, dict) else {}
+            self._assert_exact_canonical_evidence(
+                canonical_evidence_refs,
+                snapshot_json.get("evidence"),
+                reason="snapshot_evidence_mismatch",
             )
             return _SnapshotBinding(
                 action_payload_hash=snapshot.action_payload_hash,
@@ -391,12 +436,12 @@ class ApprovalService:
             self.session,
             tenant_id=command.tenant_id,
             run_id=command.run_id,
-            proposed_action=command.proposed_action,
+            proposed_action=proposed_action,
             action_payload_hash=command.action_payload_hash,
             policy_config_version=command.policy_config_version,
             risk_config_version=command.risk_config_version,
             retrieval_config_version=command.retrieval_config_version,
-            evidence_refs=command.evidence_refs,
+            evidence_refs=canonical_evidence_refs,
             target_merchant_id=command.target_merchant_id,
             target_merchant_ref=self._json_dump(command.target_merchant_ref),
             business_fact_refs=[ref.model_dump(mode="json") for ref in command.business_fact_refs],
@@ -975,6 +1020,90 @@ class ApprovalService:
         evidence_refs = self._parse_evidence_refs(proposed_action.get("evidence_refs") or [])
         proposed_action["evidence_refs"] = canonical_evidence_projection(evidence_refs)
         return proposed_action, evidence_refs
+
+    async def _validate_canonical_snapshot_evidence(
+        self,
+        tenant_id: UUID,
+        evidence_refs: Any,
+    ) -> list[EvidenceRefV1]:
+        """Resolve every approval ref against exact retained tenant-policy rows."""
+
+        try:
+            parsed_refs = self._parse_evidence_refs(evidence_refs)
+        except (ApprovalTransitionError, ValidationError, ValueError, TypeError) as exc:
+            raise self._canonical_evidence_error("malformed") from exc
+
+        repository = EvidenceVersionRepository(self.session)
+        canonical_refs: list[EvidenceRefV1] = []
+        seen_identities: set[str] = set()
+        for ref in parsed_refs:
+            try:
+                candidate = ref.to_canonical_identity() or ref.evidence_id
+                resolution = await repository.resolve_exact(
+                    candidate,
+                    expected_tenant_id=tenant_id,
+                    expected_scope_type="tenant_policy",
+                    expected_scope_id=str(tenant_id),
+                )
+            except Exception as exc:
+                raise self._canonical_evidence_error("repository_unavailable") from exc
+            if (
+                resolution.status is not EvidenceIdentityResolutionStatus.CANONICAL
+                or resolution.identity is None
+            ):
+                raise self._canonical_evidence_error(str(resolution.internal_reason))
+            if resolution.identity.evidence_id in seen_identities:
+                raise self._canonical_evidence_error("duplicate_evidence")
+            seen_identities.add(resolution.identity.evidence_id)
+            canonical_refs.append(
+                repository.evidence_ref_from_identity(
+                    resolution.identity,
+                    retrieved_at=ref.retrieved_at,
+                    retrieval_config_version=ref.retrieval_config_version,
+                    rank=ref.rank,
+                )
+            )
+
+        return [
+            EvidenceRefV1.model_validate(projected)
+            for projected in canonical_evidence_projection(canonical_refs)
+        ]
+
+    @classmethod
+    def _assert_exact_canonical_evidence(
+        cls,
+        canonical_refs: list[EvidenceRefV1],
+        asserted_refs: Any,
+        *,
+        reason: str,
+        empty_means_derive: bool = False,
+    ) -> None:
+        if asserted_refs is None or (empty_means_derive and asserted_refs == []):
+            return
+        try:
+            parsed_assertion = cls._parse_evidence_refs(asserted_refs)
+            asserted_projection = canonical_evidence_projection(parsed_assertion)
+        except (ApprovalTransitionError, ValidationError, ValueError, TypeError) as exc:
+            raise cls._canonical_evidence_error(reason) from exc
+        if asserted_projection != canonical_evidence_projection(canonical_refs):
+            raise cls._canonical_evidence_error(reason)
+
+    @staticmethod
+    def _canonical_proposed_action(
+        proposed_action: dict[str, Any],
+        canonical_refs: list[EvidenceRefV1],
+    ) -> dict[str, Any]:
+        canonical_action = dict(proposed_action)
+        canonical_action.pop("verified_evidence_refs", None)
+        canonical_action["evidence_refs"] = canonical_evidence_projection(canonical_refs)
+        return canonical_action
+
+    @staticmethod
+    def _canonical_evidence_error(reason: str) -> ApprovalTransitionError:
+        return ApprovalTransitionError(
+            "approval_not_executable",
+            f"canonical_evidence_validation_failed:{reason}",
+        )
 
     @staticmethod
     def _parse_evidence_refs(raw_refs: Any) -> list[EvidenceRefV1]:
