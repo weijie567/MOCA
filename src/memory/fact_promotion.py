@@ -112,7 +112,17 @@ class FactPromotionResultV1(BaseModel):
 
     @model_validator(mode="after")
     def _validate_promoted_shape(self) -> FactPromotionResultV1:
+        if self.authority_class == "contextual_only" and (
+            self.decision != "observe" or self.reason_code != "contextual_only_non_authoritative"
+        ):
+            raise ValueError("contextual_only authority must remain a contextual observation")
+        if self.authority_class == "unknown" and (
+            self.decision != "reject" or self.reason_code != "unknown_authority"
+        ):
+            raise ValueError("unknown authority must remain rejected")
         if self.decision != "promote":
+            if self.reason_code in {"authoritative_business_fact", "authoritative_policy_evidence"}:
+                raise ValueError("authoritative promotion reasons require a promote decision")
             return self
         if self.status != "success" or self.completeness != "complete":
             raise ValueError("promoted facts require successful complete results")
@@ -168,6 +178,8 @@ def promote_verified_fact(candidate: FactPromotionCandidateV1) -> FactPromotionR
         return _result(candidate, decision="observe", reason="status_non_promotable")
     if candidate.completeness != "complete":
         return _result(candidate, decision="observe", reason="incomplete_result")
+    if candidate.reference_validation == "compatibility_only":
+        return _result(candidate, decision="observe", reason="compatibility_only_ref")
     if candidate.scope_result != "valid":
         return _result(
             candidate,
@@ -177,8 +189,6 @@ def promote_verified_fact(candidate: FactPromotionCandidateV1) -> FactPromotionR
         )
     if candidate.freshness_result != "valid":
         return _result(candidate, decision="observe", reason="freshness_not_valid")
-    if candidate.reference_validation == "compatibility_only":
-        return _result(candidate, decision="observe", reason="compatibility_only_ref")
     if candidate.reference_validation != "valid":
         return _result(candidate, decision="observe", reason="invalid_authoritative_ref")
 

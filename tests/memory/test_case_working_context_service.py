@@ -22,21 +22,23 @@ from src.db.models import (
     RefundCase,
     Tenant,
 )
+from src.knowledge.evidence_identity import PersistedEvidenceIdentityMaterialV1, mint_canonical_evidence_identity
+from src.knowledge.schemas import EvidenceRefV1
 from src.memory.case_working_context import CaseWorkingContextRepository, dehydrate_content, hydrate_content
 from src.memory.case_working_context_schemas import (
     CaseWorkingContextActionTakenV1,
     CaseWorkingContextClaimV1,
     CaseWorkingContextCommitmentV1,
     CaseWorkingContextContentV1,
-    CaseWorkingContextEvidencePointerV1,
     CaseWorkingContextNextActionV1,
-    CaseWorkingContextPolicyRefV1,
+    CaseWorkingContextObservationV1,
     CaseWorkingContextRecommendationV1,
     CaseWorkingContextVerifiedFactV1,
     CaseWorkingContextWriteCandidate,
     normalize_case_working_context_content_sources,
 )
 from src.memory.schemas import MemorySourceRefV1
+from src.tools.contracts import BusinessFactRefV1
 from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
 
 
@@ -121,6 +123,42 @@ async def _seed_case_scope(session: AsyncSession) -> dict:
 def _content(
     source_ref: MemorySourceRefV1, *, customer_request: str = "用户询问退款进度"
 ) -> CaseWorkingContextContentV1:
+    observed_at = datetime(2026, 7, 2, 10, 0, tzinfo=UTC)
+    fixture_tenant_id = "00000000-0000-0000-0000-000000000044"
+    business_ref = BusinessFactRefV1(
+        tenant_id=fixture_tenant_id,
+        source_system="business_fact_service",
+        resource_type="refund_case",
+        resource_id="RF-PHASE44-FIXTURE",
+        resource_version="v1",
+        data_freshness_at=observed_at,
+        retrieved_at=observed_at,
+    )
+    material = PersistedEvidenceIdentityMaterialV1(
+        tenant_id=fixture_tenant_id,
+        scope_type="tenant_policy",
+        scope_id=fixture_tenant_id,
+        document_version_id="00000000-0000-0000-0000-000000004401",
+        chunk_version_id="00000000-0000-0000-0000-000000004402",
+        doc_key="refund-policy",
+        document_version=1,
+        chunk_id="refund-policy#001",
+        chunk_version=1,
+        text_hash=f"sha256:{'a' * 64}",
+    )
+    resolution = mint_canonical_evidence_identity(
+        material,
+        expected_tenant_id=fixture_tenant_id,
+        expected_scope_type="tenant_policy",
+        expected_scope_id=fixture_tenant_id,
+    )
+    assert resolution.identity is not None
+    policy_ref = EvidenceRefV1.from_canonical_identity(
+        resolution.identity,
+        retrieved_at=observed_at.isoformat(),
+        retrieval_config_version="retrieval.v3",
+        rank=1,
+    )
     return CaseWorkingContextContentV1(
         customer_request=customer_request,
         issue_type="refund_status",
@@ -128,14 +166,32 @@ def _content(
         verified_facts=[
             CaseWorkingContextVerifiedFactV1(
                 text="退款单状态为 reviewing",
+                authority_class="business_fact",
+                status="success",
+                promotion_reason_code="authoritative_business_fact",
                 source_ref=source_ref,
-                observed_at=datetime(2026, 7, 2, 10, 0, tzinfo=UTC),
+                observed_at=observed_at,
+                business_fact_refs=[business_ref],
             )
         ],
         missing_info=["需要补充破损照片"],
-        evidence_refs=[CaseWorkingContextEvidencePointerV1(ref_type="tool_result", ref_id="tool-result-1")],
+        evidence_refs=[
+            CaseWorkingContextObservationV1(
+                summary="历史上下文仅供参考",
+                decision="observe",
+                authority_class="contextual_only",
+                status="success",
+                reason_code="contextual_only_non_authoritative",
+                completeness="complete",
+                scope_result="valid",
+                freshness_result="valid",
+                reference_validation="valid",
+                source_ref=source_ref,
+                observed_at=observed_at,
+            )
+        ],
         actions_taken=[CaseWorkingContextActionTakenV1(action="查询退款单状态", source_ref=source_ref)],
-        policy_refs=[CaseWorkingContextPolicyRefV1(doc_id="refund-policy", chunk_id="refund-policy#001", version="v1")],
+        policy_refs=[policy_ref],
         agent_recommendations=[
             CaseWorkingContextRecommendationV1(recommended_step="转人工复核高金额退款", staff_decision=None)
         ],
@@ -563,7 +619,7 @@ async def test_service_persists_high_consequence_content_as_contextual_and_staff
     assert row.claims_json == dehydrate_content(expected_content)["claims"]
     assert row.verified_facts_json == dehydrate_content(expected_content)["verified_facts"]
     assert row.missing_info_json == dehydrate_content(content)["missing_info"]
-    assert row.evidence_refs_json == dehydrate_content(content)["evidence_refs"]
+    assert row.evidence_refs_json == dehydrate_content(expected_content)["evidence_refs"]
     assert row.actions_taken_json == dehydrate_content(expected_content)["actions_taken"]
     assert row.policy_refs_json == dehydrate_content(content)["policy_refs"]
     assert row.agent_recommendations_json == dehydrate_content(content)["agent_recommendations"]
@@ -573,6 +629,7 @@ async def test_service_persists_high_consequence_content_as_contextual_and_staff
 
     hydrated = hydrate_content(row)
     assert hydrated.claims[0].verified is False
+    assert hydrated.observations[0].reason_code == "contextual_only_non_authoritative"
     assert hydrated.commitments[0].confirmed_by_staff is False
     assert hydrated.agent_recommendations[0].staff_decision is None
 

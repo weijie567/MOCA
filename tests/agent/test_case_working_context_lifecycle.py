@@ -235,7 +235,23 @@ def test_build_active_cwc_payload_projects_hydrated_content_and_contextual_ref()
         ],
         missing_info_json=["需要补充破损照片"],
         evidence_refs_json=[
-            {"ref_type": "tool_result", "ref_id": "tool-result-1", "summary": "退款单状态为 reviewing"}
+            {
+                "schema_version": "case_working_context_observation.v1",
+                "summary": "无法验证跨范围来源",
+                "decision": "reject",
+                "authority_class": "policy_evidence",
+                "status": "success",
+                "reason_code": "authoritative_source_unavailable",
+                "internal_reason_code": "tenant_mismatch",
+                "completeness": "complete",
+                "scope_result": "invalid",
+                "freshness_result": "valid",
+                "reference_validation": "invalid",
+                "source_ref": source_ref,
+                "observed_at": observed_at,
+                "business_fact_refs": [],
+                "policy_evidence_refs": [],
+            }
         ],
         actions_taken_json=[{"action": "查询退款单状态", "source_ref": source_ref}],
         policy_refs_json=[policy_ref.model_dump(mode="json")],
@@ -253,6 +269,8 @@ def test_build_active_cwc_payload_projects_hydrated_content_and_contextual_ref()
     assert payload["content"]["authority_class"] == "contextual_only"
     assert payload["content"]["customer_request"] == "用户询问退款进度"
     assert payload["content"]["claims"][0]["text"] == "用户称商品破损"
+    assert payload["content"]["evidence_refs"][0]["reason_code"] == "authoritative_source_unavailable"
+    assert "internal_reason_code" not in payload["content"]["evidence_refs"][0]
     assert payload["ref"] == {
         "schema_version": "case_working_context_ref.v1",
         "authority_class": "contextual_only",
