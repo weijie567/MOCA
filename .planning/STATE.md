@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
-status: ready_to_plan
-last_updated: "2026-08-04T16:30:00+08:00"
-last_activity: 2026-08-04 -- Phase 64.1 completed; Phase 64.2 ready to plan
+status: verifying
+last_updated: "2026-08-05T07:37:46.547Z"
+last_activity: 2026-08-04 -- Phase 64.1 completed
 progress:
   total_phases: 13
   completed_phases: 5
   total_plans: 27
   completed_plans: 27
-  percent: 38
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -30,7 +30,7 @@ Status: Phase 64.1 completed with 6/6 plans, phase verification, automated UAT, 
 Last activity: 2026-08-04 -- Phase 64.1 completed
 Next: Plan Phase 64.2 with `$gsd-phase-autopilot 64.2` or `$gsd-plan-phase 64.2`.
 
-Resume file: none
+Resume file: --resume-file
 
 Progress: [████░░░░░░] 38%
 
