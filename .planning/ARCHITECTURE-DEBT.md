@@ -2279,3 +2279,13 @@
 - **证据**：Phase 64.2 Plan 03；commits `756a214`、`c727fae`、`705a448`、`e8b3d68`、`1742c9e`、`ed9aa13`、`8ee94a0`；`src/memory/identity.py`、`src/memory/service.py`、`src/agent/nodes/memory_write.py`、`src/memory/long_term.py`、`src/memory/case_memory.py`、`src/memory/case_working_context_service.py`。
 - **验证**：三条 plan 精确 pytest 分别为 `17 passed`、`55 passed`、`79 passed`，全部 scoped Ruff 通过；跨 builder 测试验证 named owner 每候选调用一次，stored/event/result hashes 与 normalized source ref 完全一致。
 - **剩余风险**：🟡 Plan 07/08 仍负责 reviewed provenance persistence 与 lifecycle columns/约束；Plan 09 仍需增加 AST ownership guard，防止后续重新引入 caller-local serializer。这些是已命名后续范围，不影响 Plan 03 当前 identity parity。
+
+## 2026-08-05 — Phase 64.2 Plan 04 approval snapshot evidence 信任边界 ✅已修复验证
+
+- **子系统**：RAG 证据身份 / 风险审批 snapshot / revision re-risk。
+- **问题现象 / 根因**：approval create、edit revision 与 attach-info replacement 原先把调用方提供的 `EvidenceRefV1` 通过 Pydantic shape 校验和本地 projection 后直接写入 snapshot；create 还会在 `verified_evidence_refs` 与 `evidence_refs` 之间选择持久化来源。该路径没有在审批 tenant 下重算 exact immutable document/chunk identity，existing snapshot 复用也只校验 ref/hash/action binding，没有比较 snapshot 已存 evidence。
+- **影响**：伪造 hash/version、legacy ambiguous alias、跨 tenant 或同 tenant 跨 scope ref 可能成为审批 snapshot/re-risk 的可信依据；独立 verified list 可与 snapshot evidence 漂移，破坏后续 replay 与人工审批权威性。
+- **处理状态**：✅ `ApprovalService` 现统一调用 `EvidenceVersionRepository.resolve_exact(...)`，固定 exact `scope_type="tenant_policy"`、`scope_id=str(tenant_id)`，由 repository identity 重建并 canonical 排序一次；该单一列表驱动 proposed action、snapshot、create-time `ApprovalRequest.verified_evidence_refs` 及 edit re-risk result。所有独立 supplied verified list 仅作 exact-equality assertion，existing snapshot evidence 也必须完全一致；失败在 snapshot/decision/status 写入前以统一 `approval_not_executable` 外部语义回滚。
+- **证据**：Phase 64.2 Plan 04；commits `3b285cf`、`e708c0e`；`src/approvals/service.py`、`tests/approvals/test_phase64_2_evidence_validation.py`。
+- **验证**：Task 1 最终精确门禁 `81 passed, 1 warning`；Task 2 精确门禁 `80 passed, 1 warning`；两条 scoped Ruff 均为 `All checks passed!`。负向矩阵覆盖 forged ID/hash/document+chunk version、missing/extra/mixed verified、legacy ambiguous、cross-tenant、request/cross-scope，并断言 approval-owned row count 与旧 revision 可执行状态不变。
+- **剩余风险**：🟡 Phase 64.2 Plan 09 仍需以 architecture/ownership guard 防止 caller-local evidence projector 或 verified fallback 回流；本 plan 未改变 API schema、数据库 schema 或外部 effect 边界。

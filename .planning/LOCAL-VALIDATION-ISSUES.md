@@ -22170,3 +22170,23 @@ Task 3 首轮 GREEN 为 `2 failed, 38 passed`：stale-CAS 用例没有抛错；h
 
 **剩余问题和下次继续排查入口**
 无剩余问题。后续 zsh 临时脚本禁止使用 `path`、`status` 等特殊参数名作为循环/任务变量。
+
+## 2026-08-05 — Phase 64.2 Plan 04 approval evidence 门禁测试夹具漂移
+
+**问题现象**
+Task 1 首次 RED 的 existing-snapshot fixture 把 owner ref 的完整 `model_dump()`（含 `score: null`）放进 proposed-action hash，先触发 `CanonicalHashError`，没有命中新门禁行为。修正 RED 后，Task 1 精确兼容套件出现 `20 failed`；Task 2 首次精确兼容套件出现 `1 failed, 79 passed`，均由旧 approval fixture 继续使用没有 immutable row 的 legacy/unbound evidence ref 引起。
+
+**如何检测/复现**
+先运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/approvals/test_phase64_2_evidence_validation.py -q --tb=short` 验证 RED/GREEN；再分别运行 Plan 04 两条精确 pytest 命令。Task 1 失败集中为 `canonical_evidence_validation_failed:missing`；Task 2 唯一失败为 `test_attach_info_changed_evidence_or_config_requires_new_snapshot_hash` 的同一 missing reason。
+
+**关键证据或命令**
+修复 source 前的有效 RED 稳定显示 create verified/snapshot divergence 与 revision cross-tenant 等契约失败；迁移 shared create fixture 后 Task 1 精确门禁为 `53 passed, 1 warning`。迁移单个 needs-info changed-evidence fixture 后 Task 2 精确门禁为 `80 passed, 1 warning`；两条 scoped Ruff 均输出 `All checks passed!`。
+
+**当前判断 / 根因**
+`score` 是 retrieval runtime metadata，不属于 proposed-action canonical hash allowlist，fixture 应使用 `canonical_evidence_projection`。其余失败不是保留 legacy service fallback 的理由：Plan 02 已完成 immutable evidence cutover，而 approval 历史测试仍凭空构造 alias、未同步建立 exact tenant-policy immutable rows，属于测试事实源漂移。
+
+**已做处理**
+RED fixture 改用 canonical projection 后重新确认测试因缺失 repository gate 而失败；`test_service_transitions.py` 的共享 approval bundle 改为实际 seed `PolicyDocumentVersion` / `PolicyChunkVersion` 并由 `EvidenceVersionRepository` mint owner ref；needs-info 的 changed-evidence case 也改为同一 immutable fixture。生产代码没有增加 legacy fallback。该 fixture 范围调整已获主 orchestrator 明确授权。
+
+**剩余问题和下次继续排查入口**
+当前两条 Plan 04 精确门禁均通过；既有 LangGraph `allowed_objects` pending-deprecation warning 未由本 plan 引入。后续新增 approval snapshot fixture 必须先写 immutable tenant-policy row，再从 repository mint ref，不能手写看似合法的 evidence alias。
