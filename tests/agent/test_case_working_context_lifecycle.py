@@ -205,6 +205,9 @@ def test_build_active_cwc_payload_projects_hydrated_content_and_contextual_ref()
         "business_object_type": "refund_case",
         "business_object_id": str(case_id),
     }
+    observed_at = datetime(2026, 7, 3, 8, 0, tzinfo=UTC)
+    business_ref = _promotion_business_ref(tenant_id, observed_at=observed_at)
+    policy_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
     row = SimpleNamespace(
         id=memory_id,
         tenant_id=tenant_id,
@@ -221,8 +224,13 @@ def test_build_active_cwc_payload_projects_hydrated_content_and_contextual_ref()
         verified_facts_json=[
             {
                 "text": "退款单状态为 reviewing",
+                "authority_class": "business_fact",
+                "status": "success",
+                "promotion_reason_code": "authoritative_business_fact",
                 "source_ref": source_ref,
-                "observed_at": datetime(2026, 7, 3, 8, 0, tzinfo=UTC),
+                "observed_at": observed_at,
+                "business_fact_refs": [business_ref.model_dump(mode="json")],
+                "policy_evidence_refs": [],
             }
         ],
         missing_info_json=["需要补充破损照片"],
@@ -230,7 +238,7 @@ def test_build_active_cwc_payload_projects_hydrated_content_and_contextual_ref()
             {"ref_type": "tool_result", "ref_id": "tool-result-1", "summary": "退款单状态为 reviewing"}
         ],
         actions_taken_json=[{"action": "查询退款单状态", "source_ref": source_ref}],
-        policy_refs_json=[{"doc_id": "refund-policy", "chunk_id": "refund-policy#001", "version": "v1"}],
+        policy_refs_json=[policy_ref.model_dump(mode="json")],
         agent_recommendations_json=[{"recommended_step": "要求用户上传照片", "staff_decision": None}],
         pending_tasks_json=["等待用户上传照片"],
         commitments_json=[{"text": "24 小时内回复用户", "confirmed_by_staff": True, "source_ref": source_ref}],
@@ -341,6 +349,39 @@ def _promotion_candidate(
         business_fact_refs=business_fact_refs or [],
         policy_evidence_refs=policy_evidence_refs or [],
     )
+
+
+def _promotion_tool_result(
+    *,
+    tenant_id: uuid.UUID,
+    observed_at: datetime,
+    authority_class: str,
+    status: str = "success",
+    summary: str = "退款单状态为 reviewing",
+    business_fact_refs: list[BusinessFactRefV1] | None = None,
+    policy_evidence_refs: list[EvidenceRefV1] | None = None,
+    completeness: str = "complete",
+    scope_result: str = "valid",
+    freshness_result: str = "valid",
+    reference_validation: str = "valid",
+    tool_result_id: str | None = None,
+) -> dict[str, object]:
+    return {
+        "tool_result_id": tool_result_id or f"tool-result-{uuid.uuid4()}",
+        "tool_name": "search_policy" if authority_class == "policy_evidence" else "get_refund_case",
+        "summary": summary,
+        "prompt_summary": summary,
+        "authority_class": authority_class,
+        "status": status,
+        "completeness": completeness,
+        "scope_result": scope_result,
+        "freshness_result": freshness_result,
+        "reference_validation": reference_validation,
+        "observed_at": observed_at.isoformat(),
+        "business_fact_refs": [ref.model_dump(mode="json") for ref in business_fact_refs or []],
+        "policy_evidence_refs": [ref.model_dump(mode="json") for ref in policy_evidence_refs or []],
+        "tenant_id": str(tenant_id),
+    }
 
 
 def test_fact_promotion_contract_allows_only_typed_authoritative_sources() -> None:
@@ -494,7 +535,20 @@ def test_project_terminal_write_candidate_returns_eligible_candidate_with_termin
         state={
             "user_query": "请帮我看一下这个退款单为什么还没处理",
             "active_slots": {"issue_type": "refund_status"},
-            "tool_results": [{"tool_result_id": "tool-result-1", "summary": "退款单状态为 reviewing"}],
+            "tool_results": [
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=datetime(2026, 8, 5, 9, 30, tzinfo=UTC),
+                    authority_class="business_fact",
+                    business_fact_refs=[
+                        _promotion_business_ref(
+                            tenant_id,
+                            observed_at=datetime(2026, 8, 5, 9, 30, tzinfo=UTC),
+                        )
+                    ],
+                    tool_result_id="tool-result-1",
+                )
+            ],
         },
         tenant_id=tenant_id,
         case_id=case_id,
@@ -607,7 +661,8 @@ def test_project_terminal_write_candidate_uses_only_prompt_safe_tool_summaries()
     )
 
     assert projection.candidate is not None
-    assert [fact.text for fact in projection.candidate.content.verified_facts] == [
+    assert projection.candidate.content.verified_facts == []
+    assert [observation.summary for observation in projection.candidate.content.observations] == [
         "退款单状态为 reviewing",
         "订单已签收",
         "商家风险等级低",
@@ -619,29 +674,27 @@ def test_project_terminal_write_candidate_uses_only_prompt_safe_tool_summaries()
     assert "policy raw body should not leak" not in projected
 
 
-def test_project_terminal_write_candidate_policy_refs_use_identifiers_only() -> None:
+def test_project_terminal_write_candidate_policy_refs_use_full_canonical_identity() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    evidence_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
     projection = project_terminal_write_candidate(
         state={
             "user_query": "查询退款政策",
-            "tool_results": [{"summary": "退款单状态为 reviewing"}],
-            "rag_context_bundle": {
-                "evidence_refs": [
-                    {
-                        "doc_key": "refund-policy",
-                        "chunk_id": "chunk-001",
-                        "policy_version": "2026-07",
-                        "text": "full policy evidence text should not leak",
-                    },
-                    {
-                        "doc_id": "refund-sop",
-                        "chunk_id": "chunk-002",
-                        "version": "v3",
-                        "evidence_text": "SOP evidence body should not leak",
-                    },
-                ]
-            },
+            "tool_results": [
+                {
+                    **_promotion_tool_result(
+                        tenant_id=tenant_id,
+                        observed_at=observed_at,
+                        authority_class="policy_evidence",
+                        summary="按租户政策继续审核",
+                        policy_evidence_refs=[evidence_ref],
+                    ),
+                    "raw_payload": "full policy evidence text should not leak",
+                }
+            ],
         },
-        tenant_id=uuid.uuid4(),
+        tenant_id=tenant_id,
         case_id=uuid.uuid4(),
         run_id=uuid.uuid4(),
         expected_version=None,
@@ -649,13 +702,162 @@ def test_project_terminal_write_candidate_policy_refs_use_identifiers_only() -> 
     )
 
     assert projection.candidate is not None
-    assert [item.model_dump() for item in projection.candidate.content.policy_refs] == [
-        {"doc_id": "refund-policy", "chunk_id": "chunk-001", "version": "2026-07"},
-        {"doc_id": "refund-sop", "chunk_id": "chunk-002", "version": "v3"},
-    ]
+    assert projection.candidate.content.policy_refs == [evidence_ref]
+    assert projection.candidate.content.verified_facts[0].policy_evidence_refs == [evidence_ref]
+    assert projection.candidate.content.policy_refs[0].scope_type == "tenant_policy"
+    assert projection.candidate.content.policy_refs[0].scope_id == str(tenant_id)
     projected = repr(projection.candidate.content.model_dump(mode="json"))
     assert "full policy evidence text should not leak" not in projected
-    assert "SOP evidence body should not leak" not in projected
+
+
+def test_terminal_projection_promotes_valid_mixed_members_independently_and_dedupes_exact_sources() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    business_ref = _promotion_business_ref(tenant_id, observed_at=observed_at)
+    evidence_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
+    business_result = _promotion_tool_result(
+        tenant_id=tenant_id,
+        observed_at=observed_at,
+        authority_class="business_fact",
+        business_fact_refs=[business_ref],
+        summary="退款单状态为 reviewing",
+    )
+    projection = project_terminal_write_candidate(
+        state={
+            "user_query": "查询退款单和租户政策",
+            "tool_results": [
+                business_result,
+                {**business_result, "tool_result_id": "duplicate-source", "summary": "同源重复摘要"},
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="policy_evidence",
+                    policy_evidence_refs=[evidence_ref],
+                    summary="租户退款政策允许继续审核",
+                ),
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="contextual_only",
+                    business_fact_refs=[business_ref],
+                    summary="历史上下文仅供参考",
+                ),
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="unknown",
+                    business_fact_refs=[business_ref],
+                    summary="未知来源声称已完成",
+                ),
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="business_fact",
+                    status="timeout",
+                    business_fact_refs=[business_ref],
+                    summary="超时前的部分摘要",
+                ),
+            ],
+        },
+        tenant_id=tenant_id,
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="已核对当前事实和租户政策。",
+    )
+
+    assert projection.candidate is not None
+    assert [fact.authority_class for fact in projection.candidate.content.verified_facts] == [
+        "business_fact",
+        "policy_evidence",
+    ]
+    assert projection.candidate.content.verified_facts[0].business_fact_refs == [business_ref]
+    assert projection.candidate.content.verified_facts[1].policy_evidence_refs == [evidence_ref]
+    assert projection.candidate.content.policy_refs == [evidence_ref]
+    assert [(item.decision, item.reason_code) for item in projection.candidate.content.observations] == [
+        ("observe", "contextual_only_non_authoritative"),
+        ("reject", "unknown_authority"),
+        ("observe", "status_non_promotable"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_internal_reason"),
+    [
+        ({"scope_id": "same-tenant-request-scope"}, "scope_mismatch"),
+        ({"text_hash": f"sha256:{'b' * 64}"}, "scope_mismatch"),
+    ],
+)
+def test_terminal_projection_rejects_forged_or_cross_scope_policy_refs_with_generic_reason(
+    mutation: dict[str, str],
+    expected_internal_reason: str,
+) -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    forged_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at).model_dump(mode="json")
+    forged_ref.update(mutation)
+    item = _promotion_tool_result(
+        tenant_id=tenant_id,
+        observed_at=observed_at,
+        authority_class="policy_evidence",
+        policy_evidence_refs=[],
+    )
+    item["policy_evidence_refs"] = [forged_ref]
+    projection = project_terminal_write_candidate(
+        state={"user_query": "查询退款政策", "tool_results": [item]},
+        tenant_id=tenant_id,
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="无法验证政策来源。",
+    )
+
+    assert projection.candidate is not None
+    assert projection.candidate.content.verified_facts == []
+    assert projection.candidate.content.policy_refs == []
+    assert len(projection.candidate.content.observations) == 1
+    observation = projection.candidate.content.observations[0]
+    assert observation.reason_code == "authoritative_source_unavailable"
+    assert observation.internal_reason_code == expected_internal_reason
+
+
+def test_terminal_projection_keeps_summary_only_and_freshness_mismatch_out_of_verified_facts() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    business_ref = _promotion_business_ref(tenant_id, observed_at=observed_at)
+    projection = project_terminal_write_candidate(
+        state={
+            "user_query": "查询退款单",
+            "tool_results": [
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="business_fact",
+                    summary="只有摘要，没有权威引用",
+                ),
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="business_fact",
+                    business_fact_refs=[business_ref],
+                    freshness_result="stale",
+                    summary="过期退款状态",
+                ),
+            ],
+        },
+        tenant_id=tenant_id,
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="未获得可验证的新事实。",
+    )
+
+    assert projection.candidate is not None
+    assert projection.candidate.content.verified_facts == []
+    assert [item.reason_code for item in projection.candidate.content.observations] == [
+        "missing_authoritative_ref",
+        "freshness_not_valid",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -686,13 +888,22 @@ def test_project_terminal_write_candidate_classifies_pii_deterministically(text:
 
 
 def _terminal_state(scope: dict[str, object], **overrides: object) -> dict[str, object]:
+    observed_at = datetime.now(UTC)
     state: dict[str, object] = {
         "user_query": "请帮我更新这个退款单的处理上下文",
         "active_slots": {
             "refund_case_id": scope["refund_case"].refund_case_no,
             "issue_type": "refund_status",
         },
-        "tool_results": [{"tool_result_id": "terminal-tool-1", "summary": "退款单状态为 reviewing"}],
+        "tool_results": [
+            _promotion_tool_result(
+                tenant_id=scope["tenant"].id,
+                observed_at=observed_at,
+                authority_class="business_fact",
+                business_fact_refs=[_promotion_business_ref(scope["tenant"].id, observed_at=observed_at)],
+                tool_result_id="terminal-tool-1",
+            )
+        ],
     }
     state.update(overrides)
     return state
