@@ -40,6 +40,7 @@ class IngestionReport:
     error_code: str | None = None
     safe_message: str | None = None
     evidence_write_sequence: int | None = None
+    rollout_version: int | None = None
 
 
 SAFE_INGESTION_REPORT_FIELDS = (
@@ -250,6 +251,7 @@ class IngestionService:
         doc_snapshot: dict[str, Any] | None = None
         doc: PolicyDocument | None = None
         write_sequence: int | None = None
+        writer_rollout_version: int | None = None
         try:
             # SQLAlchemy sessions always take the rollout-first path. A few
             # legacy unit tests use deliberately tiny non-SQLAlchemy doubles;
@@ -257,9 +259,10 @@ class IngestionService:
             # rollout coverage.
             use_immutable_writer = isinstance(self.session, AsyncSession)
             if use_immutable_writer:
-                await self.evidence_repo.lock_for_writer(
+                writer_rollout = await self.evidence_repo.lock_for_writer(
                     expected_rollout_version=expected_rollout_version,
                 )
+                writer_rollout_version = writer_rollout.rollout_version
             # Lock the existing row through the final commit so concurrent
             # re-imports cannot write the same next content version.
             existing_doc = await self.doc_repo.get_by_doc_key_for_update(doc_key, self.tenant_id)
@@ -401,6 +404,7 @@ class IngestionService:
                 chunks_created=chunks_created,
                 job_id=getattr(job, "id", None) if job is not None else None,
                 evidence_write_sequence=write_sequence,
+                rollout_version=writer_rollout_version,
             )
         except Exception as exc:
             await self.session.rollback()
@@ -429,6 +433,7 @@ class IngestionService:
                 error_code="db_write_failed",
                 safe_message=safe_message,
                 evidence_write_sequence=None,
+                rollout_version=None,
             )
 
     async def ingest_directory(self, dir_path: Path, manifest: list[dict]) -> list[IngestionReport]:

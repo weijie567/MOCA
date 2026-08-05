@@ -22110,3 +22110,23 @@ Task 1 首轮 GREEN 的 PostgreSQL 原子回滚用例在 immutable append 故障
 
 **剩余问题和下次继续排查入口**
 当前无阻断。既有 LangGraph `allowed_objects` pending-deprecation warning 未由本次改动引入；后续若再改事务失败路径，继续从 rollback 后 ORM attribute access 与 `expire_on_commit/rollback` 语义检查，不能用同步属性读取替代显式 async reload。
+
+## 2026-08-05 — Phase 64.2 Plan 02 Task 2 首轮格式门禁与零缺口复核缺陷
+
+**问题现象**
+Task 2 的 PostgreSQL focused suite 首轮已通过，但补跑 `ruff format --check` 时报告新 repository/migration 需格式化；提交前代码复核同时发现 migration 的初版最终 gap SQL 只验证 immutable document 行存在且 hash 带 `sha256:` 前缀，没有将当前 document/chunk 内容重算后与 exact immutable binding 比较，可能把不一致绑定误计为零缺口。
+
+**如何检测/复现**
+执行 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check src/repositories/evidence_version_repo.py src/rag/ingestion.py src/db/migrations/versions/026_phase64_2_evidence_cutover.py tests/knowledge/test_evidence_cutover.py`，并人工核对 migration 最终 reconciliation 查询与 repository `find_exact_binding(...)` 的等价性。
+
+**关键证据或命令**
+format check 输出两个 `Would reformat`。初版 migration 条件 `v.content_hash = :empty_guard || substr(...)` 对任意格式正确的 hash 恒真，且没有验证 immutable chunk 集合。修复后 Task 2 原命令为 `10 passed, 4 warnings`，scoped Ruff 为 `All checks passed!`，`git diff --check` 通过。
+
+**当前判断/根因**
+格式问题是新文件未经过项目 formatter；零缺口问题是把“存在候选行”误当成“当前 head 与 immutable document/chunk exact binding 相等”，属于 cutover 安全判断缺陷。
+
+**已做处理**
+使用项目入口机械格式化；migration 新增最终 exact reconciliation scan，逐 tenant/scope/document-version 重算 document hash，并比较当前/immutable logical chunk + text hash 集合，仍在同一 rollout lock 内完成 zero-gap 判定和 CAS 激活；backfill 对已存在 immutable binding 也执行同样精确校验。
+
+**剩余问题和下次继续排查入口**
+当前 focused gate 无阻断。4 个 warning 仍是既有 LangGraph pending deprecation 与 Alembic `path_separator` 提示。后续迁移链总验收需从 025 已部署且真实 dual-write health 已激活的状态运行 026，不能把静态 source contract 代替 staged deployment 验证。

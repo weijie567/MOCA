@@ -14,7 +14,9 @@ all enter through this owner so no caller may acquire the locks in reverse.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -36,9 +38,11 @@ from src.knowledge.evidence_identity import (
     resolve_evidence_identity,
 )
 from src.knowledge.text_hash import evidence_text_hash
+from src.rag.versioning import build_policy_version_fingerprint
 
 ROLLOUT_ID = 1
 DEFAULT_EVIDENCE_RETENTION = timedelta(days=3650)
+DUAL_WRITE_HEALTH_MAX_AGE = timedelta(minutes=5)
 
 
 class EvidenceRolloutError(RuntimeError):
@@ -55,6 +59,18 @@ class DualWriteUnavailable(EvidenceRolloutError):
 
 class ImmutableBindingMismatch(EvidenceRolloutError):
     pass
+
+
+class CanonicalReadCutoverBlocked(EvidenceRolloutError):
+    pass
+
+
+@dataclass(frozen=True)
+class EvidenceBackfillResult:
+    watermark_sequence: int
+    canonical_count: int
+    resolved_count: int
+    unresolved_count: int
 
 
 class EvidenceVersionRepository:
@@ -112,6 +128,227 @@ class EvidenceVersionRepository:
         row.rollout_version += 1
         await self.session.flush()
         return row
+
+    async def reserve_backfill_watermark(self, *, expected_rollout_version: int) -> int:
+        """Reserve the snapshot boundary under the rollout lock.
+
+        The caller commits after this method. Backfill then starts in a new
+        transaction, leaving a deliberate writer window that final
+        reconciliation must close.
+        """
+
+        row = await self.lock_rollout(
+            expected_rollout_version=expected_rollout_version,
+            require_dual_write=True,
+        )
+        self._require_current_dual_write_health(row)
+        if row.backfill_watermark_sequence is not None:
+            return int(row.backfill_watermark_sequence)
+        watermark = await self.allocate_ingestion_sequence()
+        row.backfill_watermark_sequence = watermark
+        row.audit_counts_json = {
+            **dict(row.audit_counts_json or {}),
+            "backfill_status": "watermark_reserved",
+            "backfill_watermark_sequence": watermark,
+        }
+        await self.session.flush()
+        return watermark
+
+    async def backfill_current_heads(
+        self,
+        *,
+        expected_rollout_version: int,
+    ) -> EvidenceBackfillResult:
+        """Backfill only current heads with a uniquely provable exact binding."""
+
+        rollout = await self.lock_rollout(
+            expected_rollout_version=expected_rollout_version,
+            require_dual_write=True,
+        )
+        self._require_current_dual_write_health(rollout)
+        if rollout.backfill_watermark_sequence is None:
+            raise EvidenceRolloutError("backfill watermark is not reserved")
+        watermark = int(rollout.backfill_watermark_sequence)
+        documents = list(
+            (
+                await self.session.execute(
+                    select(PolicyDocument)
+                    .order_by(PolicyDocument.tenant_id, PolicyDocument.doc_key, PolicyDocument.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        canonical_count = 0
+        resolved_count = 0
+        unresolved_count = 0
+        for document in documents:
+            chunks = list(
+                (
+                    await self.session.execute(
+                        select(PolicyChunk)
+                        .where(
+                            PolicyChunk.tenant_id == document.tenant_id,
+                            PolicyChunk.doc_id == document.id,
+                        )
+                        .order_by(PolicyChunk.tenant_id, PolicyChunk.doc_id, PolicyChunk.id)
+                        .with_for_update()
+                    )
+                ).scalars()
+            )
+            failure = _legacy_head_failure(document, chunks)
+            if failure is not None:
+                _mark_legacy_unresolved(document, chunks, failure)
+                unresolved_count += 1
+                continue
+            try:
+                binding = await self.find_exact_binding(
+                    tenant_id=document.tenant_id,
+                    document=document,
+                    chunks=chunks,
+                    fingerprint=str(document.policy_version_fingerprint),
+                )
+            except ImmutableBindingMismatch as exc:
+                _mark_legacy_unresolved(document, chunks, str(exc))
+                unresolved_count += 1
+                continue
+            if binding is None:
+                await self.append_immutable_version(
+                    tenant_id=document.tenant_id,
+                    document=document,
+                    chunks=chunks,
+                    write_sequence=document.evidence_write_sequence or watermark,
+                )
+                resolved_count += 1
+            else:
+                await self.project_write_sequence(
+                    document=document,
+                    chunks=chunks,
+                    write_sequence=document.evidence_write_sequence or watermark,
+                )
+            canonical_count += 1
+
+        rollout.audit_counts_json = {
+            **dict(rollout.audit_counts_json or {}),
+            "backfill_status": "snapshot_scanned",
+            "canonical_count": canonical_count,
+            "resolved_count": resolved_count,
+            "unresolved_count": unresolved_count,
+        }
+        if unresolved_count:
+            rollout.quarantine_reason = "legacy_unresolved"
+        await self.session.flush()
+        return EvidenceBackfillResult(
+            watermark_sequence=watermark,
+            canonical_count=canonical_count,
+            resolved_count=resolved_count,
+            unresolved_count=unresolved_count,
+        )
+
+    async def reconcile_and_enable_canonical_reads(
+        self,
+        *,
+        expected_rollout_version: int,
+        after_zero_gap: Callable[[], Awaitable[None]] | None = None,
+    ) -> EvidenceIdentityRollout:
+        """Reconcile and CAS-enable reads without releasing the rollout lock."""
+
+        rollout = await self.lock_rollout(
+            expected_rollout_version=expected_rollout_version,
+            require_dual_write=True,
+        )
+        self._require_current_dual_write_health(rollout)
+        if rollout.backfill_watermark_sequence is None:
+            raise CanonicalReadCutoverBlocked("backfill watermark is not reserved")
+        watermark = int(rollout.backfill_watermark_sequence)
+        documents = list(
+            (
+                await self.session.execute(
+                    select(PolicyDocument)
+                    .order_by(PolicyDocument.tenant_id, PolicyDocument.doc_key, PolicyDocument.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        canonical_count = 0
+        reconciled_count = 0
+        unresolved_count = 0
+        binding_reused_after_watermark = 0
+        reconciled_through = watermark
+        for document in documents:
+            chunks = list(
+                (
+                    await self.session.execute(
+                        select(PolicyChunk)
+                        .where(
+                            PolicyChunk.tenant_id == document.tenant_id,
+                            PolicyChunk.doc_id == document.id,
+                        )
+                        .order_by(PolicyChunk.tenant_id, PolicyChunk.doc_id, PolicyChunk.id)
+                        .with_for_update()
+                    )
+                ).scalars()
+            )
+            sequence = document.evidence_write_sequence
+            failure = _legacy_head_failure(document, chunks)
+            if (
+                sequence is None
+                or failure is not None
+                or any(chunk.evidence_write_sequence != sequence for chunk in chunks)
+            ):
+                _mark_legacy_unresolved(document, chunks, failure or "projection_sequence_mismatch")
+                unresolved_count += 1
+                continue
+            try:
+                binding = await self.find_exact_binding(
+                    tenant_id=document.tenant_id,
+                    document=document,
+                    chunks=chunks,
+                    fingerprint=str(document.policy_version_fingerprint),
+                )
+                if binding is None:
+                    await self.append_immutable_version(
+                        tenant_id=document.tenant_id,
+                        document=document,
+                        chunks=chunks,
+                        write_sequence=int(sequence),
+                    )
+                    reconciled_count += 1
+                elif int(sequence) > watermark:
+                    binding_reused_after_watermark += 1
+            except ImmutableBindingMismatch as exc:
+                _mark_legacy_unresolved(document, chunks, str(exc))
+                unresolved_count += 1
+                continue
+            canonical_count += 1
+            reconciled_through = max(reconciled_through, int(sequence))
+
+        counts = {
+            **dict(rollout.audit_counts_json or {}),
+            "backfill_status": "reconciled",
+            "canonical_count": canonical_count,
+            "resolved_count": reconciled_count,
+            "unresolved_count": unresolved_count,
+            "binding_reused_after_watermark": binding_reused_after_watermark,
+            "reconciled_through_sequence": reconciled_through,
+        }
+        rollout.audit_counts_json = counts
+        if unresolved_count:
+            rollout.canonical_reads_enabled = False
+            rollout.quarantine_reason = "legacy_unresolved"
+            await self.session.flush()
+            raise CanonicalReadCutoverBlocked("canonical evidence reconciliation has unresolved gaps")
+
+        if after_zero_gap is not None:
+            await after_zero_gap()
+        now = datetime.now(UTC)
+        rollout.reconciled_through_sequence = reconciled_through
+        rollout.canonical_reads_enabled = True
+        rollout.canonical_reads_enabled_at = now
+        rollout.canonical_reads_disabled_at = None
+        rollout.quarantine_reason = None
+        rollout.rollout_version += 1
+        await self.session.flush()
+        return rollout
 
     async def allocate_ingestion_sequence(self) -> int:
         value = await self.session.scalar(text("SELECT nextval('evidence_ingestion_write_seq')"))
@@ -332,6 +569,20 @@ class EvidenceVersionRepository:
         rows = list((await self.session.execute(statement)).scalars())
         return [_material_from_chunk(row) for row in rows]
 
+    def _require_current_dual_write_health(self, row: EvidenceIdentityRollout) -> None:
+        audit = dict(row.audit_counts_json or {})
+        if audit.get("dual_write_health") != "healthy":
+            raise DualWriteUnavailable("dual-write health proof is unavailable")
+        raw_checked_at = audit.get("dual_write_health_checked_at")
+        if not isinstance(raw_checked_at, str):
+            raise DualWriteUnavailable("dual-write health proof is unavailable")
+        try:
+            checked_at = _as_utc(datetime.fromisoformat(raw_checked_at))
+        except ValueError as exc:
+            raise DualWriteUnavailable("dual-write health proof is invalid") from exc
+        if datetime.now(UTC) - checked_at > DUAL_WRITE_HEALTH_MAX_AGE:
+            raise DualWriteUnavailable("dual-write health proof is stale")
+
 
 def _material_from_chunk(chunk: PolicyChunkVersion) -> PersistedEvidenceIdentityMaterialV1:
     return PersistedEvidenceIdentityMaterialV1(
@@ -374,3 +625,46 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _legacy_head_failure(document: PolicyDocument, chunks: Sequence[PolicyChunk]) -> str | None:
+    if not document.policy_version_fingerprint:
+        return "missing_document_fingerprint"
+    expected_fingerprint = build_policy_version_fingerprint(
+        citation_text=document.content,
+        title=document.title,
+        doc_type=document.doc_type,
+        risk_level=document.risk_level,
+        effective_date=document.effective_date,
+    )
+    if document.policy_version_fingerprint != expected_fingerprint:
+        return "document_fingerprint_mismatch"
+    if not chunks:
+        return "missing_chunks"
+    logical_ids = [chunk.chunk_id for chunk in chunks]
+    if len(logical_ids) != len(set(logical_ids)):
+        return "ambiguous_logical_chunk"
+    ordered_chunks = sorted(chunks, key=lambda chunk: (chunk.chunk_id, str(chunk.id)))
+    if "\n\n".join(chunk.content for chunk in ordered_chunks).strip() != document.content.strip():
+        return "document_chunk_content_mismatch"
+    if any(not evidence_text_hash(chunk.content) for chunk in chunks):  # pragma: no cover - defensive
+        return "chunk_hash_unavailable"
+    return None
+
+
+def _mark_legacy_unresolved(
+    document: PolicyDocument,
+    chunks: Sequence[PolicyChunk],
+    reason: str,
+) -> None:
+    document.parser_metadata_json = {
+        **dict(document.parser_metadata_json or {}),
+        "evidence_identity_resolution": "legacy_unresolved",
+        "evidence_identity_reason": reason,
+    }
+    for chunk in chunks:
+        chunk.ocr_metadata_json = {
+            **dict(chunk.ocr_metadata_json or {}),
+            "evidence_identity_resolution": "legacy_unresolved",
+            "evidence_identity_reason": reason,
+        }

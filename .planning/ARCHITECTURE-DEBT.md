@@ -3,6 +3,15 @@
 > 本文件记录 MOCA 各子系统在代码走查、phase 实现、本地验证中**检测出的 bug、设计缺陷、遗留妥协**，以及**已完成的修复**。
 > 与 `LOCAL-VALIDATION-ISSUES.md` 的分工：那个记「本地调试/启动/验证时踩到的具体事故」；本文件记「子系统级的架构缺陷与处理台账」，颗粒度更粗、生命周期更长。
 
+## 2026-08-05 — Phase 64.2 Plan 02 Task 2 evidence cutover 精确零缺口已修复验证 ✅
+
+- **子系统**：RAG ingestion / immutable evidence backfill / canonical-read cutover。
+- **问题现象/根因**：migration 026 初版最终 gap SQL 只证明 exact tenant/scope/doc/version 下存在 document version，并通过一个对合法 `sha256:` 字符串恒真的表达式检查 hash 形状；没有重算当前 document hash，也没有比较当前/immutable chunk identity + text hash 集合。因此错误或残缺 immutable binding 可能被误计为 zero-gap 后开启 canonical reads。
+- **影响**：cutover 可能在 current head 与 retained immutable evidence 不一致时错误启用 canonical reads，破坏 T64.2-02 的 append-only / watermark reconciliation 边界，并使后续 replay 引用错误历史材料。
+- **处理状态**：✅ 已修复验证。migration 和 `EvidenceVersionRepository` 现在都按 exact `scope_type="tenant_policy"`、`scope_id=str(tenant_id)`、document version/fingerprint/recomputed content hash、唯一 logical chunk 与完整 chunk text-hash 集合验证绑定；final scan、zero-gap assertion 和 CAS activation 连续持有 singleton rollout lock。backfill 遇到 missing/ambiguous/mismatched mapping 只标记 `legacy_unresolved`，不猜测 scope/authority。
+- **证据**：Phase 64.2 Plan 02 Task 2；`src/db/migrations/versions/026_phase64_2_evidence_cutover.py`、`src/repositories/evidence_version_repo.py`、`tests/knowledge/test_evidence_cutover.py::test_writer_and_cutover_share_rollout_lock_epoch`；GREEN commit 待本 task 提交后补记。验证：Task 2 精确命令 `10 passed, 4 warnings`，scoped Ruff 与 whitespace gate 通过。
+- **剩余风险**：🟡 当前 Plan 02 focused migration test 对 026 的 staged precondition 主要是 source contract，完整 025 → 实际 dual-write health → 026 migration-chain 执行由 Phase 64.2 Plan 09 closeout gate 负责；该项不能被当前 10-test 结果替代。
+
 ## 写入规则
 
 - 修改**工具调用 / RAG / 记忆 / 意图识别**这几个核心子系统时，检测出的 bug 或架构不完善点、以及做了哪些修复，**默认追加到本文件**对应子系统章节。
