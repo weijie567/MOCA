@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import unicodedata
 from collections.abc import Mapping
@@ -609,6 +610,10 @@ def _normalize_content_value(value: Any, *, field_name: str | None = None) -> An
     if isinstance(value, str):
         return _normalize_v2_string(value, field_name=field_name)
     if value is None or isinstance(value, bool | int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise MemoryIdentityError("memory content floats must be finite")
         return value
     if isinstance(value, datetime):
         return value.isoformat()

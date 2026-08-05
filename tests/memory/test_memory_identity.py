@@ -348,6 +348,7 @@ def test_all_memory_builders_use_the_shared_owner() -> None:
                 source_run_id=str(run_id),
                 updated_at=timestamp,
                 expires_at=timestamp,
+                confidence=0.9,
                 compatible_intents=["refund_troubleshooting"],
             )
         },
