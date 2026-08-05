@@ -26,7 +26,7 @@ _SOURCE_LOCATOR_CHECK = (
     "ARRAY['source_type', 'source_checksum', 'source_uri', 'page_number', 'source_block_refs']::text[]) "
     "= '{}'::jsonb"
 )
-_LIFECYCLE_CHECK = "lifecycle_status IN ('active', 'superseded', 'corrected', 'expired', 'tombstoned')"
+_LIFECYCLE_CHECK = "lifecycle_status IN ('active', 'superseded', 'corrected', 'archived', 'expired', 'tombstoned')"
 
 
 def upgrade() -> None:
