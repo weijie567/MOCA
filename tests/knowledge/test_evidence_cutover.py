@@ -542,14 +542,16 @@ async def test_current_retrieval_is_canonical_and_fails_closed_while_operational
     assert refs[0].chunk_version_id is not None
     assert refs[0].evidence_id.startswith("sha256:")
 
+    activated_epoch = activated.rollout_version
     disabled = await repository.disable_canonical_reads(
-        expected_rollout_version=activated.rollout_version,
+        expected_rollout_version=activated_epoch,
         reason="operator_gap_investigation",
     )
     await session.commit()
     assert disabled.canonical_reads_enabled is False
     assert disabled.dual_write_enabled_at is not None
     assert disabled.quarantine_reason == "operator_gap_investigation"
+    disabled_epoch = disabled.rollout_version
 
     disabled_status, disabled_refs, _ = await engine.retrieve(query="退款政策", context=context, max_results=1)
     assert disabled_status == "error"
@@ -559,20 +561,20 @@ async def test_current_retrieval_is_canonical_and_fails_closed_while_operational
     write_while_disabled = await service.ingest_document(
         changed,
         _metadata(),
-        expected_rollout_version=disabled.rollout_version,
+        expected_rollout_version=disabled_epoch,
     )
     assert write_while_disabled.status == "success"
     assert write_while_disabled.evidence_write_sequence == (ingested.evidence_write_sequence or 0) + 2
 
     with pytest.raises(RolloutEpochMismatch):
         await repository.disable_canonical_reads(
-            expected_rollout_version=activated.rollout_version,
+            expected_rollout_version=activated_epoch,
             reason="stale_operator",
         )
     await session.rollback()
 
     reenabled = await repository.reconcile_and_enable_canonical_reads(
-        expected_rollout_version=disabled.rollout_version,
+        expected_rollout_version=disabled_epoch,
     )
     await session.commit()
     assert reenabled.canonical_reads_enabled is True
@@ -613,6 +615,9 @@ async def test_current_historical_and_legacy_resolution_are_separate_and_scope_b
 
     source = _write_policy(tmp_path, "historical v2 当前内容")
     await service.ingest_document(source, _metadata(), expected_rollout_version=rollout.rollout_version)
+    await repository.reserve_backfill_watermark(expected_rollout_version=rollout.rollout_version)
+    await repository.reconcile_and_enable_canonical_reads(expected_rollout_version=rollout.rollout_version)
+    await session.commit()
     engine = PolicyRetrievalEngine(session, embedder=_EmbeddingService())
     knowledge = PolicyKnowledgeService(engine)
     old_ref = repository.evidence_ref_from_identity(
@@ -626,7 +631,7 @@ async def test_current_historical_and_legacy_resolution_are_separate_and_scope_b
         effective_at="2026-08-05T00:00:00Z",
     )
     assert current.included == {}
-    assert current.excluded[0].reason_code in {"text_hash_mismatch", "latest_version_invalid"}
+    assert current.excluded[0].reason_code == "evidence_unavailable"
 
     historical = await knowledge.resolve_immutable_evidence(
         tenant_id=str(tenant_id),
@@ -654,3 +659,99 @@ async def test_current_historical_and_legacy_resolution_are_separate_and_scope_b
     )
     assert wrong_scope.identity is None
     assert wrong_scope.external_reason is not None
+
+
+@pytest.mark.asyncio
+async def test_operational_disable_waits_for_inflight_writer_and_keeps_dual_write(
+    test_engine,
+    tmp_path: Path,
+) -> None:
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with session_factory() as setup_session:
+        tenant_id = await _seed_inactive_rollout(setup_session)
+        repository = EvidenceVersionRepository(setup_session)
+        rollout = await repository.activate_dual_write(
+            expected_rollout_version=0,
+            health_checked_at=datetime.now(UTC),
+        )
+        await setup_session.commit()
+        source = _write_policy(tmp_path, "disable race initial")
+        initial = await IngestionService(
+            session=setup_session,
+            embedder=_EmbeddingService(),
+            tenant_id=tenant_id,
+        ).ingest_document(source, _metadata(), expected_rollout_version=rollout.rollout_version)
+        assert initial.status == "success"
+        await repository.reserve_backfill_watermark(expected_rollout_version=rollout.rollout_version)
+        activated = await repository.reconcile_and_enable_canonical_reads(
+            expected_rollout_version=rollout.rollout_version,
+        )
+        await setup_session.commit()
+        activated_epoch = activated.rollout_version
+
+    writer_has_lock = asyncio.Event()
+    release_writer = asyncio.Event()
+
+    async def inflight_writer() -> object:
+        async with session_factory() as writer_session:
+            writer = IngestionService(
+                session=writer_session,
+                embedder=_EmbeddingService(),
+                tenant_id=tenant_id,
+            )
+            original_allocate = writer.evidence_repo.allocate_ingestion_sequence
+
+            async def pause_before_sequence() -> int:
+                writer_has_lock.set()
+                await release_writer.wait()
+                return await original_allocate()
+
+            writer.evidence_repo.allocate_ingestion_sequence = pause_before_sequence  # type: ignore[method-assign]
+            changed = _write_policy(tmp_path, "disable race writer")
+            return await writer.ingest_document(
+                changed,
+                _metadata(),
+                expected_rollout_version=activated_epoch,
+            )
+
+    async def disable_after_writer() -> tuple[int, bool, str | None]:
+        async with session_factory() as disable_session:
+            state = await EvidenceVersionRepository(disable_session).disable_canonical_reads(
+                expected_rollout_version=activated_epoch,
+                reason="operator_gap_investigation",
+            )
+            await disable_session.commit()
+            return state.rollout_version, state.dual_write_enabled_at is not None, state.quarantine_reason
+
+    writer_task = asyncio.create_task(inflight_writer())
+    await asyncio.wait_for(writer_has_lock.wait(), timeout=2)
+    disable_task = asyncio.create_task(disable_after_writer())
+    await asyncio.sleep(0.1)
+    assert disable_task.done() is False
+    release_writer.set()
+    writer_result, (disabled_epoch, dual_write_still_on, quarantine_reason) = await asyncio.gather(
+        writer_task,
+        disable_task,
+    )
+    assert writer_result.status == "success"
+    assert disabled_epoch == activated_epoch + 1
+    assert dual_write_still_on is True
+    assert quarantine_reason == "operator_gap_investigation"
+
+    async with session_factory() as disabled_session:
+        continued = await IngestionService(
+            session=disabled_session,
+            embedder=_EmbeddingService(),
+            tenant_id=tenant_id,
+        ).ingest_document(
+            _write_policy(tmp_path, "disable race continued dual-write"),
+            _metadata(),
+            expected_rollout_version=disabled_epoch,
+        )
+        assert continued.status == "success"
+        reenabled = await EvidenceVersionRepository(disabled_session).reconcile_and_enable_canonical_reads(
+            expected_rollout_version=disabled_epoch,
+        )
+        await disabled_session.commit()
+        assert reenabled.canonical_reads_enabled is True
+        assert reenabled.reconciled_through_sequence == continued.evidence_write_sequence

@@ -22130,3 +22130,23 @@ format check 输出两个 `Would reformat`。初版 migration 条件 `v.content_
 
 **剩余问题和下次继续排查入口**
 当前 focused gate 无阻断。4 个 warning 仍是既有 LangGraph pending deprecation 与 Alembic `path_separator` 提示。后续迁移链总验收需从 025 已部署且真实 dual-write health 已激活的状态运行 026，不能把静态 source contract 代替 staged deployment 验证。
+
+## 2026-08-05 — Phase 64.2 Plan 02 Task 3 GREEN 测试夹具误用了可变/expired rollout ORM 对象
+
+**问题现象**
+Task 3 首轮 GREEN 为 `2 failed, 38 passed`：stale-CAS 用例没有抛错；historical/current 分离用例在尚未启用 canonical reads 时调用 current validator。修正后第二轮又在测试 rollback 后读取 expired `EvidenceIdentityRollout.rollout_version` 时触发 `MissingGreenlet`。
+
+**如何检测/复现**
+执行 Task 3 精确命令 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_evidence_cutover.py tests/knowledge/test_evidence_projection.py tests/knowledge/test_provenance_lookup.py tests/knowledge/test_tenant_scope.py tests/knowledge/test_service.py -q --tb=short`。
+
+**关键证据或命令**
+首轮失败显示 `pytest.raises(RolloutEpochMismatch)` 未触发，因为 `activated` 与 `disabled` 指向同一个 identity-map ORM 实例，disable 原地递增了两者可见的 epoch；historical 用例按设计收到 generic `evidence_unavailable`。第二轮堆栈为 rollback 后同步读取 `disabled.rollout_version` 导致 `sqlalchemy.exc.MissingGreenlet`。最终精确门禁为 `41 passed, 1 warning`，scoped Ruff、format check、`git diff --check` 均通过；补充 retrieval 回归为 `46 passed, 1 warning`。
+
+**当前判断/根因**
+均为测试事务/夹具问题：CAS 的旧值必须在 mutation 前复制成普通整数；rollback 会 expire ORM attributes，之后不能同步隐式 IO；current validator 必须在 canonical-read rollout 已完成后才有资格判断 superseded evidence 的 current eligibility。
+
+**已做处理**
+测试在 disable/rollback 前保存 `activated_epoch`、`disabled_epoch`；historical/current 用例先完成 watermark reconciliation 和 canonical-read enable，再断言 superseded ref 对 current 路径统一 fail closed、但 exact historical/explicit legacy 仍可解析。另补真实双 session disable-under-load 用例，证明 disable 等待在途 writer 的 rollout lock，禁读不关闭 dual-write，零缺口后 CAS re-enable。
+
+**剩余问题和下次继续排查入口**
+当前无阻断。warning 是既有 LangGraph pending deprecation。后续涉及 rollout ORM 状态的并发测试继续只跨事务传递 primitive epoch，不跨 rollback/commit 读取可能 expired 的 ORM 属性。

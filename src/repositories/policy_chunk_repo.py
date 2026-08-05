@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from src.db.models import PolicyChunk, PolicyDocument
 from src.knowledge.provenance import EvidenceProvenance, source_locator_from_block
 from src.repositories.document_block_repo import DocumentBlockRepository
+from src.repositories.evidence_version_repo import EvidenceRolloutError, EvidenceVersionRepository
 
 
 class PolicyChunkRepository:
@@ -105,6 +106,32 @@ class PolicyChunkRepository:
         row_counts = Counter((row[0], row[2]) for row in rows)
         block_repo = DocumentBlockRepository(self.session)
         provenance: dict[tuple[str, str], EvidenceProvenance] = {}
+        requested_keys = list(dict.fromkeys((str(row[0]), str(row[2])) for row in rows))
+        canonical_ids: dict[tuple[str, str], str] = {}
+        if isinstance(self.session, AsyncSession):
+            try:
+                identities = await EvidenceVersionRepository(self.session).get_current_identities_by_keys(
+                    tenant_id=tenant_id,
+                    keys=requested_keys,
+                )
+            except EvidenceRolloutError:
+                return {}
+            canonical_ids = {key: identity.evidence_id for key, identity in identities.items()}
+        else:
+            canonical_ids = {
+                (str(doc_key), str(chunk_id)): EvidenceVersionRepository.legacy_ref_for_compatibility(
+                    tenant_id=str(tenant_id),
+                    doc_key=str(doc_key),
+                    chunk_id=str(chunk_id),
+                    policy_version=f"v{document_version or 1}",
+                    text_value="legacy-provenance-only",
+                    retrieved_at="1970-01-01T00:00:00Z",
+                    retrieval_config_version="legacy.provenance",
+                    score=None,
+                    rank=None,
+                ).evidence_id
+                for doc_key, document_version, chunk_id, _, _ in rows
+            }
 
         for doc_key, document_version, chunk_id, doc_id, source_refs in rows:
             key = (doc_key, chunk_id)
@@ -138,7 +165,7 @@ class PolicyChunkRepository:
             if not locators:
                 continue
             provenance[key] = EvidenceProvenance(
-                evidence_id=f"{doc_key}/{chunk_id}@v{document_version or 1}",
+                evidence_id=canonical_ids[key],
                 doc_key=doc_key,
                 chunk_id=chunk_id,
                 source_locators=locators,

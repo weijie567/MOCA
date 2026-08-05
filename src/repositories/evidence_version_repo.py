@@ -14,7 +14,7 @@ all enter through this owner so no caller may acquire the locks in reverse.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -32,7 +32,11 @@ from src.db.models import (
 )
 from src.knowledge.evidence_identity import (
     ACCEPTED_POLICY_SCOPE_TYPE,
+    CanonicalEvidenceIdentityV1,
     CanonicalEvidenceResolutionV1,
+    EvidenceIdentityExternalReason,
+    EvidenceIdentityInternalReason,
+    EvidenceIdentityResolutionStatus,
     PersistedEvidenceIdentityMaterialV1,
     mint_canonical_evidence_identity,
     resolve_evidence_identity,
@@ -63,6 +67,10 @@ class ImmutableBindingMismatch(EvidenceRolloutError):
 
 class CanonicalReadCutoverBlocked(EvidenceRolloutError):
     pass
+
+
+class CanonicalReadUnavailable(EvidenceRolloutError):
+    """Generic fail-closed current-read error."""
 
 
 @dataclass(frozen=True)
@@ -350,6 +358,106 @@ class EvidenceVersionRepository:
         await self.session.flush()
         return rollout
 
+    async def disable_canonical_reads(
+        self,
+        *,
+        expected_rollout_version: int,
+        reason: str,
+    ) -> EvidenceIdentityRollout:
+        """Operationally disable current reads while immutable dual-write stays on."""
+
+        quarantine_reason = reason.strip()
+        if not quarantine_reason or len(quarantine_reason) > 500:
+            raise EvidenceRolloutError("canonical read quarantine reason is invalid")
+        rollout = await self.lock_rollout(
+            expected_rollout_version=expected_rollout_version,
+            require_dual_write=True,
+        )
+        now = datetime.now(UTC)
+        rollout.canonical_reads_enabled = False
+        rollout.canonical_reads_disabled_at = now
+        rollout.quarantine_reason = quarantine_reason
+        rollout.audit_counts_json = {
+            **dict(rollout.audit_counts_json or {}),
+            "canonical_read_status": "disabled",
+            "canonical_reads_disabled_at": now.isoformat(),
+            "quarantine_reason": quarantine_reason,
+        }
+        rollout.rollout_version += 1
+        await self.session.flush()
+        return rollout
+
+    async def get_current_identities_by_keys(
+        self,
+        *,
+        tenant_id: UUID,
+        keys: Sequence[tuple[str, str]],
+    ) -> dict[tuple[str, str], CanonicalEvidenceIdentityV1]:
+        """Mint exact identities for current heads under an enabled rollout epoch."""
+
+        if not keys:
+            return {}
+        rollout_version = await self._require_canonical_reads_enabled()
+        requested = set(keys)
+        documents = list(
+            (
+                await self.session.execute(
+                    select(PolicyDocument).where(
+                        PolicyDocument.tenant_id == tenant_id,
+                        PolicyDocument.doc_key.in_({doc_key for doc_key, _ in requested}),
+                    )
+                )
+            ).scalars()
+        )
+        identities: dict[tuple[str, str], CanonicalEvidenceIdentityV1] = {}
+        for document in documents:
+            chunks = list(
+                (
+                    await self.session.execute(
+                        select(PolicyChunk)
+                        .where(
+                            PolicyChunk.tenant_id == tenant_id,
+                            PolicyChunk.doc_id == document.id,
+                        )
+                        .order_by(PolicyChunk.chunk_id, PolicyChunk.id)
+                    )
+                ).scalars()
+            )
+            try:
+                binding = await self.find_exact_binding(
+                    tenant_id=tenant_id,
+                    document=document,
+                    chunks=chunks,
+                    fingerprint=str(document.policy_version_fingerprint),
+                )
+            except ImmutableBindingMismatch as exc:
+                raise CanonicalReadUnavailable("canonical evidence unavailable") from exc
+            if binding is None:
+                raise CanonicalReadUnavailable("canonical evidence unavailable")
+            _, immutable_chunks = binding
+            immutable_by_chunk = {chunk.chunk_id: chunk for chunk in immutable_chunks}
+            for chunk in chunks:
+                key = (document.doc_key, chunk.chunk_id)
+                if key not in requested:
+                    continue
+                immutable_chunk = immutable_by_chunk.get(chunk.chunk_id)
+                if immutable_chunk is None:
+                    raise CanonicalReadUnavailable("canonical evidence unavailable")
+                resolution = await self.mint_for_chunk_version(
+                    immutable_chunk,
+                    expected_tenant_id=tenant_id,
+                    expected_scope_type=ACCEPTED_POLICY_SCOPE_TYPE,
+                    expected_scope_id=str(tenant_id),
+                )
+                if resolution.identity is None or key in identities:
+                    raise CanonicalReadUnavailable("canonical evidence unavailable")
+                identities[key] = resolution.identity
+        if set(identities) != requested:
+            raise CanonicalReadUnavailable("canonical evidence unavailable")
+        if await self._require_canonical_reads_enabled() != rollout_version:
+            raise CanonicalReadUnavailable("canonical evidence unavailable")
+        return identities
+
     async def allocate_ingestion_sequence(self) -> int:
         value = await self.session.scalar(text("SELECT nextval('evidence_ingestion_write_seq')"))
         if value is None:
@@ -521,6 +629,29 @@ class EvidenceVersionRepository:
             chunk.evidence_write_sequence = write_sequence
         await self.session.flush()
 
+    async def resolve_immutable_evidence(
+        self,
+        candidate: object,
+        *,
+        expected_tenant_id: UUID | str,
+        expected_scope_type: str,
+        expected_scope_id: str,
+    ) -> CanonicalEvidenceResolutionV1:
+        """Resolve canonical/hash input against exact retained immutable rows."""
+
+        tenant_id = UUID(str(expected_tenant_id))
+        candidates = await self._candidate_material(candidate, tenant_id=tenant_id)
+        resolution = resolve_evidence_identity(
+            candidate,  # type: ignore[arg-type]
+            candidates,
+            expected_tenant_id=str(tenant_id),
+            expected_scope_type=expected_scope_type,
+            expected_scope_id=expected_scope_id,
+        )
+        if resolution.status is EvidenceIdentityResolutionStatus.LEGACY_RESOLVED:
+            return _generic_resolution_failure(EvidenceIdentityInternalReason.MALFORMED)
+        return resolution
+
     async def resolve_exact(
         self,
         candidate: object,
@@ -529,17 +660,37 @@ class EvidenceVersionRepository:
         expected_scope_type: str,
         expected_scope_id: str,
     ) -> CanonicalEvidenceResolutionV1:
-        """Resolve canonical or legacy input against exact immutable candidates."""
+        """Compatibility name for exact immutable resolution; aliases are excluded."""
+
+        return await self.resolve_immutable_evidence(
+            candidate,
+            expected_tenant_id=expected_tenant_id,
+            expected_scope_type=expected_scope_type,
+            expected_scope_id=expected_scope_id,
+        )
+
+    async def resolve_legacy_alias(
+        self,
+        alias: str,
+        *,
+        expected_tenant_id: UUID | str,
+        expected_scope_type: str,
+        expected_scope_id: str,
+    ) -> CanonicalEvidenceResolutionV1:
+        """Explicitly upgrade one uniquely provable legacy display alias."""
 
         tenant_id = UUID(str(expected_tenant_id))
-        candidates = await self._candidate_material(candidate, tenant_id=tenant_id)
-        return resolve_evidence_identity(
-            candidate,  # type: ignore[arg-type]
+        candidates = await self._candidate_material(alias, tenant_id=tenant_id)
+        resolution = resolve_evidence_identity(
+            alias,
             candidates,
             expected_tenant_id=str(tenant_id),
             expected_scope_type=expected_scope_type,
             expected_scope_id=expected_scope_id,
         )
+        if resolution.status is not EvidenceIdentityResolutionStatus.LEGACY_RESOLVED:
+            return resolution
+        return resolution
 
     async def mint_for_chunk_version(
         self,
@@ -556,6 +707,56 @@ class EvidenceVersionRepository:
             expected_scope_id=expected_scope_id,
         )
 
+    @staticmethod
+    def evidence_ref_from_identity(
+        identity: CanonicalEvidenceIdentityV1,
+        *,
+        retrieved_at: str,
+        retrieval_config_version: str = "retrieval.v3",
+        score: float | None = None,
+        rank: int | None = None,
+    ):
+        """Project only an owner-minted identity into the public ref schema."""
+
+        from src.knowledge.schemas import EvidenceRefV1
+
+        return EvidenceRefV1.from_canonical_identity(
+            identity,
+            retrieved_at=retrieved_at,
+            retrieval_config_version=retrieval_config_version,
+            score=score,
+            rank=rank,
+        )
+
+    @staticmethod
+    def legacy_ref_for_compatibility(
+        *,
+        tenant_id: str,
+        doc_key: str,
+        chunk_id: str,
+        policy_version: str,
+        text_value: str,
+        retrieved_at: str,
+        retrieval_config_version: str,
+        score: float | None,
+        rank: int | None,
+    ):
+        """Explicit adapter for persisted legacy/test-only mutable sources."""
+
+        from src.knowledge.schemas import EvidenceRefV1
+
+        return EvidenceRefV1.build(
+            tenant_id=tenant_id,
+            doc_key=doc_key,
+            chunk_id=chunk_id,
+            policy_version=policy_version,
+            text=text_value,
+            retrieved_at=retrieved_at,
+            retrieval_config_version=retrieval_config_version,
+            score=score,
+            rank=rank,
+        )
+
     async def _candidate_material(
         self,
         candidate: object,
@@ -563,11 +764,27 @@ class EvidenceVersionRepository:
         tenant_id: UUID,
     ) -> list[PersistedEvidenceIdentityMaterialV1]:
         statement = select(PolicyChunkVersion).where(PolicyChunkVersion.tenant_id == tenant_id)
-        candidate_id = getattr(candidate, "chunk_version_id", None)
+        candidate_id = (
+            candidate.get("chunk_version_id")
+            if isinstance(candidate, Mapping)
+            else getattr(candidate, "chunk_version_id", None)
+        )
         if candidate_id:
             statement = statement.where(PolicyChunkVersion.id == UUID(str(candidate_id)))
         rows = list((await self.session.execute(statement)).scalars())
         return [_material_from_chunk(row) for row in rows]
+
+    async def _require_canonical_reads_enabled(self) -> int:
+        row = (
+            await self.session.execute(
+                select(EvidenceIdentityRollout)
+                .where(EvidenceIdentityRollout.id == ROLLOUT_ID)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        if row is None or not row.canonical_reads_enabled or row.quarantine_reason is not None:
+            raise CanonicalReadUnavailable("canonical evidence unavailable")
+        return int(row.rollout_version)
 
     def _require_current_dual_write_health(self, row: EvidenceIdentityRollout) -> None:
         audit = dict(row.audit_counts_json or {})
@@ -668,3 +885,11 @@ def _mark_legacy_unresolved(
             "evidence_identity_resolution": "legacy_unresolved",
             "evidence_identity_reason": reason,
         }
+
+
+def _generic_resolution_failure(reason: EvidenceIdentityInternalReason) -> CanonicalEvidenceResolutionV1:
+    return CanonicalEvidenceResolutionV1(
+        status=EvidenceIdentityResolutionStatus.INVALID,
+        internal_reason=reason,
+        external_reason=EvidenceIdentityExternalReason.EVIDENCE_UNAVAILABLE,
+    )

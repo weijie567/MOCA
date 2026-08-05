@@ -31,6 +31,10 @@ from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext
 from src.rag.embedder import EmbeddingService
 from src.rag.search_text import build_policy_chunk_search_text, build_sparse_query_text
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
+from src.repositories.evidence_version_repo import (
+    CanonicalReadUnavailable,
+    EvidenceVersionRepository,
+)
 
 
 QUERY_PREFIX = "电商售后政策查询: "
@@ -247,6 +251,7 @@ class PolicyRetrievalEngine:
             chunk_repo = PolicyChunkRepository(session)
         self.chunk_repo = chunk_repo
         self.embedder = embedder or EmbeddingService()
+        self.evidence_repo = EvidenceVersionRepository(session) if session is not None else None
 
     async def retrieve(
         self,
@@ -313,6 +318,15 @@ class PolicyRetrievalEngine:
                 original_query=query,
                 fallback_reason="rewrite_timeout",
             )
+        except CanonicalReadUnavailable:
+            return PolicyRetrievalRun(
+                status="error",
+                hits=[],
+                evidence_refs=[],
+                best_score=0.0,
+                original_query=query,
+                fallback_reason="canonical_reads_unavailable",
+            )
 
     async def get_contents_by_evidence_keys(
         self,
@@ -337,6 +351,60 @@ class PolicyRetrievalEngine:
         keys: list[tuple[str, str]],
     ) -> dict[tuple[str, str], dict[str, object]]:
         return await self.chunk_repo.get_canonical_evidence_rows_by_keys(tenant_id, keys)
+
+    async def get_current_canonical_evidence_rows_by_keys(
+        self,
+        *,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict[str, object]]:
+        if self.evidence_repo is None:
+            return {}
+        rows = await self.chunk_repo.get_canonical_evidence_rows_by_keys(tenant_id, keys)
+        identities = await self.evidence_repo.get_current_identities_by_keys(tenant_id=tenant_id, keys=keys)
+        if set(rows) != set(identities):
+            raise CanonicalReadUnavailable("canonical evidence unavailable")
+        return {
+            key: {
+                **rows[key],
+                **identity.model_dump(mode="json"),
+            }
+            for key, identity in identities.items()
+        }
+
+    async def resolve_immutable_evidence(
+        self,
+        candidate: object,
+        *,
+        tenant_id: UUID,
+        scope_type: str,
+        scope_id: str,
+    ):
+        if self.evidence_repo is None:
+            raise CanonicalReadUnavailable("canonical evidence unavailable")
+        return await self.evidence_repo.resolve_immutable_evidence(
+            candidate,
+            expected_tenant_id=tenant_id,
+            expected_scope_type=scope_type,
+            expected_scope_id=scope_id,
+        )
+
+    async def resolve_legacy_alias(
+        self,
+        alias: str,
+        *,
+        tenant_id: UUID,
+        scope_type: str,
+        scope_id: str,
+    ):
+        if self.evidence_repo is None:
+            raise CanonicalReadUnavailable("canonical evidence unavailable")
+        return await self.evidence_repo.resolve_legacy_alias(
+            alias,
+            expected_tenant_id=tenant_id,
+            expected_scope_type=scope_type,
+            expected_scope_id=scope_id,
+        )
 
     async def _retrieve_run(
         self,
@@ -408,20 +476,7 @@ class PolicyRetrievalEngine:
             candidates=candidates,
             limit=limit,
         )
-        evidence_refs = [
-            EvidenceRefV1.build(
-                tenant_id=context.tenant_id,
-                doc_key=hit.doc_key,
-                chunk_id=hit.chunk_id,
-                policy_version=hit.policy_version,
-                text=hit.text,
-                retrieved_at=context.effective_at,
-                retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
-                score=hit.score,
-                rank=hit.rank,
-            )
-            for hit in hits
-        ]
+        evidence_refs = await self._evidence_refs_for_hits(hits=hits, context=context)
         return PolicyRetrievalRun(
             status=status,
             hits=hits,
@@ -438,6 +493,49 @@ class PolicyRetrievalEngine:
                 fallback_reason=fallback_reason,
             ),
         )
+
+    async def _evidence_refs_for_hits(
+        self,
+        *,
+        hits: list[PolicyRetrievalHit],
+        context: KnowledgeContext,
+    ) -> list[EvidenceRefV1]:
+        if not hits:
+            return []
+        if self.evidence_repo is None:
+            return [
+                EvidenceVersionRepository.legacy_ref_for_compatibility(
+                    tenant_id=context.tenant_id,
+                    doc_key=hit.doc_key,
+                    chunk_id=hit.chunk_id,
+                    policy_version=hit.policy_version,
+                    text_value=hit.text,
+                    retrieved_at=context.effective_at,
+                    retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+                    score=hit.score,
+                    rank=hit.rank,
+                )
+                for hit in hits
+            ]
+        identities = await self.evidence_repo.get_current_identities_by_keys(
+            tenant_id=UUID(context.tenant_id),
+            keys=[(hit.doc_key, hit.chunk_id) for hit in hits],
+        )
+        refs: list[EvidenceRefV1] = []
+        for hit in hits:
+            identity = identities.get((hit.doc_key, hit.chunk_id))
+            if identity is None:
+                raise CanonicalReadUnavailable("canonical evidence unavailable")
+            refs.append(
+                EvidenceVersionRepository.evidence_ref_from_identity(
+                    identity,
+                    retrieved_at=context.effective_at,
+                    retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+                    score=hit.score,
+                    rank=hit.rank,
+                )
+            )
+        return refs
 
     async def _retrieve_query_channel(
         self,

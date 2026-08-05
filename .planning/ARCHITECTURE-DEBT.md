@@ -12,6 +12,15 @@
 - **证据**：Phase 64.2 Plan 02 Task 2；`src/db/migrations/versions/026_phase64_2_evidence_cutover.py`、`src/repositories/evidence_version_repo.py`、`tests/knowledge/test_evidence_cutover.py::test_writer_and_cutover_share_rollout_lock_epoch`；GREEN commit 待本 task 提交后补记。验证：Task 2 精确命令 `10 passed, 4 warnings`，scoped Ruff 与 whitespace gate 通过。
 - **剩余风险**：🟡 当前 Plan 02 focused migration test 对 026 的 staged precondition 主要是 source contract，完整 025 → 实际 dual-write health → 026 migration-chain 执行由 Phase 64.2 Plan 09 closeout gate 负责；该项不能被当前 10-test 结果替代。
 
+## 2026-08-05 — Phase 64.2 Plan 02 Task 3 canonical current / historical / legacy 读边界已收敛 ✅
+
+- **子系统**：RAG retrieval / evidence resolver / operational read cutover。
+- **问题现象/根因**：Phase 64.2 前 production retrieval 与 `PolicyChunkRepository` 直接拼接 `doc_key/chunk_id@version`，current eligibility、retained historical resolution 与 legacy alias upgrade 共用 mutable key/hash 查找，且没有由 singleton rollout state 控制 canonical reads。禁读时存在回落到 mutable/legacy ref 的风险，superseded evidence 也无法明确区分“非 current”与“历史材料仍可精确解析”。
+- **影响**：current search 可能发出非 repository-backed identity；跨 tenant/scope、缺失/伪造/歧义输入与 operational quarantine 的 fail-closed 边界不统一；replay/approval 后续难以证明引用的是 retained immutable row。
+- **处理状态**：✅ 已修复验证。production `PolicyRetrievalEngine(session=...)` 只在 `canonical_reads_enabled=true` 且无 quarantine 时，从 exact current document/chunk binding 取得 immutable row并由 owner mint `EvidenceRefV1`；禁读/缺绑定统一返回无 ref 的 error，不回落。`validate_current_evidence(...)`、`resolve_immutable_evidence(...)`、`resolve_legacy_alias(...)` 已分离，历史解析不套 current freshness，但继续严格 tenant/scope。`disable_canonical_reads(...)` 复用 rollout-first CAS 锁，保留 dual-write，reconciliation zero-gap 后才可 re-enable。
+- **证据**：Phase 64.2 Plan 02 Task 3；`src/repositories/evidence_version_repo.py`、`src/knowledge/retrieval.py`、`src/knowledge/service.py`、`src/repositories/policy_chunk_repo.py`、`tests/knowledge/test_evidence_cutover.py`。Task 3 精确门禁 `41 passed, 1 warning`，补充 retrieval 回归 `46 passed, 1 warning`，scoped Ruff/format/whitespace 均通过；GREEN commit 待本 task 提交后补记。
+- **剩余风险**：🟡 无 DB session 的 in-memory retrieval test doubles 仍通过 owner 内部的显式 legacy test compatibility projection 保持旧测试语义；MOCA production factories均传入真实 `AsyncSession`（`src/api/routers/search.py`、`src/tools/executors/knowledge.py`、agent RAG factories），不会进入该分支。Phase 64.2 Plan 09 architecture guard 应继续锁定所有 production factory 必须使用 session-backed canonical owner。
+
 ## 写入规则
 
 - 修改**工具调用 / RAG / 记忆 / 意图识别**这几个核心子系统时，检测出的 bug 或架构不完善点、以及做了哪些修复，**默认追加到本文件**对应子系统章节。
