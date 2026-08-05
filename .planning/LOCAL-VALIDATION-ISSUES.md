@@ -22150,3 +22150,23 @@ Task 3 首轮 GREEN 为 `2 failed, 38 passed`：stale-CAS 用例没有抛错；h
 
 **剩余问题和下次继续排查入口**
 当前无阻断。warning 是既有 LangGraph pending deprecation。后续涉及 rollout ORM 状态的并发测试继续只跨事务传递 primitive epoch，不跨 rollback/commit 读取可能 expired 的 ORM 属性。
+
+## 2026-08-05 — Phase 64.2 Plan 02 self-check 变量名覆盖 zsh `$path`
+
+**问题现象**
+首次 SUMMARY self-check 在确认文件存在后，后续同一 shell 中的 `git`、`rg` 都误报 `command not found`，从而把所有 commit 误报为 missing。
+
+**如何检测/复现**
+在 zsh 中使用 `for path in ...` 后继续调用外部命令；zsh 的小写 `$path` 是与 `$PATH` 绑定的特殊数组，循环赋值会覆盖命令搜索路径。
+
+**关键证据或命令**
+首次输出先显示 4 个 `FOUND`，随后连续出现 `zsh: command not found: git/rg`；新 shell 改用 `target_file` / `commit_hash` 后，4 个文件、6 个 RED/GREEN commit 和 3 条 validation GREEN 行全部显示 `FOUND`，`git diff --check` 通过。
+
+**当前判断/根因**
+这是收尾脚本变量命名污染 shell 特殊变量，不是仓库、Git 历史或验证产物缺失。
+
+**已做处理**
+按项目命令变量规则改用 task-specific 变量名，在全新 shell 完整重跑 self-check，并只采用重跑结果更新 SUMMARY。
+
+**剩余问题和下次继续排查入口**
+无剩余问题。后续 zsh 临时脚本禁止使用 `path`、`status` 等特殊参数名作为循环/任务变量。
