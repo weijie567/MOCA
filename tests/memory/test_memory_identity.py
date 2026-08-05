@@ -3,7 +3,8 @@ from __future__ import annotations
 import inspect
 import re
 from datetime import UTC, datetime
-from uuid import UUID
+from types import SimpleNamespace
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -35,6 +36,7 @@ from src.memory.schemas import (
     SessionMemoryWriteCandidate,
     SessionSlotV1,
 )
+from src.memory.service import MemoryService
 
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -436,3 +438,92 @@ def test_typed_builders_reject_unknown_fields_and_incomplete_sources() -> None:
 
     with pytest.raises(MemoryIdentityError, match="identity profile"):
         normalize_memory_content("Acme", identity_profile="unknown")
+
+
+class _NestedTransaction:
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+
+class _SessionIdentityRepository:
+    def __init__(self, *, conflict: bool = False) -> None:
+        self.session = SimpleNamespace(begin_nested=lambda: _NestedTransaction())
+        self.conflict = conflict
+        self.events: list[SimpleNamespace] = []
+        self.active = (
+            SimpleNamespace(
+                id=uuid4(),
+                version=1,
+                expires_at=None,
+                active_slots_json={"schema_version": "session_slots.v1", "slots": {}},
+                last_business_context_refs_json={},
+                session_summary=None,
+                unresolved_questions_json=[],
+                last_intent="order_status_inquiry",
+            )
+            if conflict
+            else None
+        )
+
+    async def get_active(self, *args, **kwargs):
+        return self.active
+
+    async def insert_active(self, **kwargs):
+        self.active = SimpleNamespace(id=uuid4(), version=1)
+        return self.active
+
+    async def cas_update(self, *args, **kwargs):
+        return False if self.conflict else True
+
+    async def emit_write_event(self, **kwargs):
+        event = SimpleNamespace(id=uuid4(), **kwargs)
+        self.events.append(event)
+        return event
+
+
+def _session_identity_candidate(*, decision: str = "write") -> SessionMemoryWriteCandidate:
+    return SessionMemoryWriteCandidate(
+        tenant_id=UUID("10000000-0000-0000-0000-000000000001"),
+        user_id=UUID("20000000-0000-0000-0000-000000000002"),
+        thread_id="Thread-Acme",
+        run_id=UUID("30000000-0000-0000-0000-000000000003"),
+        last_intent="refund_troubleshooting",
+        session_summary="Acme requested an update.",
+        decision=decision,
+        reason_code="temporary_chat" if decision == "skip" else "eligible",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["written", "skipped", "conflict"])
+async def test_session_service_reuses_one_typed_identity_for_result_and_event(
+    monkeypatch,
+    path: str,
+) -> None:
+    from src.memory import service as service_module
+
+    repository = _SessionIdentityRepository(conflict=path == "conflict")
+    candidate = _session_identity_candidate(decision="skip" if path == "skipped" else "write")
+    calls: list[SessionMemoryWriteCandidate] = []
+    real_builder = service_module.build_session_memory_candidate_identity
+
+    def spy_builder(value):
+        calls.append(value)
+        return real_builder(value)
+
+    monkeypatch.setattr(service_module, "build_session_memory_candidate_identity", spy_builder)
+
+    result = await MemoryService(repository).write_session_memory(candidate)  # type: ignore[arg-type]
+
+    assert len(calls) == 1
+    assert result.identity == real_builder(candidate)
+    assert result.candidate_hash == result.identity.candidate_hash
+    assert result.identity.content_hash.startswith("sha256:")
+    assert result.identity.source_identity_hash is not None
+    assert repository.events[0].candidate_hash == result.identity.candidate_hash
+    assert repository.events[0].source_ref_json == result.identity.normalized_source_ref.model_dump(
+        mode="json", exclude_none=True
+    )
