@@ -22190,3 +22190,23 @@ RED fixture 改用 canonical projection 后重新确认测试因缺失 repositor
 
 **剩余问题和下次继续排查入口**
 当前两条 Plan 04 精确门禁均通过；既有 LangGraph `allowed_objects` pending-deprecation warning 未由本 plan 引入。后续新增 approval snapshot fixture 必须先写 immutable tenant-policy row，再从 repository mint ref，不能手写看似合法的 evidence alias。
+
+## 2026-08-05 — Phase 64.2 Plan 05 严格 CWC fact schema 暴露旧持久化夹具漂移
+
+**问题现象**
+Plan 05 把 `CaseWorkingContextVerifiedFactV1` 收紧为必须携带 authority/status/promotion reason 与完整 typed refs，并把 reduced policy triple 替换为 canonical `EvidenceRefV1` 后，计划精确聚合首次出现 `52 passed, 13 failed`。13 个失败全部来自 `tests/memory/test_case_working_context_service.py::_content(...)` 仍直接构造旧式 verified fact 和 `doc_id/chunk_id/version` policy ref；另一次 lifecycle 中间运行在 Task 2 尚未接线时出现 16 个旧 summary-first 投影失败。
+
+**如何检测/复现**
+执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_case_working_context_lifecycle.py tests/memory/test_case_working_context_service.py -q --tb=short`。失败稳定发生在 Pydantic validation：缺少 `authority_class`、`status`、`promotion_reason_code`，或 reduced policy ref 缺少 canonical identity 字段。
+
+**关键证据或命令**
+Task 1 RED 首先按预期以 `ModuleNotFoundError: src.memory.fact_promotion` 失败；Task 2 新 mixed/scope/freshness 用例为 `4 failed, 48 deselected`。实现 typed gate 后 lifecycle 单套件为 `52 passed`；加入 service 精确套件时为 `13 failed, 52 passed`；只迁移直接相关 fixture 后最终原命令为 `65 passed, 1 warning`，两条计划 scoped Ruff 与 fixture scoped Ruff 均为 `All checks passed!`。
+
+**当前判断/根因**
+这是严格 authority schema 对历史测试夹具的直接、可证明漂移，不是 production 需要接受 legacy verified fact 的理由。旧 fixture 绕过 promotion boundary 手工创建“已验证事实”，并持有 Phase 64.2 已禁止的新写 reduced policy ref。
+
+**已做处理**
+测试 fixture 改为完整 `BusinessFactRefV1` verified fact、canonical tenant-policy `EvidenceRefV1`，并用 `CaseWorkingContextObservationV1` 验证 observation 的持久化/归一化/hydration；production 未增加任何旧 fact/ref fallback。CWC lifecycle 改为每个成员独立调用 `promote_verified_fact(...)`，summary-only 和失败状态进入 bounded observation。跨 scope 内部原因仍存储，但 active payload 只投影统一 `authoritative_source_unavailable`。
+
+**剩余问题和下次继续排查入口**
+当前 Plan 05 精确 pytest/Ruff 均通过；唯一 warning 是既有 LangGraph `allowed_objects` pending deprecation。Plan 07 必须继续验证 rejected/observed CWC 内容不进入 CaseMemory 任一字段，Plan 09 负责最终 ownership/static guard；不得为历史手写 fixture 恢复 status-blind fallback。
