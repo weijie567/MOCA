@@ -22230,3 +22230,43 @@ Task 1 显式 flush parent 后，RED 稳定变为 3 个预期契约失败，GREE
 
 **剩余问题和下次继续排查入口**
 当前无 Plan 06 阻断。最终联合回归为 `171 passed, 1 warning`，计划相关 Ruff 通过；warning 是既有 LangGraph `allowed_objects` pending deprecation，migration 的 3 个 Alembic `path_separator` warning 也是既有环境提示。后续若扩展 evidence lifecycle，必须同步核对 ORM、当前未发布 migration、真实 PostgreSQL 持久化与 replay projection 四层。
+
+## 2026-08-05 — Phase 64.2 Plan 07 严格 reviewed-memory provenance 暴露三处历史测试夹具漂移
+
+**问题现象**
+Task 1 引入完整 source authority、canonical evidence/business refs 与 resolved/unresolved 分离后，计划相关旧测试在命中新行为前先因旧式 CWC verified fact、手写 reduced policy ref、缺失 resolved provenance/reviewer metadata，以及过宽的 EvidenceRef import 禁令而失败。
+
+**如何检测 / 复现**
+执行 Task 1 精确命令：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_memory_provenance.py tests/memory/test_case_precedent_generation.py tests/memory/test_case_memory_retrieval.py tests/agent/test_memory_evidence_boundary.py -q --tb=short`。失败分别定位到 `tests/memory/test_case_precedent_generation.py` 的旧 CWC fixture、`tests/memory/test_case_memory_retrieval.py::_candidate/_case_row` 的旧 ref/provenance fixture，以及 `tests/agent/test_memory_evidence_boundary.py` 把 Plan 07 reviewed-case owner 也误判为 session-memory 越权 owner 的静态断言。
+
+**关键证据或命令**
+主 orchestrator 逐项核对后明确批准三处最小迁移：precedent fixture 补 authority/status/promotion reason 与完整 typed refs；retrieval 只迁移共享 `_candidate/_case_row`，并让已 review 的 row/provenance 同时携带 reviewer/time/reason；architecture assertion 只继续禁止 session owner 导入 EvidenceRef，同时保留 no-mint/no-authority-upgrade 负向断言。迁移后 Task 1 精确门禁为 `52 passed, 7 warnings`，额外 retrieval 回归为 `14 passed, 1 warning`，最终联合回归为 `64 passed, 7 warnings`。
+
+**当前判断 / 根因**
+三处都是历史 fixture 或静态测试仍表达 Phase 64.2 前的 reduced/implicit provenance 形状，不是 production 应保留 legacy new-write fallback 的依据。reviewed-case provenance 本计划明确允许读取 owner-minted canonical refs；禁止范围应继续锁定 session-memory owner，而不是阻止受审 case-memory owner 保存证据出处。
+
+**已做处理**
+仅按裁决修改共享 fixture 与单条 architecture assertion，没有逐 case 大面积改写，也没有在 production 添加兼容 fallback。所有新候选与 resolved fixture 都使用完整 canonical `EvidenceRefV1`、typed `BusinessFactRefV1` 和严格 provenance；legacy pre-027 行仍进入独立 `legacy_unresolved` envelope。
+
+**剩余问题和下次继续排查入口**
+当前无 Plan 07 fixture 阻断。Plan 09 应继续用 ownership guard 锁住 session owner 不得 mint/import policy evidence，并允许 reviewed-case provenance owner 只保存来自 authoritative source 的完整 ref；不得重新放宽为 reduced ref 或 status-blind CWC 投影。
+
+## 2026-08-05 — Phase 64.2 Plan 07 pytest 后台残留导致 PostgreSQL DDL 并发污染
+
+**问题现象**
+一次联合验证的外层执行单元提前返回，但内部 pytest 仍在后台运行；随后启动的 targeted pytest 与它同时创建/清理测试 schema，出现 PostgreSQL `pg_type_typname_nsp_index` `UniqueViolation`，后续又报 `tenants does not exist`。这些结果一度看似产品 migration/schema 回归。
+
+**如何检测 / 复现**
+出现 DDL 异常后检查进程，发现两个 pytest 进程仍并发运行（PID `77656`、`77667`）；错误发生在测试基础设施建表/清理阶段，而不是 migration 027 或 CaseMemory 业务断言。
+
+**关键证据或命令**
+终止残留进程后，不再并发启动数据库测试，并对每个 `uv run pytest` session 持续 poll 到明确 exit code。Task 1 原命令随后稳定得到 `52 passed, 7 warnings`；Task 2 原命令两次稳定得到 `37 passed, 1 warning`；最终联合命令得到 `64 passed, 7 warnings`，联合 Ruff 为 `All checks passed!`。
+
+**当前判断 / 根因**
+根因是本地工具执行层留下 pytest 后台进程，导致共享 PostgreSQL 测试库发生并发 DDL 竞争；不是生产 schema、migration 027 或 tenant FK 的代码缺陷。并发污染期间的失败结果无效，不能作为产品结论。
+
+**已做处理**
+显式结束两个残留 pytest，确认没有验证进程后按单进程串行重跑；后续所有长测试都持续等待统一执行 session 完成，且没有在数据库 pytest 运行时启动第二条 pytest。
+
+**剩余问题和下次继续排查入口**
+当前无残留进程或数据库阻断。后续本仓库长 pytest 若外层工具返回 running/cell ID，必须持续 wait/poll 到 exit code；遇到 `pg_type_typname_nsp_index` 或建表后表消失时，先查并发 pytest，再判断 migration 缺陷。
