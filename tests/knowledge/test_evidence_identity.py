@@ -158,10 +158,16 @@ def test_tenant_request_scope_and_same_tenant_cross_scope_fail_generically(
         ("text_hash", "sha256:" + "f" * 64, EvidenceIdentityInternalReason.HASH_MISMATCH),
         ("document_version", 4, EvidenceIdentityInternalReason.VERSION_MISMATCH),
         ("chunk_version", 3, EvidenceIdentityInternalReason.VERSION_MISMATCH),
-        ("document_version_id", "44444444-4444-4444-4444-444444444444", EvidenceIdentityInternalReason.VERSION_MISMATCH),
+        (
+            "document_version_id",
+            "44444444-4444-4444-4444-444444444444",
+            EvidenceIdentityInternalReason.VERSION_MISMATCH,
+        ),
     ],
 )
-def test_validation_recomputes_persisted_hash_and_versions(field: str, value: Any, reason: EvidenceIdentityInternalReason):
+def test_validation_recomputes_persisted_hash_and_versions(
+    field: str, value: Any, reason: EvidenceIdentityInternalReason
+):
     identity = _mint().identity
     assert identity is not None
     untrusted = identity.model_dump()
@@ -251,9 +257,7 @@ def test_all_resolution_failures_share_one_external_reason():
         ),
     ]
 
-    assert {result.external_reason for result in failures} == {
-        EvidenceIdentityExternalReason.EVIDENCE_UNAVAILABLE
-    }
+    assert {result.external_reason for result in failures} == {EvidenceIdentityExternalReason.EVIDENCE_UNAVAILABLE}
 
 
 def test_legacy_builder_does_not_infer_merchant_policy_scope_from_context():
