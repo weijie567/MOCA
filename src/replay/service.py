@@ -10,9 +10,18 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.rag_claim_summary import build_rag_claim_summary_from_sources, sanitize_rag_claim_payload
-from src.db.models import AgentRun, AgentTraceEvent
+from src.db.models import (
+    AgentRun,
+    AgentTraceEvent,
+    EvidenceSnapshotDependency,
+    PolicyChunkVersion,
+    PolicyDocumentVersion,
+)
+from src.knowledge.evidence_identity import EvidenceIdentityResolutionStatus
+from src.knowledge.schemas import EvidenceRefV1
+from src.repositories.evidence_version_repo import EvidenceVersionRepository
 from src.replay.pairing import OperationPairingStatus, validate_operation_pairing
-from src.replay.schemas import ReplayEventV3, ReplayResponseV3
+from src.replay.schemas import ReplayEvidenceSnapshotV1, ReplayEventV3, ReplayResponseV3
 from src.replay.validators import (
     guard_redacted_payload,
     guard_resource_refs,
@@ -71,7 +80,7 @@ class ReplayService:
         approval_id: uuid.UUID | str | None = None,
         draft_id: uuid.UUID | str | None = None,
         tool_call_id: str | None = None,
-        evidence_refs_json: list[dict[str, Any]] | None = None,
+        canonical_evidence_refs: list[EvidenceRefV1] | None = None,
         error_json: dict[str, Any] | None = None,
         archived_at: datetime | None = None,
         retention_until: datetime | None = None,
@@ -86,6 +95,12 @@ class ReplayService:
         retention_class = retention_for_event_type(event_type)
         guard_redacted_payload(redacted_payload)
         guard_resource_refs(resource_refs)
+
+        snapshots = await self._build_replay_evidence_snapshots(
+            tenant_id=tenant_id,
+            canonical_evidence_refs=canonical_evidence_refs,
+            retention_until=retention_until,
+        )
 
         safe_payload = dict(redacted_payload)
         safe_error = _safe_error_json(error_json)
@@ -125,7 +140,8 @@ class ReplayService:
             approval_id=_as_uuid(approval_id) if approval_id is not None else None,
             draft_id=_as_uuid(draft_id) if draft_id is not None else None,
             tool_call_id=tool_call_id,
-            evidence_refs_json=evidence_refs_json,
+            evidence_refs_json=None,
+            evidence_snapshot_refs_json=[snapshot.model_dump(mode="json") for snapshot in snapshots],
             error_json=safe_error,
             tenant_id=_as_uuid(tenant_id),
             thread_id=thread_id,
@@ -145,10 +161,127 @@ class ReplayService:
             projected = self.project_minimal_event(row)
             self.session.add(row)
             await self.session.flush()
+            await self._insert_snapshot_dependencies(row, snapshots)
             return projected
         self.session.add(row)
         await self.session.flush()
+        await self._insert_snapshot_dependencies(row, snapshots)
         return self.project_event(row, pairing_status=pairing_status)
+
+    async def _build_replay_evidence_snapshots(
+        self,
+        *,
+        tenant_id: uuid.UUID | str,
+        canonical_evidence_refs: list[EvidenceRefV1] | None,
+        retention_until: datetime | None,
+    ) -> list[ReplayEvidenceSnapshotV1]:
+        """Validate typed refs and construct the sole persisted snapshot representation."""
+
+        if canonical_evidence_refs is None:
+            refs: list[EvidenceRefV1] = []
+        elif not isinstance(canonical_evidence_refs, list) or any(
+            not isinstance(ref, EvidenceRefV1) for ref in canonical_evidence_refs
+        ):
+            raise ValueError("canonical_evidence_refs must be a list[EvidenceRefV1]")
+        else:
+            refs = canonical_evidence_refs
+
+        tenant_uuid = _as_uuid(tenant_id)
+        expected_scope_id = str(tenant_uuid)
+        repository = EvidenceVersionRepository(self.session)
+        snapshots: list[ReplayEvidenceSnapshotV1] = []
+        for ref in refs:
+            try:
+                candidate = ref.to_canonical_identity()
+            except ValueError as exc:
+                raise ValueError("evidence unavailable") from exc
+            if candidate is None:
+                raise ValueError("evidence unavailable")
+            resolution = await repository.resolve_exact(
+                candidate,
+                expected_tenant_id=tenant_uuid,
+                expected_scope_type="tenant_policy",
+                expected_scope_id=expected_scope_id,
+            )
+            if (
+                resolution.status is not EvidenceIdentityResolutionStatus.CANONICAL
+                or resolution.identity is None
+            ):
+                raise ValueError("evidence unavailable")
+            identity = resolution.identity
+            document = (
+                await self.session.execute(
+                    sa.select(PolicyDocumentVersion).where(
+                        PolicyDocumentVersion.id == _as_uuid(identity.document_version_id),
+                        PolicyDocumentVersion.tenant_id == tenant_uuid,
+                        PolicyDocumentVersion.scope_type == "tenant_policy",
+                        PolicyDocumentVersion.scope_id == expected_scope_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            chunk = (
+                await self.session.execute(
+                    sa.select(PolicyChunkVersion).where(
+                        PolicyChunkVersion.id == _as_uuid(identity.chunk_version_id),
+                        PolicyChunkVersion.tenant_id == tenant_uuid,
+                        PolicyChunkVersion.policy_document_version_id == _as_uuid(identity.document_version_id),
+                        PolicyChunkVersion.scope_type == "tenant_policy",
+                        PolicyChunkVersion.scope_id == expected_scope_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if document is None or chunk is None:
+                raise ValueError("evidence unavailable")
+            canonical_ref = EvidenceRefV1.from_canonical_identity(
+                identity,
+                retrieved_at=ref.retrieved_at,
+                retrieval_config_version=ref.retrieval_config_version,
+                score=ref.score,
+                rank=ref.rank,
+            )
+            snapshot_retention = retention_until or min(document.retention_until, chunk.retention_until)
+            snapshots.append(
+                ReplayEvidenceSnapshotV1(
+                    canonical_evidence_ref=canonical_ref,
+                    scope_type=identity.scope_type,
+                    scope_id=identity.scope_id,
+                    document_version_id=identity.document_version_id,
+                    chunk_version_id=identity.chunk_version_id,
+                    document_version=identity.document_version,
+                    chunk_version=identity.chunk_version,
+                    canonical_identity_hash=identity.evidence_id,
+                    captured_lifecycle_status=_project_evidence_lifecycle(chunk.lifecycle_status),
+                    retained_content_hash=chunk.text_hash,
+                    retained_content_locator=dict(chunk.source_locator_json),
+                    compatibility_provenance={
+                        "resolution_status": "canonical",
+                        "source": "canonical_ref_append",
+                    },
+                    retention_until=snapshot_retention,
+                )
+            )
+        return snapshots
+
+    async def _insert_snapshot_dependencies(
+        self,
+        event: AgentTraceEvent,
+        snapshots: list[ReplayEvidenceSnapshotV1],
+    ) -> None:
+        if not snapshots:
+            return
+        self.session.add_all(
+            [
+                EvidenceSnapshotDependency(
+                    tenant_id=event.tenant_id,
+                    event_id=event.event_id,
+                    document_version_id=_as_uuid(snapshot.document_version_id),
+                    chunk_version_id=_as_uuid(snapshot.chunk_version_id),
+                    retention_until=snapshot.retention_until,
+                )
+                for snapshot in snapshots
+            ]
+        )
+        await self.session.flush()
 
     async def get_replay(self, run_id: uuid.UUID | str) -> dict[str, Any]:
         """Return a ReplayResponseV3 from event-store rows ordered by sequence."""
@@ -292,3 +425,11 @@ def _projected_pairing_status(
     if pairing_status is None:
         return OperationPairingStatus.UNRESOLVED.value
     return pairing_status.value
+
+
+def _project_evidence_lifecycle(value: str) -> str:
+    if value == "active":
+        return "current"
+    if value in {"superseded", "corrected", "archived", "expired", "tombstoned"}:
+        return value
+    raise ValueError("evidence unavailable")

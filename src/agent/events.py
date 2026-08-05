@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.knowledge.schemas import EvidenceRefV1
 from src.replay import (
     FORBIDDEN_REDACTED_PAYLOAD_KEYS as _REPLAY_FORBIDDEN_REDACTED_PAYLOAD_KEYS,
     REPLAY_EVENT_TYPES,
@@ -57,6 +58,7 @@ async def emit_event(
     redaction_policy_version: str = "redaction.v1",
     reason_code: str | None = None,
     reason_codes: list[str] | None = None,
+    canonical_evidence_refs: list[EvidenceRefV1] | None = None,
 ) -> dict[str, Any]:
     """Persist and return one minimal event envelope."""
     if event_type not in MINIMAL_EVENT_TYPES:
@@ -80,6 +82,7 @@ async def emit_event(
         redaction_policy_version=redaction_policy_version,
         reason_code=reason_code,
         reason_codes=reason_codes,
+        canonical_evidence_refs=canonical_evidence_refs,
     )
 
 
