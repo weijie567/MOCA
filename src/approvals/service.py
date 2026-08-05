@@ -572,7 +572,7 @@ class ApprovalService:
             target_merchant_ref=self._json_dump(request.target_merchant_ref),
         )
 
-        proposed_action, evidence_refs = self._replacement_action_and_evidence(
+        proposed_action, evidence_refs = await self._replacement_action_and_evidence(
             request,
             {"edited_action": command.edited_action},
         )
@@ -600,7 +600,7 @@ class ApprovalService:
             actor_id=command.actor_id,
             decision_type=command.decision_type,
             reason=command.reason,
-            edited_action=command.edited_action,
+            edited_action=proposed_action,
         )
         await self.repository.increment_assignment_version(assignment, status="skipped")
         await self.repository.increment_level_version(level, status="skipped")
@@ -639,7 +639,8 @@ class ApprovalService:
             decision_type=command.decision_type,
             reason=command.reason,
             new_action_payload_hash=snapshot.action_payload_hash,
-            edited_action=command.edited_action,
+            edited_action=proposed_action,
+            replacement_verified_evidence_refs=evidence_refs,
             resume_route=CANONICAL_RISK_ROUTE,
         )
 
@@ -740,7 +741,10 @@ class ApprovalService:
             target_merchant_ref=self._json_dump(request.target_merchant_ref),
         )
 
-        proposed_action, evidence_refs = self._replacement_action_and_evidence(request, command.info_payload)
+        proposed_action, evidence_refs = await self._replacement_action_and_evidence(
+            request,
+            command.info_payload,
+        )
         snapshot = await persist_action_safety_snapshot(
             self.session,
             tenant_id=request.tenant_id,
@@ -811,6 +815,7 @@ class ApprovalService:
         superseded_by_request_id: UUID | None = None,
         new_action_payload_hash: str | None = None,
         edited_action: dict[str, Any] | None = None,
+        replacement_verified_evidence_refs: list[EvidenceRefV1] | None = None,
         resume_route: str | None = None,
         include_resume_payload: bool = True,
     ) -> ApprovalDecisionResult:
@@ -820,6 +825,10 @@ class ApprovalService:
         request.decided_by = actor_id
         request.decided_at = decided_at
         binding_fields = self._request_binding_fields(request)
+        if replacement_verified_evidence_refs is not None:
+            binding_fields["verified_evidence_refs"] = [
+                ref.model_dump(mode="json") for ref in replacement_verified_evidence_refs
+            ]
         try:
             trusted = TrustedApprovalResultV1(
                 approval_id=request.id,
@@ -1004,22 +1013,50 @@ class ApprovalService:
         }
         return any(key in info_payload for key in revision_material_keys)
 
-    def _replacement_action_and_evidence(
+    async def _replacement_action_and_evidence(
         self,
         request: ApprovalRequest,
         info_payload: dict[str, Any],
     ) -> tuple[dict[str, Any], list[EvidenceRefV1]]:
-        proposed_action = dict(
-            info_payload.get("proposed_action") or info_payload.get("edited_action") or request.proposed_action
-        )
+        replacement_action = info_payload.get("proposed_action") or info_payload.get("edited_action")
+        proposed_action = dict(replacement_action or request.proposed_action)
         evidence_payload = info_payload.get("evidence_refs")
-        if evidence_payload is not None:
-            evidence_refs = self._parse_evidence_refs(evidence_payload)
-            proposed_action["evidence_refs"] = canonical_evidence_projection(evidence_refs)
-            return proposed_action, evidence_refs
-        evidence_refs = self._parse_evidence_refs(proposed_action.get("evidence_refs") or [])
-        proposed_action["evidence_refs"] = canonical_evidence_projection(evidence_refs)
-        return proposed_action, evidence_refs
+        canonical_refs = await self._validate_canonical_snapshot_evidence(
+            request.tenant_id,
+            evidence_payload if evidence_payload is not None else proposed_action.get("evidence_refs"),
+        )
+        if (
+            evidence_payload is not None
+            and replacement_action is not None
+            and proposed_action.get("evidence_refs") is not None
+        ):
+            self._assert_exact_canonical_evidence(
+                canonical_refs,
+                proposed_action["evidence_refs"],
+                reason="replacement_action_evidence_mismatch",
+            )
+
+        verified_assertions: list[tuple[str, Any]] = [
+            ("replacement_verified_evidence_mismatch", info_payload.get("verified_evidence_refs")),
+        ]
+        for action_key in ("edited_action", "proposed_action"):
+            action_payload = info_payload.get(action_key)
+            if isinstance(action_payload, dict):
+                verified_assertions.append(
+                    (
+                        f"{action_key}_verified_evidence_mismatch",
+                        action_payload.get("verified_evidence_refs"),
+                    )
+                )
+        for reason, asserted_refs in verified_assertions:
+            self._assert_exact_canonical_evidence(
+                canonical_refs,
+                asserted_refs,
+                reason=reason,
+                empty_means_derive=True,
+            )
+
+        return self._canonical_proposed_action(proposed_action, canonical_refs), canonical_refs
 
     async def _validate_canonical_snapshot_evidence(
         self,

@@ -523,6 +523,13 @@ async def test_edit_changed_evidence_uses_one_repository_canonical_binding(
 
     assert result.status == "superseded"
     assert result.edited_action == expected_action
+    assert [ref.model_dump(mode="json") for ref in result.verified_evidence_refs] == [
+        EvidenceRefV1.model_validate(item).model_dump(mode="json") for item in expected_refs
+    ]
+    assert result.resume_payload is not None
+    assert result.resume_payload["verified_evidence_refs"] == [
+        EvidenceRefV1.model_validate(item).model_dump(mode="json") for item in expected_refs
+    ]
     assert result.new_action_payload_hash == compute_action_payload_hash(expected_action)
     assert decision is not None
     assert decision.edited_action_json == expected_action
