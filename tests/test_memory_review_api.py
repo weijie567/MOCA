@@ -168,7 +168,11 @@ async def test_memory_review_api_lists_pending_and_applies_review_actions(
     )
     reject_response = await client.post(
         f"/api/v1/memory/case/{case_result.memory_id}/reject",
-        json={"run_id": str(run_id), "review_reason": "not durable enough"},
+        json={
+            "run_id": str(run_id),
+            "expected_lifecycle_version": 1,
+            "review_reason": "not durable enough",
+        },
         headers=_auth_header(admin, ["approvals:review"]),
     )
 
@@ -190,6 +194,49 @@ async def test_memory_review_api_lists_pending_and_applies_review_actions(
     assert case_row.review_status == "rejected"
     assert case_row.reviewed_by_user_id == admin.id
     assert case_row.review_reason == "not durable enough"
+
+
+@pytest.mark.asyncio
+async def test_case_review_api_requires_version_and_returns_generic_stale_conflict(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    admin = seeded_session["users"]["admin_user"]
+    run_id = await _insert_run(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=admin.id,
+        thread_id="memory-review-api-cas",
+    )
+    written = await CaseMemoryService(CaseMemoryRepository(session)).submit_case_memory_candidate(
+        _case_candidate(seeded_session, run_id=run_id)
+    )
+    await session.commit()
+    url = f"/api/v1/memory/case/{written.memory_id}/approve"
+    headers = _auth_header(admin, ["approvals:review"])
+
+    missing = await client.post(url, json={"run_id": str(run_id)}, headers=headers)
+    approved = await client.post(
+        url,
+        json={"run_id": str(run_id), "expected_lifecycle_version": 1},
+        headers=headers,
+    )
+    stale = await client.post(
+        f"/api/v1/memory/case/{written.memory_id}/reject",
+        json={"run_id": str(run_id), "expected_lifecycle_version": 1},
+        headers=headers,
+    )
+
+    assert missing.status_code == 422
+    assert approved.status_code == 200
+    assert approved.json()["data"]["lifecycle_version"] == 2
+    assert stale.status_code == 409
+    assert stale.json()["error"] == {
+        "code": "CONFLICT",
+        "message": "Memory state conflict",
+        "details": {},
+    }
 
 
 @pytest.mark.asyncio

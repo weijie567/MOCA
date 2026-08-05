@@ -641,6 +641,7 @@ async def test_generated_candidate_pending_review_hidden_until_approval_with_pol
             run_id=run_id,
             case_memory_id=generated.memory_id,
             reviewer_user_id=seeded_session["users"]["approval_manager"].id,
+            expected_lifecycle_version=1,
             reason_code="approved",
             review_reason="closed-case precedent approved",
         )

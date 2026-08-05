@@ -556,6 +556,7 @@ async def test_review_adds_reviewer_provenance_without_changing_source_authority
             run_id=run_id,
             case_memory_id=row.id,
             reviewer_user_id=reviewer.id,
+            expected_lifecycle_version=row.lifecycle_version,
             reason_code="approved",
             review_reason="canonical provenance verified",
         ),
@@ -603,6 +604,7 @@ async def test_legacy_unresolved_is_excluded_from_pending_review_retrieval_and_a
                 run_id=run_id,
                 case_memory_id=unresolved.id,
                 reviewer_user_id=seeded_session["users"]["admin_user"].id,
+                expected_lifecycle_version=unresolved.lifecycle_version,
                 reason_code="approved",
             )
         )

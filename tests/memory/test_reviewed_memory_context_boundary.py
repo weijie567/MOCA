@@ -572,6 +572,7 @@ async def test_reviewed_memory_context_returns_approved_closed_case_candidate_wi
             run_id=run_id,
             case_memory_id=write_result.memory_id,
             reviewer_user_id=seeded_session["users"]["approval_manager"].id,
+            expected_lifecycle_version=1,
             reason_code="approved",
             review_reason="approved generated precedent",
         )

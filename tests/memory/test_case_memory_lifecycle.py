@@ -9,12 +9,23 @@ import uuid
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint, func, select, text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from src.db.models import Base
+from src.db.models import (
+    AgentRun,
+    Base,
+    CaseMemory,
+    CaseMemoryIdentityClaim,
+    CaseMemoryLineageLink,
+    MemoryTombstone,
+    MemoryWriteEvent,
+)
+from src.memory import schemas as memory_schemas
+from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
+from src.memory.schemas import CaseMemoryReviewDecision, CaseMemoryWriteCandidate
 
 
 MIGRATION_PATH = Path("src/db/migrations/versions/028_phase64_2_memory_lifecycle.py")
@@ -442,3 +453,298 @@ def test_migration_backfills_exact_claims_and_survivor_to_many_lineage() -> None
             await engine.dispose()
 
     asyncio.run(exercise())
+
+
+async def _insert_runtime_run(
+    session: AsyncSession,
+    seeded_session: dict,
+    *,
+    thread_id: str,
+) -> uuid.UUID:
+    run_id = uuid.uuid4()
+    user = seeded_session["users"]["cs_zhang"]
+    session.add(
+        AgentRun(
+            id=run_id,
+            tenant_id=user.tenant_id,
+            user_id=user.id,
+            thread_id=thread_id,
+            input_query="case memory lifecycle",
+            final_status="completed",
+            started_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+    return run_id
+
+
+def _runtime_candidate(
+    seeded_session: dict,
+    *,
+    run_id: uuid.UUID,
+    marker: str,
+    source_event_id: str | None = None,
+    expires_at: datetime | None = None,
+    summary: str = "Exact identity case-memory candidate.",
+) -> CaseMemoryWriteCandidate:
+    case_id = seeded_session["refund_case"].id
+    return CaseMemoryWriteCandidate(
+        tenant_id=seeded_session["tenant"].id,
+        run_id=run_id,
+        scope_type="case",
+        scope_id=str(case_id),
+        case_type="refund_dispute",
+        summary=summary,
+        excerpt="Reviewed precedent context only.",
+        applicability="Comparable refund cases.",
+        outcome="Support completed the review.",
+        caveats="Not policy or action authority.",
+        source_type="llm_candidate",
+        source_ref={
+            "source_type": "llm_candidate",
+            "run_id": str(run_id),
+            "agent_run_id": str(run_id),
+            "event_id": source_event_id or f"case-memory:{marker}",
+            "business_object_type": "refund_case",
+            "business_object_id": str(case_id),
+            "outcome_id": f"outcome:{marker}",
+        },
+        pii_classification="none",
+        expires_at=expires_at,
+    )
+
+
+async def _claim_for_memory(session: AsyncSession, memory_id: uuid.UUID) -> CaseMemoryIdentityClaim:
+    claim = (
+        await session.execute(
+            select(CaseMemoryIdentityClaim).where(CaseMemoryIdentityClaim.owner_case_memory_id == memory_id)
+        )
+    ).scalar_one()
+    return claim
+
+
+@pytest.mark.asyncio
+async def test_pending_expiry_terminalizes_claim_and_emits_one_transition(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    now = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
+    run_id = await _insert_runtime_run(session, seeded_session, thread_id="case-memory-expiry")
+    service = CaseMemoryService(CaseMemoryRepository(session))
+    written = await service.submit_case_memory_candidate(
+        _runtime_candidate(
+            seeded_session,
+            run_id=run_id,
+            marker="expiry",
+            expires_at=now + timedelta(seconds=1),
+        ),
+        now=now,
+    )
+
+    pending = await service.list_pending_review(
+        tenant_id=seeded_session["tenant"].id,
+        now=now + timedelta(seconds=2),
+    )
+    row = await session.get(CaseMemory, written.memory_id)
+    claim = await _claim_for_memory(session, written.memory_id)
+    expiry_events = list(
+        (
+            await session.execute(
+                select(MemoryWriteEvent).where(
+                    MemoryWriteEvent.memory_id == written.memory_id,
+                    MemoryWriteEvent.reason_code == "pending_review_expired",
+                )
+            )
+        ).scalars()
+    )
+
+    assert pending == []
+    assert row is not None
+    assert row.review_status == "superseded"
+    assert row.lifecycle_version == 2
+    assert claim.claim_state == "terminal"
+    assert claim.terminal_status == "superseded"
+    assert claim.terminal_reason == "pending_review_expired"
+    assert claim.lifecycle_version == 2
+    assert len(expiry_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_review_cas_is_single_winner_and_exact_retry_reuses_event(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_runtime_run(session, seeded_session, thread_id="case-memory-review-cas")
+    service = CaseMemoryService(CaseMemoryRepository(session))
+    written = await service.submit_case_memory_candidate(
+        _runtime_candidate(seeded_session, run_id=run_id, marker="review-cas")
+    )
+    reviewer = seeded_session["users"]["admin_user"]
+    decision = CaseMemoryReviewDecision(
+        tenant_id=seeded_session["tenant"].id,
+        run_id=run_id,
+        case_memory_id=written.memory_id,
+        reviewer_user_id=reviewer.id,
+        expected_lifecycle_version=1,
+        reason_code="approved",
+        review_reason="exact provenance approved",
+    )
+
+    first_event = await service.approve_case_memory(decision)
+    retry_event = await service.approve_case_memory(decision)
+    row = await session.get(CaseMemory, written.memory_id)
+    claim = await _claim_for_memory(session, written.memory_id)
+    event_count = await session.scalar(
+        select(func.count()).select_from(MemoryWriteEvent).where(
+            MemoryWriteEvent.memory_id == written.memory_id,
+            MemoryWriteEvent.reason_code == "approved",
+        )
+    )
+    with pytest.raises(ValueError, match="case memory conflict"):
+        await service.reject_case_memory(
+            decision.model_copy(update={"reason_code": "rejected", "review_reason": "competing rejection"})
+        )
+
+    assert row is not None
+    assert row.review_status == "approved"
+    assert row.lifecycle_version == 2
+    assert claim.claim_state == "active"
+    assert claim.lifecycle_version == 2
+    assert retry_event.id == first_event.id
+    assert event_count == 1
+
+
+@pytest.mark.asyncio
+async def test_equal_content_with_distinct_source_identity_is_not_idempotent(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_runtime_run(session, seeded_session, thread_id="case-memory-source-distinct")
+    service = CaseMemoryService(CaseMemoryRepository(session))
+    first = await service.submit_case_memory_candidate(
+        _runtime_candidate(
+            seeded_session,
+            run_id=run_id,
+            marker="source-a",
+            source_event_id="source-a",
+        )
+    )
+    second = await service.submit_case_memory_candidate(
+        _runtime_candidate(
+            seeded_session,
+            run_id=run_id,
+            marker="source-b",
+            source_event_id="source-b",
+        )
+    )
+    claims = list((await session.execute(select(CaseMemoryIdentityClaim))).scalars())
+
+    assert first.status == second.status == "needs_review"
+    assert first.memory_id != second.memory_id
+    assert first.content_hash == second.content_hash
+    assert first.source_identity_hash != second.source_identity_hash
+    assert len(claims) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "terminal_status"),
+    [("delete", "deleted"), ("forget", "tombstoned")],
+)
+async def test_terminal_delete_or_tombstone_retains_claim_and_blocks_delayed_submit(
+    session: AsyncSession,
+    seeded_session: dict,
+    action: str,
+    terminal_status: str,
+) -> None:
+    run_id = await _insert_runtime_run(session, seeded_session, thread_id=f"case-memory-{action}")
+    service = CaseMemoryService(CaseMemoryRepository(session))
+    candidate = _runtime_candidate(seeded_session, run_id=run_id, marker=action)
+    written = await service.submit_case_memory_candidate(candidate)
+    transition = service.delete_case_memory if action == "delete" else service.forget_case_memory
+
+    await transition(
+        tenant_id=candidate.tenant_id,
+        case_memory_id=written.memory_id,
+        run_id=run_id,
+        expected_lifecycle_version=1,
+        reason_code=f"case_{action}",
+    )
+    delayed = await service.submit_case_memory_candidate(candidate)
+    claim = await _claim_for_memory(session, written.memory_id)
+    tombstones = list(
+        (
+            await session.execute(
+                select(MemoryTombstone).where(MemoryTombstone.tenant_id == candidate.tenant_id)
+            )
+        ).scalars()
+    )
+    rows = list(
+        (
+            await session.execute(
+                select(CaseMemory).where(
+                    CaseMemory.candidate_hash == written.candidate_hash,
+                    CaseMemory.tenant_id == candidate.tenant_id,
+                )
+            )
+        ).scalars()
+    )
+
+    assert delayed.status == "error"
+    assert delayed.memory_id is None
+    assert delayed.reason_code == "identity_conflict"
+    assert claim.claim_state == "terminal"
+    assert claim.terminal_status == terminal_status
+    assert len(tombstones) == 1
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_correction_terminalizes_old_claim_and_records_direct_and_association_lineage(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_runtime_run(session, seeded_session, thread_id="case-memory-correction")
+    service = CaseMemoryService(CaseMemoryRepository(session))
+    written = await service.submit_case_memory_candidate(
+        _runtime_candidate(seeded_session, run_id=run_id, marker="correction-old")
+    )
+    reviewer = seeded_session["users"]["admin_user"]
+    correction = memory_schemas.CaseMemoryCorrection(
+        tenant_id=seeded_session["tenant"].id,
+        run_id=run_id,
+        case_memory_id=written.memory_id,
+        reviewer_user_id=reviewer.id,
+        expected_lifecycle_version=1,
+        reason_code="corrected",
+        review_reason="corrected after source review",
+        summary="Corrected exact identity case-memory candidate.",
+        excerpt="Corrected reviewed precedent context only.",
+    )
+
+    event = await service.correct_case_memory(correction)
+    old_row = await session.get(CaseMemory, written.memory_id)
+    new_row = await session.get(CaseMemory, event.memory_id)
+    old_claim = await _claim_for_memory(session, written.memory_id)
+    new_claim = await _claim_for_memory(session, event.memory_id)
+    links = list(
+        (
+            await session.execute(
+                select(CaseMemoryLineageLink).where(
+                    CaseMemoryLineageLink.survivor_case_memory_id == event.memory_id
+                )
+            )
+        ).scalars()
+    )
+
+    assert old_row is not None and new_row is not None
+    assert old_row.review_status == "superseded"
+    assert old_claim.claim_state == "terminal"
+    assert old_claim.terminal_status == "superseded"
+    assert new_claim.claim_state == "active"
+    assert new_claim.candidate_hash != old_claim.candidate_hash
+    assert new_row.corrects_case_memory_id == old_row.id
+    assert new_row.supersedes_case_memory_id == old_row.id
+    assert [(link.related_case_memory_id, link.relation, link.ordinal) for link in links] == [
+        (old_row.id, "correction", 1)
+    ]

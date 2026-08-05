@@ -8,6 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import AgentRun, LongTermMemory, MemoryTombstone, MemoryWriteEvent
+from src.knowledge.evidence_identity import (
+    PersistedEvidenceIdentityMaterialV1,
+    mint_canonical_evidence_identity,
+)
+from src.knowledge.schemas import EvidenceRefV1
 from src.memory.case_memory import CASE_MEMORY_TYPE, CaseMemoryRepository, CaseMemoryService
 from src.memory.identity import canonical_memory_content_hash
 from src.memory.repository import LONG_TERM_MEMORY_TYPE, LongTermMemoryRepository
@@ -102,6 +107,7 @@ def _case_candidate(
     source_ref: dict[str, str] | None = None,
 ) -> CaseMemoryWriteCandidate:
     refund_case = seeded_session["refund_case"]
+    policy_ref = _canonical_policy_ref(tenant_id=refund_case.tenant_id)
     return CaseMemoryWriteCandidate(
         tenant_id=refund_case.tenant_id,
         run_id=run_id,
@@ -122,9 +128,37 @@ def _case_candidate(
         ),
         policy_family="refund",
         policy_version="v1",
-        policy_refs=[{"doc_key": "refund_policy", "chunk_id": "chunk-1", "policy_version": "v1"}],
+        policy_refs=[policy_ref.model_dump(mode="json", exclude_none=True)],
         embedding=[1.0, *([0.0] * 1023)],
         pii_classification="none",
+    )
+
+
+def _canonical_policy_ref(*, tenant_id: uuid.UUID) -> EvidenceRefV1:
+    material = PersistedEvidenceIdentityMaterialV1(
+        tenant_id=str(tenant_id),
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+        document_version_id="00000000-0000-0000-0000-000000006481",
+        chunk_version_id="00000000-0000-0000-0000-000000006482",
+        doc_key="refund_policy",
+        document_version=1,
+        chunk_id="chunk-1",
+        chunk_version=1,
+        text_hash=f"sha256:{'d' * 64}",
+    )
+    resolution = mint_canonical_evidence_identity(
+        material,
+        expected_tenant_id=str(tenant_id),
+        expected_scope_type="tenant_policy",
+        expected_scope_id=str(tenant_id),
+    )
+    assert resolution.identity is not None
+    return EvidenceRefV1.from_canonical_identity(
+        resolution.identity,
+        retrieved_at="2026-08-05T09:00:00Z",
+        retrieval_config_version="retrieval.v3",
+        rank=1,
     )
 
 

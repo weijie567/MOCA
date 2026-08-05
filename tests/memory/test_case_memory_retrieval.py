@@ -324,6 +324,7 @@ async def test_case_memory_candidate_requires_review_before_retrieval(
             run_id=run_id,
             case_memory_id=result.memory_id,
             reviewer_user_id=seeded_session["users"]["approval_manager"].id,
+            expected_lifecycle_version=1,
             reason_code="approved",
             review_reason="reviewed damaged item precedent",
         )
@@ -506,6 +507,7 @@ async def test_case_memory_reject_decision_is_observable(session: AsyncSession, 
             run_id=run_id,
             case_memory_id=write_result.memory_id,
             reviewer_user_id=seeded_session["users"]["approval_manager"].id,
+            expected_lifecycle_version=1,
             reason_code="rejected",
             review_reason="not a reviewed precedent",
         )
