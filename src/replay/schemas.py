@@ -48,6 +48,11 @@ class ReplayEvidenceSnapshotV1(BaseModel):
     retained_content_locator: dict[str, Any]
     compatibility_provenance: ReplayEvidenceCompatibilityProvenanceV1
     retention_until: datetime
+    retained_content: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    current_lifecycle_status: ReplayEvidenceLifecycleStatus | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def _validate_exact_binding(self) -> ReplayEvidenceSnapshotV1:
@@ -84,6 +89,10 @@ class ReplayEventProvenance(BaseModel):
 
     source_schema_version: str
     pairing_status: Literal["paired", "unresolved", "not_applicable"]
+    evidence_resolution_status: Literal["canonical", "legacy_resolved", "legacy_unresolved"] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
 
 class ReplayRetention(BaseModel):
@@ -120,6 +129,7 @@ class ReplayEventV3(BaseModel):
     node_name: str | None = None
     actor: dict[str, Any]
     resource_refs: dict[str, Any]
+    evidence_snapshot_refs: list[ReplayEvidenceSnapshotV1] = Field(default_factory=list)
     redacted_payload: dict[str, Any]
     redaction_policy_version: str = Field(min_length=1)
     provenance: ReplayEventProvenance

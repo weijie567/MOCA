@@ -296,10 +296,27 @@ class ReplayService:
         prior_events: list[AgentTraceEvent] = []
         rag_claim_summary = build_rag_claim_summary_from_sources([event.redacted_payload for event in events])
         for event in events:
+            if event.tenant_id != run.tenant_id:
+                raise LookupError("evidence unavailable")
             pairing_status: OperationPairingStatus | None = None
             if event.schema_version == "replay_event.v3":
                 pairing_status = validate_operation_pairing(prior_events, event).pairing_status
-            timeline.append(self.project_event(event, pairing_status=pairing_status, include_retention_class=False))
+            try:
+                evidence_snapshots, evidence_resolution_status = await self._resolve_event_evidence_snapshots(
+                    event,
+                    trusted_tenant_id=run.tenant_id,
+                )
+            except (TypeError, ValueError) as exc:
+                raise LookupError("evidence unavailable") from exc
+            timeline.append(
+                self.project_event(
+                    event,
+                    pairing_status=pairing_status,
+                    include_retention_class=False,
+                    evidence_snapshot_refs=evidence_snapshots,
+                    evidence_resolution_status=evidence_resolution_status,
+                )
+            )
             prior_events.append(event)
         response = ReplayResponseV3(
             run_id=run.id,
@@ -341,6 +358,7 @@ class ReplayService:
             "occurred_at": event.occurred_at,
             "actor": event.actor,
             "resource_refs": refs,
+            "evidence_snapshot_refs": _stored_evidence_snapshots(event) or None,
             "redaction_policy_version": event.redaction_policy_version,
             "redacted_payload": payload,
         }
@@ -354,6 +372,8 @@ class ReplayService:
         *,
         pairing_status: OperationPairingStatus | None = None,
         include_retention_class: bool = True,
+        evidence_snapshot_refs: list[ReplayEvidenceSnapshotV1] | None = None,
+        evidence_resolution_status: str | None = None,
     ) -> dict[str, Any]:
         """Project stored minimal or V3 rows into the strict ReplayEventV3 shape."""
         retention_class = retention_for_event_type(event.event_type)
@@ -362,6 +382,9 @@ class ReplayService:
         guard_redacted_payload(payload)
         guard_resource_refs(refs)
         source_schema_version = event.schema_version
+        projected_snapshots = (
+            _stored_evidence_snapshots(event) if evidence_snapshot_refs is None else evidence_snapshot_refs
+        )
         projection = {
             "schema_version": "replay_event.v3",
             "event_id": event.event_id,
@@ -378,11 +401,13 @@ class ReplayService:
             "node_name": event.node_name,
             "actor": event.actor,
             "resource_refs": refs,
+            "evidence_snapshot_refs": projected_snapshots,
             "redacted_payload": payload,
             "redaction_policy_version": event.redaction_policy_version,
             "provenance": {
                 "source_schema_version": source_schema_version,
                 "pairing_status": _projected_pairing_status(source_schema_version, pairing_status),
+                "evidence_resolution_status": evidence_resolution_status,
             },
             "retention": {
                 "archived_at": event.archived_at,
@@ -395,6 +420,215 @@ class ReplayService:
         if include_retention_class:
             event_dict["retention"]["retention_class"] = retention_class
         return event_dict
+
+    async def _resolve_event_evidence_snapshots(
+        self,
+        event: AgentTraceEvent,
+        *,
+        trusted_tenant_id: uuid.UUID,
+    ) -> tuple[list[ReplayEvidenceSnapshotV1], str | None]:
+        stored = _stored_evidence_snapshots(event)
+        if stored:
+            resolved = [
+                await self._resolve_stored_evidence_snapshot(
+                    snapshot,
+                    trusted_tenant_id=trusted_tenant_id,
+                )
+                for snapshot in stored
+            ]
+            return resolved, "canonical"
+        if event.evidence_refs_json:
+            return await self.resolve_persisted_legacy_event_evidence(
+                event.event_id,
+                trusted_tenant_id=trusted_tenant_id,
+            )
+        return [], None
+
+    async def _resolve_stored_evidence_snapshot(
+        self,
+        snapshot: ReplayEvidenceSnapshotV1,
+        *,
+        trusted_tenant_id: uuid.UUID,
+    ) -> ReplayEvidenceSnapshotV1:
+        identity = snapshot.canonical_evidence_ref.to_canonical_identity()
+        if identity is None:
+            raise ValueError("evidence unavailable")
+        resolution = await EvidenceVersionRepository(self.session).resolve_exact(
+            identity,
+            expected_tenant_id=trusted_tenant_id,
+            expected_scope_type="tenant_policy",
+            expected_scope_id=str(trusted_tenant_id),
+        )
+        if (
+            resolution.status is not EvidenceIdentityResolutionStatus.CANONICAL
+            or resolution.identity is None
+            or resolution.identity != identity
+        ):
+            raise ValueError("evidence unavailable")
+        document, chunk = await self._retained_evidence_material(
+            resolution.identity,
+            trusted_tenant_id=trusted_tenant_id,
+        )
+        if (
+            snapshot.retained_content_hash != chunk.text_hash
+            or snapshot.retained_content_locator != dict(chunk.source_locator_json)
+        ):
+            raise ValueError("evidence unavailable")
+        lifecycle = await self._current_evidence_lifecycle(document, chunk)
+        return snapshot.model_copy(
+            update={
+                "retained_content": chunk.content,
+                "current_lifecycle_status": lifecycle,
+            }
+        )
+
+    async def resolve_persisted_legacy_event_evidence(
+        self,
+        event_id: uuid.UUID | str,
+        *,
+        trusted_tenant_id: uuid.UUID | str,
+    ) -> tuple[list[ReplayEvidenceSnapshotV1], str]:
+        """Read-only adapter for evidence JSON that was persisted before Phase 64.2."""
+
+        tenant_uuid = _as_uuid(trusted_tenant_id)
+        event = (
+            await self.session.execute(
+                sa.select(AgentTraceEvent).where(
+                    AgentTraceEvent.event_id == _as_uuid(event_id),
+                    AgentTraceEvent.tenant_id == tenant_uuid,
+                )
+            )
+        ).scalar_one_or_none()
+        if event is None or not event.evidence_refs_json or event.evidence_snapshot_refs_json:
+            return [], "legacy_unresolved"
+
+        repository = EvidenceVersionRepository(self.session)
+        snapshots: list[ReplayEvidenceSnapshotV1] = []
+        for raw_ref in event.evidence_refs_json:
+            if not isinstance(raw_ref, dict):
+                return [], "legacy_unresolved"
+            try:
+                legacy_ref = EvidenceRefV1.model_validate(raw_ref)
+            except ValueError:
+                return [], "legacy_unresolved"
+            if legacy_ref.to_canonical_identity() is not None:
+                return [], "legacy_unresolved"
+            resolution = await repository.resolve_legacy_alias(
+                legacy_ref.evidence_id,
+                expected_tenant_id=tenant_uuid,
+                expected_scope_type="tenant_policy",
+                expected_scope_id=str(tenant_uuid),
+            )
+            identity = resolution.identity
+            if (
+                resolution.status is not EvidenceIdentityResolutionStatus.LEGACY_RESOLVED
+                or identity is None
+                or legacy_ref.tenant_id != str(tenant_uuid)
+                or legacy_ref.doc_key != identity.doc_key
+                or legacy_ref.chunk_id != identity.chunk_id
+                or legacy_ref.policy_version != f"v{identity.document_version}"
+                or legacy_ref.text_hash != identity.text_hash
+            ):
+                return [], "legacy_unresolved"
+            document, chunk = await self._retained_evidence_material(
+                identity,
+                trusted_tenant_id=tenant_uuid,
+            )
+            canonical_ref = EvidenceRefV1.from_canonical_identity(
+                identity,
+                retrieved_at=legacy_ref.retrieved_at,
+                retrieval_config_version=legacy_ref.retrieval_config_version,
+                score=legacy_ref.score,
+                rank=legacy_ref.rank,
+            )
+            lifecycle = await self._current_evidence_lifecycle(document, chunk)
+            snapshots.append(
+                ReplayEvidenceSnapshotV1(
+                    canonical_evidence_ref=canonical_ref,
+                    scope_type=identity.scope_type,
+                    scope_id=identity.scope_id,
+                    document_version_id=identity.document_version_id,
+                    chunk_version_id=identity.chunk_version_id,
+                    document_version=identity.document_version,
+                    chunk_version=identity.chunk_version,
+                    canonical_identity_hash=identity.evidence_id,
+                    captured_lifecycle_status=lifecycle,
+                    retained_content_hash=chunk.text_hash,
+                    retained_content_locator=dict(chunk.source_locator_json),
+                    compatibility_provenance={
+                        "resolution_status": "legacy_resolved",
+                        "source": "persisted_legacy_event",
+                    },
+                    retention_until=min(document.retention_until, chunk.retention_until),
+                    retained_content=chunk.content,
+                    current_lifecycle_status=lifecycle,
+                )
+            )
+        return snapshots, "legacy_resolved"
+
+    async def _retained_evidence_material(
+        self,
+        identity: Any,
+        *,
+        trusted_tenant_id: uuid.UUID,
+    ) -> tuple[PolicyDocumentVersion, PolicyChunkVersion]:
+        expected_scope_id = str(trusted_tenant_id)
+        document = (
+            await self.session.execute(
+                sa.select(PolicyDocumentVersion).where(
+                    PolicyDocumentVersion.id == _as_uuid(identity.document_version_id),
+                    PolicyDocumentVersion.tenant_id == trusted_tenant_id,
+                    PolicyDocumentVersion.scope_type == "tenant_policy",
+                    PolicyDocumentVersion.scope_id == expected_scope_id,
+                )
+            )
+        ).scalar_one_or_none()
+        chunk = (
+            await self.session.execute(
+                sa.select(PolicyChunkVersion).where(
+                    PolicyChunkVersion.id == _as_uuid(identity.chunk_version_id),
+                    PolicyChunkVersion.tenant_id == trusted_tenant_id,
+                    PolicyChunkVersion.policy_document_version_id == _as_uuid(identity.document_version_id),
+                    PolicyChunkVersion.scope_type == "tenant_policy",
+                    PolicyChunkVersion.scope_id == expected_scope_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if document is None or chunk is None:
+            raise ValueError("evidence unavailable")
+        return document, chunk
+
+    async def _current_evidence_lifecycle(
+        self,
+        document: PolicyDocumentVersion,
+        chunk: PolicyChunkVersion,
+    ) -> str:
+        explicit = [
+            _project_evidence_lifecycle(document.lifecycle_status),
+            _project_evidence_lifecycle(chunk.lifecycle_status),
+        ]
+        for status in ("tombstoned", "expired", "archived", "corrected", "superseded"):
+            if status in explicit:
+                return status
+        corrected = await self.session.scalar(
+            sa.select(
+                sa.exists().where(
+                    PolicyChunkVersion.tenant_id == chunk.tenant_id,
+                    PolicyChunkVersion.corrects_version_id == chunk.id,
+                )
+            )
+        )
+        if corrected:
+            return "corrected"
+        superseded = await self.session.scalar(
+            sa.select(
+                sa.exists().where(
+                    PolicyChunkVersion.tenant_id == chunk.tenant_id,
+                    PolicyChunkVersion.supersedes_version_id == chunk.id,
+                )
+            )
+        )
+        return "superseded" if superseded else "current"
 
 
 def _as_uuid(value: uuid.UUID | str) -> uuid.UUID:
@@ -433,3 +667,10 @@ def _project_evidence_lifecycle(value: str) -> str:
     if value in {"superseded", "corrected", "archived", "expired", "tombstoned"}:
         return value
     raise ValueError("evidence unavailable")
+
+
+def _stored_evidence_snapshots(event: AgentTraceEvent) -> list[ReplayEvidenceSnapshotV1]:
+    return [
+        ReplayEvidenceSnapshotV1.model_validate(snapshot)
+        for snapshot in (event.evidence_snapshot_refs_json or [])
+    ]

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.knowledge.schemas import EvidenceRefV1
+from src.replay.schemas import ReplayEvidenceSnapshotV1
 from src.replay.validators import guard_redacted_payload, guard_resource_refs, validate_event_type
 
 if TYPE_CHECKING:
@@ -41,6 +42,10 @@ class DecisionEventEnvelopeV1(BaseModel):
     occurred_at: datetime
     actor: dict[str, Any]
     resource_refs: dict[str, Any]
+    evidence_snapshot_refs: list[ReplayEvidenceSnapshotV1] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     redaction_policy_version: str = Field(min_length=1)
     redacted_payload: dict[str, Any]
 
