@@ -146,6 +146,11 @@ def test_orm_and_migration_define_exact_additive_immutable_foundation() -> None:
         assert item_name in dependency_items
     assert "ck_evidence_identity_rollouts_singleton" in rollout_items
     assert "ck_evidence_identity_rollouts_version_nonnegative" in rollout_items
+    assert "'archived'" in str(
+        document_items["ck_policy_document_versions_lifecycle_status"].sqltext
+    )
+    assert "'archived'" in str(chunk_items["ck_policy_chunk_versions_lifecycle_status"].sqltext)
+    assert "'archived'" in source.split("_LIFECYCLE_CHECK =", 1)[1].split("\n", 1)[0]
 
     assert "CREATE SEQUENCE evidence_ingestion_write_seq" in source
     assert "evidence_ingestion_write_seq" in source
@@ -363,6 +368,16 @@ def test_upgrade_performs_no_backfill() -> None:
                         "retention_until": retention_until,
                     },
                 )
+                await conn.execute(
+                    text(
+                        "UPDATE policy_document_versions SET lifecycle_status = 'archived' WHERE id = :id"
+                    ),
+                    {"id": document_version_id},
+                )
+                await conn.execute(
+                    text("UPDATE policy_chunk_versions SET lifecycle_status = 'archived' WHERE id = :id"),
+                    {"id": chunk_version_id},
+                )
 
             async with engine.connect() as conn:
                 retained = (
@@ -377,7 +392,7 @@ def test_upgrade_performs_no_backfill() -> None:
                 assert retained.content == "retained immutable chunk"
                 assert retained.text_hash == "sha256:" + "b" * 64
                 assert retained.source_locator_json["source_uri"] == "policies/refund.md"
-                assert retained.lifecycle_status == "tombstoned"
+                assert retained.lifecycle_status == "archived"
 
             async with engine.connect() as conn:
                 transaction = await conn.begin()

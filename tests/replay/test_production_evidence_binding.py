@@ -505,6 +505,7 @@ async def test_replay_resolves_retained_original_through_lifecycle_changes_and_b
     for stored_status, expected_status in (
         ("superseded", "superseded"),
         ("corrected", "corrected"),
+        ("archived", "archived"),
         ("expired", "expired"),
         ("tombstoned", "tombstoned"),
     ):
