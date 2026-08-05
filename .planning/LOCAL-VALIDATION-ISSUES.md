@@ -22070,3 +22070,23 @@ Task 2 首次 GREEN 聚合出现两个失败：ORM 列名断言错误地把 `Col
 
 **剩余问题和下次继续排查入口**
 最终 Task 2 原命令为 `9 passed, 4 warnings`，scoped Ruff 为 `All checks passed!`，3 个文件 format check 与 `git diff --check` 均通过。4 个 warning 是既有 LangGraph pending deprecation 与 Alembic `path_separator` 配置提示，不影响 025 PostgreSQL 迁移结论；后续若治理 Alembic warning，应由配置 hygiene scope 单独处理。
+
+## 2026-08-05 — Phase 64.2 Plan 03 共享 memory identity 首轮 GREEN 暴露 source profile 与旧测试夹具漂移
+
+**问题现象**
+Task 3 首轮 GREEN 聚合为 `77 passed, 2 failed`：同一新 v2 source 的 case candidate 在已有 tombstone 时仍返回 `needs_review`，没有按预期 `skipped`；另一个 CWC 测试继续 monkeypatch 已删除的本地 `canonical_memory_candidate_hash`，在 shared owner 已接管后报属性不存在。
+
+**如何检测/复现**
+执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_memory_identity.py tests/memory/test_memory_write_service.py tests/memory/test_case_memory_retrieval.py tests/memory/test_case_working_context_service.py -q --tb=short`。前者由 source-only tombstone 与新 candidate 的 source hash 不一致稳定复现；后者由旧测试 fixture 绑定已删除实现细节稳定复现。
+
+**关键证据或命令**
+首轮输出为 `2 failed, 77 passed`。修复后同一精确命令为 `79 passed, 1 warning`；对应 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/long_term.py src/memory/case_memory.py src/memory/case_working_context_service.py tests/memory/test_memory_identity.py` 输出 `All checks passed!`。warning 是既有 LangGraph `allowed_objects` pending deprecation。
+
+**当前判断/根因**
+source-only tombstone 仍使用 legacy 默认 source profile，而新 candidate 明确使用 `nfc_selective_v2`，导致同一来源的 hash namespace 不一致；CWC 失败是测试仍绑定调用方本地 hash helper 的历史夹具，不是保留兼容重算路径的理由。
+
+**已做处理**
+case source-only tombstone 明确按新写入的 v2 profile 计算 source hash，已有删除路径仍复用存储的 legacy hash；CWC 测试改为 spy `build_case_working_context_candidate_identity` 并验证只调用一次及 event/result 完全复用 owner 结果。该一文件测试范围修正已获主 orchestrator 同意。另在收尾审查中补充有限浮点 session slot confidence 的支持与回归覆盖，非有限值继续 fail closed。
+
+**剩余问题和下次继续排查入口**
+Plan 03 精确测试和 scoped Ruff 均通过，无当前阻断。Plan 09 仍需用 AST ownership guard 防止本地 builder 回流；Plan 07/08 继续负责 reviewed provenance persistence 与 lifecycle 约束，不能把本次 profile 推断当作其替代。

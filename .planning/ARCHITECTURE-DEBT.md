@@ -2241,3 +2241,13 @@
 - **处理状态**：✅ `scripts/eval_rag.py` 已成为唯一实现并保留 hybrid trace；legacy 文件已收为带弃用提示的兼容转发；测试直接覆盖 canonical CLI/report/scorer/22 条 golden schema，并增加 Makefile、`scripts/eval_all.py` 与 legacy delegation parity guard。
 - **证据**：quick fix（未提交）；`scripts/eval_rag.py:80-98,128-170`、`scripts/eval_rag_hit_at_5.py:1-60`、`tests/test_rag_eval.py:148-296`；focused pytest → `20 passed, 1 warning`；scoped Ruff check → `All checks passed!`；format check → `3 files already formatted`。
 - **剩余风险**：无当前架构阻断。legacy wrapper 是有意兼容面且不再拥有独立逻辑；旧 14 条数据文件不再被活跃入口或测试读取。DB-backed 指标质量与多格式 benchmark 扩充属于后续评测内容，不影响本条单一 evaluator owner 的关闭结论。
+
+## 2026-08-05 — Phase 64.2 Plan 03 memory candidate identity 多 owner 漂移 ✅已修复验证
+
+- **子系统**：记忆（session / long-term / case memory / case working context）identity、dedupe、write event。
+- **问题现象 / 根因**：session node、session service、long-term、case-memory 与 CWC 各自维护 content/source serializer 或 candidate hash helper；同一候选可在 node、store、event、retry 与 lifecycle 路径得到不同 identity。旧 `NFKC + casefold` normalization 还会折叠 proper noun 大小写，且 source-only tombstone 若继续用 legacy 默认 profile，会与新 v2 candidate 失配。
+- **影响**：dedupe、tombstone、review/delete event 和用户可见投影可能无法指向同一候选；旧 hash 若被静默按新规则解释，会破坏已存身份的可验证性。
+- **处理状态**：✅ 已修复并通过精确验证。`src/memory/identity.py` 现为 normalization、content/source/candidate hash 与四类 typed builder 的唯一 owner；新写入固定 `nfc_selective_v2`（NFC、空白归一、仅注册 enum-like 字段小写、proper noun 保持），legacy profile 只按旧 namespace 验证。session service 每个候选只计算一次并在 result/event/node 投影复用；long-term、case 与 CWC 的 store/dedupe/review/delete 路径消费同一个 typed result；stored row 只有在其既有 hashes 与某个 profile 精确匹配时才采用该 profile。
+- **证据**：Phase 64.2 Plan 03；commits `756a214`、`c727fae`、`705a448`、`e8b3d68`、`1742c9e`、`ed9aa13`、`8ee94a0`；`src/memory/identity.py`、`src/memory/service.py`、`src/agent/nodes/memory_write.py`、`src/memory/long_term.py`、`src/memory/case_memory.py`、`src/memory/case_working_context_service.py`。
+- **验证**：三条 plan 精确 pytest 分别为 `17 passed`、`55 passed`、`79 passed`，全部 scoped Ruff 通过；跨 builder 测试验证 named owner 每候选调用一次，stored/event/result hashes 与 normalized source ref 完全一致。
+- **剩余风险**：🟡 Plan 07/08 仍负责 reviewed provenance persistence 与 lifecycle columns/约束；Plan 09 仍需增加 AST ownership guard，防止后续重新引入 caller-local serializer。这些是已命名后续范围，不影响 Plan 03 当前 identity parity。
