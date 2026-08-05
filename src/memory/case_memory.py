@@ -10,12 +10,13 @@ from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import and_, literal, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import CaseMemory, MemoryTombstone, MemoryWriteEvent
+from src.db.models import CaseMemory, CaseMemoryLineageLink, MemoryTombstone, MemoryWriteEvent
 from src.knowledge.schemas import EvidenceRefV1
 from src.memory.identity import (
     ALLOWED_SOURCE_REF_KEYS,
     MEMORY_IDENTITY_PROFILE,
     MemoryCandidateIdentityV1,
+    MemoryIdentityError,
     build_case_memory_candidate_identity,
     canonical_source_identity_hash,
 )
@@ -36,6 +37,7 @@ from src.memory.schemas import (
     CaseMemorySearchResult,
     CaseMemoryWriteCandidate,
     CaseMemoryWriteResult,
+    LegacyUnresolvedCaseMemoryProvenanceV1,
 )
 from src.memory.tombstones import source_identity_hash_for_tombstone
 
@@ -148,19 +150,54 @@ class CaseMemoryRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_resolved_case_memory(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        case_memory_id: uuid.UUID,
+    ) -> CaseMemory | None:
+        memory = await self.get_case_memory(tenant_id=tenant_id, case_memory_id=case_memory_id)
+        if memory is None or resolved_case_memory_provenance(memory) is None:
+            return None
+        return memory
+
+    async def list_lineage(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        case_memory_id: uuid.UUID,
+    ) -> list[CaseMemoryLineageLink]:
+        result = await self.session.execute(
+            select(CaseMemoryLineageLink)
+            .where(
+                CaseMemoryLineageLink.tenant_id == tenant_id,
+                or_(
+                    CaseMemoryLineageLink.survivor_case_memory_id == case_memory_id,
+                    CaseMemoryLineageLink.related_case_memory_id == case_memory_id,
+                ),
+            )
+            .order_by(
+                CaseMemoryLineageLink.relation,
+                CaseMemoryLineageLink.ordinal,
+                CaseMemoryLineageLink.id,
+            )
+        )
+        return list(result.scalars().all())
+
     async def list_pending_review(self, *, tenant_id: uuid.UUID, limit: int = 50) -> list[CaseMemory]:
         result = await self.session.execute(
             select(CaseMemory)
             .where(
                 CaseMemory.tenant_id == tenant_id,
                 CaseMemory.review_status == "needs_review",
+                CaseMemory.identity_resolution_status.in_(_RESOLVED_PROVENANCE_STATUSES),
                 CaseMemory.deleted_at.is_(None),
             )
             .order_by(CaseMemory.created_at.desc())
             .limit(max(1, min(limit, 100)))
             .execution_options(populate_existing=True)
         )
-        return list(result.scalars().all())
+        return [memory for memory in result.scalars().all() if resolved_case_memory_provenance(memory) is not None]
 
     async def approve_case_memory(
         self,
@@ -171,16 +208,28 @@ class CaseMemoryRepository:
         review_reason: str | None,
         now: datetime | None = None,
     ) -> CaseMemory | None:
-        memory = await self.get_case_memory(tenant_id=tenant_id, case_memory_id=case_memory_id)
+        memory = await self.get_resolved_case_memory(tenant_id=tenant_id, case_memory_id=case_memory_id)
         if memory is None:
             return None
         if memory.review_status != "needs_review":
             raise ValueError("case memory approval requires needs_review status")
         now = _aware(now)
+        if reviewer_user_id is None:
+            raise ValueError("case memory review requires reviewer provenance")
+        provenance = _require_resolved_case_memory_provenance(memory)
         memory.review_status = "approved"
         memory.reviewed_by_user_id = reviewer_user_id
         memory.reviewed_at = now
         memory.review_reason = review_reason
+        memory.lifecycle_version += 1
+        memory.provenance_json = provenance.model_copy(
+            update={
+                "review_decision": "approved",
+                "reviewer_user_id": reviewer_user_id,
+                "reviewed_at": now,
+                "review_reason": review_reason,
+            }
+        ).model_dump(mode="json", exclude_none=True)
         await self.session.flush()
         return memory
 
@@ -193,16 +242,28 @@ class CaseMemoryRepository:
         review_reason: str | None,
         now: datetime | None = None,
     ) -> CaseMemory | None:
-        memory = await self.get_case_memory(tenant_id=tenant_id, case_memory_id=case_memory_id)
+        memory = await self.get_resolved_case_memory(tenant_id=tenant_id, case_memory_id=case_memory_id)
         if memory is None:
             return None
         if memory.review_status != "needs_review":
             raise ValueError("case memory rejection requires needs_review status")
         now = _aware(now)
+        if reviewer_user_id is None:
+            raise ValueError("case memory review requires reviewer provenance")
+        provenance = _require_resolved_case_memory_provenance(memory)
         memory.review_status = "rejected"
         memory.reviewed_by_user_id = reviewer_user_id
         memory.reviewed_at = now
         memory.review_reason = review_reason
+        memory.lifecycle_version += 1
+        memory.provenance_json = provenance.model_copy(
+            update={
+                "review_decision": "rejected",
+                "reviewer_user_id": reviewer_user_id,
+                "reviewed_at": now,
+                "review_reason": review_reason,
+            }
+        ).model_dump(mode="json", exclude_none=True)
         await self.session.flush()
         return memory
 
@@ -214,7 +275,7 @@ class CaseMemoryRepository:
         review_status: str,
         now: datetime | None = None,
     ) -> CaseMemory | None:
-        memory = await self.get_case_memory(tenant_id=tenant_id, case_memory_id=case_memory_id)
+        memory = await self.get_resolved_case_memory(tenant_id=tenant_id, case_memory_id=case_memory_id)
         if memory is None:
             return None
         memory.review_status = review_status
@@ -405,6 +466,7 @@ class CaseMemoryRepository:
             CaseMemory.scope_id == scope_id,
             CaseMemory.deleted_at.is_(None),
             CaseMemory.review_status.in_(ACTIVE_CASE_DUPLICATE_REVIEW_STATUSES),
+            CaseMemory.identity_resolution_status.in_(_RESOLVED_PROVENANCE_STATUSES),
             or_(CaseMemory.expires_at.is_(None), CaseMemory.expires_at > now),
         ]
         result = await self.session.execute(
@@ -415,7 +477,7 @@ class CaseMemoryRepository:
             .execution_options(populate_existing=True)
         )
         duplicate = result.scalar_one_or_none()
-        if duplicate is not None:
+        if duplicate is not None and resolved_case_memory_provenance(duplicate) is not None:
             return duplicate, "duplicate_active_identity"
 
         if source_identity_hash is not None:
@@ -427,7 +489,7 @@ class CaseMemoryRepository:
                 .execution_options(populate_existing=True)
             )
             duplicate = result.scalar_one_or_none()
-            if duplicate is not None:
+            if duplicate is not None and resolved_case_memory_provenance(duplicate) is not None:
                 return duplicate, "duplicate_active_source_identity"
 
         return None
@@ -460,7 +522,11 @@ class CaseMemoryRepository:
             rows=[(row[0], float(row[1])) for row in result.all()],
             request=request,
         )
-        items = [_to_search_item(memory, score) for memory, score in ranked_rows[: request.limit]]
+        items = [
+            _to_search_item(memory, score)
+            for memory, score in ranked_rows[: request.limit]
+            if resolved_case_memory_provenance(memory) is not None
+        ]
         return CaseMemorySearchResult(status="success" if items else "empty", items=items)
 
     def _metadata_filters(self, *, request: CaseMemorySearchRequest, now: datetime) -> list[Any]:
@@ -468,6 +534,7 @@ class CaseMemoryRepository:
             CaseMemory.tenant_id == request.tenant_id,
             _scope_filter(request),
             CaseMemory.review_status.in_(PUBLISHED_CASE_REVIEW_STATUSES),
+            CaseMemory.identity_resolution_status.in_(_RESOLVED_PROVENANCE_STATUSES),
             CaseMemory.deleted_at.is_(None),
             or_(CaseMemory.expires_at.is_(None), CaseMemory.expires_at > now),
             CaseMemory.pii_classification.in_(tuple(PROMPT_SAFE_PII_CLASSIFICATIONS)),
@@ -1020,6 +1087,97 @@ def _resolved_candidate_provenance(
         expected_outcome_id = f"cwc:{provenance.source_cwc_id}:v{provenance.source_cwc_revision}"
         if identity.normalized_source_ref.outcome_id != expected_outcome_id:
             raise ValueError("case memory provenance CWC revision does not match the source identity")
+    return provenance
+
+
+def resolved_case_memory_provenance(memory: CaseMemory) -> CaseMemoryProvenanceV1 | None:
+    """Return resolved provenance only when every persisted binding still matches."""
+
+    if memory.identity_resolution_status not in _RESOLVED_PROVENANCE_STATUSES:
+        return None
+    try:
+        envelope = _PROVENANCE_ADAPTER.validate_python(memory.provenance_json)
+    except ValidationError:
+        return None
+    if not isinstance(envelope, CaseMemoryProvenanceV1):
+        return None
+    try:
+        identity = build_case_memory_candidate_identity(memory)
+        stored_policy_refs = _validated_policy_refs(memory.policy_refs_json or [], tenant_id=memory.tenant_id)
+    except (MemoryIdentityError, ValueError):
+        return None
+    expected = {
+        "tenant_id": memory.tenant_id,
+        "scope_type": memory.scope_type,
+        "scope_id": memory.scope_id,
+        "resolution_status": memory.identity_resolution_status,
+        "identity_algorithm_version": memory.identity_algorithm_version,
+        "identity_profile": identity.identity_profile,
+        "candidate_hash": memory.candidate_hash,
+        "content_hash": memory.content_hash,
+        "source_identity_hash": memory.source_identity_hash,
+        "corrects_case_memory_id": memory.corrects_case_memory_id,
+        "supersedes_case_memory_id": memory.supersedes_case_memory_id,
+    }
+    if any(getattr(envelope, field_name) != value for field_name, value in expected.items()):
+        return None
+    if (
+        identity.candidate_hash != memory.candidate_hash
+        or identity.content_hash != memory.content_hash
+        or identity.source_identity_hash != memory.source_identity_hash
+    ):
+        return None
+    provenance_policy_refs = [
+        ref.model_dump(mode="json", exclude_none=True) for ref in envelope.evidence_refs
+    ]
+    if provenance_policy_refs != stored_policy_refs:
+        return None
+    if memory.created_by_run_id is not None and envelope.source_run_id != memory.created_by_run_id:
+        return None
+    source_ref = dict(memory.source_ref_json or {})
+    if envelope.source_event_id != source_ref.get("event_id"):
+        return None
+    if envelope.source_cwc_id is not None:
+        expected_outcome_id = f"cwc:{envelope.source_cwc_id}:v{envelope.source_cwc_revision}"
+        if source_ref.get("outcome_id") != expected_outcome_id:
+            return None
+    expected_review_decision = {
+        "approved": "approved",
+        "rejected": "rejected",
+    }.get(memory.review_status)
+    if expected_review_decision is not None and envelope.review_decision != expected_review_decision:
+        return None
+    if envelope.review_decision is not None and (
+        envelope.reviewer_user_id != memory.reviewed_by_user_id
+        or _aware(envelope.reviewed_at) != _aware(memory.reviewed_at)
+        or envelope.review_reason != memory.review_reason
+    ):
+        return None
+    return envelope
+
+
+def legacy_unresolved_case_memory_provenance(
+    memory: CaseMemory,
+) -> LegacyUnresolvedCaseMemoryProvenanceV1 | None:
+    """Return only a well-formed unresolved envelope bound to this tenant and row."""
+
+    if memory.identity_resolution_status != "legacy_unresolved":
+        return None
+    try:
+        envelope = _PROVENANCE_ADAPTER.validate_python(memory.provenance_json)
+    except ValidationError:
+        return None
+    if not isinstance(envelope, LegacyUnresolvedCaseMemoryProvenanceV1):
+        return None
+    if envelope.tenant_id != memory.tenant_id or envelope.case_memory_id != memory.id:
+        return None
+    return envelope
+
+
+def _require_resolved_case_memory_provenance(memory: CaseMemory) -> CaseMemoryProvenanceV1:
+    provenance = resolved_case_memory_provenance(memory)
+    if provenance is None:
+        raise ValueError("case memory not found")
     return provenance
 
 

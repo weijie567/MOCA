@@ -695,4 +695,8 @@ async def test_forged_and_cross_tenant_case_memory_actions_use_generic_not_found
             headers=_auth_header(admin, ["approvals:review"]),
         )
         assert response.status_code == 404
-        assert response.json()["error"] == {"code": "NOT_FOUND", "message": "Memory not found"}
+        assert response.json()["error"] == {
+            "code": "NOT_FOUND",
+            "message": "Memory not found",
+            "details": {},
+        }

@@ -9,20 +9,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.schemas.common import ApiResponse
 from src.api.schemas.memory import (
+    CaseMemoryDetailResponse,
+    CaseMemoryLineageItem,
+    CaseMemoryLineageLinkItem,
     LongTermPreferenceSaveRequest,
     LongTermPreferenceSaveResponse,
     MemoryPendingItem,
     MemoryPendingListResponse,
     MemoryReviewActionRequest,
+    MemorySourceAuthorityItem,
 )
 from src.auth.permissions import get_current_user
-from src.db.models import AgentRun, CaseMemory, LongTermMemory, Merchant, User
+from src.db.models import AgentRun, CaseMemory, CaseMemoryLineageLink, LongTermMemory, Merchant, User
 from src.db.session import get_session
-from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
+from src.memory.case_memory import (
+    CaseMemoryRepository,
+    CaseMemoryService,
+    legacy_unresolved_case_memory_provenance,
+    resolved_case_memory_provenance,
+)
 from src.memory.long_term import LongTermMemoryService
 from src.memory.preference_capture import classify_preference_pii, validate_soft_preference_text
 from src.memory.repository import LongTermMemoryRepository
-from src.memory.schemas import CaseMemoryReviewDecision, LongTermMemoryWriteCandidate, MemorySourceRefV1
+from src.memory.schemas import (
+    CaseMemoryProvenanceV1,
+    CaseMemoryReviewDecision,
+    CaseMemorySourceAuthorityV1,
+    LongTermMemoryWriteCandidate,
+    MemorySourceRefV1,
+)
 
 
 router = APIRouter(tags=["memory"])
@@ -49,11 +64,14 @@ async def list_pending_memory(
         items.extend(_long_term_pending_item(memory) for memory in memories)
 
     if memory_type in {"all", "case"}:
-        memories = await CaseMemoryService(CaseMemoryRepository(session)).list_pending_review(
+        repository = CaseMemoryRepository(session)
+        memories = await CaseMemoryService(repository).list_pending_review(
             tenant_id=user.tenant_id,
             limit=limit,
         )
-        items.extend(_case_pending_item(memory) for memory in memories)
+        for memory in memories:
+            lineage = await repository.list_lineage(tenant_id=user.tenant_id, case_memory_id=memory.id)
+            items.append(_case_pending_item(memory, lineage))
 
     items.sort(key=lambda item: item.created_at.timestamp() if item.created_at else 0.0, reverse=True)
     payload = MemoryPendingListResponse(items=items[:limit], total=len(items))
@@ -216,6 +234,45 @@ async def approve_case_memory(
     )
 
 
+@router.get("/case/{memory_id}", response_model=ApiResponse)
+async def get_case_memory_detail(
+    memory_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Security(get_current_user, scopes=["approvals:review"]),
+) -> ApiResponse:
+    _assert_memory_reviewer(user)
+    memory_uuid = _parse_memory_id(memory_id)
+    repository = CaseMemoryRepository(session)
+    memory = await repository.get_case_memory(tenant_id=user.tenant_id, case_memory_id=memory_uuid)
+    if memory is None:
+        raise _generic_memory_not_found()
+
+    unresolved = legacy_unresolved_case_memory_provenance(memory)
+    if unresolved is not None:
+        return ApiResponse(
+            success=True,
+            data={
+                "memory_type": "case",
+                "memory_id": str(memory.id),
+                "identity_resolution_status": "legacy_unresolved",
+                "unresolved_reasons": list(unresolved.unresolved_reasons),
+            },
+            trace_id=getattr(request.state, "trace_id", None),
+        )
+
+    provenance = resolved_case_memory_provenance(memory)
+    if provenance is None:
+        raise _generic_memory_not_found()
+    lineage = await repository.list_lineage(tenant_id=user.tenant_id, case_memory_id=memory.id)
+    payload = _case_detail(memory, provenance, lineage)
+    return ApiResponse(
+        success=True,
+        data=payload.model_dump(mode="json"),
+        trace_id=getattr(request.state, "trace_id", None),
+    )
+
+
 @router.post("/case/{memory_id}/reject", response_model=ApiResponse)
 async def reject_case_memory(
     memory_id: str,
@@ -332,8 +389,14 @@ async def _run_case_action(
 ) -> ApiResponse:
     _assert_memory_reviewer(user)
     memory_uuid = _parse_memory_id(memory_id)
+    repository = CaseMemoryRepository(session)
+    if await repository.get_resolved_case_memory(
+        tenant_id=user.tenant_id,
+        case_memory_id=memory_uuid,
+    ) is None:
+        raise _generic_memory_not_found()
     await _ensure_run_in_tenant(session=session, tenant_id=user.tenant_id, run_id=body.run_id)
-    service = CaseMemoryService(CaseMemoryRepository(session))
+    service = CaseMemoryService(repository)
     reason_code = _reason_code(body, action)
     try:
         if action == "approve":
@@ -372,12 +435,34 @@ async def _run_case_action(
                 run_id=body.run_id,
                 reason_code=reason_code,
             )
+        memory = await repository.get_resolved_case_memory(
+            tenant_id=user.tenant_id,
+            case_memory_id=memory_uuid,
+        )
+        if memory is None:
+            raise ValueError("case memory not found")
+        provenance = resolved_case_memory_provenance(memory)
+        if provenance is None:  # pragma: no cover - repository already validates the binding
+            raise ValueError("case memory not found")
+        lineage = await repository.list_lineage(tenant_id=user.tenant_id, case_memory_id=memory_uuid)
         await session.commit()
     except ValueError as exc:
         await session.rollback()
         raise _memory_action_error(exc) from exc
 
-    return _event_response(request=request, memory_type="case", memory_id=memory_uuid, event=event)
+    payload = _case_detail(memory, provenance, lineage).model_dump(mode="json")
+    payload.update(
+        {
+            "event_id": str(event.id),
+            "decision": event.decision,
+            "reason_code": event.reason_code,
+        }
+    )
+    return ApiResponse(
+        success=True,
+        data=payload,
+        trace_id=getattr(request.state, "trace_id", None),
+    )
 
 
 async def _ensure_run_in_tenant(*, session: AsyncSession, tenant_id: UUID, run_id: UUID) -> None:
@@ -394,6 +479,7 @@ def _long_term_pending_item(memory: LongTermMemory) -> MemoryPendingItem:
         memory_id=str(memory.id),
         scope_type=memory.scope_type,
         scope_id=memory.scope_id,
+        scope={"scope_type": memory.scope_type, "scope_id": memory.scope_id},
         review_status=memory.review_status,
         pii_classification=memory.pii_classification,
         source_type=memory.source_type,
@@ -403,13 +489,20 @@ def _long_term_pending_item(memory: LongTermMemory) -> MemoryPendingItem:
     )
 
 
-def _case_pending_item(memory: CaseMemory) -> MemoryPendingItem:
+def _case_pending_item(
+    memory: CaseMemory,
+    lineage: list[CaseMemoryLineageLink],
+) -> MemoryPendingItem:
     source_type = str((memory.source_ref_json or {}).get("source_type") or "")
+    provenance = resolved_case_memory_provenance(memory)
+    if provenance is None:  # pragma: no cover - pending repository excludes unresolved bindings
+        raise ValueError("case memory not found")
     return MemoryPendingItem(
         memory_type="case",
         memory_id=str(memory.id),
         scope_type=memory.scope_type,
         scope_id=memory.scope_id,
+        scope={"scope_type": memory.scope_type, "scope_id": memory.scope_id},
         review_status=memory.review_status,
         pii_classification=memory.pii_classification,
         source_type=source_type,
@@ -417,6 +510,95 @@ def _case_pending_item(memory: CaseMemory) -> MemoryPendingItem:
         excerpt=memory.excerpt,
         created_by_run_id=str(memory.created_by_run_id) if memory.created_by_run_id is not None else None,
         created_at=memory.created_at,
+        memory_authority_class=provenance.memory_authority_class,
+        identity_algorithm_version=provenance.identity_algorithm_version,
+        identity_profile=provenance.identity_profile,
+        identity_resolution_status=provenance.resolution_status,
+        candidate_hash=provenance.candidate_hash,
+        lifecycle_version=memory.lifecycle_version,
+        review_decision=provenance.review_decision,
+        source_authorities=_source_authority_items(provenance.source_authorities),
+        lineage=_case_lineage_item(memory, lineage),
+    )
+
+
+def _case_detail(
+    memory: CaseMemory,
+    provenance: CaseMemoryProvenanceV1,
+    lineage: list[CaseMemoryLineageLink],
+) -> CaseMemoryDetailResponse:
+    return CaseMemoryDetailResponse(
+        memory_id=str(memory.id),
+        scope={"scope_type": memory.scope_type, "scope_id": memory.scope_id},
+        review_status=memory.review_status,
+        pii_classification=memory.pii_classification,
+        summary=memory.summary,
+        excerpt=memory.excerpt,
+        created_by_run_id=str(memory.created_by_run_id) if memory.created_by_run_id is not None else None,
+        created_at=memory.created_at,
+        memory_authority_class=provenance.memory_authority_class,
+        identity_algorithm_version=provenance.identity_algorithm_version,
+        identity_profile=provenance.identity_profile,
+        identity_resolution_status=provenance.resolution_status,
+        candidate_hash=provenance.candidate_hash,
+        lifecycle_version=memory.lifecycle_version,
+        review_decision=provenance.review_decision,
+        reviewer_user_id=str(provenance.reviewer_user_id) if provenance.reviewer_user_id is not None else None,
+        reviewed_at=provenance.reviewed_at,
+        review_reason=provenance.review_reason,
+        source_authorities=_source_authority_items(provenance.source_authorities),
+        evidence_refs=[
+            ref.model_dump(mode="json", exclude_none=True, exclude={"score"})
+            for ref in provenance.evidence_refs
+        ],
+        business_fact_refs=[
+            ref.model_dump(mode="json", exclude_none=True) for ref in provenance.business_fact_refs
+        ],
+        lineage=_case_lineage_item(memory, lineage),
+    )
+
+
+def _source_authority_items(
+    authorities: list[CaseMemorySourceAuthorityV1],
+) -> list[MemorySourceAuthorityItem]:
+    return [
+        MemorySourceAuthorityItem(
+            source_kind=authority.source_kind,
+            source_status=authority.source_status,
+            source_authority_class=authority.source_authority_class,
+            source_ref=authority.source_ref.model_dump(mode="json", exclude_none=True),
+            business_fact_refs=[
+                ref.model_dump(mode="json", exclude_none=True) for ref in authority.business_fact_refs
+            ],
+            evidence_refs=[
+                ref.model_dump(mode="json", exclude_none=True, exclude={"score"})
+                for ref in authority.evidence_refs
+            ],
+        )
+        for authority in authorities
+    ]
+
+
+def _case_lineage_item(
+    memory: CaseMemory,
+    links: list[CaseMemoryLineageLink],
+) -> CaseMemoryLineageItem:
+    return CaseMemoryLineageItem(
+        corrects_case_memory_id=(
+            str(memory.corrects_case_memory_id) if memory.corrects_case_memory_id is not None else None
+        ),
+        supersedes_case_memory_id=(
+            str(memory.supersedes_case_memory_id) if memory.supersedes_case_memory_id is not None else None
+        ),
+        links=[
+            CaseMemoryLineageLinkItem(
+                survivor_case_memory_id=str(link.survivor_case_memory_id),
+                related_case_memory_id=str(link.related_case_memory_id),
+                relation=link.relation,
+                ordinal=link.ordinal,
+            )
+            for link in links
+        ],
     )
 
 
@@ -498,3 +680,7 @@ def _memory_action_error(exc: ValueError) -> HTTPException:
     if "not found" in message:
         return HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Memory not found"})
     return HTTPException(status_code=409, detail={"code": "CONFLICT", "message": message})
+
+
+def _generic_memory_not_found() -> HTTPException:
+    return HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Memory not found"})

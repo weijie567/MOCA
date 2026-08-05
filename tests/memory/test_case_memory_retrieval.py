@@ -226,6 +226,10 @@ def _case_row(
     )
     policy_ref = _canonical_policy_ref(tenant_id=resolved_tenant_id)
     source_run_id = uuid.uuid4()
+    review_decision = review_status if review_status in {"approved", "rejected"} else None
+    reviewer_user_id = seeded_session["users"]["admin_user"].id if review_decision else None
+    reviewed_at = datetime(2026, 8, 5, 10, 0, tzinfo=UTC) if review_decision else None
+    review_reason = "Seeded reviewed-memory fixture." if review_decision else None
     provenance = CaseMemoryProvenanceV1(
         resolution_status="legacy_resolved",
         tenant_id=resolved_tenant_id,
@@ -248,6 +252,10 @@ def _case_row(
         candidate_hash=candidate_hash,
         content_hash=content_hash,
         source_identity_hash=resolved_source_identity_hash,
+        review_decision=review_decision,
+        reviewer_user_id=reviewer_user_id,
+        reviewed_at=reviewed_at,
+        review_reason=review_reason,
     )
     return CaseMemory(
         id=uuid.uuid4(),
@@ -270,9 +278,12 @@ def _case_row(
         candidate_hash=candidate_hash,
         identity_resolution_status="legacy_resolved",
         provenance_json=provenance.model_dump(mode="json", exclude_none=True),
-        lifecycle_version=1,
+        lifecycle_version=2 if review_decision else 1,
         embedding=_embedding() if embedding is _EMBEDDING_UNSET else embedding,
         review_status=review_status,
+        reviewed_by_user_id=reviewer_user_id,
+        reviewed_at=reviewed_at,
+        review_reason=review_reason,
         pii_classification=pii_classification,
         expires_at=expires_at,
         deleted_at=deleted_at,
