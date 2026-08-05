@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -13,12 +12,6 @@ from src.agent.state import AgentState
 from src.config import settings
 from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
 from src.memory.context_service import MemoryContextService
-from src.memory.identity import (
-    MemoryIdentityError,
-    canonical_memory_candidate_hash,
-    canonical_memory_content_hash,
-    canonical_source_identity_hash,
-)
 from src.memory.long_term import LongTermMemoryService
 from src.memory.repository import LongTermMemoryRepository, SessionMemoryRepository
 from src.memory.schemas import (
@@ -275,7 +268,10 @@ def _memory_write_decision(
     if reason_code_override is not None:
         projected_result["reason_code"] = reason_code_override
     if candidate is not None:
-        projected_result.update(_session_candidate_identity(candidate))
+        identity = projected_result.get("identity")
+        if isinstance(identity, dict):
+            projected_result["candidate_hash"] = identity.get("candidate_hash")
+            projected_result["source_identity_hash"] = identity.get("source_identity_hash")
         memory_id = _session_memory_id(candidate, projected_result)
         if memory_id is not None:
             projected_result["memory_id"] = memory_id
@@ -286,40 +282,6 @@ def _memory_write_decision(
         fallback_reason=fallback_reason,
     )
     return decision.model_dump(mode="json")
-
-
-def _session_candidate_identity(candidate: SessionMemoryWriteCandidate) -> dict[str, str | None]:
-    try:
-        source_identity_hash = canonical_source_identity_hash(
-            {"source_type": "agent_run", "agent_run_id": str(candidate.run_id)}
-        )
-        content_hash = canonical_memory_content_hash(
-            memory_type="session",
-            content=json.dumps(
-                {
-                    "explicit_slots": {key: slot.value for key, slot in sorted(candidate.explicit_slots.items())},
-                    "last_intent": candidate.last_intent or "",
-                    "session_summary": candidate.session_summary or "",
-                    "unresolved_questions": [str(question) for question in candidate.unresolved_questions],
-                },
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            ),
-        )
-        return {
-            "candidate_hash": canonical_memory_candidate_hash(
-                tenant_id=str(candidate.tenant_id),
-                memory_type="session",
-                scope_type="thread",
-                scope_id=candidate.thread_id,
-                content_hash=content_hash,
-                source_identity_hash=source_identity_hash,
-            ),
-            "source_identity_hash": source_identity_hash,
-        }
-    except MemoryIdentityError:
-        return {}
 
 
 def _session_memory_id(candidate: SessionMemoryWriteCandidate, result: dict[str, Any]) -> str | None:

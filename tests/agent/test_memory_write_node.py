@@ -14,8 +14,10 @@ from src.agent.nodes import memory_write as memory_write_module
 from src.agent.nodes.memory_write import memory_write
 from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent, SessionMemory
+from src.memory.identity import build_session_memory_candidate_identity
 from src.memory.policy import case_memory_policy_decision
 from src.memory.schemas import CaseMemoryWriteResult, LongTermMemoryWriteResult, SessionMemoryWriteResult
+from src.memory.service import SessionMemoryWriteResultWithIdentity
 
 
 def _state(**updates: object) -> dict:
@@ -83,12 +85,15 @@ async def test_memory_write_node_writes_explicit_slots_and_unresolved_questions(
 
         async def write_session_memory(self, candidate):
             candidates.append(candidate)
-            return SessionMemoryWriteResult(
+            identity = build_session_memory_candidate_identity(candidate)
+            return SessionMemoryWriteResultWithIdentity(
                 status="written",
                 version=4,
                 decision="write",
                 reason_code="eligible",
                 pii_classification="none",
+                candidate_hash=identity.candidate_hash,
+                identity=identity,
             )
 
     monkeypatch.setattr(memory_write_module, "MemoryService", FakeMemoryService)
