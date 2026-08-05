@@ -22210,3 +22210,23 @@ Task 1 RED 首先按预期以 `ModuleNotFoundError: src.memory.fact_promotion` �
 
 **剩余问题和下次继续排查入口**
 当前 Plan 05 精确 pytest/Ruff 均通过；唯一 warning 是既有 LangGraph `allowed_objects` pending deprecation。Plan 07 必须继续验证 rejected/observed CWC 内容不进入 CaseMemory 任一字段，Plan 09 负责最终 ownership/static guard；不得为历史手写 fixture 恢复 status-blind fallback。
+
+## 2026-08-05 — Phase 64.2 Plan 06 production replay TDD 夹具、兼容断言与 archived schema 缺口
+
+**问题现象**
+Task 1 首轮 RED 在命中新行为前先因 `PolicyChunkVersion` 的 composite FK 父行尚未 flush 而失败；Task 2 加入 optional typed `evidence_snapshot_refs` 后，既有 minimal-envelope 测试仍要求 model field 集合与旧版本绝对相等；最终 lifecycle 验收又出现 ORM、真实 025 migration 与 replay 三处都无法持久化 `archived`。
+
+**如何检测 / 复现**
+Task 1 运行计划精确 pytest，首轮在 `_canonical_fixture` 插入 document/chunk version 时触发 `fk_policy_chunk_versions_document_identity`；Task 2 运行 `tests/replay/test_decision_events.py::test_decision_event_envelope_accepts_exact_minimal_fields` 可见旧字段集合断言与新 optional 输出字段冲突。归档缺口通过 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_immutable_evidence_migration.py::test_orm_and_migration_define_exact_additive_immutable_foundation tests/knowledge/test_immutable_evidence_migration.py::test_upgrade_performs_no_backfill tests/replay/test_production_evidence_binding.py::test_replay_resolves_retained_original_through_lifecycle_changes_and_blocks_purge -q --tb=short` 复现为 3 failed。
+
+**关键证据或命令**
+Task 1 显式 flush parent 后，RED 稳定变为 3 个预期契约失败，GREEN 精确门禁为 `132 passed, 1 warning`。经主 orchestrator 裁决，仅把 minimal-envelope 测试的 exact field 集合扩为“旧字段 + optional `evidence_snapshot_refs`”，并断言无证据时 projection 仍不输出该字段；production 未加 fallback。归档 RED 分别显示 ORM check 文本缺 `archived`、025 升级后的 PostgreSQL `CheckViolationError`、replay fixture flush 同类 `CheckViolationError`；修复后同命令为 `3 passed, 4 warnings`。
+
+**当前判断 / 根因**
+前两项是测试夹具/契约断言未表达 SQLAlchemy dependency 顺序和向后兼容 optional-field 语义，不是 production 应接受 raw legacy 写入的理由。归档失败是 Plan 01 建立 immutable evidence schema 时遗漏 D-10/Plan 06 已锁定 lifecycle vocabulary，属于真实 schema correctness 缺口。
+
+**已做处理**
+夹具先 flush `PolicyDocumentVersion` 再插入 `PolicyChunkVersion`；minimal-envelope 只做获批的最小测试迁移，保留无 evidence 时的旧 projection shape；ORM 与尚未发布的 migration 025 lifecycle check 仅加入 `archived`，并让 migration contract 真正 update/persist archived、Replay V3 lifecycle 矩阵真实回放 archived。所有命令均使用 `UV_CACHE_DIR=/tmp/uv-cache uv run ...`。
+
+**剩余问题和下次继续排查入口**
+当前无 Plan 06 阻断。最终联合回归为 `171 passed, 1 warning`，计划相关 Ruff 通过；warning 是既有 LangGraph `allowed_objects` pending deprecation，migration 的 3 个 Alembic `path_separator` warning 也是既有环境提示。后续若扩展 evidence lifecycle，必须同步核对 ORM、当前未发布 migration、真实 PostgreSQL 持久化与 replay projection 四层。
