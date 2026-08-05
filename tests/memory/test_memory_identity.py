@@ -2,19 +2,39 @@ from __future__ import annotations
 
 import inspect
 import re
+from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
 
 from src.memory.identity import (
+    LEGACY_MEMORY_IDENTITY_PROFILE,
+    MEMORY_IDENTITY_PROFILE,
+    MemoryCandidateIdentityV1,
     MemoryIdentityError,
+    build_case_memory_candidate_identity,
+    build_case_working_context_candidate_identity,
+    build_long_term_memory_candidate_identity,
+    build_session_memory_candidate_identity,
     canonical_memory_candidate_hash,
     canonical_memory_content_hash,
     canonical_memory_identity_hash,
     canonical_source_identity_hash,
     normalize_memory_content,
 )
-from src.memory.schemas import MemoryCandidateIdentityV1, MemoryIdentityV1, MemorySourceRefV1
+from src.memory.case_working_context_schemas import (
+    CaseWorkingContextContentV1,
+    CaseWorkingContextWriteCandidate,
+)
+from src.memory.schemas import (
+    CaseMemoryWriteCandidate,
+    LongTermMemoryWriteCandidate,
+    MemoryIdentityV1,
+    MemorySourceRefV1,
+    SessionMemoryWriteCandidate,
+    SessionSlotV1,
+)
 
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -60,7 +80,10 @@ def _source_ref(**overrides: str) -> dict[str, str]:
 
 
 def test_memory_content_hash_is_stable_across_whitespace() -> None:
-    assert normalize_memory_content("  Refund  policy\npreference  ") == "refund policy preference"
+    assert normalize_memory_content(
+        "  Refund  policy\npreference  ",
+        identity_profile=LEGACY_MEMORY_IDENTITY_PROFILE,
+    ) == "refund policy preference"
 
     content_hash = canonical_memory_content_hash(
         memory_type="long_term_fact",
@@ -267,3 +290,149 @@ def test_memory_identity_schemas_are_prompt_safe() -> None:
                 "approval_authority_body": {},
             }
         )
+
+
+def test_v2_profile_preserves_proper_nouns_and_never_reinterprets_legacy_hashes() -> None:
+    content = "  Acme Å  REFUND  "
+
+    legacy_normalized = normalize_memory_content(
+        content,
+        identity_profile=LEGACY_MEMORY_IDENTITY_PROFILE,
+    )
+    current_normalized = normalize_memory_content(
+        content,
+        identity_profile=MEMORY_IDENTITY_PROFILE,
+    )
+    legacy_hash = canonical_memory_content_hash(
+        memory_type="long_term_fact",
+        content=content,
+        identity_profile=LEGACY_MEMORY_IDENTITY_PROFILE,
+    )
+    current_hash = canonical_memory_content_hash(
+        memory_type="long_term_fact",
+        content=content,
+        identity_profile=MEMORY_IDENTITY_PROFILE,
+    )
+
+    assert legacy_normalized == "acme å refund"
+    assert current_normalized == "Acme Å REFUND"
+    assert legacy_hash == "sha256:8a6b9657a7b3410a464d3c4a0222f74256a72f1133a889bdce925fd11dda08c5"
+    assert current_hash == "sha256:e59d1ac3ce39b9db69f8036129be4af75d2694762be9a1796eb36728e54878e1"
+    assert legacy_hash != current_hash
+
+
+def test_all_memory_builders_use_the_shared_owner() -> None:
+    tenant_id = UUID("10000000-0000-0000-0000-000000000001")
+    user_id = UUID("20000000-0000-0000-0000-000000000002")
+    run_id = UUID("30000000-0000-0000-0000-000000000003")
+    case_id = UUID("40000000-0000-0000-0000-000000000004")
+    timestamp = datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
+    source_ref = MemorySourceRefV1(
+        source_type="explicit_user_preference",
+        run_id=str(run_id),
+        agent_run_id=str(run_id),
+    )
+
+    session_candidate = SessionMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id="Thread-Acme",
+        run_id=run_id,
+        explicit_slots={
+            "order_id": SessionSlotV1(
+                value="ORD-Acme-1",
+                source="explicit_user",
+                source_run_id=str(run_id),
+                updated_at=timestamp,
+                expires_at=timestamp,
+                compatible_intents=["refund_troubleshooting"],
+            )
+        },
+        last_intent="refund_troubleshooting",
+        session_summary="Acme requested a refund update.",
+        last_business_context_refs={"order_id": "ORD-Acme-1"},
+    )
+    long_term_candidate = LongTermMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        scope_type="merchant",
+        scope_id="Merchant-Acme",
+        content="Acme prefers concise refund updates.",
+        source_type="explicit_user_preference",
+        source_ref=source_ref,
+    )
+    case_candidate = CaseMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        scope_type="case",
+        scope_id=str(case_id),
+        case_type="refund_dispute",
+        summary="Acme refund precedent",
+        excerpt="Acme received a manual review.",
+        source_type="human_reviewed",
+        source_ref=source_ref.model_copy(update={"source_type": "human_reviewed"}),
+    )
+    cwc_candidate = CaseWorkingContextWriteCandidate(
+        tenant_id=tenant_id,
+        case_id=case_id,
+        updated_by_run_id=run_id,
+        source_ref=source_ref.model_copy(
+            update={
+                "source_type": "case_working_context_write",
+                "business_object_type": "refund_case",
+                "business_object_id": str(case_id),
+            }
+        ),
+        content=CaseWorkingContextContentV1(
+            customer_request="Acme requests a refund update.",
+            issue_type="refund_dispute",
+        ),
+    )
+
+    identities = (
+        build_session_memory_candidate_identity(session_candidate),
+        build_long_term_memory_candidate_identity(long_term_candidate),
+        build_case_memory_candidate_identity(case_candidate),
+        build_case_working_context_candidate_identity(cwc_candidate),
+    )
+
+    assert all(isinstance(identity, MemoryCandidateIdentityV1) for identity in identities)
+    assert all(identity.identity_profile == MEMORY_IDENTITY_PROFILE for identity in identities)
+    assert all(SHA256_RE.fullmatch(identity.content_hash) for identity in identities)
+    assert all(SHA256_RE.fullmatch(identity.source_identity_hash or "") for identity in identities)
+    assert all(SHA256_RE.fullmatch(identity.candidate_hash) for identity in identities)
+    assert identities[0] == build_session_memory_candidate_identity(session_candidate)
+    assert identities[0].normalized_source_ref.agent_run_id == str(run_id)
+
+    changed_session = session_candidate.model_copy(update={"reason_code": "temporary_chat"})
+    assert identities[0].content_hash != build_session_memory_candidate_identity(changed_session).content_hash
+    assert identities[0].candidate_hash != build_session_memory_candidate_identity(changed_session).candidate_hash
+
+
+def test_typed_builders_reject_unknown_fields_and_incomplete_sources() -> None:
+    with pytest.raises(MemoryIdentityError, match="unknown|extra"):
+        build_long_term_memory_candidate_identity(
+            {
+                "tenant_id": "10000000-0000-0000-0000-000000000001",
+                "run_id": "30000000-0000-0000-0000-000000000003",
+                "scope_type": "merchant",
+                "scope_id": "merchant-1",
+                "content": "Acme preference",
+                "source_type": "explicit_user_preference",
+                "unexpected": "must fail closed",
+            }
+        )
+
+    with pytest.raises(MemoryIdentityError, match="run_id|required|discriminator"):
+        build_long_term_memory_candidate_identity(
+            {
+                "tenant_id": "10000000-0000-0000-0000-000000000001",
+                "scope_type": "merchant",
+                "scope_id": "merchant-1",
+                "content": "Acme preference",
+                "source_type": "explicit_user_preference",
+            }
+        )
+
+    with pytest.raises(MemoryIdentityError, match="identity profile"):
+        normalize_memory_content("Acme", identity_profile="unknown")
