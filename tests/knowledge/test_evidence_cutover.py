@@ -18,6 +18,9 @@ from src.db.models import (
     PolicyDocumentVersion,
     Tenant,
 )
+from src.knowledge.retrieval import PolicyRetrievalEngine
+from src.knowledge.schemas import KnowledgeContext
+from src.knowledge.service import PolicyKnowledgeService
 from src.rag.ingestion import IngestionService
 from src.repositories.evidence_version_repo import (
     EvidenceVersionRepository,
@@ -30,6 +33,9 @@ MIGRATION_026 = Path("src/db/migrations/versions/026_phase64_2_evidence_cutover.
 class _EmbeddingService:
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return [[0.0] * 1024 for _ in texts]
+
+    async def embed_query(self, text: str) -> list[float]:
+        return [0.0] * 1024
 
 
 def _write_policy(path: Path, body: str) -> Path:
@@ -476,3 +482,175 @@ async def test_writer_and_cutover_share_rollout_lock_epoch(test_engine, tmp_path
     assert writer_result.evidence_write_sequence == 3
     assert activated_epoch == epoch + 1
     assert reconciled_through == writer_result.evidence_write_sequence
+
+
+@pytest.mark.asyncio
+async def test_current_retrieval_is_canonical_and_fails_closed_while_operationally_disabled(
+    session,
+    tmp_path: Path,
+) -> None:
+    tenant_id = await _seed_inactive_rollout(session)
+    repository = EvidenceVersionRepository(session)
+    rollout = await repository.activate_dual_write(
+        expected_rollout_version=0,
+        health_checked_at=datetime.now(UTC),
+    )
+    await session.commit()
+    source = _write_policy(tmp_path, "canonical current 内容")
+    service = IngestionService(session=session, embedder=_EmbeddingService(), tenant_id=tenant_id)
+    ingested = await service.ingest_document(
+        source,
+        _metadata(),
+        expected_rollout_version=rollout.rollout_version,
+    )
+    await repository.reserve_backfill_watermark(expected_rollout_version=rollout.rollout_version)
+    activated = await repository.reconcile_and_enable_canonical_reads(
+        expected_rollout_version=rollout.rollout_version,
+    )
+    await session.commit()
+
+    document = (await session.execute(select(PolicyDocument).where(PolicyDocument.tenant_id == tenant_id))).scalar_one()
+    chunk = (await session.execute(select(PolicyChunk).where(PolicyChunk.tenant_id == tenant_id))).scalar_one()
+    chunk.document = document
+    engine = PolicyRetrievalEngine(session, embedder=_EmbeddingService())
+
+    async def dense_search(**_: object) -> list[tuple[PolicyChunk, float]]:
+        return [(chunk, 0.95)]
+
+    async def empty_search(**_: object) -> list[tuple[PolicyChunk, float]]:
+        return []
+
+    engine.chunk_repo.search_similar = dense_search  # type: ignore[method-assign]
+    engine.chunk_repo.search_sparse = empty_search  # type: ignore[method-assign]
+    engine.chunk_repo.search_fuzzy = empty_search  # type: ignore[method-assign]
+    context = KnowledgeContext(
+        tenant_id=str(tenant_id),
+        user_id="user-001",
+        role="support",
+        merchant_scope=[],
+        run_id="run-001",
+        trace_id="trace-001",
+        effective_at="2026-08-05T00:00:00Z",
+    )
+
+    status, refs, _ = await engine.retrieve(query="退款政策", context=context, max_results=1)
+    assert status == "strong_evidence"
+    assert len(refs) == 1
+    assert refs[0].scope_type == "tenant_policy"
+    assert refs[0].scope_id == str(tenant_id)
+    assert refs[0].document_version_id is not None
+    assert refs[0].chunk_version_id is not None
+    assert refs[0].evidence_id.startswith("sha256:")
+
+    disabled = await repository.disable_canonical_reads(
+        expected_rollout_version=activated.rollout_version,
+        reason="operator_gap_investigation",
+    )
+    await session.commit()
+    assert disabled.canonical_reads_enabled is False
+    assert disabled.dual_write_enabled_at is not None
+    assert disabled.quarantine_reason == "operator_gap_investigation"
+
+    disabled_status, disabled_refs, _ = await engine.retrieve(query="退款政策", context=context, max_results=1)
+    assert disabled_status == "error"
+    assert disabled_refs == []
+
+    changed = _write_policy(tmp_path, "canonical current disabled 期间的新内容")
+    write_while_disabled = await service.ingest_document(
+        changed,
+        _metadata(),
+        expected_rollout_version=disabled.rollout_version,
+    )
+    assert write_while_disabled.status == "success"
+    assert write_while_disabled.evidence_write_sequence == (ingested.evidence_write_sequence or 0) + 2
+
+    with pytest.raises(RolloutEpochMismatch):
+        await repository.disable_canonical_reads(
+            expected_rollout_version=activated.rollout_version,
+            reason="stale_operator",
+        )
+    await session.rollback()
+
+    reenabled = await repository.reconcile_and_enable_canonical_reads(
+        expected_rollout_version=disabled.rollout_version,
+    )
+    await session.commit()
+    assert reenabled.canonical_reads_enabled is True
+    assert reenabled.quarantine_reason is None
+    assert reenabled.reconciled_through_sequence == write_while_disabled.evidence_write_sequence
+
+
+@pytest.mark.asyncio
+async def test_current_historical_and_legacy_resolution_are_separate_and_scope_bound(
+    session,
+    tmp_path: Path,
+) -> None:
+    tenant_id = await _seed_inactive_rollout(session)
+    repository = EvidenceVersionRepository(session)
+    rollout = await repository.activate_dual_write(
+        expected_rollout_version=0,
+        health_checked_at=datetime.now(UTC),
+    )
+    await session.commit()
+    service = IngestionService(session=session, embedder=_EmbeddingService(), tenant_id=tenant_id)
+    source = _write_policy(tmp_path, "historical v1 内容")
+    await service.ingest_document(source, _metadata(), expected_rollout_version=rollout.rollout_version)
+    old_chunk = (
+        await session.execute(
+            select(PolicyChunkVersion)
+            .where(PolicyChunkVersion.tenant_id == tenant_id)
+            .order_by(PolicyChunkVersion.document_version)
+        )
+    ).scalar_one()
+    old_resolution = await repository.mint_for_chunk_version(
+        old_chunk,
+        expected_tenant_id=tenant_id,
+        expected_scope_type="tenant_policy",
+        expected_scope_id=str(tenant_id),
+    )
+    assert old_resolution.identity is not None
+    old_identity = old_resolution.identity
+
+    source = _write_policy(tmp_path, "historical v2 当前内容")
+    await service.ingest_document(source, _metadata(), expected_rollout_version=rollout.rollout_version)
+    engine = PolicyRetrievalEngine(session, embedder=_EmbeddingService())
+    knowledge = PolicyKnowledgeService(engine)
+    old_ref = repository.evidence_ref_from_identity(
+        old_identity,
+        retrieved_at="2026-08-05T00:00:00Z",
+    )
+
+    current = await knowledge.validate_current_evidence(
+        tenant_id=str(tenant_id),
+        evidence_refs=[old_ref],
+        effective_at="2026-08-05T00:00:00Z",
+    )
+    assert current.included == {}
+    assert current.excluded[0].reason_code in {"text_hash_mismatch", "latest_version_invalid"}
+
+    historical = await knowledge.resolve_immutable_evidence(
+        tenant_id=str(tenant_id),
+        candidate=old_identity,
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+    )
+    assert historical.identity == old_identity
+    assert historical.external_reason is None
+
+    legacy = await knowledge.resolve_legacy_alias(
+        tenant_id=str(tenant_id),
+        alias=f"{old_identity.doc_key}/{old_identity.chunk_id}@v{old_identity.document_version}",
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+    )
+    assert legacy.identity == old_identity
+    assert legacy.external_reason is None
+
+    wrong_scope = await knowledge.resolve_immutable_evidence(
+        tenant_id=str(tenant_id),
+        candidate=old_identity,
+        scope_type="tenant_policy",
+        scope_id="merchant-001",
+    )
+    assert wrong_scope.identity is None
+    assert wrong_scope.external_reason is not None
