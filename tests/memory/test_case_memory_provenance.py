@@ -6,17 +6,20 @@ from pathlib import Path
 from types import SimpleNamespace
 import uuid
 
+from httpx import AsyncClient
 import pytest
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import Base, CaseMemory, CaseMemoryLineageLink
+from src.auth.jwt import create_access_token
+from src.db.models import AgentRun, Base, CaseMemory, CaseMemoryLineageLink, User
 from src.knowledge.evidence_identity import (
     PersistedEvidenceIdentityMaterialV1,
     mint_canonical_evidence_identity,
 )
 from src.knowledge.schemas import EvidenceRefV1
-from src.memory.case_memory import CaseMemoryService
+from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
 from src.memory.case_precedent import (
     ClosedCasePrecedentGenerationInput,
     _project_closed_case_candidate,
@@ -29,6 +32,8 @@ from src.memory.case_working_context_schemas import (
 from src.memory.schemas import (
     CaseMemoryProvenanceEnvelope,
     CaseMemoryProvenanceV1,
+    CaseMemoryReviewDecision,
+    CaseMemorySearchRequest,
     CaseMemorySourceAuthorityV1,
     LegacyUnresolvedCaseMemoryProvenanceV1,
     MemorySourceRefV1,
@@ -407,3 +412,287 @@ def test_orm_and_migration_define_provenance_and_survivor_to_many_lineage() -> N
     assert "case_memory_lineage_links" in source
     assert "provenance_json" in source
     assert "_assert_downgrade_safe" in source
+
+
+def _auth_header(user: User, scopes: list[str]) -> dict[str, str]:
+    token = create_access_token(
+        {
+            "sub": str(user.id),
+            "tenant_id": str(user.tenant_id),
+            "role": user.role,
+            "scopes": scopes,
+        }
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def _insert_run(session: AsyncSession, seeded_session: dict, *, thread_id: str) -> uuid.UUID:
+    run_id = uuid.uuid4()
+    user = seeded_session["users"]["cs_zhang"]
+    session.add(
+        AgentRun(
+            id=run_id,
+            tenant_id=user.tenant_id,
+            user_id=user.id,
+            thread_id=thread_id,
+            input_query="case memory provenance review",
+            final_status="completed",
+            started_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+    return run_id
+
+
+def _projected_business_candidate(
+    seeded_session: dict,
+    *,
+    run_id: uuid.UUID,
+    marker: str,
+):
+    tenant_id = seeded_session["tenant"].id
+    case_id = seeded_session["refund_case"].id
+    observed_at = datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
+    return _project_closed_case_candidate(
+        request=ClosedCasePrecedentGenerationInput(
+            tenant_id=tenant_id,
+            case_id=case_id,
+            run_id=run_id,
+            closed_status="closed",
+            close_event_id=marker,
+            closed_at=observed_at,
+        ),
+        content=CaseWorkingContextContentV1(
+            issue_type="refund_dispute",
+            verified_facts=[
+                CaseWorkingContextVerifiedFactV1(
+                    text=f"Refund case is closed: {marker}.",
+                    authority_class="business_fact",
+                    status="success",
+                    promotion_reason_code="authoritative_business_fact",
+                    source_ref=_source_ref(
+                        case_id=case_id,
+                        run_id=run_id,
+                        tool_result_id=f"tool-{marker}",
+                    ),
+                    observed_at=observed_at,
+                    business_fact_refs=[_business_ref(tenant_id=tenant_id, case_id=case_id)],
+                )
+            ],
+        ),
+        cwc_row=SimpleNamespace(id=uuid.uuid4(), version=2, pii_classification="none"),
+        scope_type="case",
+        scope_id=str(case_id),
+    )
+
+
+def _unresolved_row(
+    seeded_session: dict,
+    *,
+    run_id: uuid.UUID,
+    review_status: str = "needs_review",
+) -> CaseMemory:
+    tenant_id = seeded_session["tenant"].id
+    case_id = seeded_session["refund_case"].id
+    memory_id = uuid.uuid4()
+    provenance = LegacyUnresolvedCaseMemoryProvenanceV1(
+        tenant_id=tenant_id,
+        case_memory_id=memory_id,
+        legacy_content_hash=_HASH_A,
+        legacy_source_identity_hash=_HASH_B,
+        legacy_source_ref={"source_type": "legacy", "event_id": "legacy-event"},
+        legacy_policy_refs=[{"doc_key": "legacy-policy"}],
+        unresolved_reasons=["pre_027_provenance_unavailable", "incomplete_evidence_identity"],
+    )
+    return CaseMemory(
+        id=memory_id,
+        tenant_id=tenant_id,
+        scope_type="case",
+        scope_id=str(case_id),
+        case_type="refund_dispute",
+        summary="Legacy unresolved summary must remain hidden.",
+        excerpt="Legacy unresolved excerpt must remain hidden.",
+        applicability="Legacy unresolved applicability must remain hidden.",
+        outcome="Legacy unresolved outcome must remain hidden.",
+        caveats="Legacy unresolved caveat must remain hidden.",
+        content_hash=_HASH_A,
+        policy_refs_json=[{"doc_key": "legacy-policy"}],
+        source_ref_json={"source_type": "legacy", "event_id": "legacy-event"},
+        source_identity_hash=_HASH_B,
+        identity_algorithm_version=None,
+        candidate_hash=None,
+        identity_resolution_status="legacy_unresolved",
+        provenance_json=provenance.model_dump(mode="json", exclude_none=True),
+        lifecycle_version=1,
+        review_status=review_status,
+        pii_classification="none",
+        created_by_run_id=run_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_review_adds_reviewer_provenance_without_changing_source_authority(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session, thread_id="case-provenance-review")
+    candidate = _projected_business_candidate(seeded_session, run_id=run_id, marker="review-additive")
+    service = CaseMemoryService(CaseMemoryRepository(session))
+    written = await service.submit_case_memory_candidate(candidate)
+    assert written.memory_id is not None
+    row = await session.get(CaseMemory, written.memory_id)
+    assert row is not None
+    before = CaseMemoryProvenanceV1.model_validate(row.provenance_json)
+    source_bytes = json.dumps(
+        [item.model_dump(mode="json") for item in before.source_authorities],
+        sort_keys=True,
+    )
+    reviewed_at = datetime(2026, 8, 5, 11, 0, tzinfo=UTC)
+    reviewer = seeded_session["users"]["admin_user"]
+
+    await service.approve_case_memory(
+        CaseMemoryReviewDecision(
+            tenant_id=seeded_session["tenant"].id,
+            run_id=run_id,
+            case_memory_id=row.id,
+            reviewer_user_id=reviewer.id,
+            reason_code="approved",
+            review_reason="canonical provenance verified",
+        ),
+        now=reviewed_at,
+    )
+    await session.refresh(row)
+    after = CaseMemoryProvenanceV1.model_validate(row.provenance_json)
+
+    assert after.review_decision == "approved"
+    assert after.reviewer_user_id == reviewer.id
+    assert after.reviewed_at == reviewed_at
+    assert after.review_reason == "canonical provenance verified"
+    assert row.lifecycle_version == 2
+    assert after.memory_authority_class == before.memory_authority_class == "contextual_only"
+    assert json.dumps(
+        [item.model_dump(mode="json") for item in after.source_authorities],
+        sort_keys=True,
+    ) == source_bytes
+
+
+@pytest.mark.asyncio
+async def test_legacy_unresolved_is_excluded_from_pending_review_retrieval_and_actions(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session, thread_id="case-provenance-unresolved")
+    unresolved = _unresolved_row(seeded_session, run_id=run_id, review_status="approved")
+    session.add(unresolved)
+    await session.flush()
+    service = CaseMemoryService(CaseMemoryRepository(session))
+
+    pending = await service.list_pending_review(tenant_id=seeded_session["tenant"].id)
+    retrieved = await service.retrieve_reviewed(
+        CaseMemorySearchRequest(
+            tenant_id=seeded_session["tenant"].id,
+            scope_type="case",
+            scope_id=str(seeded_session["refund_case"].id),
+            query="Legacy unresolved",
+        )
+    )
+    with pytest.raises(ValueError, match="case memory not found"):
+        await service.approve_case_memory(
+            CaseMemoryReviewDecision(
+                tenant_id=seeded_session["tenant"].id,
+                run_id=run_id,
+                case_memory_id=unresolved.id,
+                reviewer_user_id=seeded_session["users"]["admin_user"].id,
+                reason_code="approved",
+            )
+        )
+
+    assert unresolved not in pending
+    assert retrieved.items == []
+
+
+@pytest.mark.asyncio
+async def test_review_api_exposes_bounded_resolved_provenance_and_safe_unresolved_detail(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session, thread_id="case-provenance-api")
+    service = CaseMemoryService(CaseMemoryRepository(session))
+    written = await service.submit_case_memory_candidate(
+        _projected_business_candidate(seeded_session, run_id=run_id, marker="api-bounded")
+    )
+    unresolved = _unresolved_row(seeded_session, run_id=run_id)
+    session.add(unresolved)
+    await session.commit()
+    admin = seeded_session["users"]["admin_user"]
+    headers = _auth_header(admin, ["approvals:review"])
+
+    pending_response = await client.get("/api/v1/memory/review/pending?memory_type=case", headers=headers)
+    detail_response = await client.get(f"/api/v1/memory/case/{written.memory_id}", headers=headers)
+    unresolved_response = await client.get(f"/api/v1/memory/case/{unresolved.id}", headers=headers)
+    unresolved_action = await client.post(
+        f"/api/v1/memory/case/{unresolved.id}/approve",
+        json={"run_id": str(run_id), "expected_lifecycle_version": 1},
+        headers=headers,
+    )
+
+    assert pending_response.status_code == 200
+    pending_items = pending_response.json()["data"]["items"]
+    assert [item["memory_id"] for item in pending_items] == [str(written.memory_id)]
+    pending = pending_items[0]
+    assert pending["memory_authority_class"] == "contextual_only"
+    assert pending["identity_algorithm_version"] == "memory_identity.v1"
+    assert pending["identity_resolution_status"] == "canonical"
+    assert pending["candidate_hash"] == written.candidate_hash
+    assert pending["lifecycle_version"] == 1
+    assert pending["source_authorities"][0]["source_authority_class"] == "business_fact"
+    assert "raw_result" not in json.dumps(pending)
+    assert "embedding" not in pending
+
+    assert detail_response.status_code == 200
+    detail = detail_response.json()["data"]
+    assert detail["scope"] == {"scope_type": "case", "scope_id": str(seeded_session["refund_case"].id)}
+    assert detail["memory_authority_class"] == "contextual_only"
+    assert detail["lineage"]["links"] == []
+    assert detail["review_decision"] is None
+
+    assert unresolved_response.status_code == 200
+    assert unresolved_response.json()["data"] == {
+        "memory_type": "case",
+        "memory_id": str(unresolved.id),
+        "identity_resolution_status": "legacy_unresolved",
+        "unresolved_reasons": ["pre_027_provenance_unavailable", "incomplete_evidence_identity"],
+    }
+    assert unresolved_action.status_code == 404
+    assert unresolved_action.json()["error"]["code"] == "NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_forged_and_cross_tenant_case_memory_actions_use_generic_not_found(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session, thread_id="case-provenance-no-leak")
+    other_tenant_row = _unresolved_row(seeded_session, run_id=run_id)
+    other_tenant_row.tenant_id = seeded_session["other_tenant"].id
+    other_tenant_row.provenance_json = LegacyUnresolvedCaseMemoryProvenanceV1(
+        tenant_id=seeded_session["other_tenant"].id,
+        case_memory_id=other_tenant_row.id,
+        legacy_content_hash=_HASH_A,
+        legacy_source_ref={"source_type": "legacy", "event_id": "cross-tenant"},
+        unresolved_reasons=["pre_027_provenance_unavailable"],
+    ).model_dump(mode="json", exclude_none=True)
+    session.add(other_tenant_row)
+    await session.commit()
+    admin = seeded_session["users"]["admin_user"]
+
+    for memory_id in (other_tenant_row.id, uuid.uuid4(), "not-a-uuid"):
+        response = await client.post(
+            f"/api/v1/memory/case/{memory_id}/reject",
+            json={"run_id": str(run_id), "expected_lifecycle_version": 1},
+            headers=_auth_header(admin, ["approvals:review"]),
+        )
+        assert response.status_code == 404
+        assert response.json()["error"] == {"code": "NOT_FOUND", "message": "Memory not found"}
