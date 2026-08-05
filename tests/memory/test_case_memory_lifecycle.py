@@ -46,6 +46,31 @@ async def _reset_schema() -> None:
         await engine.dispose()
 
 
+async def _upgrade_to_previous_revision(cfg: Config) -> None:
+    await asyncio.to_thread(command.upgrade, cfg, "025_phase64_2_immutable_evidence")
+    engine = create_async_engine(DATABASE_URL, future=True, poolclass=NullPool)
+    try:
+        async with engine.begin() as conn:
+            checked_at = datetime.now(UTC).isoformat()
+            await conn.execute(
+                text(
+                    "UPDATE evidence_identity_rollouts SET dual_write_enabled_at = CURRENT_TIMESTAMP, "
+                    "audit_counts_json = CAST(:audit AS jsonb) WHERE id = 1"
+                ),
+                {
+                    "audit": json.dumps(
+                        {
+                            "dual_write_health": "healthy",
+                            "dual_write_health_checked_at": checked_at,
+                        }
+                    )
+                },
+            )
+    finally:
+        await engine.dispose()
+    await asyncio.to_thread(command.upgrade, cfg, PREVIOUS_REVISION)
+
+
 def _named_items(table_name: str) -> dict[str, object]:
     table = Base.metadata.tables[table_name]
     supported = (CheckConstraint, ForeignKeyConstraint, UniqueConstraint)
@@ -232,7 +257,7 @@ def test_migration_backfills_exact_claims_and_survivor_to_many_lineage() -> None
     async def exercise() -> None:
         await _reset_schema()
         cfg = _config()
-        await asyncio.to_thread(command.upgrade, cfg, PREVIOUS_REVISION)
+        await _upgrade_to_previous_revision(cfg)
         engine = create_async_engine(DATABASE_URL, future=True, poolclass=NullPool)
         try:
             async with engine.begin() as conn:
@@ -250,8 +275,9 @@ def test_migration_backfills_exact_claims_and_survivor_to_many_lineage() -> None
                 await conn.execute(
                     text(
                         "INSERT INTO agent_runs "
-                        "(id, tenant_id, user_id, thread_id, input_query, final_status, started_at) "
-                        "VALUES (:id, :tenant_id, :user_id, 'phase64-2', 'migration', 'completed', :started_at)"
+                        "(id, tenant_id, user_id, thread_id, input_query, final_status, scope_classification, "
+                        "started_at) VALUES (:id, :tenant_id, :user_id, 'phase64-2', 'migration', 'completed', "
+                        "'unknown_legacy', :started_at)"
                     ),
                     {"id": run_id, "tenant_id": tenant_id, "user_id": user_id, "started_at": started_at},
                 )

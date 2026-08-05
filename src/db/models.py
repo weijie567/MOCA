@@ -849,6 +849,77 @@ class CaseMemory(TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class CaseMemoryIdentityClaim(TimestampMixin, Base):
+    """Durable no-resurrection authority for one exact case-memory identity."""
+
+    __tablename__ = "case_memory_identity_claims"
+    __table_args__ = (
+        UniqueConstraint(
+            "identity_algorithm_version",
+            "tenant_id",
+            "scope_type",
+            "scope_id",
+            "candidate_hash",
+            "content_hash",
+            "source_identity_hash",
+            name="uq_case_memory_identity_claims_exact_identity",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "owner_case_memory_id",
+            name="uq_case_memory_identity_claims_owner",
+        ),
+        ForeignKeyConstraint(
+            ["owner_case_memory_id", "tenant_id"],
+            ["case_memories.id", "case_memories.tenant_id"],
+            name="fk_case_memory_identity_claims_owner_tenant",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(MEMORY_SCOPE_CHECK, name="ck_case_memory_identity_claims_scope_type"),
+        CheckConstraint(
+            "candidate_hash ~ '^sha256:[0-9a-f]{64}$' "
+            "AND content_hash ~ '^sha256:[0-9a-f]{64}$' "
+            "AND source_identity_hash ~ '^sha256:[0-9a-f]{64}$'",
+            name="ck_case_memory_identity_claims_hashes",
+        ),
+        CheckConstraint(
+            "claim_state IN ('active', 'terminal')",
+            name="ck_case_memory_identity_claims_state",
+        ),
+        CheckConstraint(
+            "((claim_state = 'active' AND terminal_status IS NULL "
+            "AND terminal_reason IS NULL AND terminal_at IS NULL) OR "
+            "(claim_state = 'terminal' "
+            "AND terminal_status IN ('rejected', 'superseded', 'deleted', 'tombstoned') "
+            "AND terminal_reason IS NOT NULL AND terminal_at IS NOT NULL))",
+            name="ck_case_memory_identity_claims_terminal_fields",
+        ),
+        CheckConstraint(
+            "lifecycle_version > 0",
+            name="ck_case_memory_identity_claims_lifecycle_version_positive",
+        ),
+        Index("ix_case_memory_identity_claims_owner", "tenant_id", "owner_case_memory_id"),
+        Index("ix_case_memory_identity_claims_state", "tenant_id", "claim_state"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    identity_algorithm_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False
+    )
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    candidate_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_identity_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    owner_case_memory_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    claim_state: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    terminal_status: Mapped[str | None] = mapped_column(String(32))
+    terminal_reason: Mapped[str | None] = mapped_column(String(128))
+    terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lifecycle_version: Mapped[int] = mapped_column(nullable=False, default=1)
+
+
 Index(
     "ix_case_memories_metadata_filters",
     CaseMemory.tenant_id,
@@ -876,6 +947,21 @@ Index(
     CaseMemory.scope_id,
     CaseMemory.source_identity_hash,
     postgresql_where=text("source_identity_hash IS NOT NULL AND deleted_at IS NULL"),
+)
+Index(
+    "ix_case_memories_active_exact_identity",
+    CaseMemory.identity_algorithm_version,
+    CaseMemory.tenant_id,
+    CaseMemory.scope_type,
+    CaseMemory.scope_id,
+    CaseMemory.candidate_hash,
+    CaseMemory.content_hash,
+    CaseMemory.source_identity_hash,
+    postgresql_where=text(
+        "deleted_at IS NULL "
+        "AND identity_resolution_status IN ('canonical', 'legacy_resolved') "
+        "AND review_status IN ('auto_approved', 'needs_review', 'approved')"
+    ),
 )
 Index(
     "ix_case_memories_embedding_hnsw",
