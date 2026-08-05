@@ -7,6 +7,7 @@ from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Computed,
@@ -196,7 +197,10 @@ class Ticket(TimestampMixin, Base):
 
 class PolicyDocument(TimestampMixin, Base):
     __tablename__ = "policy_documents"
-    __table_args__ = (UniqueConstraint("tenant_id", "doc_key", name="uq_policy_documents_tenant_doc_key"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "doc_key", name="uq_policy_documents_tenant_doc_key"),
+        UniqueConstraint("id", "tenant_id", name="uq_policy_documents_id_tenant"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -213,6 +217,7 @@ class PolicyDocument(TimestampMixin, Base):
     source_checksum: Mapped[str | None] = mapped_column(String(128))
     parser_metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     policy_version_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    evidence_write_sequence: Mapped[int | None] = mapped_column(BigInteger)
 
     chunks: Mapped[list["PolicyChunk"]] = relationship(back_populates="document")
     document_blocks: Mapped[list["DocumentBlock"]] = relationship(back_populates="document")
@@ -322,8 +327,284 @@ class PolicyChunk(TimestampMixin, Base):
     risk_level: Mapped[str] = mapped_column(String(32), nullable=False)
     effective_date: Mapped[date] = mapped_column(Date, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
+    evidence_write_sequence: Mapped[int | None] = mapped_column(BigInteger)
 
     document: Mapped["PolicyDocument"] = relationship(back_populates="chunks")
+
+
+_EVIDENCE_SOURCE_LOCATOR_CHECK = (
+    "jsonb_typeof(source_locator_json) = 'object' "
+    "AND source_locator_json ? 'source_type' "
+    "AND (source_locator_json - "
+    "ARRAY['source_type', 'source_checksum', 'source_uri', 'page_number', 'source_block_refs']::text[]) "
+    "= '{}'::jsonb"
+)
+_EVIDENCE_LIFECYCLE_CHECK = "lifecycle_status IN ('active', 'superseded', 'corrected', 'expired', 'tombstoned')"
+
+
+class PolicyDocumentVersion(TimestampMixin, Base):
+    """Append-only retained document material for evidence identity and replay."""
+
+    __tablename__ = "policy_document_versions"
+    __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_policy_document_versions_id_tenant"),
+        UniqueConstraint(
+            "tenant_id",
+            "scope_type",
+            "scope_id",
+            "doc_key",
+            "document_version",
+            name="uq_policy_document_versions_logical",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "scope_type",
+            "scope_id",
+            "doc_key",
+            "document_version",
+            name="uq_policy_document_versions_identity",
+        ),
+        ForeignKeyConstraint(
+            ["policy_document_id", "tenant_id"],
+            ["policy_documents.id", "policy_documents.tenant_id"],
+            name="fk_policy_document_versions_head_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["supersedes_version_id", "tenant_id"],
+            ["policy_document_versions.id", "policy_document_versions.tenant_id"],
+            name="fk_policy_document_versions_supersedes_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["corrects_version_id", "tenant_id"],
+            ["policy_document_versions.id", "policy_document_versions.tenant_id"],
+            name="fk_policy_document_versions_corrects_tenant",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "scope_type = 'tenant_policy' AND scope_id = CAST(tenant_id AS VARCHAR)",
+            name="ck_policy_document_versions_tenant_policy_scope",
+        ),
+        CheckConstraint(
+            "document_version > 0",
+            name="ck_policy_document_versions_document_version_positive",
+        ),
+        CheckConstraint(
+            "content_hash ~ '^sha256:[0-9a-f]{64}$'",
+            name="ck_policy_document_versions_content_hash",
+        ),
+        CheckConstraint(_EVIDENCE_SOURCE_LOCATOR_CHECK, name="ck_policy_document_versions_source_locator_allowlist"),
+        CheckConstraint(_EVIDENCE_LIFECYCLE_CHECK, name="ck_policy_document_versions_lifecycle_status"),
+        Index("ix_policy_document_versions_tenant_doc_version", "tenant_id", "doc_key", "document_version"),
+        Index("ix_policy_document_versions_retention", "retention_until"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    policy_document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    doc_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    document_version: Mapped[int] = mapped_column(nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    source_locator_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    lifecycle_status: Mapped[str] = mapped_column(String(32), default="active", server_default="active", nullable=False)
+    retention_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    tombstoned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    supersedes_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    corrects_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+
+
+class PolicyChunkVersion(TimestampMixin, Base):
+    """Append-only retained chunk material bound to one exact document version."""
+
+    __tablename__ = "policy_chunk_versions"
+    __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_policy_chunk_versions_id_tenant"),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "policy_document_version_id",
+            name="uq_policy_chunk_versions_id_tenant_document",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "scope_type",
+            "scope_id",
+            "doc_key",
+            "document_version",
+            "chunk_id",
+            "chunk_version",
+            name="uq_policy_chunk_versions_identity",
+        ),
+        ForeignKeyConstraint(
+            [
+                "policy_document_version_id",
+                "tenant_id",
+                "scope_type",
+                "scope_id",
+                "doc_key",
+                "document_version",
+            ],
+            [
+                "policy_document_versions.id",
+                "policy_document_versions.tenant_id",
+                "policy_document_versions.scope_type",
+                "policy_document_versions.scope_id",
+                "policy_document_versions.doc_key",
+                "policy_document_versions.document_version",
+            ],
+            name="fk_policy_chunk_versions_document_identity",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["supersedes_version_id", "tenant_id"],
+            ["policy_chunk_versions.id", "policy_chunk_versions.tenant_id"],
+            name="fk_policy_chunk_versions_supersedes_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["corrects_version_id", "tenant_id"],
+            ["policy_chunk_versions.id", "policy_chunk_versions.tenant_id"],
+            name="fk_policy_chunk_versions_corrects_tenant",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "scope_type = 'tenant_policy' AND scope_id = CAST(tenant_id AS VARCHAR)",
+            name="ck_policy_chunk_versions_tenant_policy_scope",
+        ),
+        CheckConstraint(
+            "document_version > 0 AND chunk_version > 0",
+            name="ck_policy_chunk_versions_versions_positive",
+        ),
+        CheckConstraint(
+            "text_hash ~ '^sha256:[0-9a-f]{64}$'",
+            name="ck_policy_chunk_versions_text_hash",
+        ),
+        CheckConstraint(_EVIDENCE_SOURCE_LOCATOR_CHECK, name="ck_policy_chunk_versions_source_locator_allowlist"),
+        CheckConstraint(_EVIDENCE_LIFECYCLE_CHECK, name="ck_policy_chunk_versions_lifecycle_status"),
+        Index(
+            "ix_policy_chunk_versions_tenant_chunk_version",
+            "tenant_id",
+            "doc_key",
+            "chunk_id",
+            "document_version",
+            "chunk_version",
+        ),
+        Index("ix_policy_chunk_versions_retention", "retention_until"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    policy_document_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    doc_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    document_version: Mapped[int] = mapped_column(nullable=False)
+    chunk_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    chunk_version: Mapped[int] = mapped_column(nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    text_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    source_locator_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    lifecycle_status: Mapped[str] = mapped_column(String(32), default="active", server_default="active", nullable=False)
+    retention_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    tombstoned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    supersedes_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    corrects_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+
+
+class EvidenceSnapshotDependency(TimestampMixin, Base):
+    """Normalized retained event-to-immutable-evidence dependency."""
+
+    __tablename__ = "evidence_snapshot_dependencies"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "event_id",
+            "document_version_id",
+            "chunk_version_id",
+            name="uq_evidence_snapshot_dependencies_binding",
+        ),
+        ForeignKeyConstraint(
+            ["event_id", "tenant_id"],
+            ["agent_trace_events.event_id", "agent_trace_events.tenant_id"],
+            name="fk_evidence_snapshot_dependencies_event_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["document_version_id", "tenant_id"],
+            ["policy_document_versions.id", "policy_document_versions.tenant_id"],
+            name="fk_evidence_snapshot_dependencies_document_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["chunk_version_id", "tenant_id", "document_version_id"],
+            [
+                "policy_chunk_versions.id",
+                "policy_chunk_versions.tenant_id",
+                "policy_chunk_versions.policy_document_version_id",
+            ],
+            name="fk_evidence_snapshot_dependencies_chunk_tenant_document",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_evidence_snapshot_dependencies_tenant_event", "tenant_id", "event_id"),
+        Index("ix_evidence_snapshot_dependencies_retention", "retention_until"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    document_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    chunk_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    retention_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class EvidenceIdentityRollout(TimestampMixin, Base):
+    """Singleton CAS/lock row for staged evidence identity rollout."""
+
+    __tablename__ = "evidence_identity_rollouts"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_evidence_identity_rollouts_singleton"),
+        CheckConstraint("rollout_version >= 0", name="ck_evidence_identity_rollouts_version_nonnegative"),
+        CheckConstraint(
+            "backfill_watermark_sequence IS NULL OR backfill_watermark_sequence >= 0",
+            name="ck_evidence_identity_rollouts_watermark_nonnegative",
+        ),
+        CheckConstraint(
+            "reconciled_through_sequence IS NULL OR reconciled_through_sequence >= 0",
+            name="ck_evidence_identity_rollouts_reconciled_nonnegative",
+        ),
+        CheckConstraint(
+            "NOT canonical_reads_enabled OR dual_write_enabled_at IS NOT NULL",
+            name="ck_evidence_identity_rollouts_reads_require_dual_write",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1, server_default=text("1"))
+    rollout_version: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    dual_write_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    backfill_watermark_sequence: Mapped[int | None] = mapped_column(BigInteger)
+    reconciled_through_sequence: Mapped[int | None] = mapped_column(BigInteger)
+    canonical_reads_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+    )
+    canonical_reads_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    canonical_reads_disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    quarantine_reason: Mapped[str | None] = mapped_column(String(500))
+    audit_counts_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+        nullable=False,
+    )
 
 
 class AuditLog(Base):
@@ -1627,6 +1908,7 @@ class AgentTraceEvent(TimestampMixin, Base):
     __tablename__ = "agent_trace_events"
     __table_args__ = (
         UniqueConstraint("run_id", "sequence", name="uq_agent_trace_events_run_seq"),
+        UniqueConstraint("event_id", "tenant_id", name="uq_agent_trace_events_event_tenant"),
         CheckConstraint(
             "schema_version IN ('minimal_event_envelope.v1', 'replay_event.v3')",
             name="ck_agent_trace_events_schema_version",
@@ -1659,6 +1941,7 @@ class AgentTraceEvent(TimestampMixin, Base):
     draft_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("action_drafts.id"))
     tool_call_id: Mapped[str | None] = mapped_column(String(128))
     evidence_refs_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    evidence_snapshot_refs_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     error_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     thread_id: Mapped[str] = mapped_column(String(128), nullable=False)

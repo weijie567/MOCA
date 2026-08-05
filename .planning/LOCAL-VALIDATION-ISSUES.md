@@ -22050,3 +22050,23 @@ Task 1 focused pytest 与 scoped Ruff check 已通过，但补跑 `ruff format -
 
 **剩余问题和下次继续排查入口**
 无剩余阻断；后续 Task 2 同样在提交前补跑 scoped format check。
+
+## 2026-08-05 — Phase 64.2 Plan 01 Task 2 migration contract 首轮迭代失败
+
+**问题现象**
+Task 2 首次 GREEN 聚合出现两个失败：ORM 列名断言错误地把 `ColumnCollection` 转成 Column 对象集合；migration 创建 `policy_chunk_versions` 时，自引用 tenant-bound FK 缺少匹配的 `(id, tenant_id)` unique constraint。修复后，live fixture 又依次暴露 raw `text()` JSONB dict 未编码、内联 JSON 的 `:null` 被 SQLAlchemy 当作 bind parameter，以及 scoped Ruff 的两个未使用 import；首轮 format check 还报告 migration/test 需要机械格式化。
+
+**如何检测/复现**
+反复执行计划原命令 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_immutable_evidence_migration.py tests/replay/test_replay_migration_contract.py -q --tb=short`，再执行计划 scoped Ruff 与补充的 `ruff format --check`。PostgreSQL 测试每次从 024 schema seed mutable heads 后升级 025。
+
+**关键证据或命令**
+首轮 pytest 为 `2 failed, 7 passed`：静态断言显示 `evidence_write_sequence` 的字符串集合比较错误，PostgreSQL 返回 `InvalidForeignKeyError: there is no unique constraint matching given keys for referenced table policy_chunk_versions`。后续两轮分别返回 asyncpg JSONB `dict object has no attribute encode` 与 SQLAlchemy `A value is required for bind parameter 'null'`。Ruff 随后报告 `EvidenceIdentityRollout` / `EvidenceSnapshotDependency` 两个 F401；format check 报两个文件需格式化。
+
+**当前判断/根因**
+其中 composite FK 缺 unique constraint 是真实 schema bug；其余为新 migration live-test fixture/断言与格式问题：`text()` 未携带 JSONB bind type、内联 JSON 冒号触发 text bind 解析、列集合比较使用了对象而非 `.keys()`，以及显式 ORM import 尚未进入断言。
+
+**已做处理**
+为 `policy_chunk_versions` 在 ORM 与 migration 同步增加 `uq_policy_chunk_versions_id_tenant`；列断言改用 `.c.keys()`；JSONB 参数经 `json.dumps`/`CAST(... AS jsonb)` 绑定，actor 改为显式参数；测试显式断言两个 ORM owner 表名；最后用项目入口格式化 migration/test 并完整重跑。
+
+**剩余问题和下次继续排查入口**
+最终 Task 2 原命令为 `9 passed, 4 warnings`，scoped Ruff 为 `All checks passed!`，3 个文件 format check 与 `git diff --check` 均通过。4 个 warning 是既有 LangGraph pending deprecation 与 Alembic `path_separator` 配置提示，不影响 025 PostgreSQL 迁移结论；后续若治理 Alembic warning，应由配置 hygiene scope 单独处理。

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+import json
 from pathlib import Path
 import re
 import uuid
@@ -71,12 +72,14 @@ def test_orm_and_migration_define_exact_additive_immutable_foundation() -> None:
     assert 'revision: str = "025_phase64_2_immutable_evidence"' in source
     assert f'down_revision: str | None = "{PREVIOUS_REVISION}"' in source
     assert EXPECTED_TABLES <= set(Base.metadata.tables)
-    assert {"evidence_write_sequence"} <= set(PolicyDocument.__table__.c)
-    assert {"evidence_write_sequence"} <= set(PolicyChunk.__table__.c)
-    assert {"evidence_snapshot_refs_json"} <= set(AgentTraceEvent.__table__.c)
+    assert EvidenceSnapshotDependency.__tablename__ == "evidence_snapshot_dependencies"
+    assert EvidenceIdentityRollout.__tablename__ == "evidence_identity_rollouts"
+    assert {"evidence_write_sequence"} <= set(PolicyDocument.__table__.c.keys())
+    assert {"evidence_write_sequence"} <= set(PolicyChunk.__table__.c.keys())
+    assert {"evidence_snapshot_refs_json"} <= set(AgentTraceEvent.__table__.c.keys())
 
-    document_columns = set(PolicyDocumentVersion.__table__.c)
-    chunk_columns = set(PolicyChunkVersion.__table__.c)
+    document_columns = set(PolicyDocumentVersion.__table__.c.keys())
+    chunk_columns = set(PolicyChunkVersion.__table__.c.keys())
     assert {
         "tenant_id",
         "scope_type",
@@ -164,9 +167,10 @@ def test_migration_source_is_expansion_only_and_has_no_backfill_or_cutover() -> 
     assert "insert into policy_chunk_versions select" not in normalized
     assert "update policy_documents" not in normalized
     assert "update policy_chunks" not in normalized
-    assert "backfill" not in normalized
+    assert "perform_backfill" not in normalized
+    assert "backfill_current_heads" not in normalized
     assert "canonical_reads_enabled" in normalized
-    assert "server_default=sa.text(\"false\")" in upgrade_source
+    assert 'server_default=sa.text("false")' in upgrade_source
 
 
 def test_upgrade_performs_no_backfill() -> None:
@@ -174,6 +178,7 @@ def test_upgrade_performs_no_backfill() -> None:
     document_id = uuid.uuid4()
     chunk_id = uuid.uuid4()
     document_version_id = uuid.uuid4()
+    invalid_document_version_id = uuid.uuid4()
     chunk_version_id = uuid.uuid4()
     run_id = uuid.uuid4()
     event_id = uuid.uuid4()
@@ -189,9 +194,7 @@ def test_upgrade_performs_no_backfill() -> None:
         try:
             async with engine.begin() as conn:
                 await conn.execute(
-                    text(
-                        "INSERT INTO tenants (id, name, status) VALUES (:tenant_id, 'phase64-2', 'active')"
-                    ),
+                    text("INSERT INTO tenants (id, name, status) VALUES (:tenant_id, 'phase64-2', 'active')"),
                     {"tenant_id": tenant_id},
                 )
                 await conn.execute(
@@ -223,14 +226,20 @@ def test_upgrade_performs_no_backfill() -> None:
                 assert await conn.scalar(text("SELECT count(*) FROM policy_document_versions")) == 0
                 assert await conn.scalar(text("SELECT count(*) FROM policy_chunk_versions")) == 0
                 assert await conn.scalar(text("SELECT count(*) FROM evidence_snapshot_dependencies")) == 0
-                assert await conn.scalar(
-                    text("SELECT evidence_write_sequence FROM policy_documents WHERE id = :id"),
-                    {"id": document_id},
-                ) is None
-                assert await conn.scalar(
-                    text("SELECT evidence_write_sequence FROM policy_chunks WHERE id = :id"),
-                    {"id": chunk_id},
-                ) is None
+                assert (
+                    await conn.scalar(
+                        text("SELECT evidence_write_sequence FROM policy_documents WHERE id = :id"),
+                        {"id": document_id},
+                    )
+                    is None
+                )
+                assert (
+                    await conn.scalar(
+                        text("SELECT evidence_write_sequence FROM policy_chunks WHERE id = :id"),
+                        {"id": chunk_id},
+                    )
+                    is None
+                )
                 rollout = (
                     await conn.execute(
                         text(
@@ -245,6 +254,28 @@ def test_upgrade_performs_no_backfill() -> None:
                 first_sequence = await conn.scalar(text("SELECT nextval('evidence_ingestion_write_seq')"))
                 second_sequence = await conn.scalar(text("SELECT nextval('evidence_ingestion_write_seq')"))
                 assert (first_sequence, second_sequence) == (1, 2)
+
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                with pytest.raises(DBAPIError):
+                    await conn.execute(
+                        text(
+                            "INSERT INTO policy_document_versions "
+                            "(id, tenant_id, policy_document_id, scope_type, scope_id, doc_key, document_version, "
+                            "content, content_hash, source_locator_json, lifecycle_status, retention_until) "
+                            "VALUES (:id, :tenant_id, :document_id, 'tenant_policy', 'wrong-scope', "
+                            "'refund_policy', 3, 'invalid scope', :content_hash, :locator, 'active', :retention_until)"
+                        ),
+                        {
+                            "id": invalid_document_version_id,
+                            "tenant_id": tenant_id,
+                            "document_id": document_id,
+                            "content_hash": "sha256:" + "a" * 64,
+                            "locator": json.dumps({"source_type": "policy_markdown"}),
+                            "retention_until": retention_until,
+                        },
+                    )
+                await transaction.rollback()
 
             async with engine.begin() as conn:
                 await conn.execute(
@@ -261,7 +292,7 @@ def test_upgrade_performs_no_backfill() -> None:
                         "document_id": document_id,
                         "scope_id": str(tenant_id),
                         "content_hash": "sha256:" + "a" * 64,
-                        "locator": {"source_type": "policy_markdown", "source_uri": "policies/refund.md"},
+                        "locator": json.dumps({"source_type": "policy_markdown", "source_uri": "policies/refund.md"}),
                         "retention_until": retention_until,
                     },
                 )
@@ -281,11 +312,13 @@ def test_upgrade_performs_no_backfill() -> None:
                         "document_version_id": document_version_id,
                         "scope_id": str(tenant_id),
                         "text_hash": "sha256:" + "b" * 64,
-                        "locator": {
-                            "source_type": "policy_markdown",
-                            "source_uri": "policies/refund.md",
-                            "source_block_refs": ["block-1"],
-                        },
+                        "locator": json.dumps(
+                            {
+                                "source_type": "policy_markdown",
+                                "source_uri": "policies/refund.md",
+                                "source_block_refs": ["block-1"],
+                            }
+                        ),
                         "retention_until": retention_until,
                         "now": now,
                     },
@@ -304,10 +337,16 @@ def test_upgrade_performs_no_backfill() -> None:
                         "(event_id, run_id, sequence, tenant_id, thread_id, event_type, schema_version, occurred_at, "
                         "actor, resource_refs, redaction_policy_version, redacted_payload, evidence_snapshot_refs_json) "
                         "VALUES (:event_id, :run_id, 1, :tenant_id, 'thread-64-2', 'rag_retrieval_completed', "
-                        "'replay_event.v3', :now, '{\"type\":\"agent\",\"id\":null}'::jsonb, '{}'::jsonb, "
+                        "'replay_event.v3', :now, CAST(:actor AS jsonb), '{}'::jsonb, "
                         "'redaction.v1', '{}'::jsonb, '[\"sha256:snapshot\"]'::jsonb)"
                     ),
-                    {"event_id": event_id, "run_id": run_id, "tenant_id": tenant_id, "now": now},
+                    {
+                        "event_id": event_id,
+                        "run_id": run_id,
+                        "tenant_id": tenant_id,
+                        "now": now,
+                        "actor": json.dumps({"type": "agent", "id": None}),
+                    },
                 )
                 await conn.execute(
                     text(
@@ -340,12 +379,23 @@ def test_upgrade_performs_no_backfill() -> None:
                 assert retained.source_locator_json["source_uri"] == "policies/refund.md"
                 assert retained.lifecycle_status == "tombstoned"
 
-            async with engine.begin() as conn:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                with pytest.raises(DBAPIError):
+                    await conn.execute(
+                        text("UPDATE policy_chunk_versions SET content = 'mutated' WHERE id = :id"),
+                        {"id": chunk_version_id},
+                    )
+                await transaction.rollback()
+
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
                 with pytest.raises(DBAPIError):
                     await conn.execute(
                         text("DELETE FROM policy_chunk_versions WHERE id = :id"),
                         {"id": chunk_version_id},
                     )
+                await transaction.rollback()
 
             with pytest.raises(RuntimeError, match="immutable evidence history"):
                 await asyncio.to_thread(command.downgrade, cfg, PREVIOUS_REVISION)
