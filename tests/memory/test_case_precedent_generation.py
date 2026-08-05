@@ -389,9 +389,11 @@ async def test_terminal_status_uses_refund_case_order_merchant_scope(
         "business_object_type": "refund_case",
         "business_object_id": str(refund_case.id),
         "outcome_id": f"cwc:{cwc_row.id}:v{cwc_row.version}",
-        "policy_version": "2026-01",
+        "policy_version": "v1",
     }
-    assert row.policy_refs_json == [{"doc_key": "refund_policy", "chunk_id": "c-1", "policy_version": "2026-01"}]
+    assert row.policy_refs_json == [
+        _canonical_policy_ref(tenant_id=refund_case.tenant_id).model_dump(mode="json", exclude_none=True)
+    ]
     event = await session.get(MemoryWriteEvent, result.event_id)
     assert event is not None
     assert event.memory_id == result.memory_id
@@ -657,7 +659,9 @@ async def test_generated_candidate_pending_review_hidden_until_approval_with_pol
     assert approve_event.decision == "write"
     assert [item.case_memory_id for item in visible.items] == [str(generated.memory_id)]
     assert visible.items[0].policy_refs == [
-        {"doc_key": "refund_policy", "chunk_id": "c-1", "policy_version": "2026-01"}
+        _canonical_policy_ref(tenant_id=seeded_session["tenant"].id).model_dump(
+            mode="json", exclude_none=True, exclude={"score"}
+        )
     ]
 
 
@@ -688,9 +692,11 @@ def test_projection_separates_claims_verified_facts_and_maps_policy_refs(seeded_
     assert "Customer request:" in candidate.excerpt
     assert "Customer claim:" in candidate.excerpt
     assert "Verified fact:" in candidate.excerpt
-    assert candidate.policy_refs == [{"doc_key": "refund_policy", "chunk_id": "c-1", "policy_version": "2026-01"}]
+    assert candidate.policy_refs == [
+        _canonical_policy_ref(tenant_id=request.tenant_id).model_dump(mode="json", exclude_none=True)
+    ]
     assert candidate.policy_family == "refund_policy"
-    assert candidate.policy_version == "2026-01"
+    assert candidate.policy_version == "v1"
 
 
 def test_projection_uses_fixed_caveat_and_excludes_raw_payload_markers(seeded_session: dict) -> None:

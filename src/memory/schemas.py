@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from src.knowledge.schemas import EvidenceRefV1
+from src.tools.contracts import BusinessFactRefV1
 
 
 _SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
@@ -275,6 +278,157 @@ CaseMemorySourceType = Literal[
 ]
 
 
+class CaseMemorySourceAuthorityV1(BaseModel):
+    """Original authority carried by one promoted CWC fact source."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["case_memory_source_authority.v1"] = "case_memory_source_authority.v1"
+    source_kind: Literal["business_fact", "policy_evidence"]
+    source_ref: MemorySourceRefV1
+    source_status: Literal["success"]
+    source_authority_class: Literal["business_fact", "policy_evidence"]
+    business_fact_refs: list[BusinessFactRefV1] = Field(default_factory=list)
+    evidence_refs: list[EvidenceRefV1] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _require_matching_complete_authority(self) -> CaseMemorySourceAuthorityV1:
+        durable_source_values = (
+            self.source_ref.event_id,
+            self.source_ref.conversation_message_id,
+            self.source_ref.tool_result_id,
+            self.source_ref.agent_run_id,
+            self.source_ref.business_object_id,
+            self.source_ref.outcome_id,
+        )
+        if not self.source_ref.source_type.strip() or not any(durable_source_values):
+            raise ValueError("source authority requires a complete durable source ref")
+        if self.source_kind != self.source_authority_class:
+            raise ValueError("source kind must match the original source authority class")
+        if self.source_authority_class == "business_fact":
+            if not self.business_fact_refs or self.evidence_refs:
+                raise ValueError("business-fact authority requires only typed business fact refs")
+            return self
+        if not self.evidence_refs or self.business_fact_refs:
+            raise ValueError("policy-evidence authority requires only canonical evidence refs")
+        if any(ref.to_canonical_identity() is None for ref in self.evidence_refs):
+            raise ValueError("policy-evidence authority requires complete canonical evidence refs")
+        return self
+
+
+class CaseMemoryProvenanceV1(BaseModel):
+    """Resolved, identity-bound provenance for one reviewed CaseMemory row."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["case_memory_provenance.v1"] = "case_memory_provenance.v1"
+    resolution_status: Literal["canonical", "legacy_resolved"]
+    tenant_id: uuid.UUID
+    scope_type: CaseMemoryScopeType
+    scope_id: str = Field(min_length=1, max_length=128)
+    memory_authority_class: Literal["contextual_only"] = "contextual_only"
+    source_authorities: list[CaseMemorySourceAuthorityV1] = Field(default_factory=list)
+    source_run_id: uuid.UUID
+    source_event_id: str | None = Field(default=None, min_length=1)
+    source_cwc_id: uuid.UUID | None = None
+    source_cwc_revision: int | None = Field(default=None, gt=0)
+    evidence_refs: list[EvidenceRefV1] = Field(default_factory=list)
+    business_fact_refs: list[BusinessFactRefV1] = Field(default_factory=list)
+    identity_algorithm_version: Literal["memory_identity.v1"] = "memory_identity.v1"
+    identity_profile: Literal["nfkc_casefold_legacy", "nfc_selective_v2"]
+    candidate_hash: str = Field(pattern=_SHA256_PATTERN)
+    content_hash: str = Field(pattern=_SHA256_PATTERN)
+    source_identity_hash: str = Field(pattern=_SHA256_PATTERN)
+    review_decision: Literal["approved", "rejected"] | None = None
+    reviewer_user_id: uuid.UUID | None = None
+    reviewed_at: datetime | None = None
+    review_reason: str | None = Field(default=None, max_length=1500)
+    corrects_case_memory_id: uuid.UUID | None = None
+    supersedes_case_memory_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _validate_resolved_binding(self) -> CaseMemoryProvenanceV1:
+        if (self.source_cwc_id is None) != (self.source_cwc_revision is None):
+            raise ValueError("source CWC id and revision must be present together")
+        tenant_id = str(self.tenant_id)
+        for authority in self.source_authorities:
+            if any(str(ref.tenant_id) != tenant_id for ref in authority.business_fact_refs):
+                raise ValueError("business fact authority tenant must match provenance tenant")
+            for ref in authority.evidence_refs:
+                if (
+                    ref.tenant_id != tenant_id
+                    or ref.scope_type != "tenant_policy"
+                    or ref.scope_id != tenant_id
+                    or ref.to_canonical_identity() is None
+                ):
+                    raise ValueError("evidence authority must use exact tenant-policy canonical scope")
+        if _model_list(self.business_fact_refs) != _model_list(
+            _ordered_unique_refs(
+                ref for authority in self.source_authorities for ref in authority.business_fact_refs
+            )
+        ):
+            raise ValueError("aggregate business fact refs must exactly match source authorities")
+        if _model_list(self.evidence_refs) != _model_list(
+            _ordered_unique_refs(ref for authority in self.source_authorities for ref in authority.evidence_refs)
+        ):
+            raise ValueError("aggregate evidence refs must exactly match source authorities")
+        if self.review_decision is None:
+            if self.reviewer_user_id is not None or self.reviewed_at is not None or self.review_reason is not None:
+                raise ValueError("pending provenance cannot contain reviewer metadata")
+        elif self.reviewer_user_id is None or self.reviewed_at is None:
+            raise ValueError("reviewed provenance requires the reviewer and reviewed time")
+        return self
+
+
+LegacyCaseMemoryUnresolvedReason = Literal[
+    "pre_027_provenance_unavailable",
+    "missing_identity_hash",
+    "identity_hash_unverified",
+    "incomplete_source_authority",
+    "incomplete_evidence_identity",
+]
+
+
+class LegacyUnresolvedCaseMemoryProvenanceV1(BaseModel):
+    """Literal legacy material only; this shape cannot carry resolved authority."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["case_memory_provenance_legacy_unresolved.v1"] = (
+        "case_memory_provenance_legacy_unresolved.v1"
+    )
+    resolution_status: Literal["legacy_unresolved"] = "legacy_unresolved"
+    tenant_id: uuid.UUID
+    case_memory_id: uuid.UUID
+    legacy_content_hash: str | None = None
+    legacy_source_identity_hash: str | None = None
+    legacy_source_ref: dict[str, Any] = Field(default_factory=dict)
+    legacy_policy_refs: list[dict[str, Any]] = Field(default_factory=list)
+    unresolved_reasons: list[LegacyCaseMemoryUnresolvedReason] = Field(min_length=1)
+
+
+CaseMemoryProvenanceEnvelope = Annotated[
+    CaseMemoryProvenanceV1 | LegacyUnresolvedCaseMemoryProvenanceV1,
+    Field(discriminator="resolution_status"),
+]
+
+
+def _ordered_unique_refs(values) -> list[BaseModel]:
+    refs: list[BaseModel] = []
+    seen: set[str] = set()
+    for value in values:
+        serialized = value.model_dump_json(exclude_none=True)
+        if serialized in seen:
+            continue
+        seen.add(serialized)
+        refs.append(value)
+    return refs
+
+
+def _model_list(values: list[BaseModel]) -> list[dict[str, Any]]:
+    return [value.model_dump(mode="json", exclude_none=True) for value in values]
+
+
 class LongTermMemoryWriteCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -345,6 +499,7 @@ class CaseMemoryWriteCandidate(BaseModel):
     embedding: list[float] | None = None
     pii_classification: CaseMemoryPiiClassification = "none"
     expires_at: datetime | None = None
+    provenance: CaseMemoryProvenanceV1 | None = None
 
 
 class CaseMemoryReviewDecision(BaseModel):

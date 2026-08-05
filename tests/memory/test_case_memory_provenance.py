@@ -263,7 +263,7 @@ def test_rejected_cwc_observation_never_enters_case_memory() -> None:
                 completeness="partial",
                 scope_result="unknown",
                 freshness_result="unknown",
-                reference_validation="missing",
+                reference_validation="invalid",
                 source_ref=_source_ref(case_id=case_id, run_id=run_id, tool_result_id="tool-rejected"),
                 observed_at=observed_at,
             )
@@ -289,7 +289,7 @@ def test_rejected_cwc_observation_never_enters_case_memory() -> None:
 
     rendered = json.dumps(candidate.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
     assert forbidden not in rendered
-    assert candidate.policy_refs == [evidence_ref.model_dump(mode="json")]
+    assert candidate.policy_refs == [evidence_ref.model_dump(mode="json", exclude_none=True)]
     assert candidate.provenance is not None
     assert candidate.provenance.memory_authority_class == "contextual_only"
     assert [item.source_authority_class for item in candidate.provenance.source_authorities] == [

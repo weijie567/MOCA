@@ -789,9 +789,27 @@ Index(
 class CaseMemory(TimestampMixin, Base):
     __tablename__ = "case_memories"
     __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_case_memories_id_tenant"),
+        ForeignKeyConstraint(
+            ["corrects_case_memory_id", "tenant_id"],
+            ["case_memories.id", "case_memories.tenant_id"],
+            name="fk_case_memories_corrects_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["supersedes_case_memory_id", "tenant_id"],
+            ["case_memories.id", "case_memories.tenant_id"],
+            name="fk_case_memories_supersedes_tenant",
+            ondelete="RESTRICT",
+        ),
         CheckConstraint(MEMORY_SCOPE_CHECK, name="ck_case_memories_scope_type"),
         CheckConstraint(MEMORY_REVIEW_STATUS_CHECK, name="ck_case_memories_review_status"),
         CheckConstraint(MEMORY_PII_CLASSIFICATION_CHECK, name="ck_case_memories_pii_classification"),
+        CheckConstraint(
+            "identity_resolution_status IN ('canonical', 'legacy_resolved', 'legacy_unresolved')",
+            name="ck_case_memories_identity_resolution_status",
+        ),
+        CheckConstraint("lifecycle_version > 0", name="ck_case_memories_lifecycle_version_positive"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -813,6 +831,13 @@ class CaseMemory(TimestampMixin, Base):
     policy_refs_json: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     source_ref_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     source_identity_hash: Mapped[str | None] = mapped_column(String(80))
+    identity_algorithm_version: Mapped[str | None] = mapped_column(String(64))
+    candidate_hash: Mapped[str | None] = mapped_column(String(80))
+    identity_resolution_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    provenance_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    lifecycle_version: Mapped[int] = mapped_column(nullable=False, default=1)
+    corrects_case_memory_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    supersedes_case_memory_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
     review_status: Mapped[str] = mapped_column(String(32), nullable=False, default="needs_review")
     reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
@@ -858,6 +883,65 @@ Index(
     postgresql_using="hnsw",
     postgresql_ops={"embedding": "vector_cosine_ops"},
     postgresql_with={"m": 16, "ef_construction": 128},
+)
+
+
+class CaseMemoryLineageLink(TimestampMixin, Base):
+    __tablename__ = "case_memory_lineage_links"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["survivor_case_memory_id", "tenant_id"],
+            ["case_memories.id", "case_memories.tenant_id"],
+            name="fk_case_memory_lineage_survivor_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["related_case_memory_id", "tenant_id"],
+            ["case_memories.id", "case_memories.tenant_id"],
+            name="fk_case_memory_lineage_related_tenant",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "survivor_case_memory_id",
+            "related_case_memory_id",
+            "relation",
+            name="uq_case_memory_lineage_pair_relation",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "survivor_case_memory_id",
+            "relation",
+            "ordinal",
+            name="uq_case_memory_lineage_survivor_relation_ordinal",
+        ),
+        CheckConstraint(
+            "survivor_case_memory_id <> related_case_memory_id",
+            name="ck_case_memory_lineage_distinct_nodes",
+        ),
+        CheckConstraint(
+            "relation IN ('duplicate', 'correction', 'supersession')",
+            name="ck_case_memory_lineage_relation",
+        ),
+        CheckConstraint("ordinal > 0", name="ck_case_memory_lineage_ordinal_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    survivor_case_memory_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    related_case_memory_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    relation: Mapped[str] = mapped_column(String(32), nullable=False)
+    ordinal: Mapped[int] = mapped_column(nullable=False)
+
+
+Index(
+    "ix_case_memory_lineage_survivor",
+    CaseMemoryLineageLink.tenant_id,
+    CaseMemoryLineageLink.survivor_case_memory_id,
+    CaseMemoryLineageLink.relation,
+    CaseMemoryLineageLink.ordinal,
 )
 
 

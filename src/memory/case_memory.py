@@ -6,10 +6,12 @@ from datetime import UTC, datetime
 from typing import Any
 import uuid
 
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import and_, literal, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import CaseMemory, MemoryTombstone, MemoryWriteEvent
+from src.knowledge.schemas import EvidenceRefV1
 from src.memory.identity import (
     ALLOWED_SOURCE_REF_KEYS,
     MEMORY_IDENTITY_PROFILE,
@@ -27,6 +29,8 @@ from src.memory.policy import (
 )
 from src.memory.schemas import (
     CaseMemoryReviewDecision,
+    CaseMemoryProvenanceEnvelope,
+    CaseMemoryProvenanceV1,
     CaseMemorySearchItem,
     CaseMemorySearchRequest,
     CaseMemorySearchResult,
@@ -39,7 +43,8 @@ from src.memory.tombstones import source_identity_hash_for_tombstone
 CASE_MEMORY_TYPE = "case_memory"
 PUBLISHED_CASE_REVIEW_STATUSES = ("auto_approved", "approved")
 ACTIVE_CASE_DUPLICATE_REVIEW_STATUSES = ("auto_approved", "needs_review", "approved")
-_POLICY_REF_KEYS = frozenset({"doc_key", "chunk_id", "policy_version", "policy_family"})
+_RESOLVED_PROVENANCE_STATUSES = ("canonical", "legacy_resolved")
+_PROVENANCE_ADAPTER = TypeAdapter(CaseMemoryProvenanceEnvelope)
 
 
 class CaseMemoryRepository:
@@ -53,11 +58,17 @@ class CaseMemoryRepository:
         content_hash: str,
         source_ref_json: dict[str, Any],
         source_identity_hash: str | None,
+        identity_algorithm_version: str,
+        candidate_hash: str,
+        identity_resolution_status: str,
+        provenance_json: dict[str, Any],
+        lifecycle_version: int,
         review_status: str,
         now: datetime | None = None,
         reviewed_by_user_id: uuid.UUID | None = None,
         review_reason: str | None = None,
     ) -> CaseMemory:
+        provenance = CaseMemoryProvenanceV1.model_validate(provenance_json)
         memory = CaseMemory(
             tenant_id=candidate.tenant_id,
             scope_type=candidate.scope_type,
@@ -71,9 +82,16 @@ class CaseMemoryRepository:
             content_hash=content_hash,
             policy_family=candidate.policy_family,
             policy_version=candidate.policy_version,
-            policy_refs_json=_safe_policy_refs(candidate.policy_refs),
+            policy_refs_json=_validated_policy_refs(candidate.policy_refs, tenant_id=candidate.tenant_id),
             source_ref_json=source_ref_json,
             source_identity_hash=source_identity_hash,
+            identity_algorithm_version=identity_algorithm_version,
+            candidate_hash=candidate_hash,
+            identity_resolution_status=identity_resolution_status,
+            provenance_json=provenance_json,
+            lifecycle_version=lifecycle_version,
+            corrects_case_memory_id=provenance.corrects_case_memory_id,
+            supersedes_case_memory_id=provenance.supersedes_case_memory_id,
             embedding=candidate.embedding,
             review_status=review_status,
             reviewed_by_user_id=reviewed_by_user_id,
@@ -502,6 +520,7 @@ class CaseMemoryService:
     ) -> CaseMemoryWriteResult:
         now = _aware(now)
         identity = build_case_memory_candidate_identity(candidate)
+        provenance = _resolved_candidate_provenance(candidate=candidate, identity=identity)
         policy_decision = _policy_decision_for_candidate(candidate)
         tombstone = await self.repository.check_tombstone_before_write(
             tenant_id=candidate.tenant_id,
@@ -599,6 +618,11 @@ class CaseMemoryService:
             content_hash=identity.content_hash,
             source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
             source_identity_hash=identity.source_identity_hash,
+            identity_algorithm_version="memory_identity.v1",
+            candidate_hash=identity.candidate_hash,
+            identity_resolution_status=provenance.resolution_status,
+            provenance_json=provenance.model_dump(mode="json", exclude_none=True),
+            lifecycle_version=1,
             review_status=review_status,
             now=now,
             reviewed_by_user_id=None,
@@ -912,20 +936,91 @@ def _to_search_item(memory: CaseMemory, score: float) -> CaseMemorySearchItem:
         outcome=memory.outcome,
         caveats=memory.caveats,
         score=score,
-        policy_refs=_safe_policy_refs(memory.policy_refs_json or []),
+        policy_refs=_bounded_policy_refs(memory.policy_refs_json or []),
         source_refs=_safe_source_refs(memory.source_ref_json or {}),
     )
 
 
-def _safe_policy_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    safe_refs: list[dict[str, Any]] = []
-    for ref in refs:
-        if not isinstance(ref, dict):
+def _validated_policy_refs(refs: list[dict[str, Any]], *, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
+    validated: list[dict[str, Any]] = []
+    for value in refs:
+        try:
+            ref = EvidenceRefV1.model_validate(value)
+        except ValidationError as exc:
+            raise ValueError("case memory policy refs require canonical EvidenceRefV1 values") from exc
+        if (
+            ref.tenant_id != str(tenant_id)
+            or ref.scope_type != "tenant_policy"
+            or ref.scope_id != str(tenant_id)
+            or ref.to_canonical_identity() is None
+        ):
+            raise ValueError("case memory policy refs require exact tenant-policy canonical scope")
+        validated.append(ref.model_dump(mode="json", exclude_none=True))
+    return validated
+
+
+def _bounded_policy_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    bounded: list[dict[str, Any]] = []
+    for value in refs:
+        try:
+            ref = EvidenceRefV1.model_validate(value)
+        except ValidationError:
             continue
-        safe = {key: str(value) for key, value in ref.items() if key in _POLICY_REF_KEYS and value is not None}
-        if safe:
-            safe_refs.append(safe)
-    return safe_refs
+        payload = ref.model_dump(mode="json", exclude_none=True, exclude={"score"})
+        bounded.append(payload)
+    return bounded
+
+
+def _resolved_candidate_provenance(
+    *,
+    candidate: CaseMemoryWriteCandidate,
+    identity: MemoryCandidateIdentityV1,
+) -> CaseMemoryProvenanceV1:
+    if identity.normalized_source_ref is None or identity.source_identity_hash is None:
+        raise ValueError("case memory insert requires a resolved source identity")
+    provenance = candidate.provenance or CaseMemoryProvenanceV1(
+        resolution_status="canonical",
+        tenant_id=candidate.tenant_id,
+        scope_type=candidate.scope_type,
+        scope_id=candidate.scope_id,
+        memory_authority_class="contextual_only",
+        source_authorities=[],
+        source_run_id=candidate.run_id,
+        source_event_id=identity.normalized_source_ref.event_id,
+        evidence_refs=[],
+        business_fact_refs=[],
+        identity_algorithm_version="memory_identity.v1",
+        identity_profile=identity.identity_profile,
+        candidate_hash=identity.candidate_hash,
+        content_hash=identity.content_hash,
+        source_identity_hash=identity.source_identity_hash,
+    )
+    expected = {
+        "tenant_id": candidate.tenant_id,
+        "scope_type": candidate.scope_type,
+        "scope_id": candidate.scope_id,
+        "source_run_id": candidate.run_id,
+        "source_event_id": identity.normalized_source_ref.event_id,
+        "identity_algorithm_version": "memory_identity.v1",
+        "identity_profile": identity.identity_profile,
+        "candidate_hash": identity.candidate_hash,
+        "content_hash": identity.content_hash,
+        "source_identity_hash": identity.source_identity_hash,
+    }
+    for field_name, value in expected.items():
+        if getattr(provenance, field_name) != value:
+            raise ValueError("case memory provenance does not match tenant, scope, source, or identity")
+    expected_policy_refs = _validated_policy_refs(candidate.policy_refs, tenant_id=candidate.tenant_id)
+    provenance_policy_refs = [
+        ref.model_dump(mode="json", exclude_none=True) for ref in provenance.evidence_refs
+    ]
+    if expected_policy_refs != provenance_policy_refs:
+        raise ValueError("case memory provenance evidence refs do not match candidate policy refs")
+    if provenance.source_cwc_id is not None:
+        expected_outcome_id = f"cwc:{provenance.source_cwc_id}:v{provenance.source_cwc_revision}"
+        if identity.normalized_source_ref.outcome_id != expected_outcome_id:
+            raise ValueError("case memory provenance CWC revision does not match the source identity")
+    return provenance
 
 
 def _safe_source_refs(source_ref_json: dict[str, Any]) -> list[dict[str, Any]]:

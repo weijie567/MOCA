@@ -9,10 +9,25 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import AgentRun, CaseMemory, MemoryTombstone, MemoryWriteEvent, SessionMemory
+from src.knowledge.evidence_identity import (
+    PersistedEvidenceIdentityMaterialV1,
+    mint_canonical_evidence_identity,
+)
 from src.knowledge.schemas import EvidenceRefV1
 from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
-from src.memory.identity import canonical_memory_content_hash, canonical_source_identity_hash
-from src.memory.schemas import CaseMemoryReviewDecision, CaseMemorySearchRequest, CaseMemoryWriteCandidate
+from src.memory.identity import (
+    build_case_memory_candidate_identity,
+    canonical_memory_candidate_hash,
+    canonical_memory_content_hash,
+    canonical_source_identity_hash,
+)
+from src.memory.schemas import (
+    CaseMemoryProvenanceV1,
+    CaseMemoryReviewDecision,
+    CaseMemorySearchRequest,
+    CaseMemorySourceAuthorityV1,
+    CaseMemoryWriteCandidate,
+)
 
 
 CASE_MEMORY_TYPE = "case_memory"
@@ -71,7 +86,8 @@ def _candidate(
     pii_classification: str = "none",
 ) -> CaseMemoryWriteCandidate:
     refund_case = seeded_session["refund_case"]
-    return CaseMemoryWriteCandidate(
+    policy_ref = _canonical_policy_ref(tenant_id=refund_case.tenant_id)
+    candidate = CaseMemoryWriteCandidate(
         tenant_id=refund_case.tenant_id,
         run_id=run_id,
         scope_type="case",
@@ -91,9 +107,64 @@ def _candidate(
         ),
         policy_family="refund",
         policy_version="v1",
-        policy_refs=[{"doc_key": "refund_policy", "chunk_id": "chunk-1", "policy_version": "v1"}],
+        policy_refs=[policy_ref.model_dump(mode="json", exclude_none=True)],
         embedding=_embedding(),
         pii_classification=pii_classification,
+    )
+    identity = build_case_memory_candidate_identity(candidate)
+    assert identity.normalized_source_ref is not None
+    assert identity.source_identity_hash is not None
+    provenance = CaseMemoryProvenanceV1(
+        resolution_status="canonical",
+        tenant_id=candidate.tenant_id,
+        scope_type=candidate.scope_type,
+        scope_id=candidate.scope_id,
+        source_authorities=[
+            CaseMemorySourceAuthorityV1(
+                source_kind="policy_evidence",
+                source_ref=identity.normalized_source_ref,
+                source_status="success",
+                source_authority_class="policy_evidence",
+                evidence_refs=[policy_ref],
+            )
+        ],
+        source_run_id=run_id,
+        source_event_id=identity.normalized_source_ref.event_id,
+        evidence_refs=[policy_ref],
+        identity_algorithm_version="memory_identity.v1",
+        identity_profile=identity.identity_profile,
+        candidate_hash=identity.candidate_hash,
+        content_hash=identity.content_hash,
+        source_identity_hash=identity.source_identity_hash,
+    )
+    return candidate.model_copy(update={"provenance": provenance})
+
+
+def _canonical_policy_ref(*, tenant_id: uuid.UUID) -> EvidenceRefV1:
+    material = PersistedEvidenceIdentityMaterialV1(
+        tenant_id=str(tenant_id),
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+        document_version_id="00000000-0000-0000-0000-000000006481",
+        chunk_version_id="00000000-0000-0000-0000-000000006482",
+        doc_key="refund_policy",
+        document_version=1,
+        chunk_id="chunk-1",
+        chunk_version=1,
+        text_hash=f"sha256:{'d' * 64}",
+    )
+    resolution = mint_canonical_evidence_identity(
+        material,
+        expected_tenant_id=str(tenant_id),
+        expected_scope_type="tenant_policy",
+        expected_scope_id=str(tenant_id),
+    )
+    assert resolution.identity is not None
+    return EvidenceRefV1.from_canonical_identity(
+        resolution.identity,
+        retrieved_at="2026-08-05T09:00:00Z",
+        retrieval_config_version="retrieval.v3",
+        rank=1,
     )
 
 
@@ -120,11 +191,64 @@ def _case_row(
     refund_case = seeded_session["refund_case"]
     resolved_tenant_id = tenant_id or refund_case.tenant_id
     resolved_scope_id = scope_id or str(refund_case.id)
-    source_ref = source_ref_json or {
+    source_ref = dict(source_ref_json) if source_ref_json is not None else {
         "source_type": source_type,
         "business_object_type": "refund_case",
         "business_object_id": str(refund_case.id),
     }
+    source_ref.setdefault("business_object_type", "refund_case")
+    source_ref.setdefault("business_object_id", str(refund_case.id))
+    content_for_identity = (
+        "\n".join(
+            part
+            for part in (
+                summary,
+                excerpt,
+                "Applies to reviewed refund dispute precedents.",
+                "Support resolved the refund dispute.",
+                "Precedent only; not policy evidence.",
+            )
+            if part
+        )
+        if source_type == "closed_case_cwc_candidate"
+        else summary
+    )
+    content_hash = canonical_memory_content_hash(memory_type=CASE_MEMORY_TYPE, content=content_for_identity)
+    resolved_source_identity_hash = source_identity_hash or canonical_source_identity_hash(source_ref)
+    assert resolved_source_identity_hash is not None
+    candidate_hash = canonical_memory_candidate_hash(
+        tenant_id=str(resolved_tenant_id),
+        memory_type=CASE_MEMORY_TYPE,
+        scope_type=scope_type,
+        scope_id=resolved_scope_id,
+        content_hash=content_hash,
+        source_identity_hash=resolved_source_identity_hash,
+    )
+    policy_ref = _canonical_policy_ref(tenant_id=resolved_tenant_id)
+    source_run_id = uuid.uuid4()
+    provenance = CaseMemoryProvenanceV1(
+        resolution_status="legacy_resolved",
+        tenant_id=resolved_tenant_id,
+        scope_type=scope_type,
+        scope_id=resolved_scope_id,
+        source_authorities=[
+            CaseMemorySourceAuthorityV1(
+                source_kind="policy_evidence",
+                source_ref=source_ref,
+                source_status="success",
+                source_authority_class="policy_evidence",
+                evidence_refs=[policy_ref],
+            )
+        ],
+        source_run_id=source_run_id,
+        source_event_id=source_ref.get("event_id"),
+        evidence_refs=[policy_ref],
+        identity_algorithm_version="memory_identity.v1",
+        identity_profile="nfkc_casefold_legacy",
+        candidate_hash=candidate_hash,
+        content_hash=content_hash,
+        source_identity_hash=resolved_source_identity_hash,
+    )
     return CaseMemory(
         id=uuid.uuid4(),
         tenant_id=resolved_tenant_id,
@@ -136,12 +260,17 @@ def _case_row(
         applicability="Applies to reviewed refund dispute precedents.",
         outcome="Support resolved the refund dispute.",
         caveats="Precedent only; not policy evidence.",
-        content_hash=canonical_memory_content_hash(memory_type=CASE_MEMORY_TYPE, content=summary),
+        content_hash=content_hash,
         policy_family=policy_family,
         policy_version=policy_version,
-        policy_refs_json=[{"doc_key": "refund_policy", "chunk_id": "chunk-1", "policy_version": "v1"}],
+        policy_refs_json=[policy_ref.model_dump(mode="json", exclude_none=True)],
         source_ref_json=source_ref,
-        source_identity_hash=source_identity_hash,
+        source_identity_hash=resolved_source_identity_hash,
+        identity_algorithm_version="memory_identity.v1",
+        candidate_hash=candidate_hash,
+        identity_resolution_status="legacy_resolved",
+        provenance_json=provenance.model_dump(mode="json", exclude_none=True),
+        lifecycle_version=1,
         embedding=_embedding() if embedding is _EMBEDDING_UNSET else embedding,
         review_status=review_status,
         pii_classification=pii_classification,
