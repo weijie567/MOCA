@@ -9,6 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import AgentRun, CaseMemory, CaseWorkingContext, MemoryWriteEvent, RefundCase
+from src.knowledge.evidence_identity import (
+    PersistedEvidenceIdentityMaterialV1,
+    mint_canonical_evidence_identity,
+)
+from src.knowledge.schemas import EvidenceRefV1
 from src.memory.case_working_context import dehydrate_content
 from src.memory.case_precedent import (
     TERMINAL_REFUND_CASE_STATUSES,
@@ -26,11 +31,11 @@ from src.memory.case_working_context_schemas import (
     CaseWorkingContextClaimV1,
     CaseWorkingContextCommitmentV1,
     CaseWorkingContextContentV1,
-    CaseWorkingContextPolicyRefV1,
     CaseWorkingContextRecommendationV1,
     CaseWorkingContextVerifiedFactV1,
 )
 from src.memory.schemas import CaseMemoryReviewDecision, CaseMemorySearchRequest, CaseMemoryWriteCandidate
+from src.tools.contracts import BusinessFactRefV1
 
 
 def _request(
@@ -56,8 +61,10 @@ def _request(
 def _content_with_projection_fields(
     case_id: uuid.UUID,
     *,
+    tenant_id: uuid.UUID,
     issue_type: str = "refund_dispute",
 ) -> CaseWorkingContextContentV1:
+    observed_at = datetime(2026, 7, 3, 9, 0, tzinfo=UTC)
     source_ref = {
         "source_type": "run_auto_terminal",
         "agent_run_id": str(uuid.uuid4()),
@@ -77,9 +84,32 @@ def _content_with_projection_fields(
         verified_facts=[
             CaseWorkingContextVerifiedFactV1(
                 text="物流照片确认外包装破损 policy_body",
+                authority_class="business_fact",
+                status="success",
+                promotion_reason_code="authoritative_business_fact",
                 source_ref=source_ref,
-                observed_at=datetime(2026, 7, 3, 9, 0, tzinfo=UTC),
-            )
+                observed_at=observed_at,
+                business_fact_refs=[
+                    BusinessFactRefV1(
+                        tenant_id=str(tenant_id),
+                        source_system="logistics_service",
+                        resource_type="logistics",
+                        resource_id=str(case_id),
+                        resource_version="v1",
+                        data_freshness_at=observed_at,
+                        retrieved_at=observed_at,
+                    )
+                ],
+            ),
+            CaseWorkingContextVerifiedFactV1(
+                text="退款政策要求核验破损证据",
+                authority_class="policy_evidence",
+                status="success",
+                promotion_reason_code="authoritative_policy_evidence",
+                source_ref=source_ref,
+                observed_at=observed_at,
+                policy_evidence_refs=[_canonical_policy_ref(tenant_id=tenant_id)],
+            ),
         ],
         actions_taken=[
             CaseWorkingContextActionTakenV1(
@@ -87,7 +117,7 @@ def _content_with_projection_fields(
                 source_ref=source_ref,
             )
         ],
-        policy_refs=[CaseWorkingContextPolicyRefV1(doc_id="refund_policy", chunk_id="c-1", version="2026-01")],
+        policy_refs=[_canonical_policy_ref(tenant_id=tenant_id)],
         agent_recommendations=[
             CaseWorkingContextRecommendationV1(
                 recommended_step="建议同意退款 action_authority",
@@ -101,6 +131,34 @@ def _content_with_projection_fields(
                 source_ref=source_ref,
             )
         ],
+    )
+
+
+def _canonical_policy_ref(*, tenant_id: uuid.UUID) -> EvidenceRefV1:
+    material = PersistedEvidenceIdentityMaterialV1(
+        tenant_id=str(tenant_id),
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+        document_version_id="00000000-0000-0000-0000-000000006471",
+        chunk_version_id="00000000-0000-0000-0000-000000006472",
+        doc_key="refund_policy",
+        document_version=1,
+        chunk_id="c-1",
+        chunk_version=1,
+        text_hash=f"sha256:{'a' * 64}",
+    )
+    resolution = mint_canonical_evidence_identity(
+        material,
+        expected_tenant_id=str(tenant_id),
+        expected_scope_type="tenant_policy",
+        expected_scope_id=str(tenant_id),
+    )
+    assert resolution.identity is not None
+    return EvidenceRefV1.from_canonical_identity(
+        resolution.identity,
+        retrieved_at="2026-07-03T09:00:00Z",
+        retrieval_config_version="retrieval.v3",
+        rank=1,
     )
 
 
@@ -137,7 +195,11 @@ async def _insert_active_cwc(
     version: int = 1,
 ) -> CaseWorkingContext:
     refund_case = refund_case or seeded_session["refund_case"]
-    content = content or _content_with_projection_fields(refund_case.id, issue_type=issue_type)
+    content = content or _content_with_projection_fields(
+        refund_case.id,
+        tenant_id=refund_case.tenant_id,
+        issue_type=issue_type,
+    )
     dehydrated = dehydrate_content(content)
     row = CaseWorkingContext(
         id=uuid.uuid4(),
@@ -403,13 +465,24 @@ async def test_same_merchant_closed_cases_with_distinct_projected_content_create
     )
     session.add(same_merchant_case)
     await session.flush()
-    first_content = _content_with_projection_fields(base_case.id, issue_type="refund_dispute")
-    second_content = _content_with_projection_fields(same_merchant_case.id, issue_type="refund_dispute").model_copy(
+    first_content = _content_with_projection_fields(
+        base_case.id,
+        tenant_id=base_case.tenant_id,
+        issue_type="refund_dispute",
+    )
+    second_content = _content_with_projection_fields(
+        same_merchant_case.id,
+        tenant_id=same_merchant_case.tenant_id,
+        issue_type="refund_dispute",
+    ).model_copy(
         update={
             "customer_request": "用户要求处理另一笔同商家退款",
             "verified_facts": [
                 CaseWorkingContextVerifiedFactV1(
                     text="另一笔订单的开箱照片确认配件缺失",
+                    authority_class="business_fact",
+                    status="success",
+                    promotion_reason_code="authoritative_business_fact",
                     source_ref={
                         "source_type": "run_auto_terminal",
                         "agent_run_id": str(uuid.uuid4()),
@@ -417,6 +490,17 @@ async def test_same_merchant_closed_cases_with_distinct_projected_content_create
                         "business_object_id": str(same_merchant_case.id),
                     },
                     observed_at=datetime(2026, 7, 3, 11, 0, tzinfo=UTC),
+                    business_fact_refs=[
+                        BusinessFactRefV1(
+                            tenant_id=str(same_merchant_case.tenant_id),
+                            source_system="logistics_service",
+                            resource_type="logistics",
+                            resource_id=str(same_merchant_case.id),
+                            resource_version="v1",
+                            data_freshness_at=datetime(2026, 7, 3, 11, 0, tzinfo=UTC),
+                            retrieved_at=datetime(2026, 7, 3, 11, 0, tzinfo=UTC),
+                        )
+                    ],
                 )
             ],
         }
@@ -591,7 +675,7 @@ def test_projection_separates_claims_verified_facts_and_maps_policy_refs(seeded_
     request = _request(seeded_session)
     candidate = _project_closed_case_candidate(
         request=request,
-        content=_content_with_projection_fields(request.case_id),
+        content=_content_with_projection_fields(request.case_id, tenant_id=request.tenant_id),
         cwc_row=_cwc_projection_row(),
         scope_type="merchant",
         scope_id=str(seeded_session["merchant"].id),
@@ -613,7 +697,7 @@ def test_projection_uses_fixed_caveat_and_excludes_raw_payload_markers(seeded_se
     request = _request(seeded_session)
     candidate = _project_closed_case_candidate(
         request=request,
-        content=_content_with_projection_fields(request.case_id),
+        content=_content_with_projection_fields(request.case_id, tenant_id=request.tenant_id),
         cwc_row=_cwc_projection_row(),
         scope_type="case",
         scope_id=str(request.case_id),
@@ -648,7 +732,7 @@ def test_projection_blocks_sensitive_or_prohibited_cwc_pii(seeded_session: dict,
     request = _request(seeded_session)
     candidate = _project_closed_case_candidate(
         request=request,
-        content=_content_with_projection_fields(request.case_id),
+        content=_content_with_projection_fields(request.case_id, tenant_id=request.tenant_id),
         cwc_row=_cwc_projection_row(pii_classification=pii_classification),
         scope_type="merchant",
         scope_id=str(seeded_session["merchant"].id),
