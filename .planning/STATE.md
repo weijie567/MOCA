@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: verifying
-last_updated: "2026-08-05T07:37:46.547Z"
+last_updated: "2026-08-05T09:33:09.451Z"
 last_activity: 2026-08-04 -- Phase 64.1 completed
 progress:
   total_phases: 13
   completed_phases: 5
-  total_plans: 27
+  total_plans: 36
   completed_plans: 27
-  percent: 100
+  percent: 75
 ---
 
 # Project State: MOCA
@@ -83,7 +83,7 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 - Phase 71 added: Agent State And Service Boundary Decomposition.
 - Phase 71 strengthened with a mandatory responsibility matrix for every audit-named high-complexity module and an explicit KEEP/SPLIT/MOVE/DELETE/DEFER closeout gate.
 
-**Planned Phase:** 64.1 (runtime-safety-and-approval-contract-repair) — 6 plans — 2026-07-10T03:20:42.916Z
+**Planned Phase:** 64.2 (evidence-identity-immutable-replay-and-memory-provenance) — 9 plans — 2026-08-05T09:33:09.430Z
 **Planned Phase:** 62 (Business Query And Drilldown Foundation) — 7 plans — 2026-07-09T12:11:17Z
 **Completed Phase:** 63 (Safety Taxonomy And Risk Vocabulary) — 5/5 plans complete, review/UAT/security/validation clean
 **Completed Phase:** 64 (RAG Risk Label Unification) — 4/4 plans complete, review/UAT/security/validation clean

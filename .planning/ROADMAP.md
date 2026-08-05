@@ -11,7 +11,7 @@
 ## Current Planning State
 
 **Active milestone:** v2.2 Product Experience Fixes
-**Status:** Phase 64 complete; Phase 64.1 ready to plan
+**Status:** Phase 64.1 complete; Phase 64.2 has nine repaired plans awaiting clean cross-review before execution
 **Scope:** Complete the product-experience work and close source-audit gaps across runtime safety, evidence/replay/memory integrity, trace/SSE reliability, operation contracts, reproducible validation, lifecycle/data integrity, LLM runtime ownership, retrieval governance, and service boundaries without weakening accepted v2.1 contracts.
 
 ## Current Milestone: v2.2 Product Experience Fixes
@@ -47,7 +47,7 @@ Plans:
 
 ## Next
 
-Phase 64 is complete. The source-level architecture audit inserted urgent Phases 64.1 and 64.2; next step is Phase 64.1 planning.
+Phase 64.1 is complete and Phase 64.2 now has nine dependency-ordered execution plans; next step is Phase 64.2 execution after plan review is clean.
 
 ### Phase 62: Business Query And Drilldown Foundation
 
@@ -144,9 +144,9 @@ Plans:
 ### Phase 64.2: Evidence Identity Immutable Replay And Memory Provenance (INSERTED)
 
 **Goal:** Make evidence, replay, Case Working Context, and memory identity trustworthy across ingestion, retrieval, agent projection, persistence, review, and replay so failed observations cannot become verified facts and historical decisions can be reconstructed from immutable, canonically identified source material.
-**Requirements**: TBD during Phase 64.2 planning.
+**Requirements**: SC-64.2-1, SC-64.2-2, SC-64.2-3, SC-64.2-4, SC-64.2-5
 **Depends on:** Phase 64.1
-**Plans:** 0 plans
+**Plans:** 9 plans
 
 **Audit findings owned:** Failed or denied tool summaries can enter CWC `verified_facts`; evidence IDs are not recomputed at trust boundaries; re-ingestion replaces old evidence rows while replay stores only mutable refs; session-memory candidate hashes have multiple algorithms; reviewed case-memory refs lose real scope/status/provenance; duplicate and expired pending memory lifecycle behavior lacks enforceable invariants.
 
@@ -160,7 +160,15 @@ Plans:
 5. Database constraints, idempotent writes, and lifecycle tests prevent concurrent duplicate candidates or reviews and define deterministic expiry, rejection, correction, and tombstone behavior for stale pending records without silently merging distinct identities.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 64.2; expected slices: fact promotion, canonical evidence identity, immutable replay storage, memory provenance/deduplication, and migration/UAT/parity gates)
+- [ ] 64.2-01-PLAN.md — Canonical Evidence Identity Owner And Additive Immutable Schema (`depends_on: []`).
+- [ ] 64.2-02-PLAN.md — Dual-Write Evidence Cutover Watermarked Backfill And Canonical Retrieval (`depends_on: [64.2-01]`).
+- [ ] 64.2-03-PLAN.md — Shared Memory Candidate Identity Owner (`depends_on: []`).
+- [ ] 64.2-04-PLAN.md — Approval Snapshot Canonical Evidence Validation (`depends_on: [64.2-02]`).
+- [ ] 64.2-05-PLAN.md — Typed CWC Authoritative Fact Promotion (`depends_on: [64.2-02]`).
+- [ ] 64.2-06-PLAN.md — Production Evidence Event Binding And Exact Replay Resolution (`depends_on: [64.2-02]`).
+- [ ] 64.2-07-PLAN.md — Reviewed Case-Memory Canonical Provenance (`depends_on: [64.2-03, 64.2-05]`).
+- [ ] 64.2-08-PLAN.md — Exact-Identity Memory Lifecycle And Concurrency (`depends_on: [64.2-03, 64.2-07]`).
+- [ ] 64.2-09-PLAN.md — Cross-System Integrity Guards And Closeout (`depends_on: [64.2-04, 64.2-05, 64.2-06, 64.2-08]`).
 
 ### Phase 65: Trace Event And Console Label Consistency
 
