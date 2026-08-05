@@ -1131,6 +1131,20 @@ class CaseMemoryService:
         if claim is None or old is None:
             raise ValueError("case memory not found")
         if (
+            claim.claim_state == "terminal"
+            and claim.terminal_status == "superseded"
+            and claim.terminal_reason == correction.reason_code
+            and claim.lifecycle_version == correction.expected_lifecycle_version + 1
+            and old.lifecycle_version == claim.lifecycle_version
+            and old.review_status == "superseded"
+        ):
+            replay = await self._identical_correction_event(
+                old=old,
+                correction=correction,
+            )
+            if replay is not None:
+                return replay
+        if (
             claim.claim_state != "active"
             or claim.lifecycle_version != correction.expected_lifecycle_version
             or old.lifecycle_version != correction.expected_lifecycle_version
@@ -1243,6 +1257,59 @@ class CaseMemoryService:
             pii_classification=new.pii_classification,
             candidate_hash=new.candidate_hash,
             source_ref_json=dict(new.source_ref_json or {}),
+        )
+
+    async def _identical_correction_event(
+        self,
+        *,
+        old: CaseMemory,
+        correction: CaseMemoryCorrection,
+    ) -> MemoryWriteEvent | None:
+        link = (
+            await self.repository.session.execute(
+                select(CaseMemoryLineageLink).where(
+                    CaseMemoryLineageLink.tenant_id == correction.tenant_id,
+                    CaseMemoryLineageLink.related_case_memory_id == old.id,
+                    CaseMemoryLineageLink.relation == "correction",
+                    CaseMemoryLineageLink.ordinal == 1,
+                )
+            )
+        ).scalar_one_or_none()
+        if link is None:
+            return None
+        corrected = await self.repository.get_resolved_case_memory(
+            tenant_id=correction.tenant_id,
+            case_memory_id=link.survivor_case_memory_id,
+        )
+        if corrected is None:
+            return None
+        provenance = resolved_case_memory_provenance(corrected)
+        expected_values = {
+            "summary": correction.summary,
+            "excerpt": correction.excerpt,
+            "applicability": (
+                correction.applicability if correction.applicability is not None else old.applicability
+            ),
+            "outcome": correction.outcome if correction.outcome is not None else old.outcome,
+            "caveats": correction.caveats if correction.caveats is not None else old.caveats,
+        }
+        if (
+            provenance is None
+            or corrected.review_status != "approved"
+            or corrected.corrects_case_memory_id != old.id
+            or corrected.supersedes_case_memory_id != old.id
+            or provenance.reviewer_user_id != correction.reviewer_user_id
+            or provenance.review_reason != correction.review_reason
+            or provenance.source_run_id != correction.run_id
+            or any(getattr(corrected, field_name) != value for field_name, value in expected_values.items())
+        ):
+            return None
+        return await self.repository.latest_transition_event(
+            tenant_id=correction.tenant_id,
+            case_memory_id=corrected.id,
+            run_id=correction.run_id,
+            decision="supersede",
+            reason_code=correction.reason_code,
         )
 
     async def _delete_or_tombstone(
