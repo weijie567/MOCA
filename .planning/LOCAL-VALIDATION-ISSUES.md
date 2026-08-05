@@ -21901,3 +21901,63 @@ CI 总结为 `1 failed, 2583 passed, 1 skipped, 97 warnings in 549.09s`；错误
 
 **剩余问题和下次继续排查入口**
 本地已无阻断；提交并推送到 PR #2 后等待 GitHub Actions 从头执行。由于当前 CI 使用 `-x`，只有新一轮完整 job 通过后才能确认没有更靠后的第二个失败；若再次失败，按新 run 的首个失败日志继续定位。
+
+## 2026-08-05 — v2.1 phase 归档后记忆契约测试仍读取旧 planning 路径
+
+**问题现象**
+Phase 35 文档路径修复推送后，PR #2 新一轮 `lint` 通过，`test` 成功跨过原 59% 断点，但在约 75% 再次因 `-x` 停止。失败用例 `test_phase45_plans_and_validation_reject_bare_pytest_commands` 仍读取归档前的 `.planning/phases/45-.../45-VALIDATION.md`，触发 `FileNotFoundError`。
+
+**如何检测/复现**
+GitHub Actions run `30964576067` / job `92175662162` 执行 `uv run pytest tests/ -x --ignore=tests/integration -q --tb=short`。检查 `tests/memory/test_phase45_contract_alignment.py` 可见 `PHASE45_DIR` 仍以 `ROOT / ".planning" / "phases"` 构造。
+
+**关键证据或命令**
+CI 总结为 `1 failed, 3171 passed, 1 skipped, 116 warnings in 862.00s`，错误目标为 `.planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-VALIDATION.md`。主动扫描发现 Phase 45、46、47、48、48.1 的五个 memory alignment 测试都仍使用归档前根目录；对应目录均已真实存在于 `.planning/milestones/v2.1-phases/`。`test_canonical_graph_baseline.py` 的 Phase 58 路径是 classifier 输入/排除契约本身，当前 architecture 聚合已通过，不能与上述读取真实 phase artifact 的常量机械混改。
+
+**当前判断/根因**
+这是 `$gsd-cleanup` 移动完成 phase 后漏迁的测试 artifact lookup 路径。Phase 45 只是 CI 按测试顺序暴露的第一个，若只修它，Phase 46–48.1 很可能在后续 run 逐个失败；应一次性修正五个真实 artifact reader。
+
+**已做处理**
+已提取第二轮 CI 日志并核对目录存在性；Phase 45、46、47、48、48.1 五个真实 artifact reader 已统一改为 `.planning/milestones/v2.1-phases/`，没有把已完成 phase 移回 active `.planning/phases/`。五个定向文件为 `44 passed, 1 warning`，完整 `tests/memory` 为 `310 passed, 1 warning`。Phase 58 classifier 的专用输入/排除路径保持不变。
+
+**剩余问题和下次继续排查入口**
+本地逻辑与格式验证均已通过；提交推送后，新一轮 GitHub Actions 必须跑到 100% 才能关闭清理回归。
+
+## 2026-08-05 — zsh 循环变量 `path` 覆盖命令搜索路径
+
+**问题现象**
+批量查看五个 memory alignment 测试文件头时，循环第一轮开始后每次调用 `sed` 都报 `zsh: command not found: sed`；只读检查未能输出目标片段。
+
+**如何检测/复现**
+在 zsh 中使用 `for path in ...` 后于循环体调用外部命令。zsh 的小写数组参数 `path` 与环境变量 `PATH` 绑定，赋值会覆盖命令搜索目录。
+
+**关键证据或命令**
+同一 shell 命令在进入 `for path` 前可运行 `git`，进入循环后五次 `sed` 均找不到。新开 shell 并把变量改名为 `test_file` 后，相同 `sed -n '1,22p'` 正常输出五个文件。
+
+**当前判断/根因**
+这是 zsh 特殊参数名冲突，不是系统缺少 `sed`、仓库环境损坏或测试文件不可读。
+
+**已做处理**
+后续循环使用 `test_file` 等任务专用变量名，不再使用 `path`；原失败命令没有产生文件修改。
+
+**剩余问题和下次继续排查入口**
+无阻断。后续 shell 编排避免使用 `path`、`PATH`、`home` 等 shell/系统保留或常用环境变量名。
+
+## 2026-08-05 — memory alignment 路径改写未先通过 Ruff format
+
+**问题现象**
+五个定向测试通过后，首轮静态门禁显示 Ruff check 通过，但 format check 报告 Phase 45、48、48.1 三个测试文件需要重新格式化。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check` 并传入五个修改后的 memory alignment 测试文件。
+
+**关键证据或命令**
+输出为 `3 files would be reformatted, 2 files already formatted`；需要格式化的文件是 `test_phase45_contract_alignment.py`、`test_phase48_long_term_preference_alignment.py` 和 `test_phase48_1_memory_compat_alignment.py`。同轮 Ruff check 已显示 `All checks passed!`。
+
+**当前判断/根因**
+长路径常量的手工换行没有完全匹配 Ruff formatter 的稳定布局，仅为代码格式差异，不改变 artifact 路径或测试语义。
+
+**已做处理**
+使用项目入口 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format` 机械格式化五个目标文件，其中 3 个被调整、2 个保持不变；随后重跑定向测试、Ruff check/format check、旧路径扫描与 whitespace 门禁。
+
+**剩余问题和下次继续排查入口**
+重跑结果为 `44 passed, 1 warning`、`All checks passed!`、`5 files already formatted`，旧路径扫描、归档目录存在性和 whitespace 门禁均通过；本项无剩余阻断。

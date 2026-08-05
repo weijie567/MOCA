@@ -8,7 +8,7 @@ from src.agent.graph_vocabulary import graph_vocabulary_entry, project_trace_ste
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PHASE48_1_DIR = ROOT / ".planning" / "phases" / "48.1-memory-context-compatibility-debt-cleanup"
+PHASE48_1_DIR = ROOT / ".planning" / "milestones" / "v2.1-phases" / "48.1-memory-context-compatibility-debt-cleanup"
 CONVERSATION_REPOSITORY_PATH = ROOT / "src" / "conversation" / "repository.py"
 ROUTING_PATH = ROOT / "src" / "agent" / "routing.py"
 WORKING_STATE_PATH = ROOT / "src" / "agent" / "working_state.py"
