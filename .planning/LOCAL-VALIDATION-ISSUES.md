@@ -22310,3 +22310,23 @@ Task 1 GREEN 首次精确命令为 `8 passed, 3 failed`。三个失败都来自�
 
 **剩余问题和下次继续排查入口**
 Task 1 精确 pytest/Ruff 已通过；唯一 warning 是既有 LangGraph `allowed_objects` pending deprecation。后续新增合法 target authority 枚举不应被当前 MVP scope guard 误伤，但任何 canonical identity resolver 的非 `tenant_policy` literal 仍必须失败。
+
+## 2026-08-06 — Phase 64.2 Plan 09 Task 2 旧 memory architecture guard 与 Plan 03 单 owner 冲突
+
+**问题现象**
+Task 2 文档 RED 首轮为 `4 failed, 13 passed`：两项是预期的 contract/debt marker 缺失；一项是 plan-graph mutation fixture 没有先制造 shared-file 条件；另一项既有 architecture guard 仍要求 `SESSION_MEMORY_TYPE` 由 `src/memory/service.py` 持有，与 Plan 03 已落地的 single identity owner 相冲突。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_evidence_memory_integrity_boundaries.py tests/architecture/test_memory_contract_delta.py -q --tb=short`。修正测试夹具/旧 guard 后，同一文档变更前门禁稳定为两项预期失败、其余 `15 passed`。
+
+**关键证据或命令**
+仓库核对显示 `src/memory/repository.py` 持有 `SESSION_MEMORY_TYPE = "session_slot"`，`src/memory/service.py` 只消费 `build_session_memory_candidate_identity`；Plan 03 commit `e8b3d68` 已有意移除 service-local constant/serializer。主 orchestrator 批准把旧 guard 最小迁移为：service 必须调用 canonical builder 且不得持有 constant，repository 必须持有 storage discriminator。
+
+**当前判断/根因**
+两项非预期失败均为测试自身漂移：mutation case 未完整构造目标坏图，旧 guard 则仍表达 Phase 64.2 前的多 owner 结构。它们不是恢复 production fallback 的理由。
+
+**已做处理**
+仅修正 mutation fixture 与 architecture assertion，没有修改生产代码；contract §8.3/§13/§17 和 RAG/Memory debt 分栏随后按 section-specific marker 补齐。
+
+**剩余问题和下次继续排查入口**
+Task 2 GREEN 需继续以同一精确 pytest 和 scoped Ruff 验证；后续若 identity storage discriminator 移动，必须同时证明 canonical builder owner 未分叉，不能只追踪常量文本位置。

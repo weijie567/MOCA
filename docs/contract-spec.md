@@ -170,6 +170,14 @@ Phase 10 负责把这三个投影在实现层收敛到同一 `TrustedContext` �
 
 ### 8.3 Knowledge / RAG (normative)
 
+#### Phase 64.2 implemented boundary (`phase64.2-evidence-identity:implemented`)
+
+- **已实现的当前 MVP**：canonical schema/version 为 `evidence_identity.v1`；所有新写与 exact resolution 只接受 `scope_type="tenant_policy"`、`scope_id=str(tenant_id)`，并绑定 immutable document/chunk IDs、内容 hash 与 locator。`EvidenceVersionRepository` 是 immutable identity、版本序列与 current-head 投影的唯一 owner。
+- **写入与切换纪律**：writer 与 cutover 使用同一个 shared rollout lock 和 CAS epoch；锁序固定为 `rollout -> document head -> chunk heads`；一次成功 ingestion 必须分配 exactly one ingestion sequence。approval repository validation 必须在可信 tenant/scope 下重新 exact resolve canonical refs，调用方提供的 verified list 只可作全量相等断言。
+- **迁移与回滚**：发布次序固定为 `025 -> deploy/health/dual-write -> 026`，随后才允许 027/028。异常回滚固定为 `disable reads; keep dual-write active; quarantine; reconcile; CAS re-enable`，不得以 mutable/legacy ref 恢复新写或权威读取。
+- **Legacy compatibility**：旧 `EvidenceRefV1` build/alias 与已持久化 legacy JSON 仅为 `compatibility-read-only`；歧义、缺字段或不可 exact resolve 的记录保持 non-authoritative/unresolved，不能成为 current evidence、approval 或 replay authority。
+- **目标态 / defer**：merchant/global/custom scope 仍是 post-Phase 17 Policy Scope 的目标态，启用前必须定义新的 named、versioned scope contract 与迁移/隔离测试；不得把目标枚举解释为 Phase 64.2 已实现事实。
+
 KnowledgeService facade signature:
 
 - `PolicyKnowledgeService.search(request: KnowledgeSearchRequest, context: KnowledgeContext) -> KnowledgeSearchResult`。
@@ -1439,6 +1447,14 @@ Catalog / platform rules：
 
 ## 13. Memory 设计
 
+### Phase 64.2 implemented provenance boundary (`phase64.2-memory-provenance:implemented`)
+
+- **已实现的当前 MVP**：`src/memory/identity.py` 是 single identity owner；历史 identity profile `nfkc_casefold_legacy` 只验证既有 namespace，新写固定 `nfc_selective_v2`。CWC 到 reviewed CaseMemory 只允许 business_fact/policy_evidence-only promotion，并强制 rejected-observation exclusion。
+- **Authority 与 provenance**：每个 source 保存 per-source authority、status 与完整 typed ref；review 不得改写 source authority，且 `memory_authority_class=contextual_only` 永远不能替代 business fact、policy evidence、approval 或 replay authority。
+- **Legacy compatibility**：pre-027 无法证明完整 provenance 的行只投影为 `LegacyUnresolvedCaseMemoryProvenanceV1`，不得按新 profile 重新解释、参与 authoritative matching 或被静默提升为 resolved。
+- **Lifecycle**：full-key durable terminal claims 在 reject/expire/delete/forget 后继续占有 identity，CAS lifecycle 变更、事件、tombstone 与 correction lineage 同事务；dedupe/correction 使用 multi-valued lineage 表达 survivor-to-many 关系并禁止 terminal resurrection。
+- **目标态 / defer**：Phase 68 负责通用 lifecycle registry；Phase 70 负责 retrieval quality/PII governance。两者均不是本节已实现事实，且不得弱化 Phase 64.2 的 exact identity、authority 与 no-resurrection 门禁。
+
 > Producer phase + schema_version annotation: Phase 8 — existing `evidence_ref.v1` is producer-owned by KnowledgeService; Memory is not a producer.
 
 
@@ -2113,6 +2129,13 @@ ActionExecutor 必须只接受 allowlist 内动作类型。`manual_review` 更�
 ---
 
 ## 17. Observability / Replay 设计
+
+### Phase 64.2 implemented immutable binding (`phase64.2-replay-binding:implemented`)
+
+- **新写边界**：production emitter 到 `ReplayService.append_event` 逐层传递 typed `canonical_evidence_refs`，它是 only new append input；公共 append API 保持 no evidence_refs_json append parameter。`append_event` 是 append_event-only snapshot builder，在同一事务内 exact resolve、写 snapshot 与 retention dependency。
+- **验证与读取**：调用方已有 snapshot/verified refs 只作为 full snapshot equality 断言；replay 通过 exact retained immutable resolution 恢复原始 content/hash/locator，并保留 current/superseded/corrected/archived/expired/tombstoned 的 lifecycle visibility。保留期内由 dependency-protected tombstone retention 阻止依赖中的 immutable evidence 被删除。
+- **Legacy compatibility**：raw JSON 只允许 persisted-legacy/read-adapter-only unresolved 路径；歧义或缺失 ref 返回明确 `legacy_unresolved`，不得回退 mutable current head，也不得输出 verified content。
+- **目标态 / defer**：Phase 65 负责 trace labeling/observability 完善；未来 retention policy 变更须另立 named phase 并保留 exact replay dependency，不属于 Phase 64.2 的已实现范围。
 
 > Producer phase + schema_version annotation: Phase 7/10 — Minimal Event Envelope foundation (schema_version `minimal_event_envelope.v1`); Phase 15 — full ReplayEventV3 using existing schema_version `replay_event.v3`.
 

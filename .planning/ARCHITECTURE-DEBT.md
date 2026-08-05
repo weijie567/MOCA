@@ -474,6 +474,16 @@
 
 ---
 
+## 2026-08-06 — Phase 64.2 Plan 09 RAG 跨系统完整性门禁闭环（`phase64.2-rag-integrity:implemented`）✅已修复验证
+
+- **问题现象 / 根因**：evidence identity、cutover、approval snapshot 与 replay snapshot 已分别落地，但缺少一个跨系统门禁证明新写只使用 exact canonical identity，也缺少对 caller-local serializer、raw append、mutable-head replay 与错误 scope 扩散的统一回归保护。
+- **影响**：单个 owner 的测试即使通过，后续调用方仍可能重引入 reduced/legacy ref、绕过 repository validation，令审批或历史 replay 无法绑定原始 immutable evidence。
+- **处理状态**：✅已修复验证。Phase `64.2-09` 新增真实 current/retained replay 与 negative authority matrix，并用 AST/source guard 锁定 `EvidenceVersionRepository`、approval/replay canonical owner、exact `tenant_policy` scope 及只读 legacy adapter。
+- **证据**：`tests/integration/test_phase64_2_integrity_matrix.py`、`tests/architecture/test_evidence_memory_integrity_boundaries.py`；实现 owner 包括 `src/knowledge/evidence_identity.py`、`src/repositories/evidence_version_repo.py`、`src/approvals/service.py`、`src/replay/service.py`。
+- **剩余风险**：legacy risk 是已持久化的歧义 legacy JSON 只能保持 unresolved，不能补造权威内容；target/defer 为 post-Phase 17 Policy Scope 的 named/versioned 非 tenant scope，以及 Phase 65 的 trace labeling，均不得被误报为当前已实现。
+
+---
+
 # 4. 记忆（Memory）
 
 **范围**：短期/会话记忆、thread summary、ContextAssembler、记忆边界与 fail-closed。
@@ -2329,3 +2339,11 @@
 - **证据**：Phase 64.2 Plan 08；commits `fe4e12c`、`073d634`、`6e431ea`、`5494b66`、`b3c6125`、`b527c72`；`src/db/migrations/versions/028_phase64_2_memory_lifecycle.py`、`src/db/models.py`、`src/memory/case_memory.py`、`src/memory/schemas.py`、`src/api/routers/memory.py`、`tests/memory/test_case_memory_lifecycle.py`、`tests/memory/test_case_memory_concurrency.py`。
 - **验证**：Task 1/2/3 精确 PostgreSQL 门禁分别 `19 passed`、`60 passed`、`28 passed`，scoped Ruff 全绿；真实双会话 barrier matrix 单独为 `11 passed`，覆盖 exact submit、source-distinct、review retry、approve/reject、review/expiry、rejected/expired/deleted/tombstoned delayed submit、correction/duplicate submit 与 correction retry。
 - **剩余风险**：🟡 本 plan 只收敛 CaseMemory，不建立 Phase 68 的通用 lifecycle registry。`source_identity_hash_for_tombstone()` 默认仍保留 legacy profile 供旧调用者使用；新 v2 writer 必须显式传其已计算的 source identity，后续统一迁移属于 Phase 68，而不是在本 plan 静默改变全局 tombstone 兼容语义。Plan 09 仍需最终 ownership/static guard 与 phase 级 negative matrix。
+
+## 2026-08-06 — Phase 64.2 Plan 09 Memory provenance/lifecycle 完整性门禁闭环（`phase64.2-memory-integrity:implemented`）✅已修复验证
+
+- **问题现象 / 根因**：memory identity、CWC promotion、reviewed provenance 与 terminal lifecycle 虽由 Plans 03/05/07/08 分别收敛，但此前没有统一证明 rejected observation 不进入 reviewed content、各 source authority 不被 review 抬升、以及 terminal full-key claim 不会因延迟 writer 复活。
+- **影响**：局部回归可能漏掉跨 owner 的 status-blind promotion、caller-local hash、unresolved authority upgrade、lineage 丢失或 terminal resurrection。
+- **处理状态**：✅已修复验证。Phase `64.2-09` 通过真实 promotion→review→approve→delete lifecycle、全禁止状态矩阵与 repository-wide ownership guard，锁定 single identity/provenance owner、contextual-only memory authority、durable terminal claims 与 CAS/no-resurrection。
+- **证据**：`tests/integration/test_phase64_2_integrity_matrix.py`、`tests/architecture/test_evidence_memory_integrity_boundaries.py`；实现 owner 包括 `src/memory/identity.py`、`src/memory/fact_promotion.py`、`src/memory/case_memory.py`、`src/memory/case_precedent.py`。
+- **剩余风险**：legacy risk 是 pre-027 行继续使用 `LegacyUnresolvedCaseMemoryProvenanceV1`，不能加入 authoritative matching；target/defer 为 Phase 68 通用 lifecycle registry 与 Phase 70 retrieval quality/PII governance，本 plan 不提前实现。
