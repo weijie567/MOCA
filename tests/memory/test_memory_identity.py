@@ -4,6 +4,7 @@ import inspect
 import re
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -527,3 +528,182 @@ async def test_session_service_reuses_one_typed_identity_for_result_and_event(
     assert repository.events[0].source_ref_json == result.identity.normalized_source_ref.model_dump(
         mode="json", exclude_none=True
     )
+
+
+class _CandidateWriteRepository:
+    def __init__(self) -> None:
+        self.identity_kwargs: dict[str, Any] = {}
+        self.event_kwargs: dict[str, Any] = {}
+
+    async def check_tombstone_before_write(self, **kwargs):
+        return None
+
+    async def retire_expired_current_by_content_hash(self, **kwargs):
+        return None
+
+    async def retire_unpublished_current_by_content_hash(self, **kwargs):
+        return None
+
+    async def get_active_by_content_hash(self, **kwargs):
+        return None
+
+    async def get_active_duplicate(self, **kwargs):
+        return None
+
+    async def insert_memory(self, candidate, **kwargs):
+        self.identity_kwargs = kwargs
+        return SimpleNamespace(id=uuid4(), review_status=kwargs["review_status"])
+
+    async def insert_case_memory(self, candidate, **kwargs):
+        self.identity_kwargs = kwargs
+        return SimpleNamespace(id=uuid4(), review_status=kwargs["review_status"])
+
+    async def emit_write_event(self, **kwargs):
+        self.event_kwargs = kwargs
+        return SimpleNamespace(id=uuid4())
+
+
+@pytest.mark.asyncio
+async def test_long_term_and_case_services_call_named_owner_once_and_persist_exact_result(monkeypatch) -> None:
+    from src.memory import case_memory as case_module
+    from src.memory import long_term as long_term_module
+
+    tenant_id = UUID("10000000-0000-0000-0000-000000000001")
+    run_id = UUID("30000000-0000-0000-0000-000000000003")
+    long_term_candidate = LongTermMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        scope_type="merchant",
+        scope_id="Merchant-Acme",
+        content="Acme prefers concise updates.",
+        source_type="explicit_user_preference",
+    )
+    case_candidate = CaseMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        scope_type="case",
+        scope_id="Case-Acme",
+        case_type="refund_dispute",
+        summary="Acme reviewed precedent.",
+        excerpt="Acme received a reviewed refund.",
+        source_type="human_reviewed",
+    )
+    long_calls: list[LongTermMemoryWriteCandidate] = []
+    case_calls: list[CaseMemoryWriteCandidate] = []
+    real_long_builder = build_long_term_memory_candidate_identity
+    real_case_builder = build_case_memory_candidate_identity
+
+    def spy_long(value):
+        long_calls.append(value)
+        return real_long_builder(value)
+
+    def spy_case(value):
+        case_calls.append(value)
+        return real_case_builder(value)
+
+    monkeypatch.setattr(long_term_module, "build_long_term_memory_candidate_identity", spy_long)
+    monkeypatch.setattr(case_module, "build_case_memory_candidate_identity", spy_case)
+    long_repository = _CandidateWriteRepository()
+    case_repository = _CandidateWriteRepository()
+
+    long_result = await long_term_module.LongTermMemoryService(long_repository).write_memory(long_term_candidate)
+    case_result = await case_module.CaseMemoryService(case_repository).submit_case_memory_candidate(case_candidate)
+
+    for calls, candidate, result, repository, builder in (
+        (long_calls, long_term_candidate, long_result, long_repository, real_long_builder),
+        (case_calls, case_candidate, case_result, case_repository, real_case_builder),
+    ):
+        expected = builder(candidate)
+        assert calls == [candidate]
+        assert result.candidate_hash == expected.candidate_hash
+        assert result.content_hash == expected.content_hash
+        assert result.source_identity_hash == expected.source_identity_hash
+        assert repository.identity_kwargs["content_hash"] == expected.content_hash
+        assert repository.identity_kwargs["source_identity_hash"] == expected.source_identity_hash
+        assert repository.event_kwargs["candidate_hash"] == expected.candidate_hash
+        assert repository.event_kwargs["source_ref_json"] == expected.normalized_source_ref.model_dump(
+            mode="json", exclude_none=True
+        )
+
+
+@pytest.mark.asyncio
+async def test_cwc_service_calls_named_owner_once_and_events_exact_result(monkeypatch) -> None:
+    from src.memory import case_working_context_service as cwc_module
+
+    tenant_id = UUID("10000000-0000-0000-0000-000000000001")
+    run_id = UUID("30000000-0000-0000-0000-000000000003")
+    case_id = UUID("40000000-0000-0000-0000-000000000004")
+    candidate = CaseWorkingContextWriteCandidate(
+        tenant_id=tenant_id,
+        case_id=case_id,
+        source_ref=MemorySourceRefV1(
+            source_type="case_working_context_write",
+            run_id=str(run_id),
+            agent_run_id=str(run_id),
+            business_object_type="refund_case",
+            business_object_id=str(case_id),
+        ),
+        content=CaseWorkingContextContentV1(customer_request="Acme requests an update."),
+    )
+    calls: list[CaseWorkingContextWriteCandidate] = []
+    event_kwargs: dict[str, Any] = {}
+    real_builder = build_case_working_context_candidate_identity
+
+    def spy_builder(value):
+        calls.append(value)
+        return real_builder(value)
+
+    async def run_isolated(parent_session, operation):
+        return await operation(SimpleNamespace())
+
+    async def allow_scope(*args, **kwargs):
+        return None
+
+    class FakeCwcRepository:
+        def __init__(self, session) -> None:
+            pass
+
+        async def write_working_context(self, trusted_candidate):
+            return SimpleNamespace(status="written", case_working_context_id=uuid4(), version=1)
+
+    async def emit_event(session, **kwargs):
+        event_kwargs.update(kwargs)
+        return SimpleNamespace(id=uuid4())
+
+    monkeypatch.setattr(cwc_module, "build_case_working_context_candidate_identity", spy_builder)
+    monkeypatch.setattr(cwc_module, "run_memory_side_effect_in_isolated_session", run_isolated)
+    monkeypatch.setattr(cwc_module, "_assert_run_belongs_to_tenant", allow_scope)
+    monkeypatch.setattr(cwc_module, "_assert_case_belongs_to_tenant", allow_scope)
+    monkeypatch.setattr(cwc_module, "CaseWorkingContextRepository", FakeCwcRepository)
+    monkeypatch.setattr(cwc_module, "_emit_write_event", emit_event)
+
+    result = await cwc_module.CaseWorkingContextService().write_case_working_context(
+        SimpleNamespace(),
+        candidate,
+        run_id=run_id,
+    )
+    trusted_candidate = cwc_module._trusted_write_candidate(candidate=candidate, run_id=run_id)
+    expected = real_builder(trusted_candidate)
+
+    assert calls == [trusted_candidate]
+    assert result.candidate_hash == expected.candidate_hash
+    assert event_kwargs["candidate_hash"] == expected.candidate_hash
+    assert event_kwargs["source_ref_json"] == expected.normalized_source_ref.model_dump(
+        mode="json", exclude_none=True
+    )
+
+
+def test_memory_callers_have_no_local_candidate_identity_builders() -> None:
+    from src.memory import case_memory, case_working_context_service, long_term
+
+    sources = {
+        "long_term": inspect.getsource(long_term),
+        "case_memory": inspect.getsource(case_memory),
+        "case_working_context": inspect.getsource(case_working_context_service),
+    }
+
+    assert "def _candidate_identity" not in sources["long_term"]
+    assert "def _candidate_hash_for_memory" not in sources["long_term"]
+    assert "def _candidate_identity" not in sources["case_memory"]
+    assert "def _candidate_hash_for_memory" not in sources["case_memory"]
+    assert "def _candidate_hash(" not in sources["case_working_context"]
