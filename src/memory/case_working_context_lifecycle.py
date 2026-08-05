@@ -857,6 +857,7 @@ def _promotion_source_key(result: FactPromotionResultV1) -> str:
         sources = [ref.model_dump(mode="json") for ref in result.business_fact_refs]
     else:
         sources = [ref.to_canonical_identity().model_dump(mode="json") for ref in result.policy_evidence_refs]
+    sources.sort(key=lambda value: json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     return f"{result.authority_class}:{json.dumps(sources, ensure_ascii=False, sort_keys=True, separators=(',', ':'))}"
 
 

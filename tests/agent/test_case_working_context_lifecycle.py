@@ -732,12 +732,13 @@ def test_terminal_projection_promotes_valid_mixed_members_independently_and_dedu
     tenant_id = uuid.uuid4()
     observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
     business_ref = _promotion_business_ref(tenant_id, observed_at=observed_at)
+    second_business_ref = business_ref.model_copy(update={"resource_id": "RF-PROMOTION-002"})
     evidence_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
     business_result = _promotion_tool_result(
         tenant_id=tenant_id,
         observed_at=observed_at,
         authority_class="business_fact",
-        business_fact_refs=[business_ref],
+        business_fact_refs=[business_ref, second_business_ref],
         summary="退款单状态为 reviewing",
     )
     projection = project_terminal_write_candidate(
@@ -745,7 +746,15 @@ def test_terminal_projection_promotes_valid_mixed_members_independently_and_dedu
             "user_query": "查询退款单和租户政策",
             "tool_results": [
                 business_result,
-                {**business_result, "tool_result_id": "duplicate-source", "summary": "同源重复摘要"},
+                {
+                    **business_result,
+                    "tool_result_id": "duplicate-source",
+                    "summary": "同源重复摘要",
+                    "business_fact_refs": [
+                        second_business_ref.model_dump(mode="json"),
+                        business_ref.model_dump(mode="json"),
+                    ],
+                },
                 _promotion_tool_result(
                     tenant_id=tenant_id,
                     observed_at=observed_at,
@@ -757,14 +766,14 @@ def test_terminal_projection_promotes_valid_mixed_members_independently_and_dedu
                     tenant_id=tenant_id,
                     observed_at=observed_at,
                     authority_class="contextual_only",
-                    business_fact_refs=[business_ref],
+                    business_fact_refs=[business_ref, second_business_ref],
                     summary="历史上下文仅供参考",
                 ),
                 _promotion_tool_result(
                     tenant_id=tenant_id,
                     observed_at=observed_at,
                     authority_class="unknown",
-                    business_fact_refs=[business_ref],
+                    business_fact_refs=[business_ref, second_business_ref],
                     summary="未知来源声称已完成",
                 ),
                 _promotion_tool_result(
@@ -772,7 +781,7 @@ def test_terminal_projection_promotes_valid_mixed_members_independently_and_dedu
                     observed_at=observed_at,
                     authority_class="business_fact",
                     status="timeout",
-                    business_fact_refs=[business_ref],
+                    business_fact_refs=[business_ref, second_business_ref],
                     summary="超时前的部分摘要",
                 ),
             ],
@@ -789,7 +798,7 @@ def test_terminal_projection_promotes_valid_mixed_members_independently_and_dedu
         "business_fact",
         "policy_evidence",
     ]
-    assert projection.candidate.content.verified_facts[0].business_fact_refs == [business_ref]
+    assert projection.candidate.content.verified_facts[0].business_fact_refs == [business_ref, second_business_ref]
     assert projection.candidate.content.verified_facts[1].policy_evidence_refs == [evidence_ref]
     assert projection.candidate.content.policy_refs == [evidence_ref]
     assert [(item.decision, item.reason_code) for item in projection.candidate.content.observations] == [
