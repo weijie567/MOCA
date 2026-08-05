@@ -2,55 +2,33 @@
 
 **English** | [简体中文](README.md)
 
-> Open-source reference implementation of a safety-bounded, auditable AI Agent workflow.
+> A personal AI Agent engineering project demonstrating safety boundaries, auditability, and verifiable workflow design.
 >
-> **Scope:** MOCA uses a simulated merchant operations scenario and synthetic data. It is not presented as a real commercial deployment.
+> **Project scope:** MOCA uses a simulated merchant operations scenario and synthetic data. It is not a commercial deployment; the source is public for portfolio review and currently has no open-source license.
 
-Documentation portal: [docs/README.md](docs/README.md).
+[Architecture](#system-architecture) · [Agent Workflow](#agent-workflow) · [Safety](#safety-boundaries) · [Evaluation](#evaluation) · [Local Demo](#local-run-and-demo) · [Documentation](#project-documentation)
 
-## Product Positioning
+## Project Positioning
 
-MOCA is an AI Agent workflow product for merchant support and operations teams handling refund disputes, policy questions, compensation suggestions, high-risk approvals, and traceable case reviews.
+MOCA is a runnable AI Agent project for merchant support and operations scenarios. It demonstrates how refund inquiries, policy questions, compensation suggestions, high-risk approvals, and traceable case reviews can share one engineered workflow.
 
-MOCA is not a generic chatbot. It is designed around:
+The project is not primarily about attaching an LLM to a chat interface. It establishes verifiable authority boundaries: business facts, policy evidence, memory, approval authority, and action authority are owned by explicit services and contracts, while the Agent may investigate, generate, verify, and resume only within those boundaries.
 
-- **Business facts:** orders, refunds, tickets, logistics, and merchant risk.
-- **Policy evidence:** RAG retrieval, citation validation, and verified evidence context.
-- **Risk and approval:** high-risk action proposals must pass approval.
-- **Action drafts:** no real refund, payment, or coupon execution.
-- **Trace replay:** each run keeps auditable node, tool, evidence, risk, approval, and draft records.
+## What It Does
 
-## Core Problem
-
-Merchant support work is not just “answering a question.” A real refund or compensation case often requires checking business data, reading policy rules, judging risk, writing a user-facing response, and explaining the decision later.
-
-| User | Pain Point | MOCA Value |
+| User Task | What MOCA Executes | What the User Sees |
 | --- | --- | --- |
-| Support agent | Switches between order, refund, ticket, and policy systems | Combines fact lookup, evidence, and draft responses |
-| Manager | Needs reviewable context before approving compensation | Shows risk reasons, evidence, and approval history |
-| Operations | Needs consistent policy execution and case review | Provides traceable workflows and evaluation artifacts |
-| Merchant support | Needs unified handling of refund, dispute, and appeal questions | Reduces cross-system communication cost |
+| “What is the refund status of order ORD-2024-001?” | Reads order and refund facts within the caller's authorized scope | A status explanation grounded in current business data rather than model guesses |
+| “What is the platform policy for refund timeouts?” | Retrieves policy material, builds verified evidence, and validates citations | An answer with policy sources, or a safe fallback when evidence is insufficient |
+| “Can we compensate a customer for delayed shipping?” | Combines order facts, policy evidence, and risk rules | A compensation recommendation with supporting reasons and risk context |
+| “Refund this order and issue a coupon now.” | Creates an action proposal and evaluates risk; high-risk requests interrupt for manager approval | A reviewable pending-approval state rather than direct execution |
+| A manager approves or rejects the request | Resumes the original Agent run through the trusted approval API | The decision, a simulated action draft when allowed, and a complete trace/replay record |
 
-## Demo Scenarios
+## System Architecture
 
-| Scenario | Example | What It Shows |
-| --- | --- | --- |
-| Refund progress inquiry | “What is the refund status of order ORD-2024-001?” | Reads order and refund facts before answering |
-| Policy QA with evidence | “What is the platform policy for refund timeouts?” | Retrieves policy evidence and cites sources |
-| Compensation suggestion | “A customer complained about delayed shipping. Can we offer compensation?” | Combines facts, rules, and risk judgment |
-| High-risk approval | “Refund this order and issue a coupon now.” | Creates an approval request instead of executing the action |
-| Approval resume and trace | A manager approves or rejects a pending action | Resumes the workflow and preserves the audit trail |
+MOCA is currently a modular monolith. FastAPI ingress, the LangGraph runtime, and domain services share one backend deployment boundary; PostgreSQL/pgvector stores business, conversation, approval, trace, replay, and knowledge data; the React/Vite frontend renders runs through APIs and SSE.
 
-See the current walkthrough: [docs/guides/demo.md](docs/guides/demo.md).
-
-## Why This Project Matters
-
-- **From chat to workflow:** turns merchant support conversations into structured, auditable Agent runs.
-- **Evidence-grounded answers:** grounds policy answers in retrieved and validated evidence instead of free-form model guesses.
-- **Clear authority boundaries:** separates business facts, policy evidence, memory, approval authority, and action authority.
-- **Human approval is core:** uses LangGraph interrupt/resume and approval APIs for high-risk actions.
-- **Evaluation-aware product design:** evaluates intent, route, tool use, citation, safety, and approval paths with golden cases.
-- **Engineering reference value:** demonstrates workflow contracts, authority isolation, human approval, replayability, and evaluation gates.
+`ToolPlatform` governs tool calls only. Memory, approval, and replay retain direct service boundaries from the Agent runtime. The current layered architecture and verified call boundaries are documented in [System Overview](docs/architecture/system-overview.md). The visual architecture diagram is available in the [Chinese README](README.md#系统架构).
 
 ## Agent Workflow
 
@@ -103,6 +81,8 @@ graph LR
 
 For the source-level graph map, see [docs/architecture/agent-workflow.md](docs/architecture/agent-workflow.md).
 
+For concrete inputs, expected signals, and approval-resume steps, see the [10-Minute Demo Walkthrough](docs/guides/demo.md).
+
 ## Safety Boundaries
 
 MOCA is designed so the model can assist with reasoning and drafting but cannot silently replace facts, policy, approval, or execution authority.
@@ -128,7 +108,7 @@ MOCA evaluates whether the Agent behaves correctly, not only whether responses s
 | Citation rate | ≥ 85% | Evidence document keys and response grounding checks |
 | Safety-critical pass rate | 100% | Approval, permission-denied, rejection, and no-evidence cases |
 
-Evaluation details: [docs/quality/evaluation.md](docs/quality/evaluation.md).
+These values are evaluation gates, not current measured scores. Deterministic, live, and release-scale statistical evidence are reported separately. See [Evaluation Methodology and Current Gate Status](docs/quality/evaluation.md).
 
 ## Project Documentation
 
@@ -140,20 +120,28 @@ Evaluation details: [docs/quality/evaluation.md](docs/quality/evaluation.md).
 
 ## Current Status
 
-- **v2.1 Core Subsystem Hardening shipped:** ToolPlatform, intent recognition, memory, RAG and claim routing, approval, and canonical graph boundaries have been hardened.
-- **v2.2 in progress:** product experience fixes for direct responses, clarification quality, business metric queries, frontend timeline polish, and UX regression cases.
-- **Runtime graph:** final 15-node canonical workflow.
+- **Latest release tag:** `v2.1`, covering ToolPlatform, intent recognition, memory, RAG and claim routing, approval, and canonical graph boundary hardening.
+- **Current main branch:** continued product-experience work on direct responses, clarification quality, business metric queries, frontend timeline behavior, and UX regression cases.
+- **Runtime graph:** the current canonical workflow has 15 registered nodes.
 - **Action boundary:** simulated action drafts only; no real payment, refund, coupon, or external fulfillment execution.
 
-## Quick Start
+## Local Run and Demo
 
-Prerequisites: Docker Compose, Python 3.12, `uv`, and Node tooling for the frontend.
+Prerequisites: Docker Compose. Running seed, tests, and evaluations on the host also requires Python 3.12, `uv`, and `jq`. The live Agent demo requires a valid DashScope API key.
 
 ```bash
 cp .env.example .env
-docker compose up --build
-make migrate
+# Edit .env and replace the DASHSCOPE_API_KEY placeholder with a valid local key
+docker compose up --build -d
+curl --retry 20 --retry-delay 2 --retry-connrefused -sf \
+  http://localhost:8000/health | jq .
 make seed
+```
+
+The API container runs Alembic migrations during startup, so a separate `make migrate` is unnecessary. If `uv` is unavailable on the host, seed through the container instead:
+
+```bash
+docker compose exec api python scripts/seed_demo.py --reset
 ```
 
 API documentation:
@@ -168,11 +156,13 @@ Frontend:
 http://localhost:3000
 ```
 
-Demo:
+Command-line demo:
 
 ```bash
 bash scripts/demo_phase6.sh
 ```
+
+For the five UI scenarios, expected signals, and approval recovery flow, see the [10-Minute Demo Walkthrough](docs/guides/demo.md).
 
 Useful local commands:
 
@@ -200,7 +190,6 @@ All demo accounts use the password `moca2024`:
 - Retrieval: hybrid policy retrieval, embeddings, and evidence validation.
 - Frontend: React, Vite, and Server-Sent Events.
 - Evaluation: deterministic FakeLLM mode, golden sets, and local reports.
-- Runtime note: Redis is intentionally not part of the current runtime. It may be introduced later only after a measured bottleneck, and only as a non-authoritative TTL cache, rate limiter, short lock, SSE buffer, or active-run hint with PostgreSQL fallback.
 
 ## Repository Map
 

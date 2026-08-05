@@ -2,55 +2,35 @@
 
 [English](README.en.md) | **简体中文**
 
-> 一个强调安全边界、审计能力与可验证工作流的开源 AI Agent 参考实现。
+> 一个用于展示安全边界、审计能力与可验证工作流设计的 AI Agent 个人技术项目。
 >
-> **范围说明：** MOCA 使用模拟商家运营场景和合成数据，不将其描述为真实商用上线系统。
+> **项目范围：** MOCA 使用模拟商家运营场景和合成数据，不是真实商用上线系统；源码公开用于个人项目展示，当前未提供开源许可证。
 
-文档入口：[docs/README.md](docs/README.md)。
+[系统架构](#系统架构) · [Agent 工作流](#agent-工作流) · [安全边界](#安全边界) · [评测体系](#评测体系) · [进行中计划](#正在进行的计划) · [本地演示](#本地运行与演示) · [项目文档](#项目文档)
 
-## 产品定位
+## 项目定位
 
-MOCA 是一个面向电商 / 本地生活商家售后运营场景的 AI Agent 工作流产品，用于辅助客服和运营人员处理退款进度查询、规则咨询、补偿建议、高风险动作审批和处理过程复盘。
+MOCA 是一个面向电商 / 本地生活商家售后运营场景的可运行 AI Agent 项目，用于展示退款进度查询、规则咨询、补偿建议、高风险动作审批和处理过程复盘如何落到同一套工程化工作流中。
 
-MOCA 不是普通聊天机器人，它围绕以下产品边界设计：
+项目重点不是把 LLM 接到聊天界面，而是建立可验证的业务权威边界：业务事实、政策证据、记忆、审批权和动作权分别由明确的服务与契约持有；Agent 只在允许的边界内调查、生成、校验和恢复运行。
 
-- **业务事实：** 订单、退款、工单、物流和商家风险。
-- **政策证据：** RAG 检索、引用校验和经过验证的证据上下文。
-- **风险与审批：** 高风险动作提案必须通过审批。
-- **动作草稿：** 不执行真实退款、付款或发券操作。
-- **过程追溯：** 每次运行都保留可审计的节点、工具、证据、风险、审批和草稿记录。
+## 它能做什么
 
-## 核心问题
-
-商家售后不是简单问答。一个退款或补偿 case 往往需要同时查询业务系统、阅读平台规则、判断风险、组织面向用户的回复，并在后续争议或复盘时解释当时为什么这样处理。
-
-| 用户 | 痛点 | MOCA 的产品价值 |
+| 用户提出的任务 | MOCA 实际执行 | 用户最终看到 |
 | --- | --- | --- |
-| 一线客服 | 需要在订单、退款、工单和政策系统之间切换 | 统一业务事实查询、证据检索和回复草拟 |
-| 客服主管 | 批准补偿前需要可审查的完整上下文 | 展示风险原因、证据和审批历史 |
-| 平台运营 | 需要一致地执行政策并复盘案例 | 提供可追溯工作流和评测产物 |
-| 商家支持团队 | 需要统一处理退款、争议和申诉问题 | 降低跨系统沟通成本 |
+| “订单 ORD-2024-001 的退款进度如何？” | 查询当前用户有权访问的订单和退款事实 | 基于真实业务状态生成的进度说明，而不是模型猜测 |
+| “平台的退款超时规则是什么？” | 检索政策、构建已验证证据并校验引用 | 带政策来源的回答；证据不足时安全收口 |
+| “客户投诉延迟发货，能不能补偿？” | 综合订单事实、政策证据和风险规则 | 补偿建议、依据和风险说明 |
+| “直接退款并发券。” | 生成动作提案并进入风险判断；高风险请求中断等待主管审批 | 待审批状态和可审查上下文，不会直接执行动作 |
+| 主管批准或驳回待处理请求 | 通过可信审批 API 恢复原 Agent 运行 | 审批结果、模拟动作草稿，以及完整 trace/replay 记录 |
 
-## 核心演示场景
+## 系统架构
 
-| 场景 | 示例 | 展示点 |
-| --- | --- | --- |
-| 查询退款进度 | “订单 ORD-2024-001 的退款进度如何？” | 回答前先读取订单和退款事实 |
-| 规则咨询与证据引用 | “平台的退款超时处理规则是什么？” | 检索政策证据并引用来源 |
-| 补偿建议 | “客户投诉延迟发货，能不能给补偿？” | 综合业务事实、规则和风险判断 |
-| 高风险动作审批 | “直接给这个订单退款并发券。” | 创建审批请求，而不是直接执行动作 |
-| 审批恢复与 trace 回放 | 主管批准或拒绝待处理动作 | 恢复工作流并保留完整审计轨迹 |
+MOCA 当前采用模块化单体架构：FastAPI 接入、LangGraph 运行时和领域服务位于同一后端部署边界，PostgreSQL/pgvector 保存业务、会话、审批、轨迹、回放与知识数据，React/Vite 前端通过 API 和 SSE 展示运行过程。
 
-当前演示指南：[docs/guides/demo.md](docs/guides/demo.md)。
+[![MOCA 后端分层架构总览 V3：真实调用边界](docs/moca-backend-overview-v3.png)](docs/moca-backend-overview-v3.png)
 
-## 项目亮点
-
-- **从聊天到工作流：** 将商家售后对话转化为结构化、可审计的 Agent 运行。
-- **有证据的回答：** 规则类回答基于经过检索和验证的证据，而不是模型自由猜测。
-- **清晰权威边界：** 分离业务事实、政策证据、记忆、审批权和动作执行权。
-- **人审是核心路径：** 高风险动作通过 LangGraph interrupt/resume 和审批 API 处理。
-- **评测驱动的产品设计：** 使用 golden cases 评测意图、路由、工具调用、引用、安全和审批路径。
-- **工程参考价值：** 展示工作流契约、权威隔离、人审、可回放性与评测门禁的实现方式。
+实线表示主要运行时调用路径，虚线表示受控或模拟的 Tool 调用路径。ToolPlatform 只治理工具调用；记忆、审批与回放仍保留 Agent 运行时的直接服务边界。完整说明见 [系统架构总览](docs/architecture/system-overview.md)。
 
 ## Agent 工作流
 
@@ -69,39 +49,13 @@ MOCA 不是普通聊天机器人，它围绕以下产品边界设计：
   -> 最终回复与 trace
 ```
 
-当前源码 graph 快照：
+当前运行时流程（15 个注册节点）：
 
-```mermaid
-graph LR
-    A[receive_request] --> S[safety_pre_route]
-    S -->|safe| C[session_context_load]
-    S -->|needs clarification| H[final_response]
-    C --> B[contextual_intent_resolve]
-    B -->|needs slots| D[slot_resolution_gate]
-    B -->|policy / fact path| E[investigate]
-    D -->|slots ok| E
-    D -->|needs reviewed / long-term memory| M[memory_context_load]
-    D -->|missing slots| H
-    M --> E
-    E -->|needs verified evidence| R[rag_context_build]
-    R -->|verified / allowed partial| F[recommendation_generation]
-    R -->|fail closed| H
-    E -->|sufficient context| F
-    E -->|missing / insufficient| H
-    F -->|claims / action| V[claim_verify]
-    F -->|no claims / action| H
-    V -->|verified action path| G[risk_gate]
-    V -->|blocked / no action| H
-    G -->|approval required| I[approval_gate]
-    G -->|auto draft allowed| J[action_draft]
-    G -->|no action / blocked| H
-    I -->|approved| J
-    I -->|rejected / invalid| H
-    I -->|edit / reassess| G
-    J --> H
-```
+[![MOCA Agent 运行时流程 V2：当前 15 个注册节点](docs/moca-agent-runtime-flow-v2.png)](docs/moca-agent-runtime-flow-v2.png)
 
-源码层 graph 说明见 [docs/architecture/agent-workflow.md](docs/architecture/agent-workflow.md)。
+图示用于快速理解主路径与关键分支；完整路由条件、失败收口和恢复语义见 [Agent 工作流说明](docs/architecture/agent-workflow.md)。
+
+完整操作步骤、预期信号与失败排查见 [10 分钟演示指南](docs/guides/demo.md)。
 
 ## 安全边界
 
@@ -128,32 +82,49 @@ MOCA 的评测重点不是“回答像不像人”，而是 Agent 是否遵守�
 | 引用率 | ≥ 85% | 检查证据文档键和回复 grounding |
 | 安全关键用例通过率 | 100% | 审批、权限拒绝、驳回和无证据场景 |
 
-评测详情：[docs/quality/evaluation.md](docs/quality/evaluation.md)。
+表中数值是评测门槛，不是当前实测成绩；deterministic、live 与 release-scale 统计证据分别记录，不混称。评测详情见 [评测方法与当前门禁状态](docs/quality/evaluation.md)。
+
+## 正在进行的计划
+
+MOCA 正在推进一项 RAG 文档质量与检索优化计划：把当前以短 Markdown demo 为主的政策知识库，扩展为面向 Markdown、数字 PDF、扫描 PDF 和 DOCX 的结构感知、可追溯、评测驱动的 RAG 流程。表格作为 PDF、DOCX 和 Markdown 中的重要内容结构处理；当前范围不实现 XLS/XLSX 或 PPT/PPTX 解析，也不引入特定行业术语和领域参数模型。
+
+当前第一阶段聚焦格式等价评测基础：使用 3 份 canonical 政策及其 Markdown、数字 PDF、扫描 PDF 共 9 个 fixture，补齐 parser/retrieval gold、隔离摄取 runner 和 baseline 报告。在得到基准结果之后，再依次扩充混合检索语料、优化结构化切片、调整混合检索与重排策略，并用消融实验验证收益。
+
+完整范围、阶段拆分、交付物、评测规则和完成标准见 [RAG 文档质量与检索优化计划](docs/quality/rag-quality-plan.md)。
 
 ## 项目文档
 
 - [文档入口](docs/README.md)
 - [10 分钟演示指南](docs/guides/demo.md)
 - [评测方法](docs/quality/evaluation.md)
+- [RAG 文档质量与检索优化计划](docs/quality/rag-quality-plan.md)
 - [安全、审批与动作边界](docs/architecture/security-approval-and-actions.md)
 - [当前 Agent 工作流](docs/architecture/agent-workflow.md)
 
 ## 当前状态
 
-- **v2.1 核心子系统强化已交付：** ToolPlatform、意图识别、记忆、RAG / claim 路由、审批和 canonical graph 边界已经完成强化。
-- **v2.2 正在进行：** 处理直接回复、澄清质量、业务指标查询、前端 timeline 打磨和 UX 回归用例等产品体验问题。
-- **运行时 graph：** 最终为 15 节点 canonical workflow。
+- **最新发布标签：** `v2.1`，完成 ToolPlatform、意图识别、记忆、RAG / claim 路由、审批和 canonical graph 边界强化。
+- **当前 main 分支：** 继续处理直接回复、澄清质量、业务指标查询、前端 timeline 和 UX 回归用例等产品体验问题。
+- **运行时 graph：** 当前为 15 节点 canonical workflow。
 - **动作边界：** 只生成模拟动作草稿，不执行真实付款、退款、发券或外部履约操作。
 
-## 快速运行
+## 本地运行与演示
 
-前置条件：Docker Compose、Python 3.12、`uv`，以及前端 Node 工具链。
+前置条件：Docker Compose；若在 host 执行 seed、测试和评测，还需要 Python 3.12、`uv` 与 `jq`。Live Agent 演示必须配置有效的 DashScope API key。
 
 ```bash
 cp .env.example .env
-docker compose up --build
-make migrate
+# 编辑 .env，将 DASHSCOPE_API_KEY placeholder 替换为本机有效 key
+docker compose up --build -d
+curl --retry 20 --retry-delay 2 --retry-connrefused -sf \
+  http://localhost:8000/health | jq .
 make seed
+```
+
+API 容器启动时会自动执行 Alembic migration，无需额外运行 `make migrate`。没有 host `uv` 时，可改用：
+
+```bash
+docker compose exec api python scripts/seed_demo.py --reset
 ```
 
 API 文档：
@@ -168,11 +139,13 @@ http://localhost:8000/docs
 http://localhost:3000
 ```
 
-演示脚本：
+命令行演示脚本：
 
 ```bash
 bash scripts/demo_phase6.sh
 ```
+
+UI 的五个核心场景、预期信号和审批恢复步骤见 [10 分钟演示指南](docs/guides/demo.md)。
 
 常用本地命令：
 
@@ -200,7 +173,6 @@ uv run python scripts/eval_all.py
 - 检索：混合政策检索、embedding 和证据校验。
 - 前端：React、Vite 和 Server-Sent Events。
 - 评测：deterministic FakeLLM mode、golden sets 和本地报告。
-- 运行时说明：Redis 当前有意不纳入运行时。只有在发现可量化瓶颈后，才会考虑将其用作非权威 TTL 缓存、限流器、短锁、SSE buffer 或带 PostgreSQL fallback 的 active-run hint。
 
 ## 仓库结构
 
