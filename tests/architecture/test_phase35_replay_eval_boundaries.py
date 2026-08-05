@@ -12,7 +12,7 @@ SRC_ROOT = ROOT / "src"
 REPLAY_ROOT = SRC_ROOT / "replay"
 TRACE_REPLAY_API_PATH = SRC_ROOT / "api" / "routers" / "traces.py"
 DEV_CONTRACT_MANIFEST = ROOT / "eval" / "replay" / "dev-contract-manifest.v1.json"
-PHASE35_EVAL_DOC = ROOT / "docs" / "evaluation.md"
+PHASE35_EVAL_DOC = ROOT / "docs" / "quality" / "evaluation.md"
 PHASE35_REPLAY_ARTIFACT_ROOT = ROOT / "eval" / "replay"
 
 REPLAY_BY_RERUN_FORBIDDEN_STRINGS = (

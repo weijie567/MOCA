@@ -21881,3 +21881,23 @@ Homebrew 失败来自本机历史多版本依赖与当前 symlink 状态不一�
 
 **剩余问题和下次继续排查入口**
 无预期阻断；若 rename 未被 Git 自动识别，以最终内容和删除/新增状态为准，不影响合并后的目录结果。
+
+## 2026-08-05 — PR #2 CI 仍读取已归档的旧评测文档路径
+
+**问题现象**
+PR #2 的 GitHub Actions `lint` 通过，但 `test` 在约 59% 处失败并因 `-x` 停止。失败用例 `test_phase35_docs_and_artifacts_do_not_introduce_physical_microservice_deployment` 尝试读取已经从公开文档面移除的 `docs/evaluation.md`，触发 `FileNotFoundError`。
+
+**如何检测/复现**
+GitHub Actions run `30963446025` / job `92172183738` 执行 `uv run pytest tests/ -x --ignore=tests/integration -q --tb=short`。本地使用有效项目入口 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase35_replay_eval_boundaries.py -q --tb=short` 可稳定复现。
+
+**关键证据或命令**
+CI 总结为 `1 failed, 2583 passed, 1 skipped, 97 warnings in 549.09s`；错误路径是 `/home/runner/work/MOCA/MOCA/docs/evaluation.md`。本地结果为 `1 failed, 4 passed, 1 warning`。测试常量仍定义为 `ROOT / "docs" / "evaluation.md"`，而当前替代文档是 `docs/quality/evaluation.md`。针对本次删除文件 basename 的主动扫描没有发现其他 active test/source 仍明确绑定已删除文档；同名命中均属于新路径 `docs/quality/evaluation.md`。
+
+**当前判断/根因**
+这是文档目录重组时漏迁的一处测试事实来源，不是数据库、PostgreSQL service、README 语言切换或运行时代码回归。CI 容器日志中的唯一约束错误属于测试过程中的预期负向场景；真正导致 job 非零的是旧文档路径的 `FileNotFoundError`。
+
+**已做处理**
+已完成 CI 日志提取、定向复现和同类旧路径扫描；`PHASE35_EVAL_DOC` 已改指 `docs/quality/evaluation.md`，没有恢复已归档旧文件。修复后定向文件为 `5 passed, 1 warning`，完整 `tests/architecture` 聚合为 `120 passed, 1 skipped, 1 warning`，Ruff check/format check 与 `git diff --check` 均通过。
+
+**剩余问题和下次继续排查入口**
+本地已无阻断；提交并推送到 PR #2 后等待 GitHub Actions 从头执行。由于当前 CI 使用 `-x`，只有新一轮完整 job 通过后才能确认没有更靠后的第二个失败；若再次失败，按新 run 的首个失败日志继续定位。
