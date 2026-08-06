@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
 
+from src.knowledge.evidence_identity import (
+    PersistedEvidenceIdentityMaterialV1,
+    mint_canonical_evidence_identity,
+)
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, VerifiedEvidencePackageV1
 from src.knowledge.service import PolicyKnowledgeService
+from src.knowledge.text_hash import evidence_text_hash
 
 
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
@@ -50,12 +55,38 @@ def _ref(
     text: str = "Refund timeout compensation requires verified policy evidence.",
     rank: int = 1,
 ) -> EvidenceRefV1:
-    return EvidenceRefV1.build(
+    document_version = int(policy_version.removeprefix("v"))
+    material = PersistedEvidenceIdentityMaterialV1(
         tenant_id=tenant_id,
+        scope_type="tenant_policy",
+        scope_id=tenant_id,
+        document_version_id=str(
+            uuid5(
+                NAMESPACE_URL,
+                f"moca-test-evidence:{tenant_id}:{doc_key}:document:{document_version}",
+            )
+        ),
+        chunk_version_id=str(
+            uuid5(
+                NAMESPACE_URL,
+                f"moca-test-evidence:{tenant_id}:{doc_key}:{chunk_id}:chunk:1",
+            )
+        ),
         doc_key=doc_key,
+        document_version=document_version,
         chunk_id=chunk_id,
-        policy_version=policy_version,
-        text=text,
+        chunk_version=1,
+        text_hash=evidence_text_hash(text),
+    )
+    resolution = mint_canonical_evidence_identity(
+        material,
+        expected_tenant_id=tenant_id,
+        expected_scope_type="tenant_policy",
+        expected_scope_id=tenant_id,
+    )
+    assert resolution.identity is not None
+    return EvidenceRefV1.from_canonical_identity(
+        resolution.identity,
         retrieved_at="2026-06-19T00:00:00.000Z",
         retrieval_config_version="retrieval.v3",
         score=0.91,
@@ -64,12 +95,12 @@ def _ref(
 
 
 def _row(ref: EvidenceRefV1, *, content: str | None = None, **overrides: Any) -> dict[str, Any]:
+    identity = ref.to_canonical_identity()
+    assert identity is not None
     row: dict[str, Any] = {
-        "tenant_id": TENANT_ID,
-        "doc_key": ref.doc_key,
-        "chunk_id": ref.chunk_id,
+        **identity.model_dump(mode="json"),
         "content": content or "Refund timeout compensation requires verified policy evidence.",
-        "policy_document_version": 3,
+        "policy_document_version": ref.document_version,
         "current_policy_version": ref.policy_version,
         "effective_date": "2026-06-01",
         "expires_at": None,
@@ -126,8 +157,25 @@ class FakeCanonicalRetriever:
         tenant_id: UUID,
         keys: list[tuple[str, str]],
     ) -> dict[tuple[str, str], dict[str, Any]]:
-        self.calls.append({"tenant_id": str(tenant_id), "keys": keys})
-        return {key: row for key, row in self.rows.items() if key in keys}
+        self.calls.append({"method": "canonical", "tenant_id": str(tenant_id), "keys": keys})
+        return {
+            key: row
+            for key, row in self.rows.items()
+            if key in keys and row["tenant_id"] == str(tenant_id)
+        }
+
+    async def get_current_canonical_evidence_rows_by_keys(
+        self,
+        *,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict[str, Any]]:
+        self.calls.append({"method": "current", "tenant_id": str(tenant_id), "keys": keys})
+        return {
+            key: row
+            for key, row in self.rows.items()
+            if key in keys and row["tenant_id"] == str(tenant_id)
+        }
 
 
 class CountingPolicyKnowledgeService(PolicyKnowledgeService):
@@ -225,8 +273,15 @@ async def test_rag_context_build_combined_invalid_scope_stale_policy_version_and
     )
     retriever = FakeCanonicalRetriever(
         {
-            (wrong_tenant.doc_key, wrong_tenant.chunk_id): _row(wrong_tenant),
-            (stale.doc_key, stale.chunk_id): _row(stale, current_policy_version="v4"),
+            (wrong_tenant.doc_key, wrong_tenant.chunk_id): _row(
+                wrong_tenant,
+                content="Wrong tenant candidate.",
+            ),
+            (stale.doc_key, stale.chunk_id): _row(
+                stale,
+                content="Stale policy_version candidate.",
+                current_policy_version="v4",
+            ),
             (invalid_hash.doc_key, invalid_hash.chunk_id): _row(invalid_hash, content="Mutated canonical text."),
         }
     )
@@ -249,11 +304,29 @@ async def test_rag_context_build_combined_invalid_scope_stale_policy_version_and
     package = result["verified_evidence_package"]
     ordinary_surface = str(package["prompt_projection"]) + str(package["verifier_projection"])
     assert service.build_calls == 1
+    assert retriever.calls == [
+        {
+            "method": "current",
+            "tenant_id": TENANT_ID,
+            "keys": [
+                (stale.doc_key, stale.chunk_id),
+                (invalid_hash.doc_key, invalid_hash.chunk_id),
+            ],
+        },
+        {
+            "method": "canonical",
+            "tenant_id": TENANT_ID,
+            "keys": [
+                (stale.doc_key, stale.chunk_id),
+                (invalid_hash.doc_key, invalid_hash.chunk_id),
+            ],
+        },
+    ]
     assert result["rag_context_status"] == "invalid_hash"
     assert package["evidence_map"] == {}
     assert package["citation_map"] == {}
     assert "candidate_ref_invalid" in package["reason_codes"]
-    assert "tenant_mismatch" in package["reason_codes"]
+    assert "evidence_unavailable" in package["reason_codes"]
     assert "latest_version_invalid" in package["reason_codes"]
     assert "text_hash_mismatch" in package["reason_codes"]
     assert wrong_tenant.model_dump(mode="json") in package["rejected_candidate_refs"]
