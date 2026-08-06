@@ -810,6 +810,88 @@ def test_terminal_projection_promotes_valid_mixed_members_independently_and_dedu
     ]
 
 
+def test_terminal_projection_rejects_mixed_malformed_business_ref_list() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    business_ref = _promotion_business_ref(tenant_id, observed_at=observed_at)
+    item = _promotion_tool_result(
+        tenant_id=tenant_id,
+        observed_at=observed_at,
+        authority_class="business_fact",
+        business_fact_refs=[business_ref],
+    )
+    item["business_fact_refs"] = [business_ref.model_dump(mode="json"), "malformed-member"]
+
+    projection = project_terminal_write_candidate(
+        state={"user_query": "查询退款单", "tool_results": [item]},
+        tenant_id=tenant_id,
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="无法验证业务事实来源。",
+    )
+
+    assert projection.candidate is not None
+    content = projection.candidate.content
+    assert content.verified_facts == []
+    assert content.policy_refs == []
+    assert len(content.observations) == 1
+    assert content.observations[0].decision == "observe"
+    assert content.observations[0].reference_validation == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_terminal_projection_rejects_mixed_malformed_policy_ref_list_before_exact_resolution() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    evidence_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
+    item = _promotion_tool_result(
+        tenant_id=tenant_id,
+        observed_at=observed_at,
+        authority_class="policy_evidence",
+        policy_evidence_refs=[evidence_ref],
+    )
+    item["policy_evidence_refs"] = [evidence_ref.model_dump(mode="json"), "malformed-member"]
+    state = {"user_query": "查询退款政策", "tool_results": [item]}
+    resolver_calls: list[str] = []
+
+    async def exact_resolver(
+        session: AsyncSession,
+        *,
+        tenant_id: uuid.UUID,
+        evidence_ref: EvidenceRefV1,
+    ) -> bool:
+        del session, tenant_id
+        resolver_calls.append(evidence_ref.evidence_id)
+        return True
+
+    validated_ids = await lifecycle_module._validated_policy_evidence_ids(
+        state,
+        session=SimpleNamespace(),
+        tenant_id=tenant_id,
+        resolver=exact_resolver,
+    )
+    projection = project_terminal_write_candidate(
+        state=state,
+        tenant_id=tenant_id,
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="无法验证政策来源。",
+        _validated_policy_evidence_ids=validated_ids,
+    )
+
+    assert resolver_calls == []
+    assert validated_ids == frozenset()
+    assert projection.candidate is not None
+    content = projection.candidate.content
+    assert content.verified_facts == []
+    assert content.policy_refs == []
+    assert len(content.observations) == 1
+    assert content.observations[0].decision == "reject"
+    assert content.observations[0].reference_validation == "invalid"
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected_internal_reason"),
     [

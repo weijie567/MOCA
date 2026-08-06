@@ -756,8 +756,8 @@ def _source_ref_with_tool_result(
 
 def _parse_business_refs(value: Any) -> tuple[list[BusinessFactRefV1], bool]:
     refs: list[BusinessFactRefV1] = []
-    invalid = False
-    for item in _iter_mappings(value):
+    members, invalid = _raw_ref_members(value)
+    for item in members:
         try:
             refs.append(BusinessFactRefV1.model_validate(item))
         except ValidationError:
@@ -767,9 +767,9 @@ def _parse_business_refs(value: Any) -> tuple[list[BusinessFactRefV1], bool]:
 
 def _parse_policy_refs(value: Any) -> tuple[list[EvidenceRefV1], bool, bool]:
     refs: list[EvidenceRefV1] = []
-    invalid = False
+    members, invalid = _raw_ref_members(value)
     compatibility_only = False
-    for item in _iter_mappings(value):
+    for item in members:
         try:
             ref = EvidenceRefV1.model_validate(item)
         except ValidationError:
@@ -1034,6 +1034,17 @@ def _iter_mappings(value: Any) -> tuple[Mapping[str, Any], ...]:
     if isinstance(value, list | tuple):
         return tuple(item for item in value if isinstance(item, Mapping))
     return ()
+
+
+def _raw_ref_members(value: Any) -> tuple[tuple[Mapping[str, Any], ...], bool]:
+    if isinstance(value, Mapping):
+        return (value,), False
+    if not isinstance(value, list | tuple):
+        return (), value is not None
+    members = tuple(value)
+    return tuple(item for item in members if isinstance(item, Mapping)), any(
+        not isinstance(item, Mapping) for item in members
+    )
 
 
 def _non_empty_mapping(value: Any) -> bool:

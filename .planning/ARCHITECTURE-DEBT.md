@@ -2385,3 +2385,13 @@
 - **处理状态**：✅ 已修复验证。async lifecycle adapter 现在注入单 ref exact resolver，生产默认调用 `EvidenceVersionRepository(session).resolve_immutable_evidence(...)`，固定可信 `tenant_id`、`scope_type="tenant_policy"`、`scope_id=str(tenant_id)` 并比较返回 identity。每个 tool result 的全部 policy refs 都成功解析后，sync projection 才收到私有 validated-ID 集；未提供验证集的纯 projection 默认 fail-closed，business-fact promotion 不受影响。missing/forged/cross-tenant/cross-scope 或 resolver 异常只保留 observation/rejection，不进入 `verified_facts`/`policy_refs`。
 - **证据**：Phase 64.2 REVIEW WR-03；`src/memory/case_working_context_lifecycle.py`；`tests/agent/test_case_working_context_lifecycle.py::test_terminal_policy_promotion_requires_explicit_exact_resolver_success` 与 `::test_terminal_policy_promotion_rejects_canonical_shaped_nonexistent_ids`；memory/architecture/integration 定向回归 `79 passed`，scoped Ruff 通过。
 - **剩余风险**：🟡 business-fact refs 仍按其自身 service contract、tenant/freshness 字段验证；本条只收敛 policy evidence retained-row authority。后续 architecture guard 应继续锁定 production adapter 的 exact resolver 默认值与纯 projection 的无验证 fail-closed 行为。
+
+## 2026-08-06 — Phase 64.2 Review iteration 2 authoritative ref 混合列表未 fail-closed ✅已修复验证
+
+- **子系统**：记忆 / Case Working Context promotion / 工具与 RAG authoritative refs。
+- **问题现象 / 根因**：`_parse_business_refs()` 与 `_parse_policy_refs()` 共用 `_iter_mappings()`；该 helper 会从 list/tuple 中静默过滤 scalar 等非 mapping 成员。含一条有效 ref 与一条 malformed member 的 authoritative-ref 集因此只保留有效项，`refs_invalid` 仍为 false，可继续进入 business promotion，或先通过 policy exact resolver 再 promotion。
+- **影响**：不完整或被污染的原始 authority 集可能被当成完整有效集合，进入 CWC `verified_facts`；policy ref 还可能进入 `policy_refs` 并继续流向 reviewed CaseMemory provenance，违反 complete-per-result 与 fail-closed 契约。
+- **处理状态**：✅ 已修复验证。两个 ref parser 现先用 `_raw_ref_members()` 检查原始容器：`None` 表示无 refs，单 mapping 与 list/tuple 保持兼容；unexpected container、任一非 mapping member 或 typed model validation 失败都会设置 `refs_invalid=True`。policy 集只有完整解析成功才调用 exact resolver；混合 business/policy 列表均只保留 non-promoted observation，不进入 promoted facts/provenance。
+- **证据**：Phase 64.2 REVIEW iteration 2 WR-01；`src/memory/case_working_context_lifecycle.py`；`tests/agent/test_case_working_context_lifecycle.py::test_terminal_projection_rejects_mixed_malformed_business_ref_list`、`::test_terminal_projection_rejects_mixed_malformed_policy_ref_list_before_exact_resolution`。
+- **验证**：两条新增负向与既有 exact resolver 正/负向定向回归通过；生命周期测试文件与 scoped Ruff 通过。
+- **剩余风险**：当前无已知缺口；后续必须保留原始 ref 容器成员完整性检查，不能在 typed validation 前用通用 mapping filter 丢弃非法成员。
