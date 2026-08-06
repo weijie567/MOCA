@@ -22599,3 +22599,103 @@ SUMMARY 首轮自检先正确打印五个 `FOUND` 文件，随后九个已存在
 
 **剩余问题和下次继续排查入口**
 已按无重叠顺序完成最终 review-fix 验证：数据库/生命周期主批次 `129 passed, 1 warning`，RAG/工作记忆/架构边界批次 `37 passed, 1 warning`，三个真实 PostgreSQL 集成节点 `3 passed, 4 warnings`；合计 `169 passed`。所有修改文件的 scoped Ruff 为 `All checks passed!`。当前无剩余回归，后续仍须保持共享 PostgreSQL 测试串行执行并完整轮询后台 session。
+
+## 2026-08-06 — Phase 64.2 security artifact 探测再次触发 zsh nomatch
+
+**问题现象**
+在读取 UAT / VALIDATION 并探测 SECURITY artifact 时，使用了未加保护的 `ls .../*SECURITY.md`；当前 phase 尚无匹配文件，zsh 在命令执行前报 `no matches found`。首次追加本条记录时又因 ledger 尾部已被并行修复提交更新，`apply_patch` 使用的旧上下文未命中。
+
+**如何检测/复现**
+在 zsh 中对不存在匹配项的路径执行 `ls .planning/phases/64.2-evidence-identity-immutable-replay-and-memory-provenance/*SECURITY.md 2>/dev/null || true`；或者在文件被并行追加后，使用已经过期的尾部文本作为 patch anchor。
+
+**关键证据或命令**
+终端输出包括 `zsh:1: no matches found: .../*SECURITY.md`，以及首次补录的 `apply_patch verification failed: Failed to find expected lines`。同一轮 UAT / VALIDATION 读取成功；错误只影响 SECURITY 存在性探测与第一次记录尝试。
+
+**当前判断/根因**
+前者是 zsh `nomatch` 行为，`|| true` 无法拦截命令执行前的 glob 展开；后者是并行代理刚提交了同一 ledger，导致补丁锚点过期。两者都不是 phase 安全验证或产品代码失败。
+
+**已做处理**
+改用 `find <phase_dir> -maxdepth 1 -name '*-SECURITY.md' -print` 确认 SECURITY artifact 尚不存在；重新读取 ledger 尾部后，用最新锚点通过 `apply_patch` 追加本记录。后续 planning artifact 探测不再对可能为空的 zsh glob 使用裸 `ls`。
+
+**剩余问题和下次继续排查入口**
+无。Stage 8 将按 `gsd-secure-phase` 创建 SECURITY artifact；共享 ledger 并行更新后，写入前必须重新读取目标上下文。
+
+## 2026-08-06 — Phase 64.2 review-fix iteration 2 首轮负向测试误判 decision taxonomy
+
+**问题现象**
+authoritative ref 混合列表修复的首轮定向验证中，新增 business-fact 负向测试失败：实际 `decision` 为 `observe`，测试错误预期为 `reject`；同一轮其余三条 policy/exact-resolver 用例通过。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/agent/test_case_working_context_lifecycle.py::test_terminal_projection_rejects_mixed_malformed_business_ref_list ...`；首轮输出为 `1 failed, 3 passed`，失败仅位于新增的 `assert content.observations[0].decision == "reject"`。
+
+**关键证据或命令**
+失败差异为 `AssertionError: assert 'observe' == 'reject'`。同一对象已满足安全边界：`verified_facts == []`、`policy_refs == []`、`reference_validation == "invalid"`。
+
+**当前判断/根因**
+测试误把 business-fact invalid authoritative ref 的既有 non-promoted taxonomy 写成 policy scope-invalid 路径的 `reject`。产品修复本身已 fail-closed；business 路径按现有 `fact_promotion` 契约保留为 `observe`，policy scope-invalid 路径保持 `reject`。
+
+**已做处理**
+按每-finding 回滚协议先回滚 source/test/架构台账三文件并确认恢复，再重新应用相同 parser 修复，把 business 断言改为 `observe`，保留不进入 promoted facts/provenance 与 invalid validation 的核心断言。随后定向 `4 passed, 1 warning`；生命周期整文件加 migration retry、forged immutable-ID 回归串行验证为 `58 passed, 4 warnings`；AST 与 scoped Ruff 均通过。
+
+**剩余问题和下次继续排查入口**
+无产品代码剩余问题。后续 authoritative ref 负向测试应分别断言 fail-closed 结果与各 authority class 的既有 decision taxonomy，避免把 `observe`/`reject` 的展示语义误当成是否 promotion 的安全判据。
+
+## 2026-08-06 — Phase 64.2 RAG combined status 节点遗漏 exact fixture 迁移
+
+**问题现象**
+post-review full suite 中 `test_rag_context_build_combined_invalid_scope_stale_policy_version_and_invalid_hash_fail_closed` 期望 `invalid_hash`，实际返回 `no_evidence`；单节点复现结果相同。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_rag_context_build.py::test_rag_context_build_combined_invalid_scope_stale_policy_version_and_invalid_hash_fail_closed -q --tb=short`，无需 PostgreSQL 即稳定复现。
+
+**关键证据或命令**
+直接执行该 fixture 得到 `status=no_evidence`、`reason_codes=[evidence_unavailable,candidate_ref_invalid]`，且 fake 的 legacy row 查询调用为零。对照 canonical hard-gate 用例为 `3 passed`；只把同一 combined 输入改为完整 immutable refs/rows 与 current-row fake 的内存反事实验证后，结果为 `invalid_hash`，原因码为 `evidence_unavailable/latest_version_invalid/text_hash_mismatch`。详见 `.planning/debug/phase64-2-rag-status.md`。
+
+**当前判断/根因**
+不是 production precedence 回归。commit `941a9f7` 将 verified-context 路径切到 `validate_current_evidence`，并迁移了 knowledge service 的 canonical fixture，但遗漏了这个六月创建的 node fixture；其 `EvidenceRefV1.build`、reduced row 和缺少 `get_current_canonical_evidence_rows_by_keys` 的 fake 无法通过 exact identity gate，因此尚未进入 stale/hash 分类即统一 fail closed。exact validator 对 invalid scope 的 bounded reason 是 `evidence_unavailable`，旧断言 `tenant_mismatch` 也已漂移。
+
+**已做处理**
+本轮为 diagnose-only，仅完成隔离复现、service/builder/node/fake 追踪、commit/blame 核对及 canonical 反事实验证；未修改产品代码或测试，未提交。
+
+**剩余问题和下次继续排查入口**
+后续只迁移该 node 测试 fixture：使用 canonical identity owner 生成 refs，fake row 带完整 identity，补 current-row API，并把 invalid-scope 原因断言改为 bounded `evidence_unavailable`；继续保留 combined status `invalid_hash`，禁止给 production 恢复 legacy fallback。
+
+## 2026-08-06 — Phase 64.2 approval 集成 fixture 缺少 canonical-read rollout singleton
+
+**问题现象**
+post-review full suite 中四个高风险 approval 集成节点都在读取 `approval_id` 时抛出 `KeyError`，表面看似 interrupt payload 丢字段，实际请求并未进入 approval interrupt。
+
+**如何检测/复现**
+串行运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/integration/test_phase64_1_runtime_safety_matrix.py::test_high_action_uses_latest_decision_context_before_one_approved_draft tests/test_approval_integration.py::test_high_risk_approve_flow_interrupts_resumes_executes_action tests/test_approval_integration.py::test_high_risk_reject_flow_completes_without_action tests/test_approval_integration.py::test_idempotent_approve_does_not_duplicate_action_draft -q --tb=short`，稳定得到 `4 failed`。单节点加 `--showlocals` 可见 HTTP 200 返回 `final_status=completed`、`rag_context_status=no_evidence`、`rejected_candidate_count=1`，执行节点止于 `rag_context_build`/`final_response`。
+
+**关键证据或命令**
+`tests/conftest.py::test_engine` 用 `Base.metadata.create_all` 建表，不执行 migration 025 对 `evidence_identity_rollouts(id=1)` 的数据初始化；`_seed_approval_policy` 虽已创建 mutable/immutable rows 并通过 owner mint canonical ref，却没有 rollout singleton。commit `941a9f7` 后 `validate_current_evidence -> get_current_identities_by_keys` 要求存在且已启用的 canonical-read rollout。诊断用外部 pytest plugin 只补一个满足数据库约束的 enabled rollout singleton 后，四个原节点串行变为 `4 passed, 9 warnings`；未修改仓库产品代码或测试。
+
+**当前判断/根因**
+这是 Phase 64.2 exact current-evidence 合同启用后暴露的共享 approval 测试夹具漂移，不是 production approval payload/resume 回归。成功 interrupt serializer 仍无条件返回 `approval_id`；原失败在 `approval_gate` 前已经 fail closed。生产 migration 025 会创建 singleton，migration 026 按 staged cutover 启用 canonical reads，普通 `create_all` fixture 绕过了这段控制面初始化。
+
+**已做处理**
+本轮为 diagnose-only：完成四节点串行基线、完整实际 payload 检查、producer/validator/migration 追踪，以及 rollout-only 因果反事实；详细证据见 `.planning/debug/phase64-2-approval-payload.md`。未修产品/测试，未提交。
+
+**剩余问题和下次继续排查入口**
+后续在 `mock_graph` / `_seed_approval_policy` 范围内补 production-consistent canonical rollout setup，优先抽取可复用 helper 并保持 dual-write/current-read 状态内部一致；不要在未审计其他 rollout 负向测试前全局修改 `test_engine`，也不要恢复 legacy evidence fallback。修复后重跑上述四节点及相关 approval 集成文件。
+
+## 2026-08-06 — Phase 64.2 全量测试轮询包装器两次语法失败
+
+**问题现象**
+post-review 全量 pytest 在后台正常运行期间，两次用于轮询同一 session 的 JavaScript 工具包装器返回 `SyntaxError: Invalid or unexpected token`；pytest 本身没有被中断或重复启动，后续轮询仍取得完整结束结果。
+
+**如何检测/复现**
+对既有长跑 pytest session 使用轮询工具时，包装器在进入底层 session 读取前解析失败；重试同一 session id 即恢复。最终原进程正常结束为 `5 failed, 4457 passed, 4 skipped`。
+
+**关键证据或命令**
+两次失败都只出现 JavaScript `SyntaxError`，没有 pytest traceback、没有新增 pytest PID，也没有数据库 DDL 并发；后续对原 session 的读取连续返回测试进度并最终给出 exit code 1。
+
+**当前判断/根因**
+这是编排层包装器字符串解析问题，不是 MOCA 产品或测试运行时失败。全量测试的 5 个真实失败已分别归因于 RAG combined fixture 与 approval rollout fixture 漂移。
+
+**已做处理**
+保持原 pytest 进程单实例运行，仅重试轮询；确认完整结果后再进入 diagnose 流程，没有把包装器错误计入测试结论。
+
+**剩余问题和下次继续排查入口**
+无产品侧剩余问题。后续长跑命令继续保存 session id、只轮询既有进程，并保持轮询包装器输入简单，避免嵌入不必要的转义文本。
