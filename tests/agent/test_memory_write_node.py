@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -13,8 +14,10 @@ from src.agent.nodes import memory_write as memory_write_module
 from src.agent.nodes.memory_write import memory_write
 from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent, SessionMemory
+from src.memory.identity import build_session_memory_candidate_identity
 from src.memory.policy import case_memory_policy_decision
 from src.memory.schemas import CaseMemoryWriteResult, LongTermMemoryWriteResult, SessionMemoryWriteResult
+from src.memory.service import SessionMemoryWriteResultWithIdentity
 
 
 def _state(**updates: object) -> dict:
@@ -82,12 +85,15 @@ async def test_memory_write_node_writes_explicit_slots_and_unresolved_questions(
 
         async def write_session_memory(self, candidate):
             candidates.append(candidate)
-            return SessionMemoryWriteResult(
+            identity = build_session_memory_candidate_identity(candidate)
+            return SessionMemoryWriteResultWithIdentity(
                 status="written",
                 version=4,
                 decision="write",
                 reason_code="eligible",
                 pii_classification="none",
+                candidate_hash=identity.candidate_hash,
+                identity=identity,
             )
 
     monkeypatch.setattr(memory_write_module, "MemoryService", FakeMemoryService)
@@ -521,9 +527,25 @@ async def test_memory_write_initial_insert_uses_configured_slot_ttl_for_row_expi
         )
     ).scalar_one()
     assert result["memory_write_result"]["status"] == "written"
+    assert result["memory_write_result"]["identity"]["identity_profile"] == "nfc_selective_v2"
+    assert (
+        result["memory_write_decision"]["candidate_hash"] == result["memory_write_result"]["identity"]["candidate_hash"]
+    )
+    assert (
+        result["memory_write_decision"]["source_identity_hash"]
+        == result["memory_write_result"]["identity"]["source_identity_hash"]
+    )
     assert row.expires_at is not None
     expires_at = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
     assert before_write < expires_at <= before_write + timedelta(seconds=6)
+
+
+def test_memory_write_node_has_no_session_identity_serializer() -> None:
+    source = inspect.getsource(memory_write_module)
+
+    assert "def _session_candidate_identity" not in source
+    assert "canonical_memory_content_hash" not in source
+    assert "canonical_memory_candidate_hash" not in source
 
 
 async def test_memory_write_lifecycle_trace_events_share_non_null_operation_id(

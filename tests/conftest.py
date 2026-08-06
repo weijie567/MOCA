@@ -18,10 +18,25 @@ from src.agent.schemas import IntentResultV3, RecommendationDraft, RiskAssessmen
 from src.agent.state import AgentState
 from src.api.main import app
 from src.auth.jwt import hash_password
-from src.db.models import Base, Merchant, Order, PolicyChunk, PolicyDocument, RefundCase, Tenant, Ticket, User
+from src.db.models import (
+    Base,
+    EvidenceIdentityRollout,
+    Merchant,
+    Order,
+    PolicyChunk,
+    PolicyChunkVersion,
+    PolicyDocument,
+    PolicyDocumentVersion,
+    RefundCase,
+    Tenant,
+    Ticket,
+    User,
+)
 from src.db.session import get_session
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import ClaimVerificationBundleV1, ClaimVerificationResultV1, EvidenceRefV1
+from src.knowledge.text_hash import evidence_text_hash
+from src.repositories.evidence_version_repo import EvidenceVersionRepository
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.tools.platform import ToolPlatform
@@ -444,7 +459,25 @@ def mock_llm_responses() -> dict[str, dict[str, Any]]:
     }
 
 
-async def _seed_approval_policy(session: AsyncSession, tenant_id: uuid.UUID) -> None:
+async def _seed_approval_evidence_rollout(session: AsyncSession) -> None:
+    assert await session.get(EvidenceIdentityRollout, 1) is None
+    now = datetime.now(UTC)
+    session.add(
+        EvidenceIdentityRollout(
+            id=1,
+            rollout_version=0,
+            dual_write_enabled_at=now,
+            canonical_reads_enabled=True,
+            canonical_reads_enabled_at=now,
+            canonical_reads_disabled_at=None,
+            quarantine_reason=None,
+        )
+    )
+    await session.flush()
+
+
+async def _seed_approval_policy(session: AsyncSession, tenant_id: uuid.UUID) -> EvidenceRefV1:
+    await _seed_approval_evidence_rollout(session)
     policy_content = "补偿超过500元需人工审批。"
     policy_document = PolicyDocument(
         id=uuid.uuid4(),
@@ -463,28 +496,73 @@ async def _seed_approval_policy(session: AsyncSession, tenant_id: uuid.UUID) -> 
     )
     session.add(policy_document)
     await session.flush()
-    session.add(
-        PolicyChunk(
-            id=uuid.uuid4(),
-            tenant_id=tenant_id,
-            doc_id=policy_document.id,
-            chunk_id="approval_refund_policy#001",
-            section="高风险补偿",
-            content=policy_content,
-            search_text=policy_content,
-            source_block_refs_json=[],
-            ocr_metadata_json={},
-            risk_level="high",
-            effective_date=policy_document.effective_date,
-            embedding=None,
-        )
+    policy_chunk = PolicyChunk(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        doc_id=policy_document.id,
+        chunk_id="approval_refund_policy#001",
+        section="高风险补偿",
+        content=policy_content,
+        search_text=policy_content,
+        source_block_refs_json=[],
+        ocr_metadata_json={},
+        risk_level="high",
+        effective_date=policy_document.effective_date,
+        embedding=None,
     )
+    session.add(policy_chunk)
     await session.flush()
+    document_version = PolicyDocumentVersion(
+        tenant_id=tenant_id,
+        policy_document_id=policy_document.id,
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+        doc_key=policy_document.doc_key,
+        document_version=1,
+        content=policy_content,
+        content_hash=evidence_text_hash(policy_content),
+        source_locator_json={"source_type": "test_fixture"},
+        lifecycle_status="active",
+        retention_until=datetime.now(UTC) + timedelta(days=365),
+    )
+    session.add(document_version)
+    await session.flush()
+    chunk_version = PolicyChunkVersion(
+        tenant_id=tenant_id,
+        policy_document_version_id=document_version.id,
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+        doc_key=policy_document.doc_key,
+        document_version=1,
+        chunk_id=policy_chunk.chunk_id,
+        chunk_version=1,
+        content=policy_content,
+        text_hash=evidence_text_hash(policy_content),
+        source_locator_json={"source_type": "test_fixture"},
+        lifecycle_status="active",
+        retention_until=datetime.now(UTC) + timedelta(days=365),
+    )
+    session.add(chunk_version)
+    await session.flush()
+    repository = EvidenceVersionRepository(session)
+    resolution = await repository.mint_for_chunk_version(
+        chunk_version,
+        expected_tenant_id=tenant_id,
+        expected_scope_type="tenant_policy",
+        expected_scope_id=str(tenant_id),
+    )
+    assert resolution.identity is not None
+    return repository.evidence_ref_from_identity(
+        resolution.identity,
+        retrieved_at=_fixed_millisecond_now().isoformat(),
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        rank=1,
+    )
 
 
 @pytest.fixture
 async def mock_graph(monkeypatch, mock_llm_responses, session: AsyncSession, seeded_session):
-    await _seed_approval_policy(session, seeded_session["tenant"].id)
+    evidence_ref = await _seed_approval_policy(session, seeded_session["tenant"].id)
     fake_llm = _FakeLLM(mock_llm_responses)
 
     import src.agent.nodes.claim_verify as claim_verify_node
@@ -504,27 +582,26 @@ async def mock_graph(monkeypatch, mock_llm_responses, session: AsyncSession, see
         lambda config: _ApprovalGraphClaimVerificationService(),
     )
 
-    monkeypatch.setattr(investigate_node, "ToolPlatform", _ApprovalGraphInvestigateToolPlatform)
+    class CanonicalApprovalGraphToolPlatform:
+        @staticmethod
+        def with_defaults(session) -> ToolPlatform:
+            return _approval_graph_tool_platform(evidence_ref)
+
+        def __new__(cls, *args: Any, **kwargs: Any) -> ToolPlatform:
+            return ToolPlatform(*args, **kwargs)
+
+    monkeypatch.setattr(investigate_node, "ToolPlatform", CanonicalApprovalGraphToolPlatform)
     return build_graph(MemorySaver())
 
 
-def _approval_graph_tool_platform() -> ToolPlatform:
+def _approval_graph_tool_platform(evidence_ref: EvidenceRefV1) -> ToolPlatform:
     return ToolPlatform(
         catalog=ToolCatalog(),
         executors={
             "business": _ApprovalGraphBusinessExecutor(),
-            "knowledge": _ApprovalGraphKnowledgeExecutor(),
+            "knowledge": _ApprovalGraphKnowledgeExecutor(evidence_ref),
         },
     )
-
-
-class _ApprovalGraphInvestigateToolPlatform:
-    @staticmethod
-    def with_defaults(session) -> ToolPlatform:
-        return _approval_graph_tool_platform()
-
-    def __new__(cls, *args: Any, **kwargs: Any) -> ToolPlatform:
-        return ToolPlatform(*args, **kwargs)
 
 
 class _ApprovalGraphBusinessExecutor:
@@ -623,11 +700,14 @@ class _ApprovalGraphBusinessExecutor:
             resource_id=resource_id,
             resource_version=None,
             data_freshness_at=None,
-            retrieved_at=_fixed_millisecond_now(),
+            retrieved_at=datetime.now(UTC).replace(microsecond=0),
         )
 
 
 class _ApprovalGraphKnowledgeExecutor:
+    def __init__(self, evidence_ref: EvidenceRefV1) -> None:
+        self.evidence_ref = evidence_ref
+
     def has_tool(self, name: str) -> bool:
         return name == "search_policy"
 
@@ -637,17 +717,8 @@ class _ApprovalGraphKnowledgeExecutor:
         raise AssertionError(f"Unexpected approval graph tool call: {name}")
 
     def _policy_result(self, ctx: ToolCallContext) -> ToolResultV2:
-        evidence = EvidenceRefV1.build(
-            tenant_id=ctx.tenant_id,
-            doc_key="approval_refund_policy",
-            chunk_id="approval_refund_policy#001",
-            policy_version="v1",
-            text="补偿超过500元需人工审批。",
-            retrieved_at=datetime.now(UTC).isoformat(),
-            retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
-            score=0.93,
-            rank=1,
-        )
+        evidence = self.evidence_ref
+        assert evidence.tenant_id == ctx.tenant_id
         return ToolResultV2(
             status="success",
             data={

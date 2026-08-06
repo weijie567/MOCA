@@ -17,10 +17,10 @@ from src.db.models import ActionDraft, AgentRun, AgentTraceEvent, ApprovalAssign
 from src.knowledge.schemas import EvidenceRefV1
 from src.tools.contracts import BusinessFactRefV1
 from tests.approvals.test_service_transitions import (
+    _canonical_phase34_binding,
     _create_command,
     _create_run,
     _decision_command,
-    _phase34_binding_overrides,
 )
 
 
@@ -149,7 +149,7 @@ async def _approved_phase34_request(session: AsyncSession, seeded_session) -> Ap
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
-    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    binding = await _canonical_phase34_binding(session, tenant_id=tenant_id, run_id=run_id)
     run = await session.get(AgentRun, run_id)
     assert run is not None
     run.scope_classification = "business_merchant"
@@ -335,7 +335,7 @@ async def test_create_coupon_grant_draft_accepts_exact_auto_allowed_binding(
     tenant_id = seeded_session["tenant"].id
     user_id = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=user_id)
-    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    binding = await _canonical_phase34_binding(session, tenant_id=tenant_id, run_id=run_id)
     binding["risk_decision"] = _auto_allowed_risk_decision(binding)
     run = await session.get(AgentRun, run_id)
     assert run is not None
@@ -420,7 +420,7 @@ async def test_create_coupon_grant_draft_rejects_auto_allowed_binding_mismatch(
     tenant_id = seeded_session["tenant"].id
     user_id = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=user_id)
-    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    binding = await _canonical_phase34_binding(session, tenant_id=tenant_id, run_id=run_id)
     binding["risk_decision"] = _auto_allowed_risk_decision(binding)
     run = await session.get(AgentRun, run_id)
     assert run is not None
@@ -498,7 +498,7 @@ async def test_create_coupon_grant_draft_rejects_auto_allowed_risk_decision_tamp
     tenant_id = seeded_session["tenant"].id
     user_id = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=user_id)
-    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    binding = await _canonical_phase34_binding(session, tenant_id=tenant_id, run_id=run_id)
     binding["risk_decision"] = _auto_allowed_risk_decision(binding)
     run = await session.get(AgentRun, run_id)
     assert run is not None

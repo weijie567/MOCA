@@ -14,7 +14,7 @@ from src.db.models import ActionSafetySnapshot, AgentTraceEvent, ApprovalDecisio
 from tests.approvals.test_service_transitions import (
     _approval_bundle,
     _decision_command as _base_decision_command,
-    _evidence_ref,
+    _seed_canonical_approval_evidence,
 )
 
 
@@ -33,18 +33,6 @@ def _changed_action(request: ApprovalRequest, *, amount: str = "88.00") -> dict[
         "args": {**request.proposed_action.get("args", {}), "coupon_type": "service_recovery"},
         "reason": "manager edited compensation after clarification",
     }
-
-
-def _changed_evidence(request: ApprovalRequest) -> list[dict[str, Any]]:
-    return [
-        _evidence_ref(
-            tenant_id=request.tenant_id,
-            evidence_id="refund-policy/chunk-002@v3",
-            chunk_id="chunk-002",
-            text_hash="sha256:2222222222222222222222222222222222222222222222222222222222222222",
-            rank=1,
-        )
-    ]
 
 
 def _info_command(
@@ -413,6 +401,11 @@ async def test_attach_info_changed_evidence_or_config_requires_new_snapshot_hash
     actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, request, level, assignment, actor_id=actor_id)
     old_snapshot_hash = request.safety_snapshot_hash
+    changed_evidence = await _seed_canonical_approval_evidence(
+        session,
+        tenant_id=request.tenant_id,
+        suffix="needs-info-changed",
+    )
 
     result = await ApprovalService(session).attach_info(
         _info_command(
@@ -420,7 +413,7 @@ async def test_attach_info_changed_evidence_or_config_requires_new_snapshot_hash
             actor_id=actor_id,
             info_payload={
                 "response_text": "confirmed with updated policy evidence",
-                "evidence_refs": _changed_evidence(request),
+                "evidence_refs": [changed_evidence],
                 "retrieval_config_version": "retrieval.v2",
             },
         )

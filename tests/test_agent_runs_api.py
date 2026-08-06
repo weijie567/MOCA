@@ -55,6 +55,7 @@ from src.db.models import (
     User,
 )
 from src.knowledge.schemas import EvidenceRefV1
+from tests.approvals.test_service_transitions import _seed_canonical_approval_evidence
 from src.memory.case_working_context_lifecycle import CaseWorkingContextLifecycleResult, lifecycle_status
 from src.platform.context_projections import project_to_legacy_agent_state_identity
 from src.platform.trusted_context import TrustedContext
@@ -343,7 +344,16 @@ class SpoofInterruptInvokeGraph:
         )
 
     async def _interrupt_payload(self, input_state, config) -> dict:
-        evidence_ref = _evidence_ref(input_state["tenant_id"], "ORD-2024-001")
+        evidence_ref = EvidenceRefV1.model_validate(
+            await _seed_canonical_approval_evidence(
+                config["configurable"]["session"],
+                tenant_id=UUID(input_state["tenant_id"]),
+                suffix=f"agent-run-{input_state['current_run_id']}",
+                doc_key="refund_policy",
+                chunk_id="refund_policy_ORD-2024-001",
+                content="Policy evidence for ORD-2024-001.",
+            )
+        )
         action_run_id = self.proposed_action_run_id or input_state["current_run_id"]
         action_tenant_id = self.proposed_action_tenant_id or input_state["tenant_id"]
         proposed_action = {
@@ -1038,15 +1048,15 @@ class StreamInterruptGraph:
         self.target_merchant_id = target_merchant_id
 
     async def astream(self, input_state, config, stream_mode):
-        evidence_ref = EvidenceRefV1.build(
-            tenant_id=input_state["tenant_id"],
-            doc_key="refund_policy",
-            chunk_id="refund_policy_001",
-            policy_version="v1",
-            text="Compensation above 500 CNY requires approval.",
-            retrieved_at=_fixed_ms_iso_z(),
-            retrieval_config_version="retrieval.v1",
-            rank=1,
+        evidence_ref = EvidenceRefV1.model_validate(
+            await _seed_canonical_approval_evidence(
+                config["configurable"]["session"],
+                tenant_id=UUID(input_state["tenant_id"]),
+                suffix=f"agent-stream-{input_state['current_run_id']}",
+                doc_key="refund_policy",
+                chunk_id="refund_policy_001",
+                content="Compensation above 500 CNY requires approval.",
+            )
         )
         action_run_id = self.proposed_action_run_id or input_state["current_run_id"]
         action_tenant_id = self.proposed_action_tenant_id or input_state["tenant_id"]
@@ -3117,7 +3127,9 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     assert approval_data["payload"]["target_merchant_id"] == target_merchant_id
     assert approval_data["payload"]["target_merchant_ref"]["target_merchant_id"] == target_merchant_id
     assert approval_data["payload"]["business_fact_refs"][0]["resource_id"] == "ORD-2024-001"
-    assert approval_data["payload"]["verified_evidence_refs"][0]["evidence_id"] == "refund_policy/refund_policy_001@v1"
+    emitted_evidence_ref = approval_data["payload"]["verified_evidence_refs"][0]
+    assert emitted_evidence_ref["doc_key"] == "refund_policy"
+    assert emitted_evidence_ref["evidence_id"].startswith("sha256:")
     assert approval_data["payload"]["claim_verification_ref"] is None
     assert approval_data["payload"]["claim_verification_summary"]["overall_status"] == "verified"
     assert approval_data["payload"]["risk_decision_ref"] == f"risk_decision:{run.id}:r1"
@@ -3168,7 +3180,10 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     assert approval.target_merchant_id == target_merchant_id
     assert approval.target_merchant_ref["target_merchant_id"] == target_merchant_id
     assert approval.business_fact_refs[0]["resource_id"] == "ORD-2024-001"
-    assert approval.verified_evidence_refs[0]["evidence_id"] == "refund_policy/refund_policy_001@v1"
+    persisted_evidence_ref = approval.verified_evidence_refs[0]
+    assert persisted_evidence_ref["evidence_id"] == emitted_evidence_ref["evidence_id"]
+    assert persisted_evidence_ref["document_version_id"] == emitted_evidence_ref["document_version_id"]
+    assert persisted_evidence_ref["chunk_version_id"] == emitted_evidence_ref["chunk_version_id"]
     assert approval.claim_verification_ref is None
     assert approval.claim_verification_summary == {
         "schema_version": "claim_verification_summary.v1",

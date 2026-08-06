@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -25,8 +25,13 @@ from src.db.models import (
     ApprovalEvent,
     ApprovalLevel,
     ApprovalRequest,
+    PolicyChunkVersion,
+    PolicyDocument,
+    PolicyDocumentVersion,
 )
-from src.knowledge.schemas import EvidenceRefV1
+from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
+from src.knowledge.text_hash import evidence_text_hash
+from src.repositories.evidence_version_repo import EvidenceVersionRepository
 
 
 PROPOSED_ACTION_HASH = "sha256:508e649e1b169a9520f7eb76403b0e00c90c1b1c52e17a499fd7bcdce2473094"
@@ -120,16 +125,23 @@ def _risk_decision_payload(*, tenant_id: UUID, run_id: UUID, action_payload_hash
     }
 
 
-def _phase34_binding_overrides(*, tenant_id: UUID, run_id: UUID, merchant_id: str = "merchant-1") -> dict[str, Any]:
-    evidence_ref = _evidence_ref(tenant_id=tenant_id)
+def _phase34_binding_overrides(
+    *,
+    tenant_id: UUID,
+    run_id: UUID,
+    merchant_id: str = "merchant-1",
+    evidence_ref: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    evidence_ref = evidence_ref or _evidence_ref(tenant_id=tenant_id)
+    evidence_projection = canonical_evidence_projection([EvidenceRefV1.model_validate(evidence_ref)])
     action_payload_hash = compute_action_payload_hash(
-        _proposed_action(tenant_id=tenant_id, run_id=run_id, evidence_refs=[evidence_ref])
+        _proposed_action(tenant_id=tenant_id, run_id=run_id, evidence_refs=evidence_projection)
     )
     return {
         "target_merchant_id": merchant_id,
         "target_merchant_ref": _target_merchant_ref(tenant_id=tenant_id, merchant_id=merchant_id),
         "business_fact_refs": [_business_fact_ref(tenant_id=tenant_id)],
-        "verified_evidence_refs": [evidence_ref],
+        "verified_evidence_refs": evidence_projection,
         "claim_verification_ref": "claim_verification_bundle:bundle-1",
         "claim_verification_summary": {"overall_status": "verified", "safe_support_ref_count": 1},
         "risk_decision_ref": f"risk_decision:{run_id}:{action_payload_hash}",
@@ -139,8 +151,106 @@ def _phase34_binding_overrides(*, tenant_id: UUID, run_id: UUID, merchant_id: st
             action_payload_hash=action_payload_hash,
         ),
         "approval_idempotency_key": f"approval:{tenant_id}:{run_id}:act-approval-service",
-        "evidence_refs": [evidence_ref],
+        "evidence_refs": evidence_projection,
     }
+
+
+async def _seed_canonical_approval_evidence(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    suffix: str,
+    doc_key: str | None = None,
+    chunk_id: str | None = None,
+    content: str | None = None,
+) -> dict[str, Any]:
+    doc_key = doc_key or f"approval-policy-{suffix}"[:64]
+    chunk_id = chunk_id or f"chunk-{suffix}"[:64]
+    content = content or f"Canonical approval fixture {suffix}."
+    document = PolicyDocument(
+        tenant_id=tenant_id,
+        doc_key=doc_key,
+        doc_type="refund_rule",
+        title=f"Approval fixture {suffix}",
+        effective_date=date(2026, 1, 1),
+        risk_level="high",
+        version=1,
+        content=content,
+        source_type="phase64_2_test",
+    )
+    session.add(document)
+    await session.flush()
+    document_version = PolicyDocumentVersion(
+        tenant_id=tenant_id,
+        policy_document_id=document.id,
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+        doc_key=doc_key,
+        document_version=1,
+        content=content,
+        content_hash=evidence_text_hash(content),
+        source_locator_json={"source_type": "phase64_2_test"},
+        lifecycle_status="active",
+        retention_until=datetime.now(UTC) + timedelta(days=365),
+    )
+    session.add(document_version)
+    await session.flush()
+    chunk_version = PolicyChunkVersion(
+        tenant_id=tenant_id,
+        policy_document_version_id=document_version.id,
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+        doc_key=doc_key,
+        document_version=1,
+        chunk_id=chunk_id,
+        chunk_version=1,
+        content=content,
+        text_hash=evidence_text_hash(content),
+        source_locator_json={"source_type": "phase64_2_test"},
+        lifecycle_status="active",
+        retention_until=datetime.now(UTC) + timedelta(days=365),
+    )
+    session.add(chunk_version)
+    await session.flush()
+    repository = EvidenceVersionRepository(session)
+    resolution = await repository.mint_for_chunk_version(
+        chunk_version,
+        expected_tenant_id=tenant_id,
+        expected_scope_type="tenant_policy",
+        expected_scope_id=str(tenant_id),
+    )
+    assert resolution.identity is not None
+    return canonical_evidence_projection(
+        [
+            repository.evidence_ref_from_identity(
+                resolution.identity,
+                retrieved_at="2026-06-15T00:00:00.000Z",
+                retrieval_config_version="retrieval.v1",
+                rank=1,
+            )
+        ]
+    )[0]
+
+
+async def _canonical_phase34_binding(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    run_id: UUID,
+    merchant_id: str = "merchant-1",
+    suffix: str | None = None,
+) -> dict[str, Any]:
+    evidence_ref = await _seed_canonical_approval_evidence(
+        session,
+        tenant_id=tenant_id,
+        suffix=suffix or str(run_id),
+    )
+    return _phase34_binding_overrides(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        merchant_id=merchant_id,
+        evidence_ref=evidence_ref,
+    )
 
 
 async def _mark_run_business_scope(session: AsyncSession, run_id: UUID, binding: dict[str, Any]) -> None:
@@ -223,7 +333,16 @@ async def _approval_bundle(
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"][requested_by_key].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by, thread_id=thread_id)
-    binding_overrides = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    evidence_ref = await _seed_canonical_approval_evidence(
+        session,
+        tenant_id=tenant_id,
+        suffix=str(run_id),
+    )
+    binding_overrides = _phase34_binding_overrides(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        evidence_ref=evidence_ref,
+    )
     await _mark_run_business_scope(session, run_id, binding_overrides)
     service = ApprovalService(session)
 
@@ -375,7 +494,8 @@ async def test_create_request_persists_phase34_binding_fields(session: AsyncSess
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
-    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    evidence_ref = await _seed_canonical_approval_evidence(session, tenant_id=tenant_id, suffix=str(run_id))
+    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id, evidence_ref=evidence_ref)
     await _mark_run_business_scope(session, run_id, binding)
 
     created = await ApprovalService(session).create_request(
@@ -416,7 +536,8 @@ async def test_accept_decision_returns_persisted_phase34_bindings_in_resume_payl
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
-    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    evidence_ref = await _seed_canonical_approval_evidence(session, tenant_id=tenant_id, suffix=str(run_id))
+    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id, evidence_ref=evidence_ref)
     await _mark_run_business_scope(session, run_id, binding)
     created = await ApprovalService(session).create_request(
         _create_command(
@@ -465,7 +586,8 @@ async def test_edit_decision_reroutes_to_risk_without_approved_resume_authority(
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
-    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    evidence_ref = await _seed_canonical_approval_evidence(session, tenant_id=tenant_id, suffix=str(run_id))
+    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id, evidence_ref=evidence_ref)
     await _mark_run_business_scope(session, run_id, binding)
     created = await ApprovalService(session).create_request(
         _create_command(

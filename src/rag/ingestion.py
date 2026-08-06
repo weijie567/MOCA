@@ -23,6 +23,7 @@ from src.rag.parsers.registry import ParserRegistry
 from src.rag.search_text import build_policy_chunk_search_text
 from src.rag.versioning import build_policy_version_fingerprint
 from src.repositories.document_block_repo import DocumentBlockRepository
+from src.repositories.evidence_version_repo import EvidenceVersionRepository
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 from src.repositories.policy_document_repo import PolicyDocumentRepository
 from src.repositories.rag_ingestion_job_repo import RagIngestionJobRepository, validate_rag_ingestion_job
@@ -38,6 +39,8 @@ class IngestionReport:
     job_id: UUID | None = None
     error_code: str | None = None
     safe_message: str | None = None
+    evidence_write_sequence: int | None = None
+    rollout_version: int | None = None
 
 
 SAFE_INGESTION_REPORT_FIELDS = (
@@ -131,10 +134,17 @@ class IngestionService:
         self.chunk_repo = PolicyChunkRepository(session)
         self.doc_repo = PolicyDocumentRepository(session)
         self.block_repo = DocumentBlockRepository(session)
+        self.evidence_repo = EvidenceVersionRepository(session)
         self.job_repo = RagIngestionJobRepository(session)
         self.parser_registry = ParserRegistry()
 
-    async def ingest_document(self, file_path: Path, doc_meta: dict) -> IngestionReport:
+    async def ingest_document(
+        self,
+        file_path: Path,
+        doc_meta: dict,
+        *,
+        expected_rollout_version: int | None = None,
+    ) -> IngestionReport:
         """
         Ingest one policy document.
 
@@ -180,6 +190,7 @@ class IngestionService:
                 error_code="job_trace_unavailable",
                 safe_message="Policy ingestion job trace could not be persisted.",
             )
+        durable_job_id = getattr(job, "id", None)
 
         try:
             parse_result = self.parser_registry.parse(
@@ -239,26 +250,54 @@ class IngestionService:
 
         doc_snapshot: dict[str, Any] | None = None
         doc: PolicyDocument | None = None
+        write_sequence: int | None = None
+        writer_rollout_version: int | None = None
         try:
+            # SQLAlchemy sessions always take the rollout-first path. A few
+            # legacy unit tests use deliberately tiny non-SQLAlchemy doubles;
+            # they keep exercising parser/sanitizer behavior without claiming
+            # rollout coverage.
+            use_immutable_writer = isinstance(self.session, AsyncSession)
+            if use_immutable_writer:
+                writer_rollout = await self.evidence_repo.lock_for_writer(
+                    expected_rollout_version=expected_rollout_version,
+                )
+                writer_rollout_version = writer_rollout.rollout_version
             # Lock the existing row through the final commit so concurrent
             # re-imports cannot write the same next content version.
             existing_doc = await self.doc_repo.get_by_doc_key_for_update(doc_key, self.tenant_id)
+            locked_chunks: list[PolicyChunk] = []
+            if use_immutable_writer and existing_doc is not None:
+                locked_chunks = await self.chunk_repo.list_by_document_id_for_update(existing_doc.id, self.tenant_id)
+
+            content = _document_citation_text(chunks)
+            effective_date = (
+                effective_date or (existing_doc.effective_date if existing_doc is not None else None) or date.today()
+            )
+            fingerprint = build_policy_version_fingerprint(
+                citation_text=content,
+                title=title,
+                doc_type=doc_meta["doc_type"],
+                risk_level=doc_meta["risk_level"],
+                effective_date=effective_date,
+            )
+            previous_fingerprint = (
+                getattr(existing_doc, "policy_version_fingerprint", None) if existing_doc is not None else None
+            )
+            fingerprint_changed = bool(
+                existing_doc is not None
+                and (
+                    existing_doc.content != content
+                    if previous_fingerprint is None
+                    else previous_fingerprint != fingerprint
+                )
+            )
+            if use_immutable_writer:
+                write_sequence = await self.evidence_repo.allocate_ingestion_sequence()
+
             if existing_doc:
                 doc = existing_doc
                 doc_snapshot = _snapshot_document(doc)
-                content = _document_citation_text(chunks)
-                effective_date = effective_date or doc.effective_date or date.today()
-                fingerprint = build_policy_version_fingerprint(
-                    citation_text=content,
-                    title=title,
-                    doc_type=doc_meta["doc_type"],
-                    risk_level=doc_meta["risk_level"],
-                    effective_date=effective_date,
-                )
-                previous_fingerprint = getattr(doc, "policy_version_fingerprint", None)
-                fingerprint_changed = (
-                    doc.content != content if previous_fingerprint is None else previous_fingerprint != fingerprint
-                )
                 if fingerprint_changed:
                     doc.version = (doc.version or 1) + 1
                 doc.title = title
@@ -271,15 +310,6 @@ class IngestionService:
                 doc.parser_metadata_json = _parser_metadata(parse_result)
                 doc.policy_version_fingerprint = fingerprint
             else:
-                effective_date = effective_date or date.today()
-                content = _document_citation_text(chunks)
-                fingerprint = build_policy_version_fingerprint(
-                    citation_text=content,
-                    title=title,
-                    doc_type=doc_meta["doc_type"],
-                    risk_level=doc_meta["risk_level"],
-                    effective_date=effective_date,
-                )
                 doc = PolicyDocument(
                     id=uuid4(),
                     tenant_id=self.tenant_id,
@@ -309,8 +339,6 @@ class IngestionService:
                         commit_immediately=False,
                     )
 
-            await self.block_repo.delete_by_document_id(doc.id, self.tenant_id)
-            await self.chunk_repo.delete_by_document_id(doc.id, self.tenant_id)
             db_blocks = _document_blocks_from_parsed(
                 tenant_id=self.tenant_id,
                 doc_id=doc.id,
@@ -327,18 +355,56 @@ class IngestionService:
                 chunks=chunks,
                 embeddings=embeddings,
             )
-            await self.block_repo.bulk_insert(db_blocks)
-            await self.chunk_repo.bulk_insert(db_chunks)
+            reused_binding = None
+            if use_immutable_writer and existing_doc is not None and not fingerprint_changed:
+                reused_binding = await self.evidence_repo.find_exact_binding(
+                    tenant_id=self.tenant_id,
+                    document=doc,
+                    chunks=db_chunks,
+                    fingerprint=fingerprint,
+                )
+
+            if reused_binding is not None:
+                await self.evidence_repo.project_write_sequence(
+                    document=doc,
+                    chunks=locked_chunks,
+                    write_sequence=write_sequence,
+                )
+                persisted_chunks = locked_chunks
+                chunks_created = 0
+            else:
+                await self.block_repo.delete_by_document_id(doc.id, self.tenant_id)
+                await self.chunk_repo.delete_by_document_id(doc.id, self.tenant_id)
+                await self.block_repo.bulk_insert(db_blocks)
+                await self.chunk_repo.bulk_insert(db_chunks)
+                persisted_chunks = db_chunks
+                chunks_created = len(db_chunks)
+                if use_immutable_writer:
+                    await self.evidence_repo.append_immutable_version(
+                        tenant_id=self.tenant_id,
+                        document=doc,
+                        chunks=persisted_chunks,
+                        write_sequence=write_sequence,
+                        correction_of_document_version_id=doc_meta.get("correction_of_document_version_id"),
+                    )
             if job is not None:
-                _mark_job_success(job, doc_id=doc.id, parse_result=parse_result, blocks=len(blocks), chunks=len(chunks))
+                _mark_job_success(
+                    job,
+                    doc_id=doc.id,
+                    parse_result=parse_result,
+                    blocks=len(blocks),
+                    chunks=len(persisted_chunks),
+                )
             await self.session.commit()
 
             return IngestionReport(
                 doc_key=doc_key,
                 title=title,
                 status="success",
-                chunks_created=len(db_chunks),
+                chunks_created=chunks_created,
                 job_id=getattr(job, "id", None) if job is not None else None,
+                evidence_write_sequence=write_sequence,
+                rollout_version=writer_rollout_version,
             )
         except Exception as exc:
             await self.session.rollback()
@@ -347,9 +413,12 @@ class IngestionService:
             elif doc is not None and job is not None and getattr(job, "doc_id", None) == doc.id:
                 job.doc_id = None
             safe_message = _safe_message(str(exc), default="Document replacement failed safely.")
-            if job is not None:
+            failure_job = job
+            if isinstance(self.session, AsyncSession) and durable_job_id is not None:
+                failure_job = await self.session.get(RagIngestionJob, durable_job_id)
+            if failure_job is not None:
                 await self._mark_job_failed(
-                    job=job,
+                    job=failure_job,
                     stage="persisting",
                     error_code="db_write_failed",
                     safe_message=safe_message,
@@ -360,9 +429,11 @@ class IngestionService:
                 title=title,
                 status="failed",
                 error=safe_message,
-                job_id=getattr(job, "id", None) if job is not None else None,
+                job_id=durable_job_id,
                 error_code="db_write_failed",
                 safe_message=safe_message,
+                evidence_write_sequence=None,
+                rollout_version=None,
             )
 
     async def ingest_directory(self, dir_path: Path, manifest: list[dict]) -> list[IngestionReport]:

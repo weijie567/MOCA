@@ -22001,3 +22001,761 @@ CI 总结为 `1 failed, 3171 passed, 1 skipped, 116 warnings in 862.00s`，错�
 
 **剩余问题和下次继续排查入口**
 本次代码与契约对齐无剩余阻断。尚未运行依赖已启动 PostgreSQL、有效 tenant 和已摄入政策数据的 DB-backed 实际评测；正式扩充 benchmark 时应在可复现 seed 环境运行 `make eval-rag`，并把实际指标与生成报告作为该 benchmark 的验收证据。
+## 2026-08-05：Phase 64.2 外部计划复审首轮提示超过 Claude CLI 长度限制
+
+- **问题现象**：`claude -p - --permission-mode plan` 在把 PROJECT、REQUIREMENTS、ROADMAP、CONTEXT、RESEARCH 和 9 份 PLAN 全量内联后直接返回 `Prompt is too long`，未产生复审结论。
+- **检测/复现**：在 Phase 64.2 隔离工作树中，将约 1900 行规划材料拼入标准输入后调用 Claude Code 2.1.222。
+- **关键证据或命令**：命令退出码为 1，唯一输出为 `Prompt is too long`；`claude auth status` 同时确认 OAuth 登录有效，因此不是认证或配额问题。
+- **当前判断/根因**：外部复审提示将仓库内可直接读取的材料重复全量内联，超过 CLI 单次提示上限。
+- **已做处理**：改为在提示中列明必读文件和审核维度，让 Claude Code 在当前工作树中直接只读文件及必要源码；仍保留独立外部复审范围与判定标准。
+- **后续验证**：单次覆盖全部边界的仓库直读调用运行约 10 分钟仍未输出结论，进程有 CPU 活动但无法形成可消费结果，人工中止后只返回 `Execution error`。
+- **剩余问题和下次入口**：已进一步拆成 evidence/approval/replay、CWC/memory、closeout/依赖三组只读外部复审；如任一组仍失败，从 `.planning/autopilot/phase-64.2.md` 的 `claude_plan_review` 继续并只重跑失败组。
+
+## 2026-08-05 — Phase 64.2 Plan 01 隔离 worktree 首次 `uv run pytest` 缺少 dev extra
+
+**问题现象**
+首次执行 Task 1 RED 命令时，`UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` 没有使用项目 Python 3.12，而是命中系统 Python 3.9 的 pytest，在加载 `tests/conftest.py` 时因 `datetime.UTC` 不存在而 collection 失败。
+
+**如何检测/复现**
+在 `/tmp/moca-phase-64-2.3kXO0d/worktree` 新建但只同步 runtime dependencies 的 `.venv` 中执行计划原命令；随后对比 `UV_CACHE_DIR=/tmp/uv-cache uv run python --version` 与 `.venv/bin/pytest` 是否存在。
+
+**关键证据或命令**
+失败堆栈来自 `/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py`；同时 `uv run python --version` 为 `Python 3.12.13`，但 `.venv/bin/pytest` 不存在，说明 `uv` 为缺失的可执行文件回退到了外部 PATH，而不是项目解释器损坏。执行 `UV_CACHE_DIR=/tmp/uv-cache uv sync --locked --extra dev` 后，`.venv/bin/pytest` 的 shebang 指向当前 worktree `.venv/bin/python3`。
+
+**当前判断/根因**
+隔离 worktree 的虚拟环境只安装了主依赖，未安装 `pyproject.toml` 的 `dev` extra；因此计划规定的 `uv run pytest` 名称解析落到系统旧 pytest。这是环境入口准备问题，首次结果不是有效 RED 证据。
+
+**已做处理**
+使用 `UV_CACHE_DIR=/tmp/uv-cache uv sync --locked --extra dev` 补齐当前 worktree 的 pytest/Ruff，并原样重跑计划命令；有效 RED 结果为新模块缺失的预期 `ModuleNotFoundError`，实现后 GREEN 为 `26 passed, 1 warning`，scoped Ruff 通过。
+
+**剩余问题和下次继续排查入口**
+当前 worktree 无剩余阻断。后续隔离 worktree 执行测试前先确认 `.venv/bin/pytest` 与 `.venv/bin/ruff` 存在；仍必须使用 `UV_CACHE_DIR=/tmp/uv-cache uv run ...`，不能把系统 pytest 的结果当作验证证据。
+
+## 2026-08-05 — Phase 64.2 Plan 01 Task 1 首轮 Ruff format check 未通过
+
+**问题现象**
+Task 1 focused pytest 与 scoped Ruff check 已通过，但补跑 `ruff format --check` 时报告新建 identity 模块和测试文件需要格式化。
+
+**如何检测/复现**
+执行 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check src/knowledge/evidence_identity.py src/knowledge/schemas.py tests/knowledge/test_evidence_identity.py`。
+
+**关键证据或命令**
+首轮输出为 `Would reformat: src/knowledge/evidence_identity.py`、`Would reformat: tests/knowledge/test_evidence_identity.py`，汇总 `2 files would be reformatted, 1 file already formatted`；同轮逻辑 Ruff check 先前为通过。
+
+**当前判断/根因**
+手写的长类型签名与参数化测试布局不符合当前 Ruff formatter 的稳定输出，仅是格式门禁差异，不改变 identity/hash/scope 行为。
+
+**已做处理**
+使用 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format` 机械格式化两个文件，并重跑 Task 1 完整 pytest、scoped Ruff check、format check 与 `git diff --check`；结果为 `26 passed, 1 warning`、`All checks passed!`、`3 files already formatted`，whitespace 门禁通过。
+
+**剩余问题和下次继续排查入口**
+无剩余阻断；后续 Task 2 同样在提交前补跑 scoped format check。
+
+## 2026-08-05 — Phase 64.2 Plan 01 Task 2 migration contract 首轮迭代失败
+
+**问题现象**
+Task 2 首次 GREEN 聚合出现两个失败：ORM 列名断言错误地把 `ColumnCollection` 转成 Column 对象集合；migration 创建 `policy_chunk_versions` 时，自引用 tenant-bound FK 缺少匹配的 `(id, tenant_id)` unique constraint。修复后，live fixture 又依次暴露 raw `text()` JSONB dict 未编码、内联 JSON 的 `:null` 被 SQLAlchemy 当作 bind parameter，以及 scoped Ruff 的两个未使用 import；首轮 format check 还报告 migration/test 需要机械格式化。
+
+**如何检测/复现**
+反复执行计划原命令 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_immutable_evidence_migration.py tests/replay/test_replay_migration_contract.py -q --tb=short`，再执行计划 scoped Ruff 与补充的 `ruff format --check`。PostgreSQL 测试每次从 024 schema seed mutable heads 后升级 025。
+
+**关键证据或命令**
+首轮 pytest 为 `2 failed, 7 passed`：静态断言显示 `evidence_write_sequence` 的字符串集合比较错误，PostgreSQL 返回 `InvalidForeignKeyError: there is no unique constraint matching given keys for referenced table policy_chunk_versions`。后续两轮分别返回 asyncpg JSONB `dict object has no attribute encode` 与 SQLAlchemy `A value is required for bind parameter 'null'`。Ruff 随后报告 `EvidenceIdentityRollout` / `EvidenceSnapshotDependency` 两个 F401；format check 报两个文件需格式化。
+
+**当前判断/根因**
+其中 composite FK 缺 unique constraint 是真实 schema bug；其余为新 migration live-test fixture/断言与格式问题：`text()` 未携带 JSONB bind type、内联 JSON 冒号触发 text bind 解析、列集合比较使用了对象而非 `.keys()`，以及显式 ORM import 尚未进入断言。
+
+**已做处理**
+为 `policy_chunk_versions` 在 ORM 与 migration 同步增加 `uq_policy_chunk_versions_id_tenant`；列断言改用 `.c.keys()`；JSONB 参数经 `json.dumps`/`CAST(... AS jsonb)` 绑定，actor 改为显式参数；测试显式断言两个 ORM owner 表名；最后用项目入口格式化 migration/test 并完整重跑。
+
+**剩余问题和下次继续排查入口**
+最终 Task 2 原命令为 `9 passed, 4 warnings`，scoped Ruff 为 `All checks passed!`，3 个文件 format check 与 `git diff --check` 均通过。4 个 warning 是既有 LangGraph pending deprecation 与 Alembic `path_separator` 配置提示，不影响 025 PostgreSQL 迁移结论；后续若治理 Alembic warning，应由配置 hygiene scope 单独处理。
+
+## 2026-08-05 — Phase 64.2 Plan 03 共享 memory identity 首轮 GREEN 暴露 source profile 与旧测试夹具漂移
+
+**问题现象**
+Task 3 首轮 GREEN 聚合为 `77 passed, 2 failed`：同一新 v2 source 的 case candidate 在已有 tombstone 时仍返回 `needs_review`，没有按预期 `skipped`；另一个 CWC 测试继续 monkeypatch 已删除的本地 `canonical_memory_candidate_hash`，在 shared owner 已接管后报属性不存在。
+
+**如何检测/复现**
+执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_memory_identity.py tests/memory/test_memory_write_service.py tests/memory/test_case_memory_retrieval.py tests/memory/test_case_working_context_service.py -q --tb=short`。前者由 source-only tombstone 与新 candidate 的 source hash 不一致稳定复现；后者由旧测试 fixture 绑定已删除实现细节稳定复现。
+
+**关键证据或命令**
+首轮输出为 `2 failed, 77 passed`。修复后同一精确命令为 `79 passed, 1 warning`；对应 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/long_term.py src/memory/case_memory.py src/memory/case_working_context_service.py tests/memory/test_memory_identity.py` 输出 `All checks passed!`。warning 是既有 LangGraph `allowed_objects` pending deprecation。
+
+**当前判断/根因**
+source-only tombstone 仍使用 legacy 默认 source profile，而新 candidate 明确使用 `nfc_selective_v2`，导致同一来源的 hash namespace 不一致；CWC 失败是测试仍绑定调用方本地 hash helper 的历史夹具，不是保留兼容重算路径的理由。
+
+**已做处理**
+case source-only tombstone 明确按新写入的 v2 profile 计算 source hash，已有删除路径仍复用存储的 legacy hash；CWC 测试改为 spy `build_case_working_context_candidate_identity` 并验证只调用一次及 event/result 完全复用 owner 结果。该一文件测试范围修正已获主 orchestrator 同意。另在收尾审查中补充有限浮点 session slot confidence 的支持与回归覆盖，非有限值继续 fail closed。
+
+**剩余问题和下次继续排查入口**
+Plan 03 精确测试和 scoped Ruff 均通过，无当前阻断。Plan 09 仍需用 AST ownership guard 防止本地 builder 回流；Plan 07/08 继续负责 reviewed provenance persistence 与 lifecycle 约束，不能把本次 profile 推断当作其替代。
+
+## 2026-08-05 — Phase 64.2 Plan 02 Task 1 GREEN 首轮暴露 rollback expired ORM 与 nullable effective date 回归
+
+**问题现象**
+Task 1 首轮 GREEN 的 PostgreSQL 原子回滚用例在 immutable append 故障后没有正常返回 fail-closed report，而是在读取已 rollback/expired 的 `RagIngestionJob.id` 时触发 SQLAlchemy `MissingGreenlet`。修复后补跑历史 ingestion/job suite，又发现一个既有 fake document 的 `effective_date=None` 被直接送入 fingerprint builder，导致应成功的 parser→embed→lock 测试返回 `failed`。
+
+**如何检测/复现**
+先运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/rag/test_ingestion_safety.py tests/knowledge/test_evidence_cutover.py -q --tb=short`；再运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_ingestion.py tests/rag/test_ingestion_jobs.py -q --tb=short`。
+
+**关键证据或命令**
+首轮 focused suite 为 `1 failed, 12 passed`，堆栈在 rollback 后通过 expired ORM attribute 触发 `sqlalchemy.exc.MissingGreenlet`；修复并补齐并发 writer 用例后 focused suite 为 `14 passed`。补充旧回归首轮为 `1 failed, 36 passed`，失败用例是 `test_parse_ocr_chunk_and_embed_complete_before_document_write_transaction`；补回 `date.today()` 兜底后，相关旧回归为 `37 passed, 1 warning`，scoped Ruff 通过。
+
+**当前判断 / 根因**
+真实 `AsyncSession.rollback()` 会 expire identity-map 对象，失败报告路径不能在同步属性访问中隐式发起 async reload；应在事务前保存 durable job id，并在 rollback 后显式 `await session.get(...)`。第二处是把旧的 `effective_date or doc.effective_date or date.today()` 重排时漏掉了 existing row 值为 `None` 的兜底，属于本 task 引入的兼容回归。
+
+**已做处理**
+在进入 writer 事务前保存 `durable_job_id`，rollback 后以显式 async get 重取 job 再记录安全失败，report 只使用已保存 id；effective date 重新固定为 request value → locked/current value → `date.today()` 的非空顺序。两条失败均按 Rule 1 在 Task 1 内修复并重跑原命令与相关旧回归。提交前补跑 `uv run ruff format --check` 时另发现 3 个 Task 1 文件需机械格式化，已通过项目入口执行 `uv run ruff format`，随后 format check 显示 `5 files already formatted`，pytest、Ruff check 与 whitespace gate 继续通过。
+
+**剩余问题和下次继续排查入口**
+当前无阻断。既有 LangGraph `allowed_objects` pending-deprecation warning 未由本次改动引入；后续若再改事务失败路径，继续从 rollback 后 ORM attribute access 与 `expire_on_commit/rollback` 语义检查，不能用同步属性读取替代显式 async reload。
+
+## 2026-08-05 — Phase 64.2 Plan 02 Task 2 首轮格式门禁与零缺口复核缺陷
+
+**问题现象**
+Task 2 的 PostgreSQL focused suite 首轮已通过，但补跑 `ruff format --check` 时报告新 repository/migration 需格式化；提交前代码复核同时发现 migration 的初版最终 gap SQL 只验证 immutable document 行存在且 hash 带 `sha256:` 前缀，没有将当前 document/chunk 内容重算后与 exact immutable binding 比较，可能把不一致绑定误计为零缺口。
+
+**如何检测/复现**
+执行 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check src/repositories/evidence_version_repo.py src/rag/ingestion.py src/db/migrations/versions/026_phase64_2_evidence_cutover.py tests/knowledge/test_evidence_cutover.py`，并人工核对 migration 最终 reconciliation 查询与 repository `find_exact_binding(...)` 的等价性。
+
+**关键证据或命令**
+format check 输出两个 `Would reformat`。初版 migration 条件 `v.content_hash = :empty_guard || substr(...)` 对任意格式正确的 hash 恒真，且没有验证 immutable chunk 集合。修复后 Task 2 原命令为 `10 passed, 4 warnings`，scoped Ruff 为 `All checks passed!`，`git diff --check` 通过。
+
+**当前判断/根因**
+格式问题是新文件未经过项目 formatter；零缺口问题是把“存在候选行”误当成“当前 head 与 immutable document/chunk exact binding 相等”，属于 cutover 安全判断缺陷。
+
+**已做处理**
+使用项目入口机械格式化；migration 新增最终 exact reconciliation scan，逐 tenant/scope/document-version 重算 document hash，并比较当前/immutable logical chunk + text hash 集合，仍在同一 rollout lock 内完成 zero-gap 判定和 CAS 激活；backfill 对已存在 immutable binding 也执行同样精确校验。
+
+**剩余问题和下次继续排查入口**
+当前 focused gate 无阻断。4 个 warning 仍是既有 LangGraph pending deprecation 与 Alembic `path_separator` 提示。后续迁移链总验收需从 025 已部署且真实 dual-write health 已激活的状态运行 026，不能把静态 source contract 代替 staged deployment 验证。
+
+## 2026-08-05 — Phase 64.2 Plan 02 Task 3 GREEN 测试夹具误用了可变/expired rollout ORM 对象
+
+**问题现象**
+Task 3 首轮 GREEN 为 `2 failed, 38 passed`：stale-CAS 用例没有抛错；historical/current 分离用例在尚未启用 canonical reads 时调用 current validator。修正后第二轮又在测试 rollback 后读取 expired `EvidenceIdentityRollout.rollout_version` 时触发 `MissingGreenlet`。
+
+**如何检测/复现**
+执行 Task 3 精确命令 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_evidence_cutover.py tests/knowledge/test_evidence_projection.py tests/knowledge/test_provenance_lookup.py tests/knowledge/test_tenant_scope.py tests/knowledge/test_service.py -q --tb=short`。
+
+**关键证据或命令**
+首轮失败显示 `pytest.raises(RolloutEpochMismatch)` 未触发，因为 `activated` 与 `disabled` 指向同一个 identity-map ORM 实例，disable 原地递增了两者可见的 epoch；historical 用例按设计收到 generic `evidence_unavailable`。第二轮堆栈为 rollback 后同步读取 `disabled.rollout_version` 导致 `sqlalchemy.exc.MissingGreenlet`。最终精确门禁为 `41 passed, 1 warning`，scoped Ruff、format check、`git diff --check` 均通过；补充 retrieval 回归为 `46 passed, 1 warning`。
+
+**当前判断/根因**
+均为测试事务/夹具问题：CAS 的旧值必须在 mutation 前复制成普通整数；rollback 会 expire ORM attributes，之后不能同步隐式 IO；current validator 必须在 canonical-read rollout 已完成后才有资格判断 superseded evidence 的 current eligibility。
+
+**已做处理**
+测试在 disable/rollback 前保存 `activated_epoch`、`disabled_epoch`；historical/current 用例先完成 watermark reconciliation 和 canonical-read enable，再断言 superseded ref 对 current 路径统一 fail closed、但 exact historical/explicit legacy 仍可解析。另补真实双 session disable-under-load 用例，证明 disable 等待在途 writer 的 rollout lock，禁读不关闭 dual-write，零缺口后 CAS re-enable。
+
+**剩余问题和下次继续排查入口**
+当前无阻断。warning 是既有 LangGraph pending deprecation。后续涉及 rollout ORM 状态的并发测试继续只跨事务传递 primitive epoch，不跨 rollback/commit 读取可能 expired 的 ORM 属性。
+
+## 2026-08-05 — Phase 64.2 Plan 02 self-check 变量名覆盖 zsh `$path`
+
+**问题现象**
+首次 SUMMARY self-check 在确认文件存在后，后续同一 shell 中的 `git`、`rg` 都误报 `command not found`，从而把所有 commit 误报为 missing。
+
+**如何检测/复现**
+在 zsh 中使用 `for path in ...` 后继续调用外部命令；zsh 的小写 `$path` 是与 `$PATH` 绑定的特殊数组，循环赋值会覆盖命令搜索路径。
+
+**关键证据或命令**
+首次输出先显示 4 个 `FOUND`，随后连续出现 `zsh: command not found: git/rg`；新 shell 改用 `target_file` / `commit_hash` 后，4 个文件、6 个 RED/GREEN commit 和 3 条 validation GREEN 行全部显示 `FOUND`，`git diff --check` 通过。
+
+**当前判断/根因**
+这是收尾脚本变量命名污染 shell 特殊变量，不是仓库、Git 历史或验证产物缺失。
+
+**已做处理**
+按项目命令变量规则改用 task-specific 变量名，在全新 shell 完整重跑 self-check，并只采用重跑结果更新 SUMMARY。
+
+**剩余问题和下次继续排查入口**
+无剩余问题。后续 zsh 临时脚本禁止使用 `path`、`status` 等特殊参数名作为循环/任务变量。
+
+## 2026-08-05 — Phase 64.2 Plan 04 approval evidence 门禁测试夹具漂移
+
+**问题现象**
+Task 1 首次 RED 的 existing-snapshot fixture 把 owner ref 的完整 `model_dump()`（含 `score: null`）放进 proposed-action hash，先触发 `CanonicalHashError`，没有命中新门禁行为。修正 RED 后，Task 1 精确兼容套件出现 `20 failed`；Task 2 首次精确兼容套件出现 `1 failed, 79 passed`，均由旧 approval fixture 继续使用没有 immutable row 的 legacy/unbound evidence ref 引起。
+
+**如何检测/复现**
+先运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/approvals/test_phase64_2_evidence_validation.py -q --tb=short` 验证 RED/GREEN；再分别运行 Plan 04 两条精确 pytest 命令。Task 1 失败集中为 `canonical_evidence_validation_failed:missing`；Task 2 唯一失败为 `test_attach_info_changed_evidence_or_config_requires_new_snapshot_hash` 的同一 missing reason。
+
+**关键证据或命令**
+修复 source 前的有效 RED 稳定显示 create verified/snapshot divergence 与 revision cross-tenant 等契约失败；迁移 shared create fixture 后 Task 1 精确门禁为 `53 passed, 1 warning`。迁移单个 needs-info changed-evidence fixture 后 Task 2 精确门禁为 `80 passed, 1 warning`；两条 scoped Ruff 均输出 `All checks passed!`。
+
+**当前判断 / 根因**
+`score` 是 retrieval runtime metadata，不属于 proposed-action canonical hash allowlist，fixture 应使用 `canonical_evidence_projection`。其余失败不是保留 legacy service fallback 的理由：Plan 02 已完成 immutable evidence cutover，而 approval 历史测试仍凭空构造 alias、未同步建立 exact tenant-policy immutable rows，属于测试事实源漂移。
+
+**已做处理**
+RED fixture 改用 canonical projection 后重新确认测试因缺失 repository gate 而失败；`test_service_transitions.py` 的共享 approval bundle 改为实际 seed `PolicyDocumentVersion` / `PolicyChunkVersion` 并由 `EvidenceVersionRepository` mint owner ref；needs-info 的 changed-evidence case 也改为同一 immutable fixture。生产代码没有增加 legacy fallback。该 fixture 范围调整已获主 orchestrator 明确授权。
+
+**剩余问题和下次继续排查入口**
+当前两条 Plan 04 精确门禁均通过；既有 LangGraph `allowed_objects` pending-deprecation warning 未由本 plan 引入。后续新增 approval snapshot fixture 必须先写 immutable tenant-policy row，再从 repository mint ref，不能手写看似合法的 evidence alias。
+
+## 2026-08-05 — Phase 64.2 Plan 05 严格 CWC fact schema 暴露旧持久化夹具漂移
+
+**问题现象**
+Plan 05 把 `CaseWorkingContextVerifiedFactV1` 收紧为必须携带 authority/status/promotion reason 与完整 typed refs，并把 reduced policy triple 替换为 canonical `EvidenceRefV1` 后，计划精确聚合首次出现 `52 passed, 13 failed`。13 个失败全部来自 `tests/memory/test_case_working_context_service.py::_content(...)` 仍直接构造旧式 verified fact 和 `doc_id/chunk_id/version` policy ref；另一次 lifecycle 中间运行在 Task 2 尚未接线时出现 16 个旧 summary-first 投影失败。
+
+**如何检测/复现**
+执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_case_working_context_lifecycle.py tests/memory/test_case_working_context_service.py -q --tb=short`。失败稳定发生在 Pydantic validation：缺少 `authority_class`、`status`、`promotion_reason_code`，或 reduced policy ref 缺少 canonical identity 字段。
+
+**关键证据或命令**
+Task 1 RED 首先按预期以 `ModuleNotFoundError: src.memory.fact_promotion` 失败；Task 2 新 mixed/scope/freshness 用例为 `4 failed, 48 deselected`。实现 typed gate 后 lifecycle 单套件为 `52 passed`；加入 service 精确套件时为 `13 failed, 52 passed`；只迁移直接相关 fixture 后最终原命令为 `65 passed, 1 warning`，两条计划 scoped Ruff 与 fixture scoped Ruff 均为 `All checks passed!`。
+
+**当前判断/根因**
+这是严格 authority schema 对历史测试夹具的直接、可证明漂移，不是 production 需要接受 legacy verified fact 的理由。旧 fixture 绕过 promotion boundary 手工创建“已验证事实”，并持有 Phase 64.2 已禁止的新写 reduced policy ref。
+
+**已做处理**
+测试 fixture 改为完整 `BusinessFactRefV1` verified fact、canonical tenant-policy `EvidenceRefV1`，并用 `CaseWorkingContextObservationV1` 验证 observation 的持久化/归一化/hydration；production 未增加任何旧 fact/ref fallback。CWC lifecycle 改为每个成员独立调用 `promote_verified_fact(...)`，summary-only 和失败状态进入 bounded observation。跨 scope 内部原因仍存储，但 active payload 只投影统一 `authoritative_source_unavailable`。
+
+**剩余问题和下次继续排查入口**
+当前 Plan 05 精确 pytest/Ruff 均通过；唯一 warning 是既有 LangGraph `allowed_objects` pending deprecation。Plan 07 必须继续验证 rejected/observed CWC 内容不进入 CaseMemory 任一字段，Plan 09 负责最终 ownership/static guard；不得为历史手写 fixture 恢复 status-blind fallback。
+
+## 2026-08-05 — Phase 64.2 Plan 06 production replay TDD 夹具、兼容断言与 archived schema 缺口
+
+**问题现象**
+Task 1 首轮 RED 在命中新行为前先因 `PolicyChunkVersion` 的 composite FK 父行尚未 flush 而失败；Task 2 加入 optional typed `evidence_snapshot_refs` 后，既有 minimal-envelope 测试仍要求 model field 集合与旧版本绝对相等；最终 lifecycle 验收又出现 ORM、真实 025 migration 与 replay 三处都无法持久化 `archived`。
+
+**如何检测 / 复现**
+Task 1 运行计划精确 pytest，首轮在 `_canonical_fixture` 插入 document/chunk version 时触发 `fk_policy_chunk_versions_document_identity`；Task 2 运行 `tests/replay/test_decision_events.py::test_decision_event_envelope_accepts_exact_minimal_fields` 可见旧字段集合断言与新 optional 输出字段冲突。归档缺口通过 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_immutable_evidence_migration.py::test_orm_and_migration_define_exact_additive_immutable_foundation tests/knowledge/test_immutable_evidence_migration.py::test_upgrade_performs_no_backfill tests/replay/test_production_evidence_binding.py::test_replay_resolves_retained_original_through_lifecycle_changes_and_blocks_purge -q --tb=short` 复现为 3 failed。
+
+**关键证据或命令**
+Task 1 显式 flush parent 后，RED 稳定变为 3 个预期契约失败，GREEN 精确门禁为 `132 passed, 1 warning`。经主 orchestrator 裁决，仅把 minimal-envelope 测试的 exact field 集合扩为“旧字段 + optional `evidence_snapshot_refs`”，并断言无证据时 projection 仍不输出该字段；production 未加 fallback。归档 RED 分别显示 ORM check 文本缺 `archived`、025 升级后的 PostgreSQL `CheckViolationError`、replay fixture flush 同类 `CheckViolationError`；修复后同命令为 `3 passed, 4 warnings`。
+
+**当前判断 / 根因**
+前两项是测试夹具/契约断言未表达 SQLAlchemy dependency 顺序和向后兼容 optional-field 语义，不是 production 应接受 raw legacy 写入的理由。归档失败是 Plan 01 建立 immutable evidence schema 时遗漏 D-10/Plan 06 已锁定 lifecycle vocabulary，属于真实 schema correctness 缺口。
+
+**已做处理**
+夹具先 flush `PolicyDocumentVersion` 再插入 `PolicyChunkVersion`；minimal-envelope 只做获批的最小测试迁移，保留无 evidence 时的旧 projection shape；ORM 与尚未发布的 migration 025 lifecycle check 仅加入 `archived`，并让 migration contract 真正 update/persist archived、Replay V3 lifecycle 矩阵真实回放 archived。所有命令均使用 `UV_CACHE_DIR=/tmp/uv-cache uv run ...`。
+
+**剩余问题和下次继续排查入口**
+当前无 Plan 06 阻断。最终联合回归为 `171 passed, 1 warning`，计划相关 Ruff 通过；warning 是既有 LangGraph `allowed_objects` pending deprecation，migration 的 3 个 Alembic `path_separator` warning 也是既有环境提示。后续若扩展 evidence lifecycle，必须同步核对 ORM、当前未发布 migration、真实 PostgreSQL 持久化与 replay projection 四层。
+
+## 2026-08-05 — Phase 64.2 Plan 07 严格 reviewed-memory provenance 暴露三处历史测试夹具漂移
+
+**问题现象**
+Task 1 引入完整 source authority、canonical evidence/business refs 与 resolved/unresolved 分离后，计划相关旧测试在命中新行为前先因旧式 CWC verified fact、手写 reduced policy ref、缺失 resolved provenance/reviewer metadata，以及过宽的 EvidenceRef import 禁令而失败。
+
+**如何检测 / 复现**
+执行 Task 1 精确命令：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_memory_provenance.py tests/memory/test_case_precedent_generation.py tests/memory/test_case_memory_retrieval.py tests/agent/test_memory_evidence_boundary.py -q --tb=short`。失败分别定位到 `tests/memory/test_case_precedent_generation.py` 的旧 CWC fixture、`tests/memory/test_case_memory_retrieval.py::_candidate/_case_row` 的旧 ref/provenance fixture，以及 `tests/agent/test_memory_evidence_boundary.py` 把 Plan 07 reviewed-case owner 也误判为 session-memory 越权 owner 的静态断言。
+
+**关键证据或命令**
+主 orchestrator 逐项核对后明确批准三处最小迁移：precedent fixture 补 authority/status/promotion reason 与完整 typed refs；retrieval 只迁移共享 `_candidate/_case_row`，并让已 review 的 row/provenance 同时携带 reviewer/time/reason；architecture assertion 只继续禁止 session owner 导入 EvidenceRef，同时保留 no-mint/no-authority-upgrade 负向断言。迁移后 Task 1 精确门禁为 `52 passed, 7 warnings`，额外 retrieval 回归为 `14 passed, 1 warning`，最终联合回归为 `64 passed, 7 warnings`。
+
+**当前判断 / 根因**
+三处都是历史 fixture 或静态测试仍表达 Phase 64.2 前的 reduced/implicit provenance 形状，不是 production 应保留 legacy new-write fallback 的依据。reviewed-case provenance 本计划明确允许读取 owner-minted canonical refs；禁止范围应继续锁定 session-memory owner，而不是阻止受审 case-memory owner 保存证据出处。
+
+**已做处理**
+仅按裁决修改共享 fixture 与单条 architecture assertion，没有逐 case 大面积改写，也没有在 production 添加兼容 fallback。所有新候选与 resolved fixture 都使用完整 canonical `EvidenceRefV1`、typed `BusinessFactRefV1` 和严格 provenance；legacy pre-027 行仍进入独立 `legacy_unresolved` envelope。
+
+**剩余问题和下次继续排查入口**
+当前无 Plan 07 fixture 阻断。Plan 09 应继续用 ownership guard 锁住 session owner 不得 mint/import policy evidence，并允许 reviewed-case provenance owner 只保存来自 authoritative source 的完整 ref；不得重新放宽为 reduced ref 或 status-blind CWC 投影。
+
+## 2026-08-05 — Phase 64.2 Plan 07 pytest 后台残留导致 PostgreSQL DDL 并发污染
+
+**问题现象**
+一次联合验证的外层执行单元提前返回，但内部 pytest 仍在后台运行；随后启动的 targeted pytest 与它同时创建/清理测试 schema，出现 PostgreSQL `pg_type_typname_nsp_index` `UniqueViolation`，后续又报 `tenants does not exist`。这些结果一度看似产品 migration/schema 回归。
+
+**如何检测 / 复现**
+出现 DDL 异常后检查进程，发现两个 pytest 进程仍并发运行（PID `77656`、`77667`）；错误发生在测试基础设施建表/清理阶段，而不是 migration 027 或 CaseMemory 业务断言。
+
+**关键证据或命令**
+终止残留进程后，不再并发启动数据库测试，并对每个 `uv run pytest` session 持续 poll 到明确 exit code。Task 1 原命令随后稳定得到 `52 passed, 7 warnings`；Task 2 原命令两次稳定得到 `37 passed, 1 warning`；最终联合命令得到 `64 passed, 7 warnings`，联合 Ruff 为 `All checks passed!`。
+
+**当前判断 / 根因**
+根因是本地工具执行层留下 pytest 后台进程，导致共享 PostgreSQL 测试库发生并发 DDL 竞争；不是生产 schema、migration 027 或 tenant FK 的代码缺陷。并发污染期间的失败结果无效，不能作为产品结论。
+
+**已做处理**
+显式结束两个残留 pytest，确认没有验证进程后按单进程串行重跑；后续所有长测试都持续等待统一执行 session 完成，且没有在数据库 pytest 运行时启动第二条 pytest。
+
+**剩余问题和下次继续排查入口**
+当前无残留进程或数据库阻断。后续本仓库长 pytest 若外层工具返回 running/cell ID，必须持续 wait/poll 到 exit code；遇到 `pg_type_typname_nsp_index` 或建表后表消失时，先查并发 pytest，再判断 migration 缺陷。
+
+## 2026-08-05 — Phase 64.2 Plan 08 lifecycle migration 与严格 identity fixture 漂移
+
+**问题现象**
+Task 1 的真实 PostgreSQL migration 测试首次直接升级到 revision 027 时被 migration 026 的 staged dual-write activation gate 拒绝；修正升级顺序后，手工插入的 `agent_runs` fixture 又缺少非空 `scope_classification`。Task 2 扩展回归首次为 `49 passed, 9 failed`，旧用例仍表达 content-only 去重、terminal tombstone 返回既有 winner、pending 直插 row 不需要 durable claim、reduced policy ref、无 resolved provenance 等旧契约。
+
+**如何检测 / 复现**
+Task 1 使用计划原样命令运行 lifecycle/retrieval/migration 套件；Task 2 顺序运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_memory_retrieval.py tests/memory/test_case_memory_provenance.py tests/memory/test_case_precedent_generation.py tests/memory/test_memory_tombstones.py tests/memory/test_reviewed_memory_context_boundary.py -q --tb=short`。并发验证前后均用 `ps -axo pid=,command= | rg '[p]ytest' || true` 确认无后台 pytest。
+
+**关键证据或命令**
+Migration fixture 改为先升级 025、写入 healthy rollout 后再升级 026/027，并补 `scope_classification='unknown_legacy'`。九个旧回归仅迁移直接 fixture/expectation后，同一扩展命令为 `58 passed, 1 warning`；Task 1/2/3 精确门禁分别为 `19 passed, 8 warnings`、`60 passed, 5 warnings`、`28 passed, 5 warnings`，所有 scoped Ruff 均通过。
+
+**当前判断 / 根因**
+Migration 两次失败都是测试未遵守仓库真实 staged-upgrade 与当前非空 schema。九个回归属于 Plan 03/07 后 fixture 仍使用 legacy identity/provenance 形状；production 不应恢复 content-only winner、释放 terminal claim 或接受 reduced ref。另发现 tombstone helper 的默认 legacy source hash 与 v2 candidate 不同，测试必须显式保存 candidate 已计算的 v2 source identity，不能据此放宽生产匹配。
+
+**已做处理**
+只迁移获批的直接 fixture 与断言：canonical `EvidenceRefV1` 同步完整 provenance；pending 直插 row 补 matching active claim；fake repository 补严格 claim 接口；source-distinct 改为两个 owner；terminal exact retry 改为 generic conflict/no winner；context row 补完整 Plan 07 identity/provenance。没有新增 legacy fallback。Task 3 初版 10 个 race 已绿，补充 concurrent identical correction retry 后稳定 RED 为一个 `case memory conflict`，修复严格 payload/lineage/provenance/event replay 后 11 个 race 全绿。
+
+**剩余问题和下次继续排查入口**
+当前无 Plan 08 验证阻断、无残留 pytest。既有 LangGraph `allowed_objects` 与 Alembic `path_separator` warnings 未由本 plan 引入。后续 case-memory fixture 必须经 service 写入或同时建立完整 resolved provenance 与 matching durable claim；source tombstone 应显式复用 candidate identity result。
+
+## 2026-08-06 — Phase 64.2 Plan 09 Task 1 architecture guard 首轮误报
+
+**问题现象**
+Task 1 GREEN 首次精确命令为 `8 passed, 3 failed`。三个失败都来自新 architecture guard 把合法目标态枚举 `global_policy` 误判为当前 scope invention、用错 legacy adapter 注释文本、以及对 terminal claim 的源码字符串匹配过窄；真实 integration 链路已通过。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/integration/test_phase64_2_integrity_matrix.py tests/architecture/test_evidence_memory_integrity_boundaries.py -q --tb=short`。失败定位到 `test_phase64_2_canonical_owners_pass_boundary_guards`、repository-wide guard 与 exact-scope owner assertion。
+
+**关键证据或命令**
+`rg` 核对显示 `global_policy` 只存在于 `EvidenceItemV1.authority_level` 的目标态枚举，不是 Phase 64.2 当前 identity scope；replay owner 的真实注释为 `Read-only adapter for evidence JSON...`；CaseMemory 真实 no-resurrection 分支使用条件表达式选择 `identity_conflict`。收窄 guard 后相同 pytest 为 `11 passed, 1 existing warning`，随后 scoped Ruff 为 `All checks passed!`。
+
+**当前判断 / 根因**
+根因是 Plan 09 新增静态 guard 的文本匹配过宽/过窄，不是 production owner 或锁定契约漂移。目标态 authority vocabulary 与当前 MVP identity scope 必须分开检查。
+
+**已做处理**
+只在 canonical resolver 调用的 `expected_scope_type` 上拒绝非 `tenant_policy`；legacy read-only 与 claim conflict 改为匹配真实 owner contract；保留代表性 pre-phase mutation RED。另把导入的 replay helper 改为下划线别名，避免 pytest 重复收集同一个数据库测试。
+
+**剩余问题和下次继续排查入口**
+Task 1 精确 pytest/Ruff 已通过；唯一 warning 是既有 LangGraph `allowed_objects` pending deprecation。后续新增合法 target authority 枚举不应被当前 MVP scope guard 误伤，但任何 canonical identity resolver 的非 `tenant_policy` literal 仍必须失败。
+
+## 2026-08-06 — Phase 64.2 Plan 09 Task 2 旧 memory architecture guard 与 Plan 03 单 owner 冲突
+
+**问题现象**
+Task 2 文档 RED 首轮为 `4 failed, 13 passed`：两项是预期的 contract/debt marker 缺失；一项是 plan-graph mutation fixture 没有先制造 shared-file 条件；另一项既有 architecture guard 仍要求 `SESSION_MEMORY_TYPE` 由 `src/memory/service.py` 持有，与 Plan 03 已落地的 single identity owner 相冲突。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_evidence_memory_integrity_boundaries.py tests/architecture/test_memory_contract_delta.py -q --tb=short`。修正测试夹具/旧 guard 后，同一文档变更前门禁稳定为两项预期失败、其余 `15 passed`。
+
+**关键证据或命令**
+仓库核对显示 `src/memory/repository.py` 持有 `SESSION_MEMORY_TYPE = "session_slot"`，`src/memory/service.py` 只消费 `build_session_memory_candidate_identity`；Plan 03 commit `e8b3d68` 已有意移除 service-local constant/serializer。主 orchestrator 批准把旧 guard 最小迁移为：service 必须调用 canonical builder 且不得持有 constant，repository 必须持有 storage discriminator。
+
+**当前判断/根因**
+两项非预期失败均为测试自身漂移：mutation case 未完整构造目标坏图，旧 guard 则仍表达 Phase 64.2 前的多 owner 结构。它们不是恢复 production fallback 的理由。
+
+**已做处理**
+仅修正 mutation fixture 与 architecture assertion，没有修改生产代码；contract §8.3/§13/§17 和 RAG/Memory debt 分栏随后按 section-specific marker 补齐。
+
+**剩余问题和下次继续排查入口**
+Task 2 GREEN 需继续以同一精确 pytest 和 scoped Ruff 验证；后续若 identity storage discriminator 移动，必须同时证明 canonical builder owner 未分叉，不能只追踪常量文本位置。
+
+## 2026-08-06 — Phase 64.2 Plan 09 Task 3 staged/focused 测试夹具漂移
+
+**问题现象**
+新 staged migration test 首轮把 migration 026 的 `reconciled_through_sequence` 误断言为最后 writer sequence `2`，真实结果是已预留的 watermark `3`；第二轮又在一次会 autobegin 的查询后重复 `connection.begin()`。修正后 named test 为 `1 passed, 8 warnings`。随后 Task 3 focused aggregate 为 `202 passed, 2 failed, 15 warnings`：canonical retrieval 返回 `no_evidence`，memory identity fake repository 缺少 Plan 08 durable-claim API。
+
+**如何检测/复现**
+先单跑 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/integration/test_phase64_2_integrity_matrix.py::test_staged_024_to_028_upgrade_with_dual_write_activation -q --tb=short`；再执行 Plan 09 Task 3 的 13 文件 focused aggregate。两项 aggregate 失败又分别单跑稳定复现。
+
+**关键证据或命令**
+`tests/knowledge/test_evidence_cutover.py::test_current_retrieval_is_canonical_and_fails_closed_while_operationally_disabled` 使用硬编码 `effective_at=2026-08-05`，但 ingestion 未传 `effective_date`，会取 `date.today()`；日期进入 2026-08-06 后，检索正确过滤未来生效资料。`tests/memory/test_memory_identity.py::_CandidateWriteRepository` 则停留在 Plan 08 前接口，而当前 `CaseMemoryService.submit_case_memory_candidate` 必须先 `get_exact_identity_claim`、写 row 后 `create_identity_claim`。
+
+**当前判断/根因**
+四处均属新/旧测试夹具不精确，不是 migration、retrieval 或 CaseMemory production 回归。watermark 本身是被 reconciliation 覆盖的序列边界；SQLAlchemy 查询会隐式开启事务；跨日期测试不能依赖系统当天；strict durable claim 不能通过 production fallback 绕过。
+
+**已做处理**
+named test 改为比较 `reconciled_through_sequence == backfill_watermark_sequence`，并把查询与破坏性删除事务分到两条 connection。经主 orchestrator 批准，retrieval 两次写入都显式固定 `effective_date=date(2026, 8, 5)`；fake repository 增加返回 `None` 的 exact-claim lookup 与返回 owner 的 claim create，行为与当前严格 owner 测试一致。未修改 production 默认日期、effective filtering 或 claim fallback。
+
+**剩余问题和下次继续排查入口**
+必须先重跑两项失败，再重跑完整 focused aggregate；只有 focused、全仓 Ruff 和 full pytest 全绿后，才能更新 VALIDATION compliance flags。现有 LangGraph/Alembic warnings 为既有非阻塞告警。
+
+## 2026-08-06 — Phase 64.2 Plan 09 focused rerun 遗留不可终止 PostgreSQL backend 并拖死 Docker daemon
+
+**问题现象**
+Task 3 focused aggregate 修复后重跑超过 6 分钟仍停在约 70% 后；精确终止 pytest 后，单独运行 lifecycle migration test 仍卡在 schema reset。`docker ps` 同时无响应。经用户明确批准重启 Docker Desktop 后，新 PostgreSQL 容器恢复 healthy；新卷首次运行 direct migration harness 又因 `moca_test` 尚不存在失败一次。
+
+**如何检测/复现**
+aggregate 输出已完成 collection item 170，item 171 `test_migration_backfills_exact_claims_and_survivor_to_many_lineage` 无结果。`pg_stat_activity` 显示旧 backend PID `87885` 从 `2026-08-05 16:48:50 UTC` 起持续执行 `INSERT INTO case_memory_identity_claims`，状态 active、无 wait event、无 blocker；后续 `DROP SCHEMA ... CASCADE` backend 被它的 relation lock 阻塞。`pg_cancel_backend` 与 `pg_terminate_backend` 均返回 true，但 PID 仍存在。
+
+**关键证据或命令**
+只终止了当次 pytest 的精确 PID，并通过 `pg_stat_activity`/`pg_locks` 核对，无并发启动第二个测试。Docker daemon `_ping` 在获批重启后恢复，旧 stuck backend 消失；只启动本 worktree 的 `worktree-postgres-1`，health 为 healthy。`docker compose up -d postgres` 的配置展开仍要求未用于 postgres 的 `DASHSCOPE_API_KEY`，启动时只使用命令级 unused placeholder，没有把该值注入 PostgreSQL。新卷通过仓库 `tests.conftest._ensure_test_database(TEST_DATABASE_URL)` 创建 `moca_test`。
+
+**当前判断/根因**
+旧 asyncpg/PostgreSQL backend 在 pytest 被终止后仍处于不可取消的 active 状态，并连带使 Docker daemon 控制面失去响应；这是本地容器/数据库运行时事故，不是 migration 028 的稳定产品死锁。重启后的同一个被卡测试立即 `1 passed`，整个 lifecycle 文件 `8 passed`，支持该判断。新卷缺库是 direct migration harness 不消费 `test_engine` fixture 的已知前置差异。
+
+**已做处理**
+在用户授权下由主 orchestrator 重启 Docker Desktop，只恢复当前 worktree PostgreSQL；清除旧 backend 后使用仓库 helper 创建测试库。随后严格串行重跑被卡单测与 lifecycle 文件，分别为 `1 passed, 5 warnings`、`8 passed, 5 warnings`。未修改 production、未放宽 claim/migration 门禁，也未把 placeholder 注入数据库容器。
+
+**剩余问题和下次继续排查入口**
+继续重跑 Plan 09 focused aggregate；若再出现长时间无输出，先查 `pg_stat_activity` 的 active/no-wait backend 与 Docker `_ping`，不要直接并发重跑。focused、全仓 Ruff、full pytest 全绿前不得设置 Nyquist/compliance flags。
+
+## 2026-08-06 — Phase 64.2 Plan 09 full-suite collection 命中 Plan 03 前 long-term identity helper 导入
+
+**问题现象**
+focused aggregate 与全仓 Ruff 通过后，第一次 full pytest 在 collection 阶段中断：`tests/memory/test_long_term_memory_service.py` 仍从 `src.memory.long_term` 导入 `_candidate_hash_for_memory`，但该 helper 已不存在。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short`，collection 报 `ImportError: cannot import name '_candidate_hash_for_memory'`，因此本次没有产生有效 full-suite 结果。
+
+**关键证据或命令**
+Phase 64.2 Plan 03 commit `ed9aa13` 已把 production long-term identity 统一到 `src.memory.identity.build_long_term_memory_candidate_identity`；`tests/memory/test_memory_identity.py` 的 architecture assertion 还明确要求 `src/memory/long_term.py` 不得重新定义 `_candidate_hash_for_memory`。旧 lifecycle 测试只在事件断言中使用该私有 helper。
+
+**当前判断/根因**
+这是 Plan 03 single identity owner 落地后漏迁的旧测试导入，不是 production 缺失兼容 API。恢复 local helper 会违反已锁定架构。
+
+**已做处理**
+经主 orchestrator 批准，仅将旧测试导入改为 canonical `build_long_term_memory_candidate_identity`，事件断言统一读取 builder result 的 `.candidate_hash`；未恢复 production helper 或 fallback。
+
+该文件首次可收集运行后为 `28 passed, 1 failed`，剩余断言又把已存 v2 `source_identity_hash` 与 legacy `canonical_source_identity_hash(...)` 比较。再次获批后改为 `build_long_term_memory_candidate_identity(row).source_identity_hash`，保持 `nfc_selective_v2` profile，不改变 legacy helper 本身或生产 profile 选择。
+
+**剩余问题和下次继续排查入口**
+先单独验证 `tests/memory/test_long_term_memory_service.py` 与 scoped Ruff，再重跑 full pytest；实际全绿前继续保持 VALIDATION/Nyquist flags 为 false。
+
+## 2026-08-06 — Phase 64.2 Plan 09 full suite 暴露跨 phase 历史 fixture 未迁移
+
+**问题现象**
+修复 long-term identity 旧导入后，该文件为 `29 passed, 1 warning`，当前树全仓 Ruff 通过；随后 full suite 完整运行得到 `4348 passed, 106 failed, 4 skipped, 132 warnings in 1941.22s`。失败广泛分布，不能作为 Phase 64.2 closeout 全绿证据，`wave_0_complete` / `nyquist_compliant` 必须保持 false。
+
+**如何检测/复现**
+使用唯一有效入口 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short`，单进程等待到明确 exit code。运行期间无 Docker/backend hang，测试完成至 100%。此前同一当前树的 Plan 09 focused aggregate为 `204 passed, 15 warnings`，`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` 为 `All checks passed!`。
+
+**关键证据或命令**
+106 项失败至少分成六个已核实簇：
+
+1. 最大簇是旧 approval/action/API/integration helper 只提供 legacy/unseeded evidence ref；Plan 04 后 `ApprovalService` 必须经 repository exact resolve，统一失败为 `canonical_evidence_validation_failed:missing`。
+2. working-state/risk/query diagnostics/boundary 旧断言仍比较 pre-canonical EvidenceRef dict，未处理 Phase 64.2 新 canonical optional fields 或 typed projection。
+3. reviewed-memory/CWC 旧 direct row fixture 缺 Plan 07 non-null `identity_resolution_status` / `provenance_json`，或仍使用 Plan 05 前 reduced/status-blind fact/ref shape。
+4. conversation/Phase44/Phase64.1 旧 migration round-trip harness 直接升级新 head，没有执行 Phase 64.2 要求的 `025 -> deploy/health/dual-write -> 026` staged gate。
+5. memory policy fake repositories 仍缺 Plan 08 durable exact-claim API。
+6. search integration 的固定 `effective_at` 与 ingestion 默认当天在跨日期后产生正确的 `no_evidence`，与本 Task 3 已修的 cutover fixture 同类。
+
+**当前判断/根因**
+这不是单个 production bug，也不是本轮 PostgreSQL schema 污染。它是 Plans 03/04/05/07/08 收紧 owner/contract 后，大量非 focused 历史测试没有同步迁移；修复涉及 approval、action、agent、memory、migration、search 多个 ownership domain，超出单个最小 fixture 调整。
+
+**已做处理**
+本 Task 3 先完成三轮获批自动夹具修复：focused 的日期/claim fake；long-term local identity owner 导入迁移；v2 source hash 断言迁移。初轮 fix-attempt limit 到达三次时曾停止批量修改；随后主 orchestrator 明确批准新的按簇 remediation cycle，继续按 A-D 四组迁移历史 fixture，仍禁止 production fallback 或放宽 exact evidence/provenance/claim/staged migration 契约。
+
+**剩余问题和下次继续排查入口**
+已进入获批 remediation cycle；A 组完成后继续 B-D，并在每簇后重跑对应文件与全局 `--lf`，最终再依次跑 Plan 09 focused、全仓 Ruff、full suite。实际全绿前 UAT/VALIDATION/Nyquist 不得完成或置 true。
+
+## 2026-08-06 — Phase 64.2 Plan 09 remediation A：approval/action 共享 canonical evidence fixture
+
+**问题现象**
+首轮 full suite 的 approval/action/API/integration 大簇统一报 `canonical_evidence_validation_failed:missing`；迁移基础 helper 后，第二子集还出现 mock graph 无 `approval_id`、负向 API 错误优先级变化，以及批准后草稿虽落库但 run 终止为 `ACTION_DRAFT_TERMINAL_FAILED`。
+
+**如何检测/复现**
+先运行四个较小文件得到 `43 passed, 1 warning`；再对 approval API/integration、Phase 64.1 runtime matrix、agent-runs 文件执行历史失败子集。修复共享 mock graph 后，四个大文件全量回归为 `162 passed, 13 warnings in 379.91s`；全局 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest --lf -q --tb=short` 将剩余失败收敛为 `29 failed, 6 warnings`，均属于 B-D 组。
+
+**关键证据或命令**
+`tests.approvals.test_service_transitions._canonical_phase34_binding` 统一执行 canonical row mint 后再计算 binding；`tests/conftest.py::_seed_approval_policy` 同时种 legacy retrieval row 与 canonical document/chunk versions，并把 repository mint 的同一 ref 交给 knowledge fake。最后两个 terminal 失败的 binding diff 仅为 `verified_evidence_refs[0].score`：graph fake 为 `0.93`，ApprovalService canonical persisted projection 为 `None`；target merchant plan/direct proof 完全一致，初始 run scope 为 `business_merchant`。
+
+**当前判断/根因**
+A 组全部是历史 fixture 漂移：未 seed canonical owner row、graph emitted ref 与数据库 identity 不一致、负向 helper 错把 evidence 与 merchant binding 一起删除，以及 fake retrieval score 混入了 action authority binding。没有发现 production bug，也没有 classifier 放宽需求。
+
+**已做处理**
+新增共享 `seed + binding` helper 并迁移 approval/action/API helper；agent-run interrupt graph 在自身共享生成路径中 mint canonical row 并发出同一 ref；共享 mock graph 的 legacy policy seed 补 canonical versions/identity。retrieval diagnostics 仍保留 `best_score=0.93`，authority ref 从源头使用 `score=None`，与 ApprovalService canonical projection 精确一致。没有修改 `src/`。
+
+**剩余问题和下次继续排查入口**
+全局 lastfailed 现为 29 项：B 组 EvidenceRef shape 断言、C 组 CWC/CaseMemory provenance/typed refs/claim fake、D 组 staged migration 与日期 rollover。继续逐组修复并原子提交。
+
+## 2026-08-06 — Phase 64.2 Plan 09 remediation B：working-state 丢失 canonical EvidenceRef binding
+
+**问题现象**
+B 组旧 exact-shape 断言最初报 7 项失败；核对时又发现真实 working-state 投影会从完整 canonical ref 删除六个 immutable identity/version 字段。新增精确 RED 后稳定显示 expected 完整 ref 与 actual reduced ref 不相等。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short tests/agent/test_working_state.py::test_working_state_preserves_complete_canonical_evidence_binding`，修复前为 `1 failed`；修复后 B 六文件为 `76 passed, 1 warning`，Phase 64.2 architecture/integration guard 为 `16 passed, 8 warnings`。随后全局 `--lf` 为 `22 failed, 52 deselected, 6 warnings`，剩余均属 C/D。
+
+**关键证据或命令**
+`EVIDENCE_REF_KEYS` 原仅含 schema/tenant/evidence/doc/chunk/policy/hash/retrieval/score/rank；用 `mint_canonical_evidence_identity` 构造合法 ref 后，输出缺少 `scope_type`、`scope_id`、`document_version_id`、`chunk_version_id`、`document_version`、`chunk_version`。修复只增加这六项；query rewrite、risk、ranking/rerank/provider diagnostics 的 disjoint 断言仍通过。
+
+**当前判断/根因**
+这是 Plan 01 扩展 `EvidenceRefV1` 后 working-state allowlist 漏迁的 production bug，不是只改测试期望即可解决的 shape 漂移。若仅改成 `exclude_none` 断言，会掩盖 canonical ref 被降格的问题。
+
+**已做处理**
+经主 orchestrator 明确批准，以最小 production patch 保留完整 canonical binding；旧 schema field-set 断言同步纳入六字段，risk expected 改为 `EvidenceRefV1.model_validate(...).model_dump(mode="json")`。没有放宽 Pydantic schema、没有引入 display diagnostics 或 raw fallback。
+
+**剩余问题和下次继续排查入口**
+进入 C 组：迁移 CWC verified-fact typed refs、CaseMemory resolved provenance/direct rows 与 durable claim fake。D 组 staged migration/date rollover 暂未处理。
+
+## 2026-08-06 — Phase 64.2 Plan 09 remediation C 首轮暴露 CWC reduced policy ref
+
+**问题现象**
+C 组六文件首轮回归为 `117 passed, 8 failed, 1 warning`；8 项均在 `tests/memory/test_case_working_context_repo.py` 的共享 `_content` 构造阶段失败，尚未进入 repository 写入。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/agent/test_case_working_context_lifecycle.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_case_precedent_generation.py tests/memory/test_case_working_context_repo.py tests/memory/test_memory_policy.py tests/memory/test_phase45_contract_alignment.py`。Pydantic 对 `CaseWorkingContextPolicyRefV1` 报 tenant/evidence/doc/policy/hash/retrieval 等字段缺失。
+
+**关键证据或命令**
+共享 fixture 仍调用 `CaseWorkingContextPolicyRefV1(doc_id="refund-policy", chunk_id="refund-policy#001", version="v1")`，但该名字现在只是 `EvidenceRefV1` 的 compatibility import，不是旧 reduced model；Plan 05 后 canonical ref 还必须携带完整 tenant-policy scope 与 document/chunk version binding。
+
+**当前判断/根因**
+这是 CWC 历史 fixture 的第二层漂移：旧 verified-fact shape 先前在更早阶段失败，遮住了同一 `_content` 中的 reduced policy ref。没有生产代码失败证据，也不应恢复 reduced compatibility model。
+
+**已做处理**
+在同一测试文件新增共享 canonical policy-ref constructor，通过 `PersistedEvidenceIdentityMaterialV1` 与 `mint_canonical_evidence_identity` 生成完整 immutable binding，再由 `EvidenceRefV1.from_canonical_identity` 投影；所有 repository 用例继续从统一 `_content` 消费该 ref，未修改 production 或增加 fallback。
+
+**剩余问题和下次继续排查入口**
+重跑 C 六文件、全局 `--lf`、scoped Ruff 与 memory architecture guards；只有全部通过后才提交 C 组。
+
+## 2026-08-06 — Phase 64.2 Plan 09 C 组 guard 文件探测触发 zsh nomatch
+
+**问题现象**
+定位 memory architecture guards 时，命令中的 `tests/memory/test_*architecture*` 没有匹配文件，zsh 在执行 `rg` 前报 `no matches found`；同一命令中其他只读定位仍返回了实际 guard 路径。
+
+**如何检测/复现**
+在仓库根目录运行包含未引用 glob 的 `rg -l ... tests/memory/test_*architecture* ...`；当前目录不存在匹配文件时即可复现。
+
+**关键证据或命令**
+shell 输出为 `zsh:2: no matches found: tests/memory/test_*architecture*`。随后直接使用已确认的精确路径 `tests/architecture/test_evidence_memory_integrity_boundaries.py` 与 `tests/architecture/test_memory_contract_delta.py` 执行验证。
+
+**当前判断/根因**
+这是 zsh `nomatch` 的命令探测错误，不是测试、产品代码或 architecture guard 失败；该次 glob 命令不作为验证结论。
+
+**已做处理**
+改用 `rg --files tests | rg 'architecture|phase64_2|contract_alignment'` 输出的精确路径，并以项目入口重跑相关 guards，结果为 `43 passed, 1 warning`。
+
+**剩余问题和下次继续排查入口**
+后续文件探测避免未引用 glob，优先使用 `rg --files` 后管道过滤或传递精确路径。
+
+## 2026-08-06 — Phase 64.2 Plan 09 remediation D 暴露不可逆 cutover 与 mutable-only 搜索夹具
+
+**问题现象**
+D 组新增共享 staged helper 后，首轮精确六项仍为 `6 failed`。五个 migration 测试都已成功通过 025 expansion 与真实 dual-write CAS/health activation 并升级到 head，但随后尝试从 028 一路降到旧 revision 时被 026 保留门禁拒绝；搜索测试把 effective date 与 projected effective_at 固定同日后仍返回 `no_evidence`。
+
+**如何检测/复现**
+使用项目入口运行 D 组六个历史失败节点。migration 失败统一为 `refusing downgrade: immutable history, dependencies, snapshots, or canonical refs exist`；search 命中 mutable `PolicyChunk` 后，在 canonical evidence ref 重取阶段 fail closed。
+
+**关键证据或命令**
+`026_phase64_2_evidence_cutover.downgrade()` 明确在 canonical reads、watermark/reconciliation 或 immutable rows 存在时拒绝降级。共享 helper 的 025 默认态断言与 `EvidenceVersionRepository.activate_dual_write(expected_rollout_version=0, ...)` 均已通过，说明升级 gate 正常。搜索 fixture 只直插 mutable document/chunk，没有 immutable current binding 与已启用 rollout；当前 `PolicyRetrievalEngine._evidence_refs_for_hits` 必须由 repository 精确重取 canonical identity。
+
+**当前判断/根因**
+两类均为旧 harness 语义错误，不是 production bug：早期 migration 的自身 downgrade 不应从不可逆的 Phase 64.2 cutover 之后穿越执行；当前搜索不能再把 mutable-only chunk 当成 canonical evidence。仅固定日期不足以修复第二层漂移。
+
+**已做处理**
+五个 migration 测试改为在各自 target revision 验证自身 downgrade/reupgrade，完成后从 reupgraded target 调同一共享 staged helper，经 production repository CAS/health owner 升到 head；未关闭或清空 rollout flag，未绕过 026 guard。搜索共享 seeder 使用 `EvidenceVersionRepository` 分配 sequence、追加 immutable version、reserve watermark、reconcile 并启用 canonical reads，同时固定 document/chunk effective date 与 API projected effective_at 为同一 UTC 日期。精确六项复跑为 `6 passed, 26 warnings`。
+
+**剩余问题和下次继续排查入口**
+后续完整验证已完成：五个历史 migration/search 文件及 Phase 64.2 immutable/cutover migration 文件为 `37 passed, 29 warnings`，scoped Ruff 与 diff check 通过；全局 `--lf` 因 lastfailed 已清空而自动回退为 full suite，最终为 `4455 passed, 4 skipped, 152 warnings in 1993.29s`。D 组无剩余失败；既有 LangGraph/Alembic/resource warnings 不作为本组回归，后续按独立维护入口处理。
+
+## 2026-08-06 — Phase 64.2 Plan 09 closeout artifact 探测再次触发 zsh nomatch
+
+**问题现象**
+closeout 前探测 UAT/SECURITY/SUMMARY 文件时，命令把不存在的 `*UAT*`、`*SECURITY*` 作为未引用 glob 直接交给 zsh；shell 在执行 `rg` 前报 `no matches found`。
+
+**如何检测/复现**
+在 phase 目录尚无 UAT/SECURITY 文件时运行包含 `.planning/.../*UAT*` 或 `.planning/.../*SECURITY*` 的未引用 glob，即可复现。
+
+**关键证据或命令**
+失败输出为 `zsh: no matches found: .planning/.../*UAT*`。随后改用 `find <phase-dir> -maxdepth 1 \( -name '*UAT*' -o -name '*SECURITY*' -o -name '*SUMMARY*' \) -type f -print`，确认当时没有 UAT/SECURITY，只有既有 Plan 01-08 summaries。
+
+**当前判断/根因**
+这是重复出现的 zsh `nomatch` 文件探测错误，不是测试、产品代码或 closeout artifact 内容失败；失败的 glob 命令不作为验证证据。
+
+**已做处理**
+后续全部使用精确路径，或先通过 `rg --files` / `find` 获得存在的路径；Plan 09 UAT 由本次 closeout 显式创建，不增造独立 SECURITY artifact。
+
+**剩余问题和下次继续排查入口**
+无功能性剩余问题。后续 zsh 环境继续避免对可能不存在的路径使用未引用 glob。
+
+## 2026-08-06 — Phase 64.2 Plan 09 SUMMARY 自检脚本覆盖 zsh 特殊 `path` 变量
+
+**问题现象**
+SUMMARY 首轮自检先正确打印五个 `FOUND` 文件，随后九个已存在 commit 被错误打印为 `MISSING`，同一 shell 继续报 `rg: command not found` 与 `git: command not found`。
+
+**如何检测/复现**
+在 zsh 中使用 `for path in ...`；小写 `path` 是与 `PATH` 绑定的特殊数组，循环赋值会覆盖命令搜索路径。后续外部命令因此无法启动，`git cat-file` 的 command-not-found 又被条件分支误判为 commit missing。
+
+**关键证据或命令**
+无效输出先有五个文件 `FOUND`，随后连续九个 commit `MISSING`，最后明确出现 `zsh: command not found: rg`、`zsh: command not found: git`。这些 commit 在前一轮 `git log`/`git cat-file` 中已存在，但必须在新的正常 shell 重跑后才作为最终自检依据。
+
+**当前判断/根因**
+这是自检脚本变量命名导致的单 shell PATH 污染，不是文件或 commit 丢失，也不影响已执行的 pytest/Ruff 结果；该轮自检整体作废。
+
+**已做处理**
+改用 `task_file` / `task_hash` 等非特殊变量，并在新的 exec shell 中从头重跑文件、commit、metadata marker、diff 与 status 自检。
+
+**剩余问题和下次继续排查入口**
+无。后续 shell 脚本禁止把 `path` 用作 zsh 循环/任务变量，并继续避免 `HOME` 等系统选项名。
+
+## 2026-08-06 — Phase 64.2 Review WR-02 扩大回归暴露 reduced evidence fixture
+
+**问题现象**
+将 verified-context 构造切换到 exact immutable validator 后，相关四文件回归为 `23 passed, 1 failed`；失败用例期望 tenant-public policy package 为 `verified`，实际按新边界返回 `no_evidence`。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/agent/rag_context/test_context_builder.py tests/knowledge/test_verified_evidence_package.py tests/knowledge/test_phase22_evidence_validation.py tests/knowledge/test_tenant_scope.py`，失败节点为 `tests/knowledge/test_tenant_scope.py::test_tenant_public_policy_does_not_create_merchant_scoped_business_fact_authority`。
+
+**关键证据或命令**
+该正向 fixture 仍手工构造 `refund-policy/chunk_001@v3` reduced ref，缺少 `scope_type/scope_id`、document/chunk immutable version IDs 与版本号；fake retriever 也只暴露 mutable logical-key row，没有 `get_current_canonical_evidence_rows_by_keys` exact owner seam。
+
+**当前判断/根因**
+这是 Phase 64.2 evidence identity 收敛后的测试夹具漂移，不是 production 行为回归。新 fail-closed 结果正确；若恢复 legacy fallback 会重新打开 WR-02 的伪造 identity 漏洞。
+
+**已做处理**
+正向 fixture 改为通过 `PersistedEvidenceIdentityMaterialV1` 与 `mint_canonical_evidence_identity` 生成完整 canonical ref；fake current-row resolver 返回相同 exact binding 后再验证 tenant-public policy 与 business-fact authority 分离语义。
+
+**剩余问题和下次继续排查入口**
+重跑上述四文件及 WR-02 real-PostgreSQL forged-ID 负向节点；只有 exact validator、兼容 fallback 不被调用、verified package 原有状态矩阵全部通过后才提交。
+
+## 2026-08-06 — Phase 64.2 Review fix 联合验证路径拼写与重叠 PostgreSQL 进程
+
+**问题现象**
+最终联合验证首轮引用了不存在的 `tests/memory/test_case_working_context_concurrency.py`，pytest 未收集测试；改正路径后，执行器返回后台 session，但编排时遗漏保存 session id，又误启动了第二组相同测试。两组进程并发重置同一个 PostgreSQL 测试库，随后出现 DDL deadlock 与系统表唯一约束冲突。
+
+**如何检测/复现**
+首轮运行包含错误路径的联合 pytest 命令，可见 `ERROR: file or directory not found: tests/memory/test_case_working_context_concurrency.py`；真实文件为 `tests/memory/test_case_memory_concurrency.py`。随后若同时启动两组使用同一 `moca_test` 数据库、都会执行 schema reset/create 的测试，即可触发共享 DDL 冲突。
+
+**关键证据或命令**
+重叠运行输出包含 PostgreSQL `deadlock detected`，以及 `pg_type_typname_nsp_index` 的 `UniqueViolationError`。进程检查确认仍有一组 `uv run pytest`（PID 16111）及其仓库虚拟环境 pytest 子进程（PID 16122）存活；两者均来自当前 worktree 的联合验证命令。
+
+**当前判断/根因**
+这是验证命令路径拼写与后台进程编排错误，不是产品代码回归。路径错误轮次没有测试结论；共享数据库重叠轮次受到测试间 DDL 竞争污染，同样不能作为代码结论。
+
+**已做处理**
+已用精确 PID 向当前 worktree 的遗留 pytest 父子进程发送终止信号，并确认进程退出。后续使用正确路径，按批次串行运行共享 PostgreSQL 测试；后台执行必须保存 session id，并持续轮询到明确 exit code，禁止启动重叠副本。
+
+**剩余问题和下次继续排查入口**
+已按无重叠顺序完成最终 review-fix 验证：数据库/生命周期主批次 `129 passed, 1 warning`，RAG/工作记忆/架构边界批次 `37 passed, 1 warning`，三个真实 PostgreSQL 集成节点 `3 passed, 4 warnings`；合计 `169 passed`。所有修改文件的 scoped Ruff 为 `All checks passed!`。当前无剩余回归，后续仍须保持共享 PostgreSQL 测试串行执行并完整轮询后台 session。
+
+## 2026-08-06 — Phase 64.2 security artifact 探测再次触发 zsh nomatch
+
+**问题现象**
+在读取 UAT / VALIDATION 并探测 SECURITY artifact 时，使用了未加保护的 `ls .../*SECURITY.md`；当前 phase 尚无匹配文件，zsh 在命令执行前报 `no matches found`。首次追加本条记录时又因 ledger 尾部已被并行修复提交更新，`apply_patch` 使用的旧上下文未命中。
+
+**如何检测/复现**
+在 zsh 中对不存在匹配项的路径执行 `ls .planning/phases/64.2-evidence-identity-immutable-replay-and-memory-provenance/*SECURITY.md 2>/dev/null || true`；或者在文件被并行追加后，使用已经过期的尾部文本作为 patch anchor。
+
+**关键证据或命令**
+终端输出包括 `zsh:1: no matches found: .../*SECURITY.md`，以及首次补录的 `apply_patch verification failed: Failed to find expected lines`。同一轮 UAT / VALIDATION 读取成功；错误只影响 SECURITY 存在性探测与第一次记录尝试。
+
+**当前判断/根因**
+前者是 zsh `nomatch` 行为，`|| true` 无法拦截命令执行前的 glob 展开；后者是并行代理刚提交了同一 ledger，导致补丁锚点过期。两者都不是 phase 安全验证或产品代码失败。
+
+**已做处理**
+改用 `find <phase_dir> -maxdepth 1 -name '*-SECURITY.md' -print` 确认 SECURITY artifact 尚不存在；重新读取 ledger 尾部后，用最新锚点通过 `apply_patch` 追加本记录。后续 planning artifact 探测不再对可能为空的 zsh glob 使用裸 `ls`。
+
+**剩余问题和下次继续排查入口**
+无。Stage 8 将按 `gsd-secure-phase` 创建 SECURITY artifact；共享 ledger 并行更新后，写入前必须重新读取目标上下文。
+
+## 2026-08-06 — Phase 64.2 review-fix iteration 2 首轮负向测试误判 decision taxonomy
+
+**问题现象**
+authoritative ref 混合列表修复的首轮定向验证中，新增 business-fact 负向测试失败：实际 `decision` 为 `observe`，测试错误预期为 `reject`；同一轮其余三条 policy/exact-resolver 用例通过。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/agent/test_case_working_context_lifecycle.py::test_terminal_projection_rejects_mixed_malformed_business_ref_list ...`；首轮输出为 `1 failed, 3 passed`，失败仅位于新增的 `assert content.observations[0].decision == "reject"`。
+
+**关键证据或命令**
+失败差异为 `AssertionError: assert 'observe' == 'reject'`。同一对象已满足安全边界：`verified_facts == []`、`policy_refs == []`、`reference_validation == "invalid"`。
+
+**当前判断/根因**
+测试误把 business-fact invalid authoritative ref 的既有 non-promoted taxonomy 写成 policy scope-invalid 路径的 `reject`。产品修复本身已 fail-closed；business 路径按现有 `fact_promotion` 契约保留为 `observe`，policy scope-invalid 路径保持 `reject`。
+
+**已做处理**
+按每-finding 回滚协议先回滚 source/test/架构台账三文件并确认恢复，再重新应用相同 parser 修复，把 business 断言改为 `observe`，保留不进入 promoted facts/provenance 与 invalid validation 的核心断言。随后定向 `4 passed, 1 warning`；生命周期整文件加 migration retry、forged immutable-ID 回归串行验证为 `58 passed, 4 warnings`；AST 与 scoped Ruff 均通过。
+
+**剩余问题和下次继续排查入口**
+无产品代码剩余问题。后续 authoritative ref 负向测试应分别断言 fail-closed 结果与各 authority class 的既有 decision taxonomy，避免把 `observe`/`reject` 的展示语义误当成是否 promotion 的安全判据。
+
+## 2026-08-06 — Phase 64.2 RAG combined status 节点遗漏 exact fixture 迁移
+
+**问题现象**
+post-review full suite 中 `test_rag_context_build_combined_invalid_scope_stale_policy_version_and_invalid_hash_fail_closed` 期望 `invalid_hash`，实际返回 `no_evidence`；单节点复现结果相同。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_rag_context_build.py::test_rag_context_build_combined_invalid_scope_stale_policy_version_and_invalid_hash_fail_closed -q --tb=short`，无需 PostgreSQL 即稳定复现。
+
+**关键证据或命令**
+直接执行该 fixture 得到 `status=no_evidence`、`reason_codes=[evidence_unavailable,candidate_ref_invalid]`，且 fake 的 legacy row 查询调用为零。对照 canonical hard-gate 用例为 `3 passed`；只把同一 combined 输入改为完整 immutable refs/rows 与 current-row fake 的内存反事实验证后，结果为 `invalid_hash`，原因码为 `evidence_unavailable/latest_version_invalid/text_hash_mismatch`。详见 `.planning/debug/phase64-2-rag-status.md`。
+
+**当前判断/根因**
+不是 production precedence 回归。commit `941a9f7` 将 verified-context 路径切到 `validate_current_evidence`，并迁移了 knowledge service 的 canonical fixture，但遗漏了这个六月创建的 node fixture；其 `EvidenceRefV1.build`、reduced row 和缺少 `get_current_canonical_evidence_rows_by_keys` 的 fake 无法通过 exact identity gate，因此尚未进入 stale/hash 分类即统一 fail closed。exact validator 对 invalid scope 的 bounded reason 是 `evidence_unavailable`，旧断言 `tenant_mismatch` 也已漂移。
+
+**已做处理**
+本轮为 diagnose-only，仅完成隔离复现、service/builder/node/fake 追踪、commit/blame 核对及 canonical 反事实验证；未修改产品代码或测试，未提交。
+
+**剩余问题和下次继续排查入口**
+后续只迁移该 node 测试 fixture：使用 canonical identity owner 生成 refs，fake row 带完整 identity，补 current-row API，并把 invalid-scope 原因断言改为 bounded `evidence_unavailable`；继续保留 combined status `invalid_hash`，禁止给 production 恢复 legacy fallback。
+
+## 2026-08-06 — Phase 64.2 approval 集成 fixture 缺少 canonical-read rollout singleton
+
+**问题现象**
+post-review full suite 中四个高风险 approval 集成节点都在读取 `approval_id` 时抛出 `KeyError`，表面看似 interrupt payload 丢字段，实际请求并未进入 approval interrupt。
+
+**如何检测/复现**
+串行运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/integration/test_phase64_1_runtime_safety_matrix.py::test_high_action_uses_latest_decision_context_before_one_approved_draft tests/test_approval_integration.py::test_high_risk_approve_flow_interrupts_resumes_executes_action tests/test_approval_integration.py::test_high_risk_reject_flow_completes_without_action tests/test_approval_integration.py::test_idempotent_approve_does_not_duplicate_action_draft -q --tb=short`，稳定得到 `4 failed`。单节点加 `--showlocals` 可见 HTTP 200 返回 `final_status=completed`、`rag_context_status=no_evidence`、`rejected_candidate_count=1`，执行节点止于 `rag_context_build`/`final_response`。
+
+**关键证据或命令**
+`tests/conftest.py::test_engine` 用 `Base.metadata.create_all` 建表，不执行 migration 025 对 `evidence_identity_rollouts(id=1)` 的数据初始化；`_seed_approval_policy` 虽已创建 mutable/immutable rows 并通过 owner mint canonical ref，却没有 rollout singleton。commit `941a9f7` 后 `validate_current_evidence -> get_current_identities_by_keys` 要求存在且已启用的 canonical-read rollout。诊断用外部 pytest plugin 只补一个满足数据库约束的 enabled rollout singleton 后，四个原节点串行变为 `4 passed, 9 warnings`；未修改仓库产品代码或测试。
+
+**当前判断/根因**
+这是 Phase 64.2 exact current-evidence 合同启用后暴露的共享 approval 测试夹具漂移，不是 production approval payload/resume 回归。成功 interrupt serializer 仍无条件返回 `approval_id`；原失败在 `approval_gate` 前已经 fail closed。生产 migration 025 会创建 singleton，migration 026 按 staged cutover 启用 canonical reads，普通 `create_all` fixture 绕过了这段控制面初始化。
+
+**已做处理**
+本轮为 diagnose-only：完成四节点串行基线、完整实际 payload 检查、producer/validator/migration 追踪，以及 rollout-only 因果反事实；详细证据见 `.planning/debug/phase64-2-approval-payload.md`。未修产品/测试，未提交。
+
+**剩余问题和下次继续排查入口**
+后续在 `mock_graph` / `_seed_approval_policy` 范围内补 production-consistent canonical rollout setup，优先抽取可复用 helper 并保持 dual-write/current-read 状态内部一致；不要在未审计其他 rollout 负向测试前全局修改 `test_engine`，也不要恢复 legacy evidence fallback。修复后重跑上述四节点及相关 approval 集成文件。
+
+## 2026-08-06 — Phase 64.2 全量测试轮询包装器两次语法失败
+
+**问题现象**
+post-review 全量 pytest 在后台正常运行期间，两次用于轮询同一 session 的 JavaScript 工具包装器返回 `SyntaxError: Invalid or unexpected token`；pytest 本身没有被中断或重复启动，后续轮询仍取得完整结束结果。
+
+**如何检测/复现**
+对既有长跑 pytest session 使用轮询工具时，包装器在进入底层 session 读取前解析失败；重试同一 session id 即恢复。最终原进程正常结束为 `5 failed, 4457 passed, 4 skipped`。
+
+**关键证据或命令**
+两次失败都只出现 JavaScript `SyntaxError`，没有 pytest traceback、没有新增 pytest PID，也没有数据库 DDL 并发；后续对原 session 的读取连续返回测试进度并最终给出 exit code 1。
+
+**当前判断/根因**
+这是编排层包装器字符串解析问题，不是 MOCA 产品或测试运行时失败。全量测试的 5 个真实失败已分别归因于 RAG combined fixture 与 approval rollout fixture 漂移。
+
+**已做处理**
+保持原 pytest 进程单实例运行，仅重试轮询；确认完整结果后再进入 diagnose 流程，没有把包装器错误计入测试结论。
+
+**剩余问题和下次继续排查入口**
+无产品侧剩余问题。后续长跑命令继续保存 session id、只轮询既有进程，并保持轮询包装器输入简单，避免嵌入不必要的转义文本。
+
+## 2026-08-06 — Phase 64.2 verify-work 的 audit-open 命令与本机 gsd-tools 不兼容
+
+**问题现象**
+UAT gap 修复并提交后，按 verify-work 收尾尝试运行 `gsd-tools audit open`，本机安装的 CLI 返回 `Unknown command: audit`；随后尝试常见的 `--help` 也返回该工具不接受 help/version flag。
+
+**如何检测/复现**
+运行 `node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs audit open`，再运行同一入口的 `--help`；前者报未知命令，后者提示应无参数运行以显示 usage。
+
+**关键证据或命令**
+无参数运行后，usage 只列出 `state`、`verify`、`frontmatter`、`init`、`workstream` 等命令，确实没有 `audit`。这发生在 UAT 已用 `4462 passed, 4 skipped` 关闭之后，不影响测试结果。
+
+**当前判断/根因**
+当前本机 `gsd-tools.cjs` 版本与 verify-work 文档中的 audit-open 辅助命令不一致，属于 GSD 工具版本/接口差异，不是 MOCA 产品或 UAT 失败。
+
+**已做处理**
+停止调用不存在的命令，改为直接读取当前 phase 的 UAT frontmatter、Tests/Summary/Gaps，并通过仓库搜索检查 open UAT 状态；不伪造 audit-open 成功结论。
+
+**剩余问题和下次继续排查入口**
+无产品侧剩余问题。后续若升级 GSD，可重新核对 audit-open 的实际入口；升级前继续使用 artifact 直接审计。
+
+## 2026-08-06 — Phase 64.2 GitHub push 直连未使用 macOS 系统代理
+
+**问题现象**
+Phase 64.2 本地 closeout 完成且工作树干净后，首次执行 `git push -u origin codex/phase-64-2` 长时间无进度，最终返回 `Empty reply from server`；强制 HTTP/1.1 的第二次直连又在 75 秒后返回无法连接 `github.com:443`。
+
+**如何检测/复现**
+在已通过 `gh auth status`、远端为 `https://github.com/weijie567/MOCA.git` 的独立分支上执行上述 push，而 shell 未导出 proxy 环境变量。直接 `curl -I https://github.com` 同样超时；`scutil --proxy` 显示 macOS HTTPS proxy 为 `127.0.0.1:53824`，显式 `curl -x http://127.0.0.1:53824 -I https://github.com` 返回 200。
+
+**关键证据或命令**
+首次失败后 `git status -sb` 仍显示 `codex/phase-64-2...origin/main [ahead 85]`；`git ls-remote --heads origin codex/phase-64-2` 无输出。GitHub API 域名可访问且认证正常；SSH 网络可达但本机没有 GitHub SSH public key。最终使用一次性 `git -c http.proxy=http://127.0.0.1:53824 -c https.proxy=http://127.0.0.1:53824 push -u origin codex/phase-64-2` 成功创建并 tracking 远端分支。
+
+**当前判断/根因**
+根因是本机 shell/Git 直连路径没有自动采用 macOS 系统代理，而当前网络到 `github.com:443` 的直连不可达；不是代码、分支、GitHub token 或仓库权限错误。
+
+**已做处理**
+没有并发 push；先确认远端分支不存在，再完成直连/API/SSH/系统代理的只读诊断。只对成功路径临时传入本地代理参数，没有修改永久 Git 配置；远端 `codex/phase-64-2` 已创建并设置 tracking。
+
+**剩余问题和下次继续排查入口**
+本次 push 问题已解决。后续在相同桌面网络中若 GitHub CLI/Git 直连超时，应先读取 `scutil --proxy` 并显式传入当前代理，而不是重复直连或创建临时 SSH key。
+
+## 2026-08-06 — Phase 64.2 PR lint 暴露漏跑 Ruff formatter gate
+
+**问题现象**
+PR #3 的 GitHub Actions `test` job 通过，但 `lint` job 失败；`uv run ruff check .` 为绿色，随后独立的 `uv run ruff format --check .` 报告 26 个 Phase 64.2 Python 文件需要格式化。
+
+**如何检测/复现**
+查看 Actions run `31073980464` / lint job `92527761866`，或在 `codex/phase-64-2` 执行 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .`。本地结果与 CI 一致：`26 files would be reformatted, 485 files already formatted`。
+
+**关键证据或命令**
+CI 中 `uv run ruff check .` 已通过，失败步骤仅为 formatter check。执行 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format .` 后恰好重排同一批 26 个文件，产生纯机械排版 diff（139 insertions / 191 deletions），没有新增文件或业务逻辑修复。
+
+**当前判断/根因**
+Phase closeout 只把 Ruff lint (`ruff check`) 作为仓库门禁，没有同时运行 CI 独立要求的 Ruff formatter gate (`ruff format --check`)；因此本地“Ruff 通过”结论不包含格式合规性。这是验证门禁遗漏，不是产品功能回归。
+
+**已做处理**
+已运行 Ruff formatter，并复跑 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .`、`UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .` 与 `git diff --check`，全部通过；额外串行重跑 Phase 64.2 聚合回归，结果为 `210 passed, 18 warnings in 269.23s`。
+
+**剩余问题和下次继续排查入口**
+本地修复已完成，待 push 后确认 PR lint 重跑转绿。后续 phase closeout 必须同时执行 `ruff check .` 与 `ruff format --check .`，不能用前者替代后者。

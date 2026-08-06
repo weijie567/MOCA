@@ -6,11 +6,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from src.memory.identity import (
-    canonical_memory_candidate_hash,
-    canonical_memory_content_hash,
-    canonical_source_identity_hash,
-)
+from src.memory.identity import MemoryCandidateIdentityV1, build_long_term_memory_candidate_identity
 from src.memory.policy import (
     is_blocked_memory_write_pii_classification,
     long_term_memory_policy_decision,
@@ -56,15 +52,15 @@ class LongTermMemoryService:
         now: datetime | None = None,
     ) -> LongTermMemoryWriteResult:
         now = _aware(now)
-        identity = _candidate_identity(candidate)
+        identity = build_long_term_memory_candidate_identity(candidate)
         policy_decision = _policy_decision_for_candidate(candidate)
         tombstone = await self.repository.check_tombstone_before_write(
             tenant_id=candidate.tenant_id,
             memory_type=LONG_TERM_MEMORY_TYPE,
             scope_type=candidate.scope_type,
             scope_id=candidate.scope_id,
-            content_hash=identity["content_hash"],
-            source_identity_hash=identity["source_identity_hash"],
+            content_hash=identity.content_hash,
+            source_identity_hash=identity.source_identity_hash,
             now=now,
         )
         if tombstone is not None:
@@ -76,8 +72,8 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="tombstone_match",
                 pii_classification=candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                source_ref_json=identity["source_ref_json"],
+                candidate_hash=identity.candidate_hash,
+                source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
                 blocked_by=["tombstone_match"],
             )
             return LongTermMemoryWriteResult(
@@ -87,9 +83,9 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="tombstone_match",
                 pii_classification=candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                content_hash=identity["content_hash"],
-                source_identity_hash=identity["source_identity_hash"],
+                candidate_hash=identity.candidate_hash,
+                content_hash=identity.content_hash,
+                source_identity_hash=identity.source_identity_hash,
                 event_id=event.id,
             )
 
@@ -102,8 +98,8 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="pii_blocked",
                 pii_classification=candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                source_ref_json=identity["source_ref_json"],
+                candidate_hash=identity.candidate_hash,
+                source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
                 **_policy_event_kwargs(policy_decision),
             )
             return LongTermMemoryWriteResult(
@@ -113,9 +109,9 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="pii_blocked",
                 pii_classification=candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                content_hash=identity["content_hash"],
-                source_identity_hash=identity["source_identity_hash"],
+                candidate_hash=identity.candidate_hash,
+                content_hash=identity.content_hash,
+                source_identity_hash=identity.source_identity_hash,
                 event_id=event.id,
             )
 
@@ -157,20 +153,20 @@ class LongTermMemoryService:
             tenant_id=candidate.tenant_id,
             scope_type=candidate.scope_type,
             scope_id=candidate.scope_id,
-            content_hash=identity["content_hash"],
+            content_hash=identity.content_hash,
             now=now,
         )
         await self.repository.retire_unpublished_current_by_content_hash(
             tenant_id=candidate.tenant_id,
             scope_type=candidate.scope_type,
             scope_id=candidate.scope_id,
-            content_hash=identity["content_hash"],
+            content_hash=identity.content_hash,
         )
         existing = await self.repository.get_active_by_content_hash(
             tenant_id=candidate.tenant_id,
             scope_type=candidate.scope_type,
             scope_id=candidate.scope_id,
-            content_hash=identity["content_hash"],
+            content_hash=identity.content_hash,
             now=now,
         )
         if existing is not None:
@@ -182,8 +178,8 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="duplicate_active_identity",
                 pii_classification=candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                source_ref_json=identity["source_ref_json"],
+                candidate_hash=identity.candidate_hash,
+                source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
                 blocked_by=["duplicate_active_identity"],
             )
             return LongTermMemoryWriteResult(
@@ -193,18 +189,18 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="duplicate_active_identity",
                 pii_classification=candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                content_hash=identity["content_hash"],
-                source_identity_hash=identity["source_identity_hash"],
+                candidate_hash=identity.candidate_hash,
+                content_hash=identity.content_hash,
+                source_identity_hash=identity.source_identity_hash,
                 event_id=event.id,
             )
 
         review_status = policy_decision.review_status or "needs_review"
         memory = await self.repository.insert_memory(
             candidate,
-            content_hash=identity["content_hash"],
-            source_ref_json=identity["source_ref_json"],
-            source_identity_hash=identity["source_identity_hash"],
+            content_hash=identity.content_hash,
+            source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
+            source_identity_hash=identity.source_identity_hash,
             review_status=review_status,
             now=now,
             is_current=review_status in PUBLISHED_LONG_TERM_REVIEW_STATUSES,
@@ -217,8 +213,8 @@ class LongTermMemoryService:
             decision=policy_decision.decision,
             reason_code=policy_decision.reason_code,
             pii_classification=candidate.pii_classification,
-            candidate_hash=identity["candidate_hash"],
-            source_ref_json=identity["source_ref_json"],
+            candidate_hash=identity.candidate_hash,
+            source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
             **_policy_event_kwargs(policy_decision),
         )
         return LongTermMemoryWriteResult(
@@ -228,9 +224,9 @@ class LongTermMemoryService:
             decision=policy_decision.decision,
             reason_code=policy_decision.reason_code,
             pii_classification=candidate.pii_classification,
-            candidate_hash=identity["candidate_hash"],
-            content_hash=identity["content_hash"],
-            source_identity_hash=identity["source_identity_hash"],
+            candidate_hash=identity.candidate_hash,
+            content_hash=identity.content_hash,
+            source_identity_hash=identity.source_identity_hash,
             event_id=event.id,
         )
 
@@ -258,7 +254,10 @@ class LongTermMemoryService:
             is_current=True,
             source_type="human_reviewed",
             source_ref_json=reviewed_source_ref,
-            source_identity_hash=canonical_source_identity_hash(reviewed_source_ref),
+            source_identity_hash=build_long_term_memory_candidate_identity(
+                pending,
+                source_ref=reviewed_source_ref,
+            ).source_identity_hash,
             expected_review_status="needs_review",
             now=now,
         )
@@ -272,7 +271,7 @@ class LongTermMemoryService:
             decision="write",
             reason_code=reason_code,
             pii_classification=memory.pii_classification,
-            candidate_hash=_candidate_hash_for_memory(memory),
+            candidate_hash=build_long_term_memory_candidate_identity(memory).candidate_hash,
             source_ref_json=dict(memory.source_ref_json or {}),
         )
 
@@ -301,7 +300,7 @@ class LongTermMemoryService:
             decision="skip",
             reason_code=reason_code,
             pii_classification=memory.pii_classification,
-            candidate_hash=_candidate_hash_for_memory(memory),
+            candidate_hash=build_long_term_memory_candidate_identity(memory).candidate_hash,
             source_ref_json=dict(memory.source_ref_json or {}),
         )
 
@@ -334,7 +333,7 @@ class LongTermMemoryService:
             decision="delete",
             reason_code=reason_code,
             pii_classification=memory.pii_classification,
-            candidate_hash=_candidate_hash_for_memory(memory),
+            candidate_hash=build_long_term_memory_candidate_identity(memory).candidate_hash,
             source_ref_json=dict(memory.source_ref_json or {}),
         )
 
@@ -366,7 +365,7 @@ class LongTermMemoryService:
             decision="tombstone",
             reason_code=reason_code,
             pii_classification=memory.pii_classification,
-            candidate_hash=_candidate_hash_for_memory(memory),
+            candidate_hash=build_long_term_memory_candidate_identity(memory).candidate_hash,
             source_ref_json=dict(memory.source_ref_json or {}),
         )
 
@@ -397,15 +396,15 @@ class LongTermMemoryService:
         if not _is_current_published(previous, now):
             raise ValueError("long-term memory supersede requires current published row")
 
-        identity = _candidate_identity(replacement_candidate)
+        identity = build_long_term_memory_candidate_identity(replacement_candidate)
         policy_decision = _policy_decision_for_candidate(replacement_candidate)
         tombstone = await self.repository.check_tombstone_before_write(
             tenant_id=replacement_candidate.tenant_id,
             memory_type=LONG_TERM_MEMORY_TYPE,
             scope_type=replacement_candidate.scope_type,
             scope_id=replacement_candidate.scope_id,
-            content_hash=identity["content_hash"],
-            source_identity_hash=identity["source_identity_hash"],
+            content_hash=identity.content_hash,
+            source_identity_hash=identity.source_identity_hash,
             now=now,
         )
         if tombstone is not None:
@@ -417,8 +416,8 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="tombstone_match",
                 pii_classification=replacement_candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                source_ref_json=identity["source_ref_json"],
+                candidate_hash=identity.candidate_hash,
+                source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
                 blocked_by=["tombstone_match"],
             )
             return LongTermMemoryWriteResult(
@@ -428,9 +427,9 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="tombstone_match",
                 pii_classification=replacement_candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                content_hash=identity["content_hash"],
-                source_identity_hash=identity["source_identity_hash"],
+                candidate_hash=identity.candidate_hash,
+                content_hash=identity.content_hash,
+                source_identity_hash=identity.source_identity_hash,
                 event_id=event.id,
             )
 
@@ -443,8 +442,8 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="pii_blocked",
                 pii_classification=replacement_candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                source_ref_json=identity["source_ref_json"],
+                candidate_hash=identity.candidate_hash,
+                source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
                 **_policy_event_kwargs(policy_decision),
             )
             return LongTermMemoryWriteResult(
@@ -454,9 +453,9 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="pii_blocked",
                 pii_classification=replacement_candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                content_hash=identity["content_hash"],
-                source_identity_hash=identity["source_identity_hash"],
+                candidate_hash=identity.candidate_hash,
+                content_hash=identity.content_hash,
+                source_identity_hash=identity.source_identity_hash,
                 event_id=event.id,
             )
 
@@ -503,8 +502,8 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="expired_candidate",
                 pii_classification=replacement_candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                source_ref_json=identity["source_ref_json"],
+                candidate_hash=identity.candidate_hash,
+                source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
                 blocked_by=["expired_candidate"],
             )
             return LongTermMemoryWriteResult(
@@ -514,9 +513,9 @@ class LongTermMemoryService:
                 decision="skip",
                 reason_code="expired_candidate",
                 pii_classification=replacement_candidate.pii_classification,
-                candidate_hash=identity["candidate_hash"],
-                content_hash=identity["content_hash"],
-                source_identity_hash=identity["source_identity_hash"],
+                candidate_hash=identity.candidate_hash,
+                content_hash=identity.content_hash,
+                source_identity_hash=identity.source_identity_hash,
                 event_id=event.id,
             )
 
@@ -528,9 +527,9 @@ class LongTermMemoryService:
             previous.superseded_at = now
         replacement = await self.repository.insert_memory(
             replacement_candidate,
-            content_hash=identity["content_hash"],
-            source_ref_json=identity["source_ref_json"],
-            source_identity_hash=identity["source_identity_hash"],
+            content_hash=identity.content_hash,
+            source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
+            source_identity_hash=identity.source_identity_hash,
             review_status=review_status,
             now=now,
             supersedes=previous.id,
@@ -548,8 +547,8 @@ class LongTermMemoryService:
             decision=decision,
             reason_code=reason_code,
             pii_classification=replacement_candidate.pii_classification,
-            candidate_hash=identity["candidate_hash"],
-            source_ref_json=identity["source_ref_json"],
+            candidate_hash=identity.candidate_hash,
+            source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
             **_policy_event_kwargs(policy_decision),
         )
         return LongTermMemoryWriteResult(
@@ -559,9 +558,9 @@ class LongTermMemoryService:
             decision=decision,
             reason_code=reason_code,
             pii_classification=replacement_candidate.pii_classification,
-            candidate_hash=identity["candidate_hash"],
-            content_hash=identity["content_hash"],
-            source_identity_hash=identity["source_identity_hash"],
+            candidate_hash=identity.candidate_hash,
+            content_hash=identity.content_hash,
+            source_identity_hash=identity.source_identity_hash,
             event_id=event.id,
         )
 
@@ -602,7 +601,7 @@ async def _emit_skipped_candidate_result(
     *,
     candidate: LongTermMemoryWriteCandidate,
     run_id,
-    identity: dict[str, Any],
+    identity: MemoryCandidateIdentityV1,
     policy_decision,
     reason_code: str,
     blocked_by: list[str],
@@ -615,8 +614,8 @@ async def _emit_skipped_candidate_result(
         decision="skip",
         reason_code=reason_code,
         pii_classification=candidate.pii_classification,
-        candidate_hash=identity["candidate_hash"],
-        source_ref_json=identity["source_ref_json"],
+        candidate_hash=identity.candidate_hash,
+        source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
         policy_version=policy_decision.policy_version,
         blocked_by=blocked_by,
         authority_class=policy_decision.authority_class,
@@ -628,52 +627,10 @@ async def _emit_skipped_candidate_result(
         decision="skip",
         reason_code=reason_code,
         pii_classification=candidate.pii_classification,
-        candidate_hash=identity["candidate_hash"],
-        content_hash=identity["content_hash"],
-        source_identity_hash=identity["source_identity_hash"],
+        candidate_hash=identity.candidate_hash,
+        content_hash=identity.content_hash,
+        source_identity_hash=identity.source_identity_hash,
         event_id=event.id,
-    )
-
-
-def _candidate_identity(candidate: LongTermMemoryWriteCandidate) -> dict[str, Any]:
-    source_ref_json = _source_ref_json(candidate)
-    content_hash = canonical_memory_content_hash(
-        memory_type=LONG_TERM_MEMORY_TYPE,
-        content=candidate.content,
-    )
-    source_identity_hash = canonical_source_identity_hash(source_ref_json)
-    candidate_hash = canonical_memory_candidate_hash(
-        tenant_id=str(candidate.tenant_id),
-        memory_type=LONG_TERM_MEMORY_TYPE,
-        scope_type=candidate.scope_type,
-        scope_id=candidate.scope_id,
-        content_hash=content_hash,
-        source_identity_hash=source_identity_hash,
-    )
-    return {
-        "source_ref_json": source_ref_json,
-        "content_hash": content_hash,
-        "source_identity_hash": source_identity_hash,
-        "candidate_hash": candidate_hash,
-    }
-
-
-def _source_ref_json(candidate: LongTermMemoryWriteCandidate) -> dict[str, Any]:
-    if candidate.source_ref is None:
-        return {"source_type": candidate.source_type}
-    source_ref_json = candidate.source_ref.model_dump(exclude_none=True)
-    source_ref_json["source_type"] = candidate.source_type
-    return source_ref_json
-
-
-def _candidate_hash_for_memory(memory) -> str:
-    return canonical_memory_candidate_hash(
-        tenant_id=str(memory.tenant_id),
-        memory_type=LONG_TERM_MEMORY_TYPE,
-        scope_type=memory.scope_type,
-        scope_id=memory.scope_id,
-        content_hash=memory.content_hash,
-        source_identity_hash=memory.source_identity_hash,
     )
 
 

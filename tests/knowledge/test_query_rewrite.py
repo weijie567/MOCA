@@ -178,8 +178,16 @@ def test_knowledge_search_result_query_rewrite_uses_safe_summary_without_evidenc
         "chunk_id",
         "policy_version",
         "text_hash",
+        "scope_type",
+        "scope_id",
+        "document_version_id",
+        "chunk_version_id",
+        "document_version",
+        "chunk_version",
         "retrieved_at",
         "retrieval_config_version",
         "score",
         "rank",
     }
+    assert "query_rewrite" not in EvidenceRefV1.model_fields
+    assert "rerank_config_version" not in EvidenceRefV1.model_fields

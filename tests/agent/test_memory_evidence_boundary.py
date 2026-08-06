@@ -151,7 +151,13 @@ def _canonical_memory_context_load_metrics() -> dict:
 
 
 def test_session_memory_modules_do_not_import_evidence_ref_v1() -> None:
-    memory_sources = "\n".join(path.read_text() for path in Path("src/memory").glob("*.py"))
+    session_owner_paths = (
+        Path("src/memory/service.py"),
+        Path("src/memory/repository.py"),
+        Path("src/memory/session_bundle.py"),
+        Path("src/memory/thread_summary.py"),
+    )
+    memory_sources = "\n".join(path.read_text() for path in session_owner_paths)
     memory_write_source = Path("src/agent/nodes/memory_write.py").read_text()
 
     assert "from src.knowledge.schemas import EvidenceRefV1" not in memory_sources

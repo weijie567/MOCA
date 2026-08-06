@@ -58,6 +58,7 @@ class ContextBuilder:
         business_fact_refs: Sequence[BusinessFactRefV1],
         trusted_context: Mapping[str, Any],
         risk_hints: Sequence[Mapping[str, Any]] | None = None,
+        _validated_evidence_details: Any | None = None,
     ) -> RagContextBundle:
         build_input = RagContextBuildInput(
             candidate_evidence_refs=list(candidate_evidence_refs),
@@ -73,6 +74,7 @@ class ContextBuilder:
             tenant_id=tenant_id,
             refs=retained_refs,
             trusted_context=build_input.trusted_context,
+            validated_evidence_details=_validated_evidence_details,
         )
 
         included: list[_IncludedEvidence] = []
@@ -206,7 +208,16 @@ class ContextBuilder:
         tenant_id: str,
         refs: list[EvidenceRefV1],
         trusted_context: Mapping[str, Any],
+        validated_evidence_details: Any | None,
     ) -> tuple[dict[str, str], list[EvidenceTraceEntry]]:
+        if validated_evidence_details is not None:
+            return _contents_from_verified_details(validated_evidence_details)
+        if hasattr(self.policy_service, "validate_current_evidence"):
+            return await self._current_evidence_details(
+                tenant_id=tenant_id,
+                refs=refs,
+                trusted_context=trusted_context,
+            )
         if hasattr(self.policy_service, "get_verified_evidence_details"):
             result = await self._verified_details(tenant_id=tenant_id, refs=refs, trusted_context=trusted_context)
             if result is not None:
@@ -216,6 +227,26 @@ class ContextBuilder:
             if result is not None:
                 return result
         return await self._verified_contents(tenant_id=tenant_id, refs=refs), []
+
+    async def _current_evidence_details(
+        self,
+        *,
+        tenant_id: str,
+        refs: list[EvidenceRefV1],
+        trusted_context: Mapping[str, Any],
+    ) -> tuple[dict[str, str], list[EvidenceTraceEntry]]:
+        try:
+            result = await self.policy_service.validate_current_evidence(
+                tenant_id=tenant_id,
+                evidence_refs=refs,
+                effective_at=_optional_str(trusted_context.get("effective_at")),
+                merchant_scope=_merchant_scope(trusted_context),
+                doc_type=_expected_doc_type(trusted_context),
+                risk_level=_expected_risk_level(trusted_context),
+            )
+        except Exception:
+            return {}, [_trace(ref, "evidence_unavailable") for ref in refs]
+        return _contents_from_verified_details(result)
 
     async def _verified_contents(self, *, tenant_id: str, refs: list[EvidenceRefV1]) -> dict[str, str]:
         if not refs or not hasattr(self.policy_service, "get_verified_evidence_contents"):
@@ -248,15 +279,7 @@ class ContextBuilder:
         except Exception:
             return None
 
-        included = _get_attr_or_key(result, "included", {})
-        raw_exclusions = _get_attr_or_key(result, "excluded", [])
-        contents: dict[str, str] = {}
-        for evidence_id, detail in dict(included).items():
-            content = _get_attr_or_key(detail, "content", None)
-            if isinstance(content, str):
-                contents[str(evidence_id)] = content
-        exclusions = [_exclusion_from_detail(item) for item in list(raw_exclusions)]
-        return contents, exclusions
+        return _contents_from_verified_details(result)
 
     async def _canonical_row_contents(
         self,
@@ -506,6 +529,19 @@ def _get_attr_or_key(value: Any, key: str, default: Any = None) -> Any:
     if isinstance(value, Mapping):
         return value.get(key, default)
     return getattr(value, key, default)
+
+
+def _contents_from_verified_details(value: Any) -> tuple[dict[str, str], list[EvidenceTraceEntry]]:
+    included = _get_attr_or_key(value, "included", {})
+    raw_exclusions = _get_attr_or_key(value, "excluded", [])
+    contents: dict[str, str] = {}
+    if isinstance(included, Mapping):
+        for evidence_id, detail in included.items():
+            content = _get_attr_or_key(detail, "content", None)
+            if isinstance(content, str):
+                contents[str(evidence_id)] = content
+    exclusions = [_exclusion_from_detail(item) for item in list(raw_exclusions or [])]
+    return contents, exclusions
 
 
 def _exclusion_from_detail(value: Any) -> EvidenceTraceEntry:

@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.main import app
 from src.approvals.service import ApprovalService
 from src.db.models import ActionDraft, AgentRun, ApprovalAssignment, ApprovalLevel, ApprovalRequest
-from tests.approvals.test_service_transitions import _create_command, _create_run, _phase34_binding_overrides
+from tests.approvals.test_service_transitions import (
+    _canonical_phase34_binding,
+    _create_command,
+    _create_run,
+)
 
 
 pytestmark = pytest.mark.asyncio
@@ -233,7 +237,11 @@ async def _create_manual_approval(
         user_id=requested_by,
         thread_id=f"manual-approval-{uuid4()}",
     )
-    binding_overrides = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    binding_overrides = await _canonical_phase34_binding(
+        session,
+        tenant_id=tenant_id,
+        run_id=run_id,
+    )
     run = await session.get(AgentRun, run_id)
     assert run is not None
     run.scope_classification = "business_merchant"

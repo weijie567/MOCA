@@ -3,6 +3,24 @@
 > 本文件记录 MOCA 各子系统在代码走查、phase 实现、本地验证中**检测出的 bug、设计缺陷、遗留妥协**，以及**已完成的修复**。
 > 与 `LOCAL-VALIDATION-ISSUES.md` 的分工：那个记「本地调试/启动/验证时踩到的具体事故」；本文件记「子系统级的架构缺陷与处理台账」，颗粒度更粗、生命周期更长。
 
+## 2026-08-05 — Phase 64.2 Plan 02 Task 2 evidence cutover 精确零缺口已修复验证 ✅
+
+- **子系统**：RAG ingestion / immutable evidence backfill / canonical-read cutover。
+- **问题现象/根因**：migration 026 初版最终 gap SQL 只证明 exact tenant/scope/doc/version 下存在 document version，并通过一个对合法 `sha256:` 字符串恒真的表达式检查 hash 形状；没有重算当前 document hash，也没有比较当前/immutable chunk identity + text hash 集合。因此错误或残缺 immutable binding 可能被误计为 zero-gap 后开启 canonical reads。
+- **影响**：cutover 可能在 current head 与 retained immutable evidence 不一致时错误启用 canonical reads，破坏 T64.2-02 的 append-only / watermark reconciliation 边界，并使后续 replay 引用错误历史材料。
+- **处理状态**：✅ 已修复验证。migration 和 `EvidenceVersionRepository` 现在都按 exact `scope_type="tenant_policy"`、`scope_id=str(tenant_id)`、document version/fingerprint/recomputed content hash、唯一 logical chunk 与完整 chunk text-hash 集合验证绑定；final scan、zero-gap assertion 和 CAS activation 连续持有 singleton rollout lock。backfill 遇到 missing/ambiguous/mismatched mapping 只标记 `legacy_unresolved`，不猜测 scope/authority。
+- **证据**：Phase 64.2 Plan 02 Task 2；`src/db/migrations/versions/026_phase64_2_evidence_cutover.py`、`src/repositories/evidence_version_repo.py`、`tests/knowledge/test_evidence_cutover.py::test_writer_and_cutover_share_rollout_lock_epoch`；GREEN commit 待本 task 提交后补记。验证：Task 2 精确命令 `10 passed, 4 warnings`，scoped Ruff 与 whitespace gate 通过。
+- **剩余风险**：🟡 当前 Plan 02 focused migration test 对 026 的 staged precondition 主要是 source contract，完整 025 → 实际 dual-write health → 026 migration-chain 执行由 Phase 64.2 Plan 09 closeout gate 负责；该项不能被当前 10-test 结果替代。
+
+## 2026-08-05 — Phase 64.2 Plan 02 Task 3 canonical current / historical / legacy 读边界已收敛 ✅
+
+- **子系统**：RAG retrieval / evidence resolver / operational read cutover。
+- **问题现象/根因**：Phase 64.2 前 production retrieval 与 `PolicyChunkRepository` 直接拼接 `doc_key/chunk_id@version`，current eligibility、retained historical resolution 与 legacy alias upgrade 共用 mutable key/hash 查找，且没有由 singleton rollout state 控制 canonical reads。禁读时存在回落到 mutable/legacy ref 的风险，superseded evidence 也无法明确区分“非 current”与“历史材料仍可精确解析”。
+- **影响**：current search 可能发出非 repository-backed identity；跨 tenant/scope、缺失/伪造/歧义输入与 operational quarantine 的 fail-closed 边界不统一；replay/approval 后续难以证明引用的是 retained immutable row。
+- **处理状态**：✅ 已修复验证。production `PolicyRetrievalEngine(session=...)` 只在 `canonical_reads_enabled=true` 且无 quarantine 时，从 exact current document/chunk binding 取得 immutable row并由 owner mint `EvidenceRefV1`；禁读/缺绑定统一返回无 ref 的 error，不回落。`validate_current_evidence(...)`、`resolve_immutable_evidence(...)`、`resolve_legacy_alias(...)` 已分离，历史解析不套 current freshness，但继续严格 tenant/scope。`disable_canonical_reads(...)` 复用 rollout-first CAS 锁，保留 dual-write，reconciliation zero-gap 后才可 re-enable。
+- **证据**：Phase 64.2 Plan 02 Task 3；`src/repositories/evidence_version_repo.py`、`src/knowledge/retrieval.py`、`src/knowledge/service.py`、`src/repositories/policy_chunk_repo.py`、`tests/knowledge/test_evidence_cutover.py`。Task 3 精确门禁 `41 passed, 1 warning`，补充 retrieval 回归 `46 passed, 1 warning`，scoped Ruff/format/whitespace 均通过；GREEN commit 待本 task 提交后补记。
+- **剩余风险**：🟡 无 DB session 的 in-memory retrieval test doubles 仍通过 owner 内部的显式 legacy test compatibility projection 保持旧测试语义；MOCA production factories均传入真实 `AsyncSession`（`src/api/routers/search.py`、`src/tools/executors/knowledge.py`、agent RAG factories），不会进入该分支。Phase 64.2 Plan 09 architecture guard 应继续锁定所有 production factory 必须使用 session-backed canonical owner。
+
 ## 写入规则
 
 - 修改**工具调用 / RAG / 记忆 / 意图识别**这几个核心子系统时，检测出的 bug 或架构不完善点、以及做了哪些修复，**默认追加到本文件**对应子系统章节。
@@ -423,6 +441,47 @@
 - **证据**：Phase 56 REVIEW IN-01；文件 `src/agent/nodes/final_response.py`、`scripts/eval_agent.py`、`tests/agent/test_nodes/test_final_response.py`；本地失败记录见 `.planning/LOCAL-VALIDATION-ISSUES.md` 同名条目。
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_final_response.py -q --tb=short` → `21 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import asyncio; from scripts.eval_agent import DEFAULT_GOLDEN_SET, _load_cases, _run_ci_graph_contracts; failures = asyncio.run(_run_ci_graph_contracts(_load_cases(DEFAULT_GOLDEN_SET))); print({'failures': failures}); raise SystemExit(1 if failures else 0)"` → `{'failures': []}`。
 - **剩余风险**：🟡 本条只修复 legacy allow 字段与 canonical claim bundle allowed 状态的 final rendering 冲突；Phase 58 仍需清理 retained legacy verifier fields / compatibility alias surfaces。
+
+## 2026-08-05 — Phase 64.2 Plan 01 Task 1 证据 identity 多点别名与可变版本绑定已收敛 ✅已修复验证
+
+- **子系统**：RAG / evidence identity / tenant-scope trust boundary。
+- **问题现象 / 根因**：现有 `EvidenceRefV1.build` 与多个检索调用方使用 `doc_key/chunk_id@vN` 展示别名，identity 未覆盖 tenant、精确 policy scope、不可变 document/chunk version row 与完整 text hash；旧别名语法本身也没有可信持久化解析边界。
+- **影响**：调用方可本地重建或伪造看似有效的 evidence id；同 tenant 跨 scope、版本替换和 legacy ambiguity 无法由一个 owner 稳定区分，历史 replay 也不能据此证明消费的是原始不可变证据。
+- **处理状态**：✅ `src/knowledge/evidence_identity.py` 成为 `evidence_identity.v1` 唯一 hash/mint/validate/resolve owner，固定 `scope_type="tenant_policy"` 与 `scope_id=str(tenant_id)`，所有失败对外统一为 `evidence_unavailable`、对内保留稳定 reason code；`EvidenceRefV1` 仅扩展这一份 schema 承载完整 immutable binding，旧 alias 只能作为显式 compatibility input，不能凭语法升级为 canonical。
+- **证据**：Phase 64.2 Plan 01 Task 1；RED commit `4d9eff6`，GREEN commit `cb6ded5`，format commit `74d0f1b`；`src/knowledge/evidence_identity.py`、`src/knowledge/schemas.py`、`tests/knowledge/test_evidence_identity.py`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_evidence_identity.py tests/knowledge/test_evidence_projection.py tests/knowledge/test_text_hash.py -q --tb=short` → `26 passed, 1 warning`；对应 scoped Ruff → `All checks passed!`。
+- **剩余风险**：🟡 当前 ingestion/retrieval 仍由后续 Plan 02 安装 dual-write、backfill/reconciliation 与 canonical-read cutover；Task 1 有意保留旧 `EvidenceRefV1.build` 为无 canonical binding 的兼容输入，不把它误报为已迁移生产 writer。
+
+## 2026-08-05 — Phase 64.2 Plan 01 Task 2 可变证据头缺少不可变 replay 基础已收敛 ✅已修复验证
+
+- **子系统**：RAG ingestion persistence / immutable evidence retention / replay dependency foundation。
+- **问题现象 / 根因**：现有 `PolicyDocument` 版本号和内容原地更新，`PolicyChunk` 在 re-ingestion 时整批替换；数据库没有保留 exact document/chunk version content、精确 scope/hash/locator，也没有 replay snapshot 到历史证据的 restrictive dependency。旧 migration chain 因而无法阻止审计保留期内的历史证据被改写或删除。
+- **影响**：旧 run 只能再次解析可变 head/别名，不能证明原始版本；expiry/tombstone/purge 或 schema downgrade 可能丢失 replay 所需内容与 locator；并发 cutover 也缺少数据库单调 sequence 与 CAS rollout 基础。
+- **处理状态**：✅ migration 025 以 expansion-only 方式新增 append-only `policy_document_versions` / `policy_chunk_versions`、精确 `tenant_policy` 字符串 scope/composite identity FK/hash/locator constraints、immutable update 与 retention delete triggers、`evidence_snapshot_dependencies` restrictive FK、nullable head sequence/snapshot columns、数据库原生 `evidence_ingestion_write_seq`，以及默认 inactive 的 singleton rollout/CAS row；downgrade 在存在历史、snapshot dependency/JSON 或 active rollout state 时拒绝执行。
+- **证据**：Phase 64.2 Plan 01 Task 2；RED commit `d3b8be3`，GREEN commit `b175ae1`；`src/db/models.py`、`src/db/migrations/versions/025_phase64_2_immutable_evidence.py`、`tests/knowledge/test_immutable_evidence_migration.py`。
+- **验证**：从真实 PostgreSQL 024 schema seed mutable heads 后升级 025，证明 immutable/version/dependency 行数均为 0、head sequences 为 NULL、rollout inactive、sequence 严格递增；随后验证错误 scope insert、immutable content update、retained delete 与 downgrade 均 fail closed。Task 2 计划命令结果为 `9 passed, 4 warnings`，scoped Ruff/format/whitespace 门禁通过。
+- **剩余风险**：🟡 migration 025 有意不安装生产 dual-write、不复制 mutable heads、不启用 canonical reads；Plan 02 仍需以 rollout-first lock/CAS 安装 writer、watermarked reconciliation/backfill 与 operational rollback，Plan 06 才负责 production replay emitter/snapshot 写入。
+
+## 2026-08-05 — Phase 64.2 Plan 02 Task 1 ingestion 与 cutover 锁序/sequence/immutable binding 已收敛 ✅已修复验证
+
+- **子系统**：RAG ingestion / immutable evidence dual-write / rollout CAS。
+- **问题现象 / 根因**：Plan 01 前的生产 ingestion 只锁可变 `PolicyDocument`，更新 head 后删除并重建 chunks；writer 不参与 singleton rollout epoch，也不分配数据库原生 sequence，更不会在同一事务追加 immutable document/chunk version。相同内容重摄取仍替换 current chunks，因此无法证明 watermark 两侧的 unchanged write 复用同一 immutable binding。
+- **影响**：最终 zero-gap cutover 可能与仍在发布可变 head 的 writer 交错；成功写入可能没有可对账 sequence 或不可变版本；失败写入可能让 current projection 与 immutable history 分叉；exact `tenant_policy` scope/hash 只能停留在 schema，而未进入真实 writer。
+- **处理状态**：✅ 新增 `EvidenceVersionRepository` 作为 rollout lock/CAS、sequence、immutable append/exact binding 的唯一 owner；生产 `AsyncSession` writer 固定先锁 `evidence_identity_rollouts(id=1)` 并校验 expected epoch/dual-write，再锁 document/current chunks，成功 ingestion 恰分配一个 sequence。first/changed/correction 在同一事务写 exact `scope_type="tenant_policy"`、`scope_id=str(tenant_id)` 的 immutable document/chunk rows与 current projection；unchanged 只有在 document/chunk identity/hash 全量吻合时复用原 binding、保持 immutable row count，仅推进 current sequence。任一 append/current mutation 失败统一 rollback。
+- **证据**：Phase 64.2 Plan 02 Task 1；RED commit `73afc55`；`src/repositories/evidence_version_repo.py`、`src/repositories/policy_chunk_repo.py`、`src/rag/ingestion.py`、`tests/knowledge/test_evidence_cutover.py`。
+- **验证**：计划 Task 1 focused pytest 为 `14 passed, 1 warning`，并补跑既有 ingestion/job 回归；scoped Ruff 为 `All checks passed!`。PostgreSQL 断言覆盖 activation-before-backfill、stale epoch、first/unchanged/correction/concurrent-change sequence、stored scope/hash/binding row-count parity 与失败原子回滚。
+- **剩余风险**：🟡 Task 2 仍需让 migration 026 执行 staged watermark/backfill/reconciliation，并以真实双 session 两种边界交错证明 final activation 与 writer 共享同一锁/epoch；Task 3 仍需切换 canonical-only current reads 和 operational disable/quarantine/re-enable。当前 test-double compatibility 分支仅服务不具备 SQLAlchemy transaction/execute 能力的历史 parser 单元测试，不构成生产 writer fallback。
+
+---
+
+## 2026-08-06 — Phase 64.2 Plan 09 RAG 跨系统完整性门禁闭环（`phase64.2-rag-integrity:implemented`）✅已修复验证
+
+- **问题现象 / 根因**：evidence identity、cutover、approval snapshot 与 replay snapshot 已分别落地，但缺少一个跨系统门禁证明新写只使用 exact canonical identity，也缺少对 caller-local serializer、raw append、mutable-head replay 与错误 scope 扩散的统一回归保护。
+- **影响**：单个 owner 的测试即使通过，后续调用方仍可能重引入 reduced/legacy ref、绕过 repository validation，令审批或历史 replay 无法绑定原始 immutable evidence。
+- **处理状态**：✅已修复验证。Phase `64.2-09` 新增真实 current/retained replay 与 negative authority matrix，并用 AST/source guard 锁定 `EvidenceVersionRepository`、approval/replay canonical owner、exact `tenant_policy` scope 及只读 legacy adapter。
+- **证据**：`tests/integration/test_phase64_2_integrity_matrix.py`、`tests/architecture/test_evidence_memory_integrity_boundaries.py`；实现 owner 包括 `src/knowledge/evidence_identity.py`、`src/repositories/evidence_version_repo.py`、`src/approvals/service.py`、`src/replay/service.py`。
+- **验证**：Plan 09 最终 13-file focused aggregate 为 `204 passed, 15 warnings`，全仓 `uv run ruff check src tests` 为 `All checks passed!`；lastfailed 清空后 `uv run pytest --lf -q --tb=short` 自动回退执行完整 suite，结果为 `4455 passed, 4 skipped, 152 warnings in 1993.29s`。
+- **剩余风险**：legacy risk 是已持久化的歧义 legacy JSON 只能保持 unresolved，不能补造权威内容；target/defer 为 post-Phase 17 Policy Scope 的 named/versioned 非 tenant scope，以及 Phase 65 的 trace labeling，均不得被误报为当前已实现。
 
 ---
 
@@ -2221,3 +2280,118 @@
 - **处理状态**：✅ `scripts/eval_rag.py` 已成为唯一实现并保留 hybrid trace；legacy 文件已收为带弃用提示的兼容转发；测试直接覆盖 canonical CLI/report/scorer/22 条 golden schema，并增加 Makefile、`scripts/eval_all.py` 与 legacy delegation parity guard。
 - **证据**：quick fix（未提交）；`scripts/eval_rag.py:80-98,128-170`、`scripts/eval_rag_hit_at_5.py:1-60`、`tests/test_rag_eval.py:148-296`；focused pytest → `20 passed, 1 warning`；scoped Ruff check → `All checks passed!`；format check → `3 files already formatted`。
 - **剩余风险**：无当前架构阻断。legacy wrapper 是有意兼容面且不再拥有独立逻辑；旧 14 条数据文件不再被活跃入口或测试读取。DB-backed 指标质量与多格式 benchmark 扩充属于后续评测内容，不影响本条单一 evaluator owner 的关闭结论。
+
+## 2026-08-05 — Phase 64.2 Plan 03 memory candidate identity 多 owner 漂移 ✅已修复验证
+
+- **子系统**：记忆（session / long-term / case memory / case working context）identity、dedupe、write event。
+- **问题现象 / 根因**：session node、session service、long-term、case-memory 与 CWC 各自维护 content/source serializer 或 candidate hash helper；同一候选可在 node、store、event、retry 与 lifecycle 路径得到不同 identity。旧 `NFKC + casefold` normalization 还会折叠 proper noun 大小写，且 source-only tombstone 若继续用 legacy 默认 profile，会与新 v2 candidate 失配。
+- **影响**：dedupe、tombstone、review/delete event 和用户可见投影可能无法指向同一候选；旧 hash 若被静默按新规则解释，会破坏已存身份的可验证性。
+- **处理状态**：✅ 已修复并通过精确验证。`src/memory/identity.py` 现为 normalization、content/source/candidate hash 与四类 typed builder 的唯一 owner；新写入固定 `nfc_selective_v2`（NFC、空白归一、仅注册 enum-like 字段小写、proper noun 保持），legacy profile 只按旧 namespace 验证。session service 每个候选只计算一次并在 result/event/node 投影复用；long-term、case 与 CWC 的 store/dedupe/review/delete 路径消费同一个 typed result；stored row 只有在其既有 hashes 与某个 profile 精确匹配时才采用该 profile。
+- **证据**：Phase 64.2 Plan 03；commits `756a214`、`c727fae`、`705a448`、`e8b3d68`、`1742c9e`、`ed9aa13`、`8ee94a0`；`src/memory/identity.py`、`src/memory/service.py`、`src/agent/nodes/memory_write.py`、`src/memory/long_term.py`、`src/memory/case_memory.py`、`src/memory/case_working_context_service.py`。
+- **验证**：三条 plan 精确 pytest 分别为 `17 passed`、`55 passed`、`79 passed`，全部 scoped Ruff 通过；跨 builder 测试验证 named owner 每候选调用一次，stored/event/result hashes 与 normalized source ref 完全一致。
+- **剩余风险**：🟡 Plan 07/08 仍负责 reviewed provenance persistence 与 lifecycle columns/约束；Plan 09 仍需增加 AST ownership guard，防止后续重新引入 caller-local serializer。这些是已命名后续范围，不影响 Plan 03 当前 identity parity。
+
+## 2026-08-05 — Phase 64.2 Plan 04 approval snapshot evidence 信任边界 ✅已修复验证
+
+- **子系统**：RAG 证据身份 / 风险审批 snapshot / revision re-risk。
+- **问题现象 / 根因**：approval create、edit revision 与 attach-info replacement 原先把调用方提供的 `EvidenceRefV1` 通过 Pydantic shape 校验和本地 projection 后直接写入 snapshot；create 还会在 `verified_evidence_refs` 与 `evidence_refs` 之间选择持久化来源。该路径没有在审批 tenant 下重算 exact immutable document/chunk identity，existing snapshot 复用也只校验 ref/hash/action binding，没有比较 snapshot 已存 evidence。
+- **影响**：伪造 hash/version、legacy ambiguous alias、跨 tenant 或同 tenant 跨 scope ref 可能成为审批 snapshot/re-risk 的可信依据；独立 verified list 可与 snapshot evidence 漂移，破坏后续 replay 与人工审批权威性。
+- **处理状态**：✅ `ApprovalService` 现统一调用 `EvidenceVersionRepository.resolve_exact(...)`，固定 exact `scope_type="tenant_policy"`、`scope_id=str(tenant_id)`，由 repository identity 重建并 canonical 排序一次；该单一列表驱动 proposed action、snapshot、create-time `ApprovalRequest.verified_evidence_refs` 及 edit re-risk result。所有独立 supplied verified list 仅作 exact-equality assertion，existing snapshot evidence 也必须完全一致；失败在 snapshot/decision/status 写入前以统一 `approval_not_executable` 外部语义回滚。
+- **证据**：Phase 64.2 Plan 04；commits `3b285cf`、`e708c0e`；`src/approvals/service.py`、`tests/approvals/test_phase64_2_evidence_validation.py`。
+- **验证**：Task 1 最终精确门禁 `81 passed, 1 warning`；Task 2 精确门禁 `80 passed, 1 warning`；两条 scoped Ruff 均为 `All checks passed!`。负向矩阵覆盖 forged ID/hash/document+chunk version、missing/extra/mixed verified、legacy ambiguous、cross-tenant、request/cross-scope，并断言 approval-owned row count 与旧 revision 可执行状态不变。
+- **剩余风险**：🟡 Phase 64.2 Plan 09 仍需以 architecture/ownership guard 防止 caller-local evidence projector 或 verified fallback 回流；本 plan 未改变 API schema、数据库 schema 或外部 effect 边界。
+
+## 2026-08-05 — Phase 64.2 Plan 05 CWC status-blind verified-fact 提升边界 ✅已修复验证
+
+- **子系统**：记忆 / Case Working Context / 工具与 RAG 结果权威投影。
+- **问题现象 / 根因**：`case_working_context_lifecycle._project_verified_facts` 原先只取非空 `summary/prompt_summary/tool_summary` 就构造 `verified_facts`，不检查 transport status、authority、completeness、scope、freshness 或 authoritative ref；policy refs 又降格为本地 `doc_id/chunk_id/version` triple。失败、拒绝、partial、stale、contextual-only、unknown 或 summary-only 结果因此可能被洗成 verified fact，且 CWC 无法保留完整 canonical evidence identity。
+- **影响**：CWC 与后续 reviewed case-memory 候选可能把无权威观察误当当前业务事实/政策证据；跨 tenant/scope 失败细节还可能经 active payload 暴露，破坏 D-01..D-04 与 no-existence-leak 边界。
+- **处理状态**：✅ 新增唯一 `FactPromotionCandidateV1` / `FactPromotionResultV1` owner。只有 `business_fact` 或 `policy_evidence` 在 `success + complete + valid scope + valid freshness + valid full ref` 时可 promote；policy 固定 exact `scope_type="tenant_policy"`、`scope_id=str(tenant_id)` 并验证完整 canonical identity。`contextual_only` 永远 `observe/contextual_only_non_authoritative`，`unknown` 永远 `reject/unknown_authority`；所有命名负状态、legacy/compatibility、invalid/missing ref 与 summary-only 均进入 typed observation。CWC verified fact 保存 authority/status/reason/time 与完整 `BusinessFactRefV1[]` / `EvidenceRefV1[]`，policy_refs 直接使用 canonical `EvidenceRefV1`，不再存在 reduced shape。
+- **证据**：Phase 64.2 Plan 05；commits `f24f313`、`2719a8b`、`57adcbe`、`471e8fc`、`d9a1930`；`src/memory/fact_promotion.py`、`src/memory/case_working_context_schemas.py`、`src/memory/case_working_context_lifecycle.py`、`tests/agent/test_case_working_context_lifecycle.py`。non-promoted observation 沿用既有 `case_working_contexts.evidence_refs_json` 物理列保存，但 runtime/hydration 使用 `CaseWorkingContextObservationV1`，未新增 competing ref schema；active payload 会移除 internal mismatch reason，只保留统一外部原因。
+- **验证**：计划精确聚合 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_case_working_context_lifecycle.py tests/memory/test_case_working_context_service.py -q --tb=short` → `65 passed, 1 warning`；Task 1 / Task 2 两条 scoped Ruff 与直接 fixture Ruff 均通过。矩阵覆盖 12 个禁止状态、contextual/unknown、summary-only、compatibility-only、freshness、forged/cross-scope、canonical round-trip、混合批次独立处理、source-set 去重与持久化/hydration。
+- **剩余风险**：🟡 Plan 07 仍必须保证 CWC rejected/observed material 不进入 CaseMemory content/caveat/provenance 任一字段；Plan 09 仍需 architecture guard 防止 summary-first projector、reduced policy ref 或本地 promotion owner 回流。现有物理列名 `evidence_refs_json` 是 Phase 22 storage compatibility，不表示 observation 获得 evidence authority。
+
+## 2026-08-05 — Phase 64.2 Plan 06 production evidence snapshot 与 exact replay 边界 ✅已修复验证
+
+- **子系统**：RAG / 工具调用事件 / immutable evidence retention / Replay V3。
+- **问题现象 / 根因**：production `investigate -> emit_event -> emit_decision_event -> ReplayService.append_event` 原先没有传递 typed canonical evidence，append 边界仍暴露 raw `evidence_refs_json`，也没有在 event transaction 内构造完整 snapshot 与 normalized retention dependency；replay 因而缺少 exact immutable version、scope/hash/locator 绑定。实现收尾又核实 ORM 与尚未发布的 migration 025 生命周期 check 漏掉锁定契约要求的 `archived`，使归档状态无法真实持久化和回放。
+- **影响**：历史 run 可能只能依赖可变 current head 或歧义 legacy alias，无法证明原始政策内容；伪造、混合或跨 scope ref 可能越过新写边界；保留期内 purge 缺少依赖阻断；归档证据虽在 API vocabulary 中存在，却会被数据库约束拒绝。
+- **处理状态**：✅ 新写链只接受 `list[EvidenceRefV1]` 的 `canonical_evidence_refs` 并保持对象逐层不变；`append_event` 成为唯一 snapshot builder，通过 `EvidenceVersionRepository.resolve_exact` 在可信 tenant 与 exact `tenant_policy` scope 下重算完整 identity/scope/version/hash/locator，原子写入 snapshot 与 `EvidenceSnapshotDependency`，raw/reduced/forged/mixed/cross-scope 输入零写入。Replay 仅从 exact immutable rows 恢复原始 retained content/hash/locator，并投影 current/superseded/corrected/archived/expired/tombstoned；旧 JSON 只允许由已持久化 event-id 的显式只读 adapter 解析，歧义或缺失保持 `legacy_unresolved`。ORM 与 migration 025 的既有生命周期 check 已最小扩充 `archived`，未新增 archive service/API。
+- **证据**：Phase 64.2 Plan 06；commits `cedf10d`、`ac17f0a`、`f1dffc3`、`b08578b`、`a6ea724`、`5f30b96`；`src/agent/nodes/investigate.py`、`src/agent/events.py`、`src/replay/decision_events.py`、`src/replay/schemas.py`、`src/replay/service.py`、`src/api/routers/traces.py`、`src/db/models.py`、`src/db/migrations/versions/025_phase64_2_immutable_evidence.py`。
+- **验证**：Task 1 精确门禁 `132 passed, 1 warning`；Task 2 精确门禁 `42 passed, 1 warning`；归档 ORM/migration/replay 偏差门禁 `3 passed, 4 warnings`；最终两任务联合回归 `171 passed, 1 warning`；计划相关 Ruff 全部通过。依赖 FK 在 retention 内拒绝删除，伪造 snapshot 的 owner API 返回无标识符泄漏的 generic 404。
+- **剩余风险**：🟡 pre-Phase-64.2 `evidence_refs_json` 仍作为显式 read-only compatibility surface 保留；无法唯一解析的历史行只返回 `legacy_unresolved` 且不提供 verified content。Plan 09 仍需用跨系统 ownership/static guard 防止 raw new-write input、mutable-head replay 或 caller-local snapshot builder 回流。
+
+## 2026-08-05 — Phase 64.2 Plan 07 reviewed CaseMemory provenance 与 unresolved authority 边界 ✅已修复验证
+
+- **子系统**：记忆 / reviewed CaseMemory / CWC provenance / review API。
+- **问题现象 / 根因**：CaseMemory 原先只保存 summary、reduced policy refs、source ref 与候选 hash，无法逐 source 证明原始 `business_fact|policy_evidence` authority/status，也没有把 contextual-only memory authority、CWC revision、完整 canonical refs、reviewer provenance 与 correction/supersession lineage 绑定为一个可验证 envelope。历史行若缺失这些事实，旧路径仍可能进入 pending/review/retrieval/dedupe，存在把“无法证明”静默升级成已解析权威的风险。
+- **影响**：rejected/observed CWC 内容可能经 summary-first projection 混入 reviewed memory；review 动作可能覆盖或抬升原始 source authority；伪造、跨 tenant 或不完整 legacy 行可能参与 authoritative matching 并从 API 暴露内部 mismatch/source 信息；单值 lineage 无法表达 survivor-to-many dedupe 关系。
+- **处理状态**：✅ 新增冻结的 `CaseMemorySourceAuthorityV1`、resolved `CaseMemoryProvenanceV1` 与互不冒充的 `LegacyUnresolvedCaseMemoryProvenanceV1`。closed-case projection 只消费 Plan 05 promoted facts并复制原始 source authority/status、完整 `BusinessFactRefV1`/canonical `EvidenceRefV1`；memory authority 永远为 `contextual_only`。migration 027 对所有无法从 pre-027 字段证明完整 provenance 的历史行保守标记 `legacy_unresolved`，不伪造 scope/authority/reviewer/identity；新增 tenant-safe restrictive direct lineage FK 和 normalized survivor-to-many lineage table。中央 validator 绑定 tenant/scope/source/run/CWC/hash/profile/ref/review/lineage，unresolved 或 forged 行不能进入 insert promotion、pending、approve/reject/delete/forget、published retrieval 或 idempotent winner matching。review 只增补 decision/reviewer/time/reason 并提升 lifecycle version，原 source authorities 与 contextual-only memory authority 保持不变。
+- **证据**：Phase 64.2 Plan 07；commits `8cfe521`、`78b9d3f`、`a3031f3`、`bcac7cd`；`src/memory/schemas.py`、`src/memory/case_precedent.py`、`src/memory/case_memory.py`、`src/db/models.py`、`src/db/migrations/versions/027_phase64_2_memory_provenance.py`、`src/api/routers/memory.py`、`tests/memory/test_case_memory_provenance.py`。
+- **验证**：Task 1 精确门禁 `52 passed, 7 warnings`；Task 2 精确门禁 `37 passed, 1 warning`；额外 retrieval 回归 `14 passed, 1 warning`；最终联合回归 `64 passed, 7 warnings`；全部计划相关 Ruff 与 `git diff --check` 通过。API 对 resolved row 只返回 bounded scope/source/ref/identity/review/lineage，对 valid unresolved detail 仅返回 resolution status 与稳定 safe reasons，跨 tenant/forged/unresolved action 统一 generic 404。
+- **剩余风险**：🟡 Plan 08 仍负责 `expected_lifecycle_version` CAS、expiry、durable full-key claim 与并发 survivor lifecycle；本 plan 只预留请求/响应字段，没有提前实现 CAS。Plan 09 仍需锁定唯一 provenance/identity owner、禁止 reduced ref/status-blind projector 回流，并验证所有生产调用方不绕过中央 resolved validator。
+
+## 2026-08-05 — Phase 64.2 Plan 08 CaseMemory exact identity 与 terminal lifecycle ✅已修复验证
+
+- **子系统**：记忆 / reviewed CaseMemory identity、review lifecycle、correction lineage、tombstone。
+- **问题现象 / 根因**：CaseMemory 原先用 active row 的 content/source 查询做去重，终态后没有独立持久 identity authority；review/delete/forget 是 read-then-mutate，没有 required lifecycle CAS；pending expiry、claim、lineage 与 event 未形成同一事务。不同 source 的相同 content 会被错误合并，terminal row 也可能在 active 索引释放后被延迟 writer 复活；并发 identical correction retry 会让一个请求成功、另一个误报 conflict。
+- **影响**：exact retry、source-distinct candidate、approve/reject/expiry、delete/forget、correction 与 delayed submit 在并发下可能产生多 owner、错误 winner、重复 event、丢失 lineage 或 no-resurrection 失效，审计者无法证明唯一终态。
+- **处理状态**：✅ 已修复验证。Migration 028 建立七段 full-key durable claim，并按 oldest `created_at/id` 选择 survivor、为四行 duplicate group 写 deterministic survivor-to-many lineage；unresolved 永不 claim，downgrade 在有 claim/lineage 时 fail closed。写入先获得 exact unique claim；只有 active exact owner 可作为幂等结果，terminal claim 永不释放且冲突不返回 winner。review/expiry/delete/forget/correction 在 claim row lock 下同步提升 row/claim version并写 event/tombstone/lineage；API 要求 case lifecycle version并统一输出 generic 409。identical review/correction retry仅在 persisted payload、reviewer、lineage、provenance与原 event 完全匹配时复用。
+- **证据**：Phase 64.2 Plan 08；commits `fe4e12c`、`073d634`、`6e431ea`、`5494b66`、`b3c6125`、`b527c72`；`src/db/migrations/versions/028_phase64_2_memory_lifecycle.py`、`src/db/models.py`、`src/memory/case_memory.py`、`src/memory/schemas.py`、`src/api/routers/memory.py`、`tests/memory/test_case_memory_lifecycle.py`、`tests/memory/test_case_memory_concurrency.py`。
+- **验证**：Task 1/2/3 精确 PostgreSQL 门禁分别 `19 passed`、`60 passed`、`28 passed`，scoped Ruff 全绿；真实双会话 barrier matrix 单独为 `11 passed`，覆盖 exact submit、source-distinct、review retry、approve/reject、review/expiry、rejected/expired/deleted/tombstoned delayed submit、correction/duplicate submit 与 correction retry。
+- **剩余风险**：🟡 本 plan 只收敛 CaseMemory，不建立 Phase 68 的通用 lifecycle registry。`source_identity_hash_for_tombstone()` 默认仍保留 legacy profile 供旧调用者使用；新 v2 writer 必须显式传其已计算的 source identity，后续统一迁移属于 Phase 68，而不是在本 plan 静默改变全局 tombstone 兼容语义。Plan 09 仍需最终 ownership/static guard 与 phase 级 negative matrix。
+
+## 2026-08-06 — Phase 64.2 Plan 09 Memory provenance/lifecycle 完整性门禁闭环（`phase64.2-memory-integrity:implemented`）✅已修复验证
+
+- **问题现象 / 根因**：memory identity、CWC promotion、reviewed provenance 与 terminal lifecycle 虽由 Plans 03/05/07/08 分别收敛，但此前没有统一证明 rejected observation 不进入 reviewed content、各 source authority 不被 review 抬升、以及 terminal full-key claim 不会因延迟 writer 复活。
+- **影响**：局部回归可能漏掉跨 owner 的 status-blind promotion、caller-local hash、unresolved authority upgrade、lineage 丢失或 terminal resurrection。
+- **处理状态**：✅已修复验证。Phase `64.2-09` 通过真实 promotion→review→approve→delete lifecycle、全禁止状态矩阵与 repository-wide ownership guard，锁定 single identity/provenance owner、contextual-only memory authority、durable terminal claims 与 CAS/no-resurrection。
+- **证据**：`tests/integration/test_phase64_2_integrity_matrix.py`、`tests/architecture/test_evidence_memory_integrity_boundaries.py`；实现 owner 包括 `src/memory/identity.py`、`src/memory/fact_promotion.py`、`src/memory/case_memory.py`、`src/memory/case_precedent.py`。
+- **验证**：Plan 09 最终 13-file focused aggregate 为 `204 passed, 15 warnings`，memory provenance/identity architecture guards 包含在该绿色门禁；全仓 Ruff 与完整 suite 分别为 `All checks passed!`、`4455 passed, 4 skipped, 152 warnings in 1993.29s`。
+- **剩余风险**：legacy risk 是 pre-027 行继续使用 `LegacyUnresolvedCaseMemoryProvenanceV1`，不能加入 authoritative matching；target/defer 为 Phase 68 通用 lifecycle registry 与 Phase 70 retrieval quality/PII governance，本 plan 不提前实现。
+
+## 2026-08-06 — Phase 64.2 Plan 09 working-state canonical evidence binding 丢失 ✅已修复验证
+
+- **子系统**：RAG / agent working-state / immutable evidence identity。
+- **问题现象 / 根因**：`src/agent/working_state.py` 的 `EVIDENCE_REF_KEYS` 停留在 Phase 64.2 前的 11 字段 allowlist；完整 canonical `EvidenceRefV1` 经 working-state 投影后会静默丢失 `scope_type`、`scope_id`、document/chunk version id 与 version 六个 exact binding 字段，退化为无法 exact-resolve 的 reduced/legacy shape。
+- **影响**：working-state 的 prompt-safe verified refs 虽不泄露 raw provenance，却不能继续证明 immutable tenant/scope/document/chunk binding；后续依赖该投影的 claim/action/replay 边界可能把 canonical authority 降格。
+- **处理状态**：✅ 已修复验证。先用 owner-minted 完整 canonical ref 新增 RED，稳定证明六字段被删；随后只把这六个 `EvidenceRefV1` identity/version 字段加入既有 allowlist。未加入 query、risk、ranking、rerank/provider 或 raw provenance diagnostics，也未增加 raw dict fallback。
+- **证据**：Phase 64.2 Plan 09 remediation B；`src/agent/working_state.py`、`tests/agent/test_working_state.py` 及五个 EvidenceRef shape/diagnostic 测试；RED 为 `1 failed`，B 六文件为 `76 passed, 1 warning`，architecture/integration guard 为 `16 passed, 8 warnings`，全局 lastfailed 从 29 收敛到 22。
+- **剩余风险**：当前无已知 canonical working-state binding 缺口；最终 13-file focused aggregate、全仓 Ruff 与完整 suite 均绿色。`score` 仍是既有 `EvidenceRefV1` display 字段，但 approval authority projection 会剥离它；query/risk/rerank diagnostics 继续只存在于各自 bounded container。Phase 70 可统一评估 display score 是否最终从 ref schema 拆出。
+
+## 2026-08-06 — Phase 64.2 Review WR-01 evidence cutover 失败门禁被错误盖章 ✅已修复验证
+
+- **子系统**：RAG ingestion / immutable evidence migration cutover。
+- **问题现象 / 根因**：migration 026 在 final reconciliation 检出 unresolved current heads 后只写 quarantine/audit 并正常返回，Alembic 因此仍会把 026 记录为已应用；后续 migration 可越过本应阻断的 canonical-read gate，且正常重试不能再次执行 026。
+- **影响**：canonical reads 尚未启用、legacy head 仍无法证明 exact immutable binding 时，数据库 revision 却可能继续推进到 027/028，部署状态与真实证据可用性分裂。
+- **处理状态**：✅ 已修复验证。unresolved 分支现在先通过 Alembic autocommit block 持久化 backfill/quarantine/audit preflight 结果，再抛出稳定的 retryable `RuntimeError`；因此 version table 保持 025。修复 legacy head 后可正常重跑 026，并仅在零 unresolved 时启用 canonical reads 与盖章 026。
+- **证据**：Phase 64.2 REVIEW WR-01；`src/db/migrations/versions/026_phase64_2_evidence_cutover.py`；`tests/integration/test_phase64_2_integrity_matrix.py::test_unresolved_cutover_remains_at_025_and_is_retryable`；定向 PostgreSQL 回归 `1 passed`，scoped Ruff 通过。
+- **剩余风险**：无当前已知缺口；运维仍必须按 025 → dual-write health → 026 的 staged 顺序执行，且 unresolved audit 中的具体 legacy head 需要在再次运行 migration 前修复。
+
+## 2026-08-06 — Phase 64.2 Review WR-02 verified-context 绕过 exact immutable identity ✅已修复验证
+
+- **子系统**：RAG verified package / prompt context builder / immutable evidence identity。
+- **问题现象 / 根因**：`PolicyKnowledgeService.build_verified_context()` 与独立 `ContextBuilder` 都调用 mutable logical-key details/compatibility content lookup；即使输入携带完整 canonical shape，也没有比较 persisted `evidence_id`、document/chunk version IDs、scope 与版本字段。
+- **影响**：调用方可保留真实 current `doc_key/chunk_id/text_hash`，但重新生成一组不存在的 immutable IDs 与自洽 `evidence_id`，让 unsupported policy content 进入非审批回答的 verified prompt/verifier surfaces。
+- **处理状态**：✅ 已修复验证。package owner 先调用 `validate_current_evidence()` 做 exact current-row comparison，并把同一个 typed validation result 通过私有参数传给 `ContextBuilder`，避免二次 mutable lookup 与两次校验之间的 current-head race；builder 独立使用时也优先 exact validator，validator 抛错或拒绝时不回落 compatibility content。只有不具备 exact seam 的历史 test double 才保留既有兼容分支。
+- **证据**：Phase 64.2 REVIEW WR-02；`src/knowledge/service.py`、`src/agent/rag_context/builder.py`；真实 PostgreSQL forged-ID 负向 `tests/knowledge/test_evidence_cutover.py::test_verified_context_rejects_forged_immutable_ids_for_real_current_logical_head`；builder no-fallback 测试与 package/status 回归合计 `25 passed`，scoped Ruff 通过。
+- **剩余风险**：🟡 compatibility 分支仍服务没有 `validate_current_evidence` seam 的隔离 test doubles；生产 `PolicyKnowledgeService` 始终实现 exact seam。architecture guard 后续应继续禁止 production owner 绕过该方法。
+
+## 2026-08-06 — Phase 64.2 Review WR-03 CWC policy authority 只验 shape 未验 retained row ✅已修复验证
+
+- **子系统**：记忆 / Case Working Context promotion / RAG immutable evidence provenance。
+- **问题现象 / 根因**：terminal CWC projection 只用 Pydantic、tenant/scope 字符串与本地 canonical shape 检查 policy refs，随后把未显式声明的 `reference_validation` 默认成 `valid`；没有在可信 tenant 下解析 retained immutable row。
+- **影响**：随机生成但结构自洽的 document/chunk version IDs 可被提升为 `policy_evidence` verified fact，并继续进入 reviewed CaseMemory provenance，形成不存在的政策 authority。
+- **处理状态**：✅ 已修复验证。async lifecycle adapter 现在注入单 ref exact resolver，生产默认调用 `EvidenceVersionRepository(session).resolve_immutable_evidence(...)`，固定可信 `tenant_id`、`scope_type="tenant_policy"`、`scope_id=str(tenant_id)` 并比较返回 identity。每个 tool result 的全部 policy refs 都成功解析后，sync projection 才收到私有 validated-ID 集；未提供验证集的纯 projection 默认 fail-closed，business-fact promotion 不受影响。missing/forged/cross-tenant/cross-scope 或 resolver 异常只保留 observation/rejection，不进入 `verified_facts`/`policy_refs`。
+- **证据**：Phase 64.2 REVIEW WR-03；`src/memory/case_working_context_lifecycle.py`；`tests/agent/test_case_working_context_lifecycle.py::test_terminal_policy_promotion_requires_explicit_exact_resolver_success` 与 `::test_terminal_policy_promotion_rejects_canonical_shaped_nonexistent_ids`；memory/architecture/integration 定向回归 `79 passed`，scoped Ruff 通过。
+- **剩余风险**：🟡 business-fact refs 仍按其自身 service contract、tenant/freshness 字段验证；本条只收敛 policy evidence retained-row authority。后续 architecture guard 应继续锁定 production adapter 的 exact resolver 默认值与纯 projection 的无验证 fail-closed 行为。
+
+## 2026-08-06 — Phase 64.2 Review iteration 2 authoritative ref 混合列表未 fail-closed ✅已修复验证
+
+- **子系统**：记忆 / Case Working Context promotion / 工具与 RAG authoritative refs。
+- **问题现象 / 根因**：`_parse_business_refs()` 与 `_parse_policy_refs()` 共用 `_iter_mappings()`；该 helper 会从 list/tuple 中静默过滤 scalar 等非 mapping 成员。含一条有效 ref 与一条 malformed member 的 authoritative-ref 集因此只保留有效项，`refs_invalid` 仍为 false，可继续进入 business promotion，或先通过 policy exact resolver 再 promotion。
+- **影响**：不完整或被污染的原始 authority 集可能被当成完整有效集合，进入 CWC `verified_facts`；policy ref 还可能进入 `policy_refs` 并继续流向 reviewed CaseMemory provenance，违反 complete-per-result 与 fail-closed 契约。
+- **处理状态**：✅ 已修复验证。两个 ref parser 现先用 `_raw_ref_members()` 检查原始容器：`None` 表示无 refs，单 mapping 与 list/tuple 保持兼容；unexpected container、任一非 mapping member 或 typed model validation 失败都会设置 `refs_invalid=True`。policy 集只有完整解析成功才调用 exact resolver；混合 business/policy 列表均只保留 non-promoted observation，不进入 promoted facts/provenance。
+- **证据**：Phase 64.2 REVIEW iteration 2 WR-01；`src/memory/case_working_context_lifecycle.py`；`tests/agent/test_case_working_context_lifecycle.py::test_terminal_projection_rejects_mixed_malformed_business_ref_list`、`::test_terminal_projection_rejects_mixed_malformed_policy_ref_list_before_exact_resolution`。
+- **验证**：两条新增负向与既有 exact resolver 正/负向定向回归通过；生命周期测试文件与 scoped Ruff 通过。
+- **剩余风险**：当前无已知缺口；后续必须保留原始 ref 容器成员完整性检查，不能在 typed validation 前用通用 mapping filter 丢弃非法成员。

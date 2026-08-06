@@ -14,6 +14,8 @@ from sqlalchemy.pool import NullPool
 import src.memory.case_working_context_lifecycle as lifecycle_module
 from src.conversation.repository import ConversationRepository
 from src.db.models import AgentRun, Base, CaseWorkingContext, Merchant, Order, RefundCase, Tenant, ThreadCaseLink, User
+from src.knowledge.evidence_identity import PersistedEvidenceIdentityMaterialV1, mint_canonical_evidence_identity
+from src.knowledge.schemas import EvidenceRefV1
 from src.memory.case_identity import CaseIdentityResult
 from src.memory.case_working_context_lifecycle import (
     CaseWorkingContextLifecycleAdapter,
@@ -23,8 +25,10 @@ from src.memory.case_working_context_lifecycle import (
     skipped_status,
     trusted_case_ref_from_state,
 )
-from src.memory.case_working_context_schemas import CaseWorkingContextWriteCandidate
+from src.memory.case_working_context_schemas import CaseWorkingContextContentV1, CaseWorkingContextWriteCandidate
 from src.memory.context_refs import CaseWorkingContextLifecycleStatusV1
+from src.memory.fact_promotion import FactPromotionCandidateV1, promote_verified_fact
+from src.tools.contracts import BusinessFactRefV1
 from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
 
 
@@ -201,6 +205,9 @@ def test_build_active_cwc_payload_projects_hydrated_content_and_contextual_ref()
         "business_object_type": "refund_case",
         "business_object_id": str(case_id),
     }
+    observed_at = datetime(2026, 7, 3, 8, 0, tzinfo=UTC)
+    business_ref = _promotion_business_ref(tenant_id, observed_at=observed_at)
+    policy_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
     row = SimpleNamespace(
         id=memory_id,
         tenant_id=tenant_id,
@@ -217,16 +224,37 @@ def test_build_active_cwc_payload_projects_hydrated_content_and_contextual_ref()
         verified_facts_json=[
             {
                 "text": "退款单状态为 reviewing",
+                "authority_class": "business_fact",
+                "status": "success",
+                "promotion_reason_code": "authoritative_business_fact",
                 "source_ref": source_ref,
-                "observed_at": datetime(2026, 7, 3, 8, 0, tzinfo=UTC),
+                "observed_at": observed_at,
+                "business_fact_refs": [business_ref.model_dump(mode="json")],
+                "policy_evidence_refs": [],
             }
         ],
         missing_info_json=["需要补充破损照片"],
         evidence_refs_json=[
-            {"ref_type": "tool_result", "ref_id": "tool-result-1", "summary": "退款单状态为 reviewing"}
+            {
+                "schema_version": "case_working_context_observation.v1",
+                "summary": "无法验证跨范围来源",
+                "decision": "reject",
+                "authority_class": "policy_evidence",
+                "status": "success",
+                "reason_code": "authoritative_source_unavailable",
+                "internal_reason_code": "tenant_mismatch",
+                "completeness": "complete",
+                "scope_result": "invalid",
+                "freshness_result": "valid",
+                "reference_validation": "invalid",
+                "source_ref": source_ref,
+                "observed_at": observed_at,
+                "business_fact_refs": [],
+                "policy_evidence_refs": [],
+            }
         ],
         actions_taken_json=[{"action": "查询退款单状态", "source_ref": source_ref}],
-        policy_refs_json=[{"doc_id": "refund-policy", "chunk_id": "refund-policy#001", "version": "v1"}],
+        policy_refs_json=[policy_ref.model_dump(mode="json")],
         agent_recommendations_json=[{"recommended_step": "要求用户上传照片", "staff_decision": None}],
         pending_tasks_json=["等待用户上传照片"],
         commitments_json=[{"text": "24 小时内回复用户", "confirmed_by_staff": True, "source_ref": source_ref}],
@@ -241,6 +269,8 @@ def test_build_active_cwc_payload_projects_hydrated_content_and_contextual_ref()
     assert payload["content"]["authority_class"] == "contextual_only"
     assert payload["content"]["customer_request"] == "用户询问退款进度"
     assert payload["content"]["claims"][0]["text"] == "用户称商品破损"
+    assert payload["content"]["evidence_refs"][0]["reason_code"] == "authoritative_source_unavailable"
+    assert "internal_reason_code" not in payload["content"]["evidence_refs"][0]
     assert payload["ref"] == {
         "schema_version": "case_working_context_ref.v1",
         "authority_class": "contextual_only",
@@ -274,6 +304,246 @@ def test_terminal_projection_result_contract() -> None:
     assert isinstance(result.status_ref, CaseWorkingContextLifecycleStatusV1)
 
 
+def _promotion_business_ref(tenant_id: uuid.UUID, *, observed_at: datetime) -> BusinessFactRefV1:
+    return BusinessFactRefV1(
+        tenant_id=str(tenant_id),
+        source_system="business_fact_service",
+        resource_type="refund_case",
+        resource_id="RF-PROMOTION-001",
+        resource_version="v7",
+        data_freshness_at=observed_at,
+        retrieved_at=observed_at,
+    )
+
+
+def _promotion_evidence_ref(tenant_id: uuid.UUID, *, observed_at: datetime) -> EvidenceRefV1:
+    material = PersistedEvidenceIdentityMaterialV1(
+        tenant_id=str(tenant_id),
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+        document_version_id=str(uuid.uuid4()),
+        chunk_version_id=str(uuid.uuid4()),
+        doc_key="refund-policy",
+        document_version=7,
+        chunk_id="refund-policy#001",
+        chunk_version=3,
+        text_hash=f"sha256:{'a' * 64}",
+    )
+    resolution = mint_canonical_evidence_identity(
+        material,
+        expected_tenant_id=str(tenant_id),
+        expected_scope_type="tenant_policy",
+        expected_scope_id=str(tenant_id),
+    )
+    assert resolution.identity is not None
+    return EvidenceRefV1.from_canonical_identity(
+        resolution.identity,
+        retrieved_at=observed_at.isoformat(),
+        retrieval_config_version="retrieval.v3",
+        rank=1,
+    )
+
+
+def _promotion_candidate(
+    *,
+    tenant_id: uuid.UUID,
+    observed_at: datetime,
+    authority_class: str,
+    status: str = "success",
+    business_fact_refs: list[BusinessFactRefV1] | None = None,
+    policy_evidence_refs: list[EvidenceRefV1] | None = None,
+    reference_validation: str = "valid",
+) -> FactPromotionCandidateV1:
+    return FactPromotionCandidateV1(
+        tenant_id=str(tenant_id),
+        summary="退款单状态为 reviewing",
+        authority_class=authority_class,
+        status=status,
+        completeness="complete",
+        scope_result="valid",
+        freshness_result="valid",
+        reference_validation=reference_validation,
+        observed_at=observed_at,
+        business_fact_refs=business_fact_refs or [],
+        policy_evidence_refs=policy_evidence_refs or [],
+    )
+
+
+def _promotion_tool_result(
+    *,
+    tenant_id: uuid.UUID,
+    observed_at: datetime,
+    authority_class: str,
+    status: str = "success",
+    summary: str = "退款单状态为 reviewing",
+    business_fact_refs: list[BusinessFactRefV1] | None = None,
+    policy_evidence_refs: list[EvidenceRefV1] | None = None,
+    completeness: str = "complete",
+    scope_result: str = "valid",
+    freshness_result: str = "valid",
+    reference_validation: str = "valid",
+    tool_result_id: str | None = None,
+) -> dict[str, object]:
+    return {
+        "tool_result_id": tool_result_id or f"tool-result-{uuid.uuid4()}",
+        "tool_name": "search_policy" if authority_class == "policy_evidence" else "get_refund_case",
+        "summary": summary,
+        "prompt_summary": summary,
+        "authority_class": authority_class,
+        "status": status,
+        "completeness": completeness,
+        "scope_result": scope_result,
+        "freshness_result": freshness_result,
+        "reference_validation": reference_validation,
+        "observed_at": observed_at.isoformat(),
+        "business_fact_refs": [ref.model_dump(mode="json") for ref in business_fact_refs or []],
+        "policy_evidence_refs": [ref.model_dump(mode="json") for ref in policy_evidence_refs or []],
+        "tenant_id": str(tenant_id),
+    }
+
+
+def test_fact_promotion_contract_allows_only_typed_authoritative_sources() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    business_ref = _promotion_business_ref(tenant_id, observed_at=observed_at)
+    evidence_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
+
+    business = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="business_fact",
+            business_fact_refs=[business_ref],
+        )
+    )
+    policy = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="policy_evidence",
+            policy_evidence_refs=[evidence_ref],
+        )
+    )
+
+    assert (business.decision, business.reason_code) == ("promote", "authoritative_business_fact")
+    assert business.business_fact_refs == [business_ref]
+    assert (policy.decision, policy.reason_code) == ("promote", "authoritative_policy_evidence")
+    assert policy.policy_evidence_refs == [evidence_ref]
+    assert policy.policy_evidence_refs[0].model_dump(mode="json") == evidence_ref.model_dump(mode="json")
+    assert policy.policy_evidence_refs[0].scope_type == "tenant_policy"
+    assert policy.policy_evidence_refs[0].scope_id == str(tenant_id)
+
+
+@pytest.mark.parametrize(
+    ("authority_class", "expected_decision", "expected_reason"),
+    [
+        ("contextual_only", "observe", "contextual_only_non_authoritative"),
+        ("unknown", "reject", "unknown_authority"),
+    ],
+)
+def test_fact_promotion_contract_never_promotes_contextual_or_unknown_authority(
+    authority_class: str,
+    expected_decision: str,
+    expected_reason: str,
+) -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    result = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class=authority_class,
+            business_fact_refs=[_promotion_business_ref(tenant_id, observed_at=observed_at)],
+        )
+    )
+
+    assert (result.decision, result.reason_code) == (expected_decision, expected_reason)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "denied",
+        "unavailable",
+        "stale",
+        "malformed",
+        "partial",
+        "partial_success",
+        "timeout",
+        "error",
+        "invalid_request",
+        "invalid_response",
+        "not_found",
+        "legacy_unresolved",
+    ],
+)
+def test_fact_promotion_contract_keeps_every_prohibited_status_non_authoritative(status: str) -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    result = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="business_fact",
+            status=status,
+            business_fact_refs=[_promotion_business_ref(tenant_id, observed_at=observed_at)],
+        )
+    )
+
+    assert (result.decision, result.reason_code) == ("observe", "status_non_promotable")
+
+
+def test_fact_promotion_contract_rejects_summary_only_and_compatibility_only_sources() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    summary_only = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="business_fact",
+        )
+    )
+    compatibility_only = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="policy_evidence",
+            policy_evidence_refs=[_promotion_evidence_ref(tenant_id, observed_at=observed_at)],
+            reference_validation="compatibility_only",
+        )
+    )
+
+    assert (summary_only.decision, summary_only.reason_code) == ("observe", "missing_authoritative_ref")
+    assert (compatibility_only.decision, compatibility_only.reason_code) == (
+        "observe",
+        "compatibility_only_ref",
+    )
+
+
+def test_cwc_fact_schema_round_trips_full_canonical_policy_ref_without_reduced_shape() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    evidence_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
+    result = promote_verified_fact(
+        _promotion_candidate(
+            tenant_id=tenant_id,
+            observed_at=observed_at,
+            authority_class="policy_evidence",
+            policy_evidence_refs=[evidence_ref],
+        )
+    )
+    content = CaseWorkingContextContentV1(
+        verified_facts=[result.to_verified_fact(source_ref={"source_type": "tool_result"})],
+        policy_refs=result.policy_evidence_refs,
+    )
+    restored = CaseWorkingContextContentV1.model_validate(content.model_dump(mode="json"))
+
+    assert restored.policy_refs == [evidence_ref]
+    assert restored.verified_facts[0].policy_evidence_refs == [evidence_ref]
+    assert restored.policy_refs[0].scope_type == "tenant_policy"
+    assert restored.policy_refs[0].scope_id == str(tenant_id)
+
+
 def test_project_terminal_write_candidate_returns_eligible_candidate_with_terminal_source_ref() -> None:
     tenant_id = uuid.uuid4()
     case_id = uuid.uuid4()
@@ -283,7 +553,20 @@ def test_project_terminal_write_candidate_returns_eligible_candidate_with_termin
         state={
             "user_query": "请帮我看一下这个退款单为什么还没处理",
             "active_slots": {"issue_type": "refund_status"},
-            "tool_results": [{"tool_result_id": "tool-result-1", "summary": "退款单状态为 reviewing"}],
+            "tool_results": [
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=datetime(2026, 8, 5, 9, 30, tzinfo=UTC),
+                    authority_class="business_fact",
+                    business_fact_refs=[
+                        _promotion_business_ref(
+                            tenant_id,
+                            observed_at=datetime(2026, 8, 5, 9, 30, tzinfo=UTC),
+                        )
+                    ],
+                    tool_result_id="tool-result-1",
+                )
+            ],
         },
         tenant_id=tenant_id,
         case_id=case_id,
@@ -396,7 +679,8 @@ def test_project_terminal_write_candidate_uses_only_prompt_safe_tool_summaries()
     )
 
     assert projection.candidate is not None
-    assert [fact.text for fact in projection.candidate.content.verified_facts] == [
+    assert projection.candidate.content.verified_facts == []
+    assert [observation.summary for observation in projection.candidate.content.observations] == [
         "退款单状态为 reviewing",
         "订单已签收",
         "商家风险等级低",
@@ -408,43 +692,283 @@ def test_project_terminal_write_candidate_uses_only_prompt_safe_tool_summaries()
     assert "policy raw body should not leak" not in projected
 
 
-def test_project_terminal_write_candidate_policy_refs_use_identifiers_only() -> None:
+def test_project_terminal_write_candidate_policy_refs_use_full_canonical_identity() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    evidence_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
     projection = project_terminal_write_candidate(
         state={
             "user_query": "查询退款政策",
-            "tool_results": [{"summary": "退款单状态为 reviewing"}],
-            "rag_context_bundle": {
-                "evidence_refs": [
-                    {
-                        "doc_key": "refund-policy",
-                        "chunk_id": "chunk-001",
-                        "policy_version": "2026-07",
-                        "text": "full policy evidence text should not leak",
-                    },
-                    {
-                        "doc_id": "refund-sop",
-                        "chunk_id": "chunk-002",
-                        "version": "v3",
-                        "evidence_text": "SOP evidence body should not leak",
-                    },
-                ]
-            },
+            "tool_results": [
+                {
+                    **_promotion_tool_result(
+                        tenant_id=tenant_id,
+                        observed_at=observed_at,
+                        authority_class="policy_evidence",
+                        summary="按租户政策继续审核",
+                        policy_evidence_refs=[evidence_ref],
+                    ),
+                    "raw_payload": "full policy evidence text should not leak",
+                }
+            ],
         },
-        tenant_id=uuid.uuid4(),
+        tenant_id=tenant_id,
         case_id=uuid.uuid4(),
         run_id=uuid.uuid4(),
         expected_version=None,
         final_response="按政策继续审核。",
+        _validated_policy_evidence_ids=frozenset({evidence_ref.evidence_id}),
     )
 
     assert projection.candidate is not None
-    assert [item.model_dump() for item in projection.candidate.content.policy_refs] == [
-        {"doc_id": "refund-policy", "chunk_id": "chunk-001", "version": "2026-07"},
-        {"doc_id": "refund-sop", "chunk_id": "chunk-002", "version": "v3"},
-    ]
+    assert projection.candidate.content.policy_refs == [evidence_ref]
+    assert projection.candidate.content.verified_facts[0].policy_evidence_refs == [evidence_ref]
+    assert projection.candidate.content.policy_refs[0].scope_type == "tenant_policy"
+    assert projection.candidate.content.policy_refs[0].scope_id == str(tenant_id)
     projected = repr(projection.candidate.content.model_dump(mode="json"))
     assert "full policy evidence text should not leak" not in projected
-    assert "SOP evidence body should not leak" not in projected
+
+
+def test_terminal_projection_promotes_valid_mixed_members_independently_and_dedupes_exact_sources() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    business_ref = _promotion_business_ref(tenant_id, observed_at=observed_at)
+    second_business_ref = business_ref.model_copy(update={"resource_id": "RF-PROMOTION-002"})
+    evidence_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
+    business_result = _promotion_tool_result(
+        tenant_id=tenant_id,
+        observed_at=observed_at,
+        authority_class="business_fact",
+        business_fact_refs=[business_ref, second_business_ref],
+        summary="退款单状态为 reviewing",
+    )
+    projection = project_terminal_write_candidate(
+        state={
+            "user_query": "查询退款单和租户政策",
+            "tool_results": [
+                business_result,
+                {
+                    **business_result,
+                    "tool_result_id": "duplicate-source",
+                    "summary": "同源重复摘要",
+                    "business_fact_refs": [
+                        second_business_ref.model_dump(mode="json"),
+                        business_ref.model_dump(mode="json"),
+                    ],
+                },
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="policy_evidence",
+                    policy_evidence_refs=[evidence_ref],
+                    summary="租户退款政策允许继续审核",
+                ),
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="contextual_only",
+                    business_fact_refs=[business_ref, second_business_ref],
+                    summary="历史上下文仅供参考",
+                ),
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="unknown",
+                    business_fact_refs=[business_ref, second_business_ref],
+                    summary="未知来源声称已完成",
+                ),
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="business_fact",
+                    status="timeout",
+                    business_fact_refs=[business_ref, second_business_ref],
+                    summary="超时前的部分摘要",
+                ),
+            ],
+        },
+        tenant_id=tenant_id,
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="已核对当前事实和租户政策。",
+        _validated_policy_evidence_ids=frozenset({evidence_ref.evidence_id}),
+    )
+
+    assert projection.candidate is not None
+    assert [fact.authority_class for fact in projection.candidate.content.verified_facts] == [
+        "business_fact",
+        "policy_evidence",
+    ]
+    assert projection.candidate.content.verified_facts[0].business_fact_refs == [business_ref, second_business_ref]
+    assert projection.candidate.content.verified_facts[1].policy_evidence_refs == [evidence_ref]
+    assert projection.candidate.content.policy_refs == [evidence_ref]
+    assert [(item.decision, item.reason_code) for item in projection.candidate.content.observations] == [
+        ("observe", "contextual_only_non_authoritative"),
+        ("reject", "unknown_authority"),
+        ("observe", "status_non_promotable"),
+    ]
+
+
+def test_terminal_projection_rejects_mixed_malformed_business_ref_list() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    business_ref = _promotion_business_ref(tenant_id, observed_at=observed_at)
+    item = _promotion_tool_result(
+        tenant_id=tenant_id,
+        observed_at=observed_at,
+        authority_class="business_fact",
+        business_fact_refs=[business_ref],
+    )
+    item["business_fact_refs"] = [business_ref.model_dump(mode="json"), "malformed-member"]
+
+    projection = project_terminal_write_candidate(
+        state={"user_query": "查询退款单", "tool_results": [item]},
+        tenant_id=tenant_id,
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="无法验证业务事实来源。",
+    )
+
+    assert projection.candidate is not None
+    content = projection.candidate.content
+    assert content.verified_facts == []
+    assert content.policy_refs == []
+    assert len(content.observations) == 1
+    assert content.observations[0].decision == "observe"
+    assert content.observations[0].reference_validation == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_terminal_projection_rejects_mixed_malformed_policy_ref_list_before_exact_resolution() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    evidence_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at)
+    item = _promotion_tool_result(
+        tenant_id=tenant_id,
+        observed_at=observed_at,
+        authority_class="policy_evidence",
+        policy_evidence_refs=[evidence_ref],
+    )
+    item["policy_evidence_refs"] = [evidence_ref.model_dump(mode="json"), "malformed-member"]
+    state = {"user_query": "查询退款政策", "tool_results": [item]}
+    resolver_calls: list[str] = []
+
+    async def exact_resolver(
+        session: AsyncSession,
+        *,
+        tenant_id: uuid.UUID,
+        evidence_ref: EvidenceRefV1,
+    ) -> bool:
+        del session, tenant_id
+        resolver_calls.append(evidence_ref.evidence_id)
+        return True
+
+    validated_ids = await lifecycle_module._validated_policy_evidence_ids(
+        state,
+        session=SimpleNamespace(),
+        tenant_id=tenant_id,
+        resolver=exact_resolver,
+    )
+    projection = project_terminal_write_candidate(
+        state=state,
+        tenant_id=tenant_id,
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="无法验证政策来源。",
+        _validated_policy_evidence_ids=validated_ids,
+    )
+
+    assert resolver_calls == []
+    assert validated_ids == frozenset()
+    assert projection.candidate is not None
+    content = projection.candidate.content
+    assert content.verified_facts == []
+    assert content.policy_refs == []
+    assert len(content.observations) == 1
+    assert content.observations[0].decision == "reject"
+    assert content.observations[0].reference_validation == "invalid"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_internal_reason"),
+    [
+        ({"scope_id": "same-tenant-request-scope"}, "scope_mismatch"),
+        ({"text_hash": f"sha256:{'b' * 64}"}, "scope_mismatch"),
+    ],
+)
+def test_terminal_projection_rejects_forged_or_cross_scope_policy_refs_with_generic_reason(
+    mutation: dict[str, str],
+    expected_internal_reason: str,
+) -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    forged_ref = _promotion_evidence_ref(tenant_id, observed_at=observed_at).model_dump(mode="json")
+    forged_ref.update(mutation)
+    item = _promotion_tool_result(
+        tenant_id=tenant_id,
+        observed_at=observed_at,
+        authority_class="policy_evidence",
+        policy_evidence_refs=[],
+    )
+    item["policy_evidence_refs"] = [forged_ref]
+    projection = project_terminal_write_candidate(
+        state={"user_query": "查询退款政策", "tool_results": [item]},
+        tenant_id=tenant_id,
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="无法验证政策来源。",
+    )
+
+    assert projection.candidate is not None
+    assert projection.candidate.content.verified_facts == []
+    assert projection.candidate.content.policy_refs == []
+    assert len(projection.candidate.content.observations) == 1
+    observation = projection.candidate.content.observations[0]
+    assert observation.reason_code == "authoritative_source_unavailable"
+    assert observation.internal_reason_code == expected_internal_reason
+
+
+def test_terminal_projection_keeps_summary_only_and_freshness_mismatch_out_of_verified_facts() -> None:
+    tenant_id = uuid.uuid4()
+    observed_at = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    business_ref = _promotion_business_ref(tenant_id, observed_at=observed_at)
+    projection = project_terminal_write_candidate(
+        state={
+            "user_query": "查询退款单",
+            "tool_results": [
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="business_fact",
+                    summary="只有摘要，没有权威引用",
+                ),
+                _promotion_tool_result(
+                    tenant_id=tenant_id,
+                    observed_at=observed_at,
+                    authority_class="business_fact",
+                    business_fact_refs=[business_ref],
+                    freshness_result="stale",
+                    summary="过期退款状态",
+                ),
+            ],
+        },
+        tenant_id=tenant_id,
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="未获得可验证的新事实。",
+    )
+
+    assert projection.candidate is not None
+    assert projection.candidate.content.verified_facts == []
+    assert [item.reason_code for item in projection.candidate.content.observations] == [
+        "missing_authoritative_ref",
+        "freshness_not_valid",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -475,13 +999,22 @@ def test_project_terminal_write_candidate_classifies_pii_deterministically(text:
 
 
 def _terminal_state(scope: dict[str, object], **overrides: object) -> dict[str, object]:
+    observed_at = datetime.now(UTC)
     state: dict[str, object] = {
         "user_query": "请帮我更新这个退款单的处理上下文",
         "active_slots": {
             "refund_case_id": scope["refund_case"].refund_case_no,
             "issue_type": "refund_status",
         },
-        "tool_results": [{"tool_result_id": "terminal-tool-1", "summary": "退款单状态为 reviewing"}],
+        "tool_results": [
+            _promotion_tool_result(
+                tenant_id=scope["tenant"].id,
+                observed_at=observed_at,
+                authority_class="business_fact",
+                business_fact_refs=[_promotion_business_ref(scope["tenant"].id, observed_at=observed_at)],
+                tool_result_id="terminal-tool-1",
+            )
+        ],
     }
     state.update(overrides)
     return state
@@ -516,6 +1049,101 @@ def _reset_capturing_service(
         memory_id=memory_id if memory_id is not None else uuid.uuid4(),
         version=version,
     )
+
+
+@pytest.mark.asyncio
+async def test_terminal_policy_promotion_requires_explicit_exact_resolver_success(
+    phase45_session_factory,
+) -> None:
+    _reset_capturing_service()
+    resolver_calls: list[tuple[uuid.UUID, str]] = []
+
+    async def exact_success_resolver(
+        session: AsyncSession,
+        *,
+        tenant_id: uuid.UUID,
+        evidence_ref: EvidenceRefV1,
+    ) -> bool:
+        assert session is not None
+        assert evidence_ref.scope_type == "tenant_policy"
+        assert evidence_ref.scope_id == str(tenant_id)
+        resolver_calls.append((tenant_id, evidence_ref.evidence_id))
+        return True
+
+    async with phase45_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_lifecycle_scope(session)
+            observed_at = datetime.now(UTC)
+            evidence_ref = _promotion_evidence_ref(scope["tenant"].id, observed_at=observed_at)
+            result = await CaseWorkingContextLifecycleAdapter(
+                case_working_context_service_cls=_CapturingCwcService,
+                policy_evidence_resolver=exact_success_resolver,
+            ).write_after_terminal_success(
+                session=session,
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id=scope["run"].thread_id,
+                run_id=scope["run"].id,
+                final_state=_terminal_state(
+                    scope,
+                    tool_results=[
+                        _promotion_tool_result(
+                            tenant_id=scope["tenant"].id,
+                            observed_at=observed_at,
+                            authority_class="policy_evidence",
+                            policy_evidence_refs=[evidence_ref],
+                        )
+                    ],
+                ),
+                final_response="按已验证政策继续审核。",
+            )
+
+    assert result.status_ref.write_status == "written"
+    assert resolver_calls == [(scope["tenant"].id, evidence_ref.evidence_id)]
+    content = _CapturingCwcService.calls[0]["candidate"].content
+    assert [fact.authority_class for fact in content.verified_facts] == ["policy_evidence"]
+    assert content.policy_refs == [evidence_ref]
+
+
+@pytest.mark.asyncio
+async def test_terminal_policy_promotion_rejects_canonical_shaped_nonexistent_ids(
+    phase45_session_factory,
+) -> None:
+    _reset_capturing_service()
+    async with phase45_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_lifecycle_scope(session)
+            observed_at = datetime.now(UTC)
+            nonexistent_ref = _promotion_evidence_ref(scope["tenant"].id, observed_at=observed_at)
+            result = await CaseWorkingContextLifecycleAdapter(
+                case_working_context_service_cls=_CapturingCwcService,
+            ).write_after_terminal_success(
+                session=session,
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id=scope["run"].thread_id,
+                run_id=scope["run"].id,
+                final_state=_terminal_state(
+                    scope,
+                    tool_results=[
+                        _promotion_tool_result(
+                            tenant_id=scope["tenant"].id,
+                            observed_at=observed_at,
+                            authority_class="policy_evidence",
+                            policy_evidence_refs=[nonexistent_ref],
+                        )
+                    ],
+                ),
+                final_response="无法验证政策来源。",
+            )
+
+    assert result.status_ref.write_status == "written"
+    content = _CapturingCwcService.calls[0]["candidate"].content
+    assert content.verified_facts == []
+    assert content.policy_refs == []
+    assert len(content.observations) == 1
+    assert content.observations[0].reason_code == "invalid_authoritative_ref"
+    assert content.observations[0].reference_validation == "invalid"
 
 
 @pytest.mark.asyncio

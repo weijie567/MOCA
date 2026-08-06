@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from src.agent.context import PromptAssembly
 from src.agent.nodes import risk_gate as risk_gate_module
 from src.approvals.schemas import RiskDecisionV1
+from src.knowledge.schemas import EvidenceRefV1
 from src.tools.contracts import BusinessFactRefV1
 from tests.agent.conftest import FakeLLM
 
@@ -536,7 +537,7 @@ async def test_phase34_approval_required_writes_risk_gate_bindings(monkeypatch, 
     assert result["target_merchant_id"] == "merchant-1"
     assert result["target_merchant_ref"]["target_merchant_id"] == "merchant-1"
     assert result["business_fact_refs"][0]["resource_id"] == "RF-1001"
-    assert result["verified_evidence_refs"] == [evidence_ref]
+    assert result["verified_evidence_refs"] == [EvidenceRefV1.model_validate(evidence_ref).model_dump(mode="json")]
     assert result["claim_verification_summary"] == {
         "overall_status": "verified",
         "route": "continue",

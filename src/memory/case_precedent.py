@@ -11,7 +11,13 @@ from src.db.models import RefundCase
 from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
 from src.memory.case_working_context import CaseWorkingContextRepository, hydrate_content
 from src.memory.case_working_context_schemas import CaseWorkingContextContentV1
-from src.memory.schemas import CaseMemoryWriteCandidate, MemorySourceRefV1
+from src.memory.identity import build_case_memory_candidate_identity
+from src.memory.schemas import (
+    CaseMemoryProvenanceV1,
+    CaseMemorySourceAuthorityV1,
+    CaseMemoryWriteCandidate,
+    MemorySourceRefV1,
+)
 from src.repositories.refund_repo import RefundRepository
 
 
@@ -162,11 +168,16 @@ def _project_closed_case_candidate(
     scope_id: str,
 ) -> CaseMemoryWriteCandidate | ClosedCasePrecedentGenerationResult:
     pii_classification = str(getattr(cwc_row, "pii_classification", "none") or "none")
-    policy_refs = _project_policy_refs(content)
-    policy_family = policy_refs[0]["doc_key"] if policy_refs else None
-    policy_version = policy_refs[0]["policy_version"] if policy_refs else None
+    source_authorities = _project_source_authorities(content)
+    business_fact_refs = _ordered_unique_refs(
+        ref for authority in source_authorities for ref in authority.business_fact_refs
+    )
+    evidence_refs = _ordered_unique_refs(ref for authority in source_authorities for ref in authority.evidence_refs)
+    policy_refs = [ref.model_dump(mode="json", exclude_none=True) for ref in evidence_refs]
+    policy_family = evidence_refs[0].doc_key if evidence_refs else None
+    policy_version = evidence_refs[0].policy_version if evidence_refs else None
     if pii_classification in _PII_BLOCKING_CLASSIFICATIONS:
-        return CaseMemoryWriteCandidate(
+        candidate = CaseMemoryWriteCandidate(
             tenant_id=request.tenant_id,
             run_id=request.run_id,
             scope_type=scope_type,  # type: ignore[arg-type]
@@ -185,6 +196,14 @@ def _project_closed_case_candidate(
             embedding=None,
             pii_classification=pii_classification,  # type: ignore[arg-type]
         )
+        return _bind_projected_provenance(
+            candidate=candidate,
+            request=request,
+            cwc_row=cwc_row,
+            source_authorities=source_authorities,
+            business_fact_refs=business_fact_refs,
+            evidence_refs=evidence_refs,
+        )
 
     case_type = _bounded_text(content.issue_type, 64) or "refund"
     summary = _bounded_text(f"Closed refund case precedent: {case_type}.", 4000)
@@ -194,7 +213,7 @@ def _project_closed_case_candidate(
         1500,
     )
 
-    return CaseMemoryWriteCandidate(
+    candidate = CaseMemoryWriteCandidate(
         tenant_id=request.tenant_id,
         run_id=request.run_id,
         scope_type=scope_type,  # type: ignore[arg-type]
@@ -216,24 +235,81 @@ def _project_closed_case_candidate(
         embedding=None,
         pii_classification=pii_classification,  # type: ignore[arg-type]
     )
+    return _bind_projected_provenance(
+        candidate=candidate,
+        request=request,
+        cwc_row=cwc_row,
+        source_authorities=source_authorities,
+        business_fact_refs=business_fact_refs,
+        evidence_refs=evidence_refs,
+    )
 
 
-def _project_policy_refs(content: CaseWorkingContextContentV1) -> list[dict[str, str]]:
-    refs: list[dict[str, str]] = []
-    seen: set[tuple[str, str, str]] = set()
-    for ref in content.policy_refs:
-        key = (ref.doc_id, ref.chunk_id, ref.version)
+def _project_source_authorities(content: CaseWorkingContextContentV1) -> list[CaseMemorySourceAuthorityV1]:
+    authorities: list[CaseMemorySourceAuthorityV1] = []
+    for fact in content.verified_facts:
+        authorities.append(
+            CaseMemorySourceAuthorityV1(
+                source_kind=fact.authority_class,
+                source_ref=fact.source_ref,
+                source_status=fact.status,
+                source_authority_class=fact.authority_class,
+                business_fact_refs=list(fact.business_fact_refs),
+                evidence_refs=list(fact.policy_evidence_refs),
+            )
+        )
+    return authorities
+
+
+def _ordered_unique_refs(values):
+    refs = []
+    seen: set[str] = set()
+    for value in values:
+        key = value.model_dump_json(exclude_none=True)
         if key in seen:
             continue
         seen.add(key)
-        refs.append(
-            {
-                "doc_key": ref.doc_id,
-                "chunk_id": ref.chunk_id,
-                "policy_version": ref.version,
-            }
-        )
+        refs.append(value)
     return refs
+
+
+def _bind_projected_provenance(
+    *,
+    candidate: CaseMemoryWriteCandidate,
+    request: ClosedCasePrecedentGenerationInput,
+    cwc_row: Any,
+    source_authorities: list[CaseMemorySourceAuthorityV1],
+    business_fact_refs: list,
+    evidence_refs: list,
+) -> CaseMemoryWriteCandidate:
+    cwc_id = getattr(cwc_row, "id", None)
+    cwc_revision = getattr(cwc_row, "version", None)
+    if cwc_id is None or not isinstance(cwc_revision, int) or cwc_revision <= 0:
+        raise ValueError("closed-case provenance requires the persisted CWC id and positive revision")
+    identity = build_case_memory_candidate_identity(candidate)
+    source_ref = candidate.source_ref
+    if source_ref is None:
+        raise ValueError("closed-case provenance requires the normalized source ref")
+    provenance = CaseMemoryProvenanceV1(
+        resolution_status="canonical",
+        tenant_id=candidate.tenant_id,
+        scope_type=candidate.scope_type,
+        scope_id=candidate.scope_id,
+        memory_authority_class="contextual_only",
+        source_authorities=source_authorities,
+        source_run_id=request.run_id,
+        source_event_id=source_ref.event_id,
+        source_cwc_id=uuid.UUID(str(cwc_id)),
+        source_cwc_revision=cwc_revision,
+        evidence_refs=evidence_refs,
+        business_fact_refs=business_fact_refs,
+        identity_algorithm_version="memory_identity.v1",
+        identity_profile=identity.identity_profile,
+        candidate_hash=identity.candidate_hash,
+        content_hash=identity.content_hash,
+        source_identity_hash=identity.source_identity_hash,
+    )
+    return candidate.model_copy(update={"provenance": provenance})
 
 
 def _projection_excerpt_lines(content: CaseWorkingContextContentV1) -> list[str]:

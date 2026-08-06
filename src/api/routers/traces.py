@@ -90,7 +90,10 @@ async def get_run_replay(
     if run.user_id != user.id and user.role not in ADMIN_RUN_VISIBILITY_ROLES:
         raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message": "Cannot view this run"})
 
-    replay_response = await ReplayService(session).get_replay(run_uuid)
+    try:
+        replay_response = await ReplayService(session).get_replay(run_uuid)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Run not found"}) from exc
     return ApiResponse(
         success=True,
         data=replay_response,

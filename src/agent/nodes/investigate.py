@@ -918,6 +918,7 @@ async def _emit_tool_event(
     }
     if result is not None and result.status in {"error", "invalid_request", "invalid_response"}:
         redacted_payload["termination_reason"] = "unrecoverable_error"
+    canonical_evidence_refs = list(result.policy_evidence_refs) if result is not None else []
     if event_emitter is not None:
         await event_emitter(
             event_type=event_type,
@@ -927,6 +928,7 @@ async def _emit_tool_event(
             attempt=tool_ctx.attempt,
             iteration=iteration,
             payload=redacted_payload,
+            canonical_evidence_refs=canonical_evidence_refs,
         )
         return
     if session is None:
@@ -946,6 +948,7 @@ async def _emit_tool_event(
         tool_call_id=tool_ctx.tool_call_id,
         attempt=tool_ctx.attempt,
         iteration=iteration,
+        canonical_evidence_refs=canonical_evidence_refs,
     )
 
 

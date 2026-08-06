@@ -32,6 +32,7 @@ MINIMAL_ENVELOPE_KEYS = {
     "redaction_policy_version",
     "redacted_payload",
 }
+OPTIONAL_MINIMAL_ENVELOPE_KEYS = {"evidence_snapshot_refs"}
 
 
 def test_replay_and_agent_event_modules_cold_import() -> None:
@@ -90,7 +91,8 @@ def test_decision_event_envelope_accepts_exact_minimal_fields() -> None:
     event = DecisionEventEnvelopeV1.model_validate(_base_envelope())
 
     assert set(event.model_dump(mode="python")) == MINIMAL_ENVELOPE_KEYS
-    assert set(DecisionEventEnvelopeV1.model_fields) == MINIMAL_ENVELOPE_KEYS
+    assert set(DecisionEventEnvelopeV1.model_fields) == MINIMAL_ENVELOPE_KEYS | OPTIONAL_MINIMAL_ENVELOPE_KEYS
+    assert event.evidence_snapshot_refs is None
     assert event.schema_version == "minimal_event_envelope.v1"
 
 

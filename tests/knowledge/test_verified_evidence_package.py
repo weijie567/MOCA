@@ -7,6 +7,10 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
+from src.knowledge.evidence_identity import (
+    PersistedEvidenceIdentityMaterialV1,
+    mint_canonical_evidence_identity,
+)
 from src.knowledge.schemas import (
     EvidenceItemV1,
     EvidenceRefV1,
@@ -14,18 +18,34 @@ from src.knowledge.schemas import (
     VerifiedEvidencePackageV1,
 )
 from src.knowledge.service import PolicyKnowledgeService
+from src.knowledge.text_hash import evidence_text_hash
 
 
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
 
 
 def _evidence_ref() -> EvidenceRefV1:
-    return EvidenceRefV1.build(
+    material = PersistedEvidenceIdentityMaterialV1(
         tenant_id=TENANT_ID,
+        scope_type="tenant_policy",
+        scope_id=TENANT_ID,
+        document_version_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        chunk_version_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         doc_key="policy_refund_timeout",
+        document_version=3,
         chunk_id="chunk_001",
-        policy_version="v3",
-        text="Refund timeout compensation requires verified policy evidence.",
+        chunk_version=1,
+        text_hash=evidence_text_hash("Refund timeout compensation requires verified policy evidence."),
+    )
+    resolution = mint_canonical_evidence_identity(
+        material,
+        expected_tenant_id=TENANT_ID,
+        expected_scope_type="tenant_policy",
+        expected_scope_id=TENANT_ID,
+    )
+    assert resolution.identity is not None
+    return EvidenceRefV1.from_canonical_identity(
+        resolution.identity,
         retrieved_at="2026-06-19T00:00:00.000Z",
         retrieval_config_version="retrieval.v3",
         score=0.91,
@@ -63,10 +83,10 @@ def _knowledge_context() -> KnowledgeContext:
 
 
 def _canonical_row(ref: EvidenceRefV1, **overrides: Any) -> dict[str, Any]:
+    identity = ref.to_canonical_identity()
+    assert identity is not None
     row: dict[str, Any] = {
-        "tenant_id": ref.tenant_id,
-        "doc_key": ref.doc_key,
-        "chunk_id": ref.chunk_id,
+        **identity.model_dump(mode="json"),
         "content": "Refund timeout compensation requires verified policy evidence.",
         "policy_document_version": 3,
         "current_policy_version": "v3",
@@ -92,6 +112,14 @@ class FakeCanonicalRetriever:
         keys: list[tuple[str, str]],
     ) -> dict[tuple[str, str], dict[str, Any]]:
         return {key: row for key, row in self.rows.items() if key in keys and row["tenant_id"] == str(tenant_id)}
+
+    async def get_current_canonical_evidence_rows_by_keys(
+        self,
+        *,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict[str, Any]]:
+        return await self.get_canonical_evidence_rows_by_keys(tenant_id=tenant_id, keys=keys)
 
 
 def test_verified_evidence_package_accepts_exact_rag_context_status_literals() -> None:

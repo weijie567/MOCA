@@ -26,6 +26,12 @@ from src.agent.rag_context.verifier import (
     VerificationOutcome,
 )
 from src.knowledge.diagnostics import RankingExplanation, RetrievalDiagnostics
+from src.knowledge.evidence_identity import (
+    CanonicalEvidenceResolutionV1,
+    EvidenceIdentityExternalReason,
+    EvidenceIdentityInternalReason,
+    EvidenceIdentityResolutionStatus,
+)
 from src.knowledge.config import (
     MIN_SIMILARITY_THRESHOLD,
     RERANK_CONFIG_VERSION,
@@ -80,6 +86,31 @@ class PolicyRetriever(Protocol):
         tenant_id: UUID,
         keys: list[tuple[str, str]],
     ) -> dict[tuple[str, str], dict[str, Any]]: ...
+
+    async def get_current_canonical_evidence_rows_by_keys(
+        self,
+        *,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict[str, Any]]: ...
+
+    async def resolve_immutable_evidence(
+        self,
+        candidate: object,
+        *,
+        tenant_id: UUID,
+        scope_type: str,
+        scope_id: str,
+    ) -> CanonicalEvidenceResolutionV1: ...
+
+    async def resolve_legacy_alias(
+        self,
+        alias: str,
+        *,
+        tenant_id: UUID,
+        scope_type: str,
+        scope_id: str,
+    ) -> CanonicalEvidenceResolutionV1: ...
 
 
 class VerifiedEvidenceDetail(BaseModel):
@@ -412,6 +443,144 @@ class PolicyKnowledgeService:
             )
         return VerifiedEvidenceDetailsResult(included=included, excluded=excluded)
 
+    async def validate_current_evidence(
+        self,
+        *,
+        tenant_id: str,
+        evidence_refs: list[EvidenceRefV1],
+        effective_at: str | None = None,
+        merchant_scope: list[str] | None = None,
+        doc_type: str | None = None,
+        risk_level: str | None = None,
+    ) -> VerifiedEvidenceDetailsResult:
+        """Validate current eligibility only through enabled canonical bindings."""
+
+        try:
+            tenant_uuid = UUID(tenant_id)
+        except ValueError:
+            return VerifiedEvidenceDetailsResult(
+                excluded=[_detail_exclusion(ref, ["evidence_unavailable"]) for ref in evidence_refs]
+            )
+        if not hasattr(self.retriever, "get_current_canonical_evidence_rows_by_keys"):
+            return VerifiedEvidenceDetailsResult(
+                excluded=[_detail_exclusion(ref, ["evidence_unavailable"]) for ref in evidence_refs]
+            )
+
+        key_counts = Counter((ref.doc_key, ref.chunk_id) for ref in evidence_refs)
+        canonical_refs: list[EvidenceRefV1] = []
+        excluded: list[VerifiedEvidenceExclusion] = []
+        for ref in evidence_refs:
+            try:
+                identity = ref.to_canonical_identity()
+            except ValueError:
+                identity = None
+            if (
+                identity is None
+                or ref.tenant_id != tenant_id
+                or identity.scope_type != "tenant_policy"
+                or identity.scope_id != tenant_id
+                or key_counts[(ref.doc_key, ref.chunk_id)] != 1
+            ):
+                excluded.append(_detail_exclusion(ref, ["evidence_unavailable"]))
+            else:
+                canonical_refs.append(ref)
+        if not canonical_refs:
+            return VerifiedEvidenceDetailsResult(excluded=excluded)
+
+        keys = [(ref.doc_key, ref.chunk_id) for ref in canonical_refs]
+        try:
+            rows = await self.retriever.get_current_canonical_evidence_rows_by_keys(
+                tenant_id=tenant_uuid,
+                keys=keys,
+            )
+        except Exception:
+            return VerifiedEvidenceDetailsResult(
+                excluded=[*excluded, *[_detail_exclusion(ref, ["evidence_unavailable"]) for ref in canonical_refs]]
+            )
+
+        exact_refs: list[EvidenceRefV1] = []
+        for ref in canonical_refs:
+            identity = ref.to_canonical_identity()
+            row = rows.get((ref.doc_key, ref.chunk_id))
+            if (
+                identity is None
+                or row is None
+                or any(
+                    row.get(field) != getattr(identity, field)
+                    for field in (
+                        "evidence_id",
+                        "tenant_id",
+                        "scope_type",
+                        "scope_id",
+                        "document_version_id",
+                        "chunk_version_id",
+                        "doc_key",
+                        "document_version",
+                        "chunk_id",
+                        "chunk_version",
+                        "text_hash",
+                    )
+                )
+            ):
+                excluded.append(_detail_exclusion(ref, ["evidence_unavailable"]))
+                continue
+            exact_refs.append(ref)
+
+        current = await self.get_verified_evidence_details(
+            tenant_id=tenant_id,
+            evidence_refs=exact_refs,
+            effective_at=effective_at,
+            merchant_scope=merchant_scope,
+            doc_type=doc_type,
+            risk_level=risk_level,
+        )
+        return VerifiedEvidenceDetailsResult(
+            included=current.included,
+            excluded=[*excluded, *current.excluded],
+        )
+
+    async def resolve_immutable_evidence(
+        self,
+        *,
+        tenant_id: str,
+        candidate: object,
+        scope_type: str,
+        scope_id: str,
+    ) -> CanonicalEvidenceResolutionV1:
+        """Resolve retained history without applying current eligibility filters."""
+
+        try:
+            tenant_uuid = UUID(tenant_id)
+            return await self.retriever.resolve_immutable_evidence(
+                candidate,
+                tenant_id=tenant_uuid,
+                scope_type=scope_type,
+                scope_id=scope_id,
+            )
+        except Exception:
+            return _evidence_resolution_failure(EvidenceIdentityInternalReason.MISSING)
+
+    async def resolve_legacy_alias(
+        self,
+        *,
+        tenant_id: str,
+        alias: str,
+        scope_type: str,
+        scope_id: str,
+    ) -> CanonicalEvidenceResolutionV1:
+        """Expose the only service compatibility path for legacy aliases."""
+
+        try:
+            tenant_uuid = UUID(tenant_id)
+            return await self.retriever.resolve_legacy_alias(
+                alias,
+                tenant_id=tenant_uuid,
+                scope_type=scope_type,
+                scope_id=scope_id,
+            )
+        except Exception:
+            return _evidence_resolution_failure(EvidenceIdentityInternalReason.MISSING)
+
     async def build_verified_context(
         self,
         *,
@@ -443,7 +612,7 @@ class PolicyKnowledgeService:
 
         trusted_context = _package_trusted_context(knowledge_context, policy)
         try:
-            details = await self.get_verified_evidence_details(
+            details = await self.validate_current_evidence(
                 tenant_id=knowledge_context.tenant_id,
                 evidence_refs=candidates,
                 effective_at=knowledge_context.effective_at,
@@ -456,6 +625,7 @@ class PolicyKnowledgeService:
                 business_fact_refs=business_refs,
                 trusted_context=trusted_context,
                 risk_hints=_risk_hints(policy),
+                _validated_evidence_details=details,
             )
         except Exception:
             return _empty_verified_package(
@@ -643,6 +813,14 @@ def _detail_exclusion(ref: EvidenceRefV1, reason_codes: list[str]) -> VerifiedEv
         reason_codes=ordered,
         doc_key=ref.doc_key,
         chunk_id=ref.chunk_id,
+    )
+
+
+def _evidence_resolution_failure(reason: EvidenceIdentityInternalReason) -> CanonicalEvidenceResolutionV1:
+    return CanonicalEvidenceResolutionV1(
+        status=EvidenceIdentityResolutionStatus.INVALID,
+        internal_reason=reason,
+        external_reason=EvidenceIdentityExternalReason.EVIDENCE_UNAVAILABLE,
     )
 
 

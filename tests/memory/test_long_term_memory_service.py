@@ -10,8 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import AgentRun, LongTermMemory, MemoryWriteEvent
-from src.memory.identity import canonical_memory_content_hash, canonical_source_identity_hash
-from src.memory.long_term import LongTermMemoryService, _candidate_hash_for_memory
+from src.memory.identity import (
+    build_long_term_memory_candidate_identity,
+    canonical_memory_content_hash,
+    canonical_source_identity_hash,
+)
+from src.memory.long_term import LongTermMemoryService
 from src.memory.repository import LongTermMemoryRepository
 from src.memory.schemas import LongTermMemoryWriteCandidate
 
@@ -604,9 +608,9 @@ async def test_review_and_delete_paths_are_evented(session: AsyncSession, seeded
     assert first_row.source_type == "human_reviewed"
     assert first_row.source_ref_json["source_type"] == "human_reviewed"
     assert approved_event.source_ref_json["source_type"] == "human_reviewed"
-    assert approved_event.candidate_hash == _candidate_hash_for_memory(first_row)
+    assert approved_event.candidate_hash == build_long_term_memory_candidate_identity(first_row).candidate_hash
     assert rejected_event.candidate_hash == second_result.candidate_hash
-    assert deleted_event.candidate_hash == _candidate_hash_for_memory(first_row)
+    assert deleted_event.candidate_hash == build_long_term_memory_candidate_identity(first_row).candidate_hash
 
 
 @pytest.mark.asyncio
@@ -646,10 +650,10 @@ async def test_approve_semantic_episode_preference_candidate_publishes_as_human_
     assert row.source_type == "human_reviewed"
     assert row.source_ref_json["source_type"] == "human_reviewed"
     assert row.source_ref_json["run_id"] == str(run_id)
-    assert row.source_identity_hash == canonical_source_identity_hash(row.source_ref_json)
+    assert row.source_identity_hash == build_long_term_memory_candidate_identity(row).source_identity_hash
     assert event.decision == "write"
     assert event.source_ref_json["source_type"] == "human_reviewed"
-    assert event.candidate_hash == _candidate_hash_for_memory(row)
+    assert event.candidate_hash == build_long_term_memory_candidate_identity(row).candidate_hash
     assert event.candidate_hash != result.candidate_hash
     assert [item.memory_id for item in retrieved] == [str(row.id)]
     assert retrieved[0].source_type == "human_reviewed"

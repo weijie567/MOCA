@@ -17,7 +17,11 @@ from src.db.models import ActionDraft, AgentRun, AgentTraceEvent, ApprovalAssign
 from src.replay.service import ReplayService
 from src.tools.contracts import ToolCallContext
 from src.tools.executors.action import ActionToolExecutor
-from tests.approvals.test_service_transitions import _create_command, _decision_command, _phase34_binding_overrides
+from tests.approvals.test_service_transitions import (
+    _canonical_phase34_binding,
+    _create_command,
+    _decision_command,
+)
 
 
 async def _create_run(session: AsyncSession, *, tenant_id: str, user_id: str) -> UUID:
@@ -50,7 +54,11 @@ async def _approval_context(
     tenant_id = seeded_session[tenant_key].id
     user_id = seeded_session["users"][user_key].id
     run_id = await _create_run(session, tenant_id=str(tenant_id), user_id=str(user_id))
-    binding_overrides = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    binding_overrides = await _canonical_phase34_binding(
+        session,
+        tenant_id=tenant_id,
+        run_id=run_id,
+    )
     run = await session.get(AgentRun, run_id)
     assert run is not None
     run.scope_classification = "business_merchant"
@@ -422,7 +430,11 @@ async def test_create_coupon_grant_draft_rejects_bare_snapshot_without_auto_acti
     tenant_id = seeded_session["tenant"].id
     user_id = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=str(tenant_id), user_id=str(user_id))
-    binding_overrides = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    binding_overrides = await _canonical_phase34_binding(
+        session,
+        tenant_id=tenant_id,
+        run_id=run_id,
+    )
     run = await session.get(AgentRun, run_id)
     assert run is not None
     run.scope_classification = "business_merchant"

@@ -3,15 +3,21 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import CaseMemory
 from src.memory.case_working_context_lifecycle import CaseWorkingContextLifecycleResult, lifecycle_status
 from src.memory.context_refs import ReviewedMemoryContextBundle, ReviewedMemoryContextRetrieveStatusV1
-from src.memory.identity import canonical_memory_content_hash
+from src.memory.identity import build_case_memory_candidate_identity
+from src.memory.schemas import (
+    CaseMemoryProvenanceV1,
+    CaseMemorySourceAuthorityV1,
+    CaseMemoryWriteCandidate,
+)
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
+from src.tools.contracts import BusinessFactRefV1
 
 
 def _trusted_context(
@@ -54,6 +60,102 @@ def _reviewed_memory_context_retrieve() -> Callable[[dict[str, Any], dict[str, A
     from src.agent.nodes.reviewed_memory_context_retrieve import reviewed_memory_context_retrieve
 
     return reviewed_memory_context_retrieve
+
+
+def _resolved_reviewed_case_memory(
+    *,
+    tenant_id: UUID,
+    user_id: UUID,
+    merchant_id: str,
+    refund_case_id: UUID,
+    summary: str,
+) -> CaseMemory:
+    source_run_id = uuid4()
+    reviewed_at = datetime.now(UTC)
+    candidate = CaseMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        run_id=source_run_id,
+        scope_type="merchant",
+        scope_id=merchant_id,
+        case_type="refund_dispute",
+        summary=summary,
+        excerpt="Approved closed_case_cwc_candidate refund_dispute precedent for damaged goods.",
+        applicability="Use only as reviewed precedent for similar refund disputes within merchant scope.",
+        outcome="Refund approved after staff review.",
+        caveats="Contextual precedent only.",
+        source_type="closed_case_cwc_candidate",
+        source_ref={
+            "source_type": "closed_case_cwc_candidate",
+            "run_id": str(source_run_id),
+            "event_id": f"reviewed-precedent:{refund_case_id}",
+            "business_object_type": "refund_case",
+            "business_object_id": str(refund_case_id),
+            "outcome_id": f"reviewed-outcome:{refund_case_id}",
+        },
+    )
+    identity = build_case_memory_candidate_identity(candidate)
+    assert identity.normalized_source_ref is not None
+    assert identity.source_identity_hash is not None
+    business_fact_ref = BusinessFactRefV1(
+        tenant_id=str(tenant_id),
+        source_system="moca",
+        resource_type="refund_case",
+        resource_id=str(refund_case_id),
+        resource_version="v1",
+        data_freshness_at=reviewed_at,
+        retrieved_at=reviewed_at,
+    )
+    provenance = CaseMemoryProvenanceV1(
+        resolution_status="canonical",
+        tenant_id=tenant_id,
+        scope_type="merchant",
+        scope_id=merchant_id,
+        source_authorities=[
+            CaseMemorySourceAuthorityV1(
+                source_kind="business_fact",
+                source_ref=identity.normalized_source_ref,
+                source_status="success",
+                source_authority_class="business_fact",
+                business_fact_refs=[business_fact_ref],
+            )
+        ],
+        source_run_id=source_run_id,
+        source_event_id=identity.normalized_source_ref.event_id,
+        business_fact_refs=[business_fact_ref],
+        identity_profile=identity.identity_profile,
+        candidate_hash=identity.candidate_hash,
+        content_hash=identity.content_hash,
+        source_identity_hash=identity.source_identity_hash,
+        review_decision="approved",
+        reviewer_user_id=user_id,
+        reviewed_at=reviewed_at,
+    )
+    return CaseMemory(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        scope_type=candidate.scope_type,
+        scope_id=candidate.scope_id,
+        case_type=candidate.case_type,
+        summary=candidate.summary,
+        excerpt=candidate.excerpt,
+        applicability=candidate.applicability,
+        outcome=candidate.outcome,
+        caveats=candidate.caveats,
+        content_hash=identity.content_hash,
+        policy_refs_json=[],
+        source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
+        source_identity_hash=identity.source_identity_hash,
+        identity_algorithm_version="memory_identity.v1",
+        candidate_hash=identity.candidate_hash,
+        identity_resolution_status="canonical",
+        provenance_json=provenance.model_dump(mode="json", exclude_none=True),
+        lifecycle_version=1,
+        embedding=None,
+        review_status="approved",
+        reviewed_by_user_id=user_id,
+        reviewed_at=reviewed_at,
+        pii_classification="none",
+    )
 
 
 def _assert_empty_context_bundle(result: dict[str, Any], *, fallback_reason: str) -> dict[str, Any]:
@@ -518,32 +620,12 @@ async def test_reviewed_memory_context_retrieve_real_service_uses_issue_type_not
         merchant_ids=[merchant_id],
     )
     summary = "Closed refund case precedent: refund_dispute."
-    precedent = CaseMemory(
-        id=uuid4(),
+    precedent = _resolved_reviewed_case_memory(
         tenant_id=tenant_id,
-        scope_type="merchant",
-        scope_id=merchant_id,
-        case_type="refund_dispute",
+        user_id=user_id,
+        merchant_id=merchant_id,
+        refund_case_id=seeded_session["refund_case"].id,
         summary=summary,
-        excerpt="Approved closed_case_cwc_candidate refund_dispute precedent for damaged goods.",
-        applicability="Use only as reviewed precedent for similar refund disputes within merchant scope.",
-        outcome="Refund approved after staff review.",
-        caveats="Contextual precedent only.",
-        content_hash=canonical_memory_content_hash(memory_type="case_memory", content=summary),
-        policy_family="refund",
-        policy_version="2026-01",
-        policy_refs_json=[{"doc_key": "refund_policy", "chunk_id": "c-1", "policy_version": "2026-01"}],
-        source_ref_json={
-            "source_type": "closed_case_cwc_candidate",
-            "business_object_type": "refund_case",
-            "business_object_id": str(seeded_session["refund_case"].id),
-        },
-        source_identity_hash=None,
-        embedding=None,
-        review_status="approved",
-        reviewed_by_user_id=user_id,
-        reviewed_at=datetime.now(UTC),
-        pii_classification="none",
     )
     session.add(precedent)
     await session.flush()

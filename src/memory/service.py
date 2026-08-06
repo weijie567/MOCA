@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,12 +9,11 @@ from sqlalchemy.exc import IntegrityError
 from src.agent.intent_policy import slot_intent_compatible
 from src.db.models import SessionMemory
 from src.memory.identity import (
-    canonical_memory_candidate_hash,
-    canonical_memory_content_hash,
-    canonical_source_identity_hash,
+    MemoryCandidateIdentityV1,
+    build_session_memory_candidate_identity,
 )
 from src.memory.policy import BLOCKED_MEMORY_WRITE_PII_CLASSIFICATIONS, MEMORY_POLICY_VERSION
-from src.memory.repository import SESSION_MEMORY_TYPE, SessionMemoryRepository
+from src.memory.repository import SessionMemoryRepository
 from src.memory.schemas import (
     SessionMemoryView,
     SessionMemoryWriteCandidate,
@@ -27,6 +25,12 @@ from src.memory.schemas import (
 _SUMMARY_CAP = 2000
 _SUMMARY_TRUNCATION_MARKER = "\n\n[summary_truncated]"
 BLOCKED_PII_CLASSIFICATIONS = BLOCKED_MEMORY_WRITE_PII_CLASSIFICATIONS
+
+
+class SessionMemoryWriteResultWithIdentity(SessionMemoryWriteResult):
+    """Session write result bound to the exact owner-produced identity."""
+
+    identity: MemoryCandidateIdentityV1
 
 
 class MemoryService:
@@ -110,14 +114,27 @@ class MemoryService:
         candidate: SessionMemoryWriteCandidate,
         now: datetime | None = None,
     ) -> SessionMemoryWriteResult:
+        identity = build_session_memory_candidate_identity(candidate)
         if not self.enabled:
-            return _write_result(candidate, status="disabled", reason_code="disabled", fallback_reason="disabled")
+            return _write_result(
+                candidate,
+                identity,
+                status="disabled",
+                reason_code="disabled",
+                fallback_reason="disabled",
+            )
         if candidate.decision == "skip" or candidate.pii_classification in BLOCKED_PII_CLASSIFICATIONS:
             reason_code = (
                 "pii_blocked" if candidate.pii_classification in BLOCKED_PII_CLASSIFICATIONS else candidate.reason_code
             )
-            result = _write_result(candidate, status="skipped", decision="skip", reason_code=reason_code)
-            return await self._with_write_event(candidate, result, memory_id=None)
+            result = _write_result(
+                candidate,
+                identity,
+                status="skipped",
+                decision="skip",
+                reason_code=reason_code,
+            )
+            return await self._with_write_event(candidate, identity, result, memory_id=None)
 
         now = _aware(now)
         try:
@@ -129,17 +146,29 @@ class MemoryService:
             )
             if existing is not None and _is_expired(existing.expires_at, now):
                 await self.repository.soft_delete(existing.id)
-                return await self._insert_with_race_merge(candidate, now=now, status="written")
+                return await self._insert_with_race_merge(
+                    candidate,
+                    identity,
+                    now=now,
+                    status="written",
+                )
             if existing is None:
-                return await self._insert_with_race_merge(candidate, now=now, status="written")
+                return await self._insert_with_race_merge(
+                    candidate,
+                    identity,
+                    now=now,
+                    status="written",
+                )
 
             expected_version = candidate.expected_version or existing.version
             merge = _merge_memory(existing, candidate, now=now, cas_retry=False)
             if merge.conflict_reason is not None:
                 return await self._with_write_event(
                     candidate,
+                    identity,
                     _write_result(
                         candidate,
+                        identity,
                         status="conflict",
                         reason_code=merge.conflict_reason,
                         conflict_reason=merge.conflict_reason,
@@ -151,8 +180,10 @@ class MemoryService:
             if updated:
                 return await self._with_write_event(
                     candidate,
+                    identity,
                     _write_result(
                         candidate,
+                        identity,
                         status="written",
                         reason_code=merge.reason_code,
                         version=expected_version + 1,
@@ -167,17 +198,29 @@ class MemoryService:
                 include_expired=True,
             )
             if latest is None:
-                return await self._insert_with_race_merge(candidate, now=now, status="merged_after_conflict")
+                return await self._insert_with_race_merge(
+                    candidate,
+                    identity,
+                    now=now,
+                    status="merged_after_conflict",
+                )
             if _is_expired(latest.expires_at, now):
                 await self.repository.soft_delete(latest.id)
-                return await self._insert_with_race_merge(candidate, now=now, status="merged_after_conflict")
+                return await self._insert_with_race_merge(
+                    candidate,
+                    identity,
+                    now=now,
+                    status="merged_after_conflict",
+                )
 
             retry_merge = _merge_memory(latest, candidate, now=now, cas_retry=True)
             if retry_merge.conflict_reason is not None:
                 return await self._with_write_event(
                     candidate,
+                    identity,
                     _write_result(
                         candidate,
+                        identity,
                         status="conflict",
                         reason_code=retry_merge.conflict_reason,
                         conflict_reason=retry_merge.conflict_reason,
@@ -189,8 +232,10 @@ class MemoryService:
             if retry_updated:
                 return await self._with_write_event(
                     candidate,
+                    identity,
                     _write_result(
                         candidate,
+                        identity,
                         status="merged_after_conflict",
                         reason_code=retry_merge.reason_code,
                         version=latest.version + 1,
@@ -199,8 +244,10 @@ class MemoryService:
                 )
             return await self._with_write_event(
                 candidate,
+                identity,
                 _write_result(
                     candidate,
+                    identity,
                     status="conflict",
                     reason_code="cas_retry_missed",
                     conflict_reason="cas_retry_missed",
@@ -210,7 +257,13 @@ class MemoryService:
             )
         except Exception:
             await self.repository.session.rollback()
-            return _write_result(candidate, status="fallback", reason_code="unavailable", fallback_reason="unavailable")
+            return _write_result(
+                candidate,
+                identity,
+                status="fallback",
+                reason_code="unavailable",
+                fallback_reason="unavailable",
+            )
 
     async def _insert(self, candidate: SessionMemoryWriteCandidate, *, now: datetime) -> SessionMemory:
         envelope = SessionSlotsEnvelopeV1(slots=candidate.explicit_slots)
@@ -230,6 +283,7 @@ class MemoryService:
     async def _insert_with_race_merge(
         self,
         candidate: SessionMemoryWriteCandidate,
+        identity: MemoryCandidateIdentityV1,
         *,
         now: datetime,
         status: str,
@@ -238,16 +292,18 @@ class MemoryService:
             inserted = await self._insert(candidate, now=now)
             return await self._with_write_event(
                 candidate,
-                _write_result(candidate, status=status, version=inserted.version),
+                identity,
+                _write_result(candidate, identity, status=status, version=inserted.version),
                 memory_id=inserted.id,
             )
         except IntegrityError:
             await self.repository.session.rollback()
-            return await self._merge_after_insert_race(candidate, now=now)
+            return await self._merge_after_insert_race(candidate, identity, now=now)
 
     async def _merge_after_insert_race(
         self,
         candidate: SessionMemoryWriteCandidate,
+        identity: MemoryCandidateIdentityV1,
         *,
         now: datetime,
     ) -> SessionMemoryWriteResult:
@@ -261,7 +317,13 @@ class MemoryService:
             inserted = await self._insert(candidate, now=now)
             return await self._with_write_event(
                 candidate,
-                _write_result(candidate, status="merged_after_conflict", version=inserted.version),
+                identity,
+                _write_result(
+                    candidate,
+                    identity,
+                    status="merged_after_conflict",
+                    version=inserted.version,
+                ),
                 memory_id=inserted.id,
             )
         if _is_expired(latest.expires_at, now):
@@ -269,7 +331,13 @@ class MemoryService:
             inserted = await self._insert(candidate, now=now)
             return await self._with_write_event(
                 candidate,
-                _write_result(candidate, status="merged_after_conflict", version=inserted.version),
+                identity,
+                _write_result(
+                    candidate,
+                    identity,
+                    status="merged_after_conflict",
+                    version=inserted.version,
+                ),
                 memory_id=inserted.id,
             )
 
@@ -277,8 +345,10 @@ class MemoryService:
         if merge.conflict_reason is not None:
             return await self._with_write_event(
                 candidate,
+                identity,
                 _write_result(
                     candidate,
+                    identity,
                     status="conflict",
                     reason_code=merge.conflict_reason,
                     conflict_reason=merge.conflict_reason,
@@ -290,8 +360,10 @@ class MemoryService:
         if updated:
             return await self._with_write_event(
                 candidate,
+                identity,
                 _write_result(
                     candidate,
+                    identity,
                     status="merged_after_conflict",
                     reason_code=merge.reason_code,
                     version=latest.version + 1,
@@ -300,8 +372,10 @@ class MemoryService:
             )
         return await self._with_write_event(
             candidate,
+            identity,
             _write_result(
                 candidate,
+                identity,
                 status="conflict",
                 reason_code="cas_retry_missed",
                 conflict_reason="cas_retry_missed",
@@ -313,6 +387,7 @@ class MemoryService:
     async def _with_write_event(
         self,
         candidate: SessionMemoryWriteCandidate,
+        identity: MemoryCandidateIdentityV1,
         result: SessionMemoryWriteResult,
         *,
         memory_id,
@@ -325,10 +400,10 @@ class MemoryService:
             }
         )
         try:
-            identity = _session_write_identity(candidate)
             result = result.model_copy(
                 update={
-                    "candidate_hash": identity["candidate_hash"],
+                    "candidate_hash": identity.candidate_hash,
+                    "identity": identity,
                 }
             )
             async with self.repository.session.begin_nested():
@@ -339,8 +414,8 @@ class MemoryService:
                     decision=_event_decision(result),
                     reason_code=result.reason_code,
                     pii_classification=result.pii_classification,
-                    candidate_hash=identity["candidate_hash"],
-                    source_ref_json=identity["source_ref_json"],
+                    candidate_hash=identity.candidate_hash,
+                    source_ref_json=identity.normalized_source_ref.model_dump(mode="json", exclude_none=True),
                     policy_version=MEMORY_POLICY_VERSION,
                     blocked_by=result.blocked_by,
                 )
@@ -428,6 +503,7 @@ def _fallback_view(reason: str) -> SessionMemoryView:
 
 def _write_result(
     candidate: SessionMemoryWriteCandidate,
+    identity: MemoryCandidateIdentityV1,
     *,
     status: str,
     reason_code: str | None = None,
@@ -439,9 +515,9 @@ def _write_result(
     candidate_hash: str | None = None,
     event_id: Any | None = None,
     blocked_by: list[str] | None = None,
-) -> SessionMemoryWriteResult:
+) -> SessionMemoryWriteResultWithIdentity:
     resolved_reason_code = reason_code or candidate.reason_code
-    return SessionMemoryWriteResult(
+    return SessionMemoryWriteResultWithIdentity(
         status=status,
         memory_id=memory_id,
         version=version,
@@ -456,61 +532,12 @@ def _write_result(
             fallback_reason=fallback_reason,
         ),
         pii_classification=candidate.pii_classification,
-        candidate_hash=candidate_hash,
+        candidate_hash=candidate_hash or identity.candidate_hash,
+        identity=identity,
         event_id=event_id,
         conflict_reason=conflict_reason,
         fallback_reason=fallback_reason,
     )
-
-
-def _session_write_identity(candidate: SessionMemoryWriteCandidate) -> dict[str, Any]:
-    source_ref_json = {
-        "source_type": "session_memory_write",
-        "run_id": str(candidate.run_id),
-        "agent_run_id": str(candidate.run_id),
-    }
-    source_identity_hash = canonical_source_identity_hash(source_ref_json)
-    content_hash = canonical_memory_content_hash(
-        memory_type=SESSION_MEMORY_TYPE,
-        content=_stable_json(
-            {
-                "schema_version": "session_memory_write_candidate.v1",
-                "tenant_id": str(candidate.tenant_id),
-                "user_id": str(candidate.user_id),
-                "thread_id": candidate.thread_id,
-                "run_id": str(candidate.run_id),
-                "explicit_slots": {
-                    key: slot.model_dump(mode="json") for key, slot in sorted(candidate.explicit_slots.items())
-                },
-                "unresolved_questions": list(candidate.unresolved_questions),
-                "last_intent": candidate.last_intent,
-                "session_summary": candidate.session_summary,
-                "last_business_context_refs": dict(candidate.last_business_context_refs),
-                "expected_version": candidate.expected_version,
-                "pii_classification": candidate.pii_classification,
-                "decision": candidate.decision,
-                "reason_code": candidate.reason_code,
-            }
-        ),
-    )
-    candidate_hash = canonical_memory_candidate_hash(
-        tenant_id=str(candidate.tenant_id),
-        memory_type=SESSION_MEMORY_TYPE,
-        scope_type="thread",
-        scope_id=candidate.thread_id,
-        content_hash=content_hash,
-        source_identity_hash=source_identity_hash,
-    )
-    return {
-        "source_ref_json": source_ref_json,
-        "content_hash": content_hash,
-        "source_identity_hash": source_identity_hash,
-        "candidate_hash": candidate_hash,
-    }
-
-
-def _stable_json(value: dict[str, Any]) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _event_decision(result: SessionMemoryWriteResult) -> str:

@@ -115,11 +115,25 @@ def test_rerank_diagnostics_do_not_extend_evidence_ref() -> None:
         "chunk_id",
         "policy_version",
         "text_hash",
+        "scope_type",
+        "scope_id",
+        "document_version_id",
+        "chunk_version_id",
+        "document_version",
+        "chunk_version",
         "retrieved_at",
         "retrieval_config_version",
         "score",
         "rank",
     }
+    assert {
+        "ranking_explanations",
+        "rank_before",
+        "rank_after",
+        "rank_delta",
+        "rerank_contribution",
+        "provider_config_version",
+    }.isdisjoint(fields)
     diagnostics_text = _json_text(diagnostics)
     assert "refund_policy/refund_policy_001@v1" in diagnostics_text
     assert "ranking_explanations" in diagnostics_text

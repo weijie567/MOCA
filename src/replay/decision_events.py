@@ -11,6 +11,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.knowledge.schemas import EvidenceRefV1
+from src.replay.schemas import ReplayEvidenceSnapshotV1
 from src.replay.validators import guard_redacted_payload, guard_resource_refs, validate_event_type
 
 if TYPE_CHECKING:
@@ -40,6 +42,10 @@ class DecisionEventEnvelopeV1(BaseModel):
     occurred_at: datetime
     actor: dict[str, Any]
     resource_refs: dict[str, Any]
+    evidence_snapshot_refs: list[ReplayEvidenceSnapshotV1] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     redaction_policy_version: str = Field(min_length=1)
     redacted_payload: dict[str, Any]
 
@@ -77,6 +83,7 @@ async def emit_decision_event(
     reason_code: str | None = None,
     reason_codes: list[str] | None = None,
     versions: Mapping[str, str | None] | None = None,
+    canonical_evidence_refs: list[EvidenceRefV1] | None = None,
 ) -> dict[str, Any]:
     """Persist one replay-owned minimal decision event and return a validated envelope."""
 
@@ -117,6 +124,7 @@ async def emit_decision_event(
         iteration=iteration,
         redaction_policy_version=redaction_policy_version,
         schema_version=SCHEMA_VERSION,
+        canonical_evidence_refs=canonical_evidence_refs,
     )
     return DecisionEventEnvelopeV1.model_validate(raw_event).model_dump(mode="python")
 

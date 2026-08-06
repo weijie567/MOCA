@@ -4,6 +4,7 @@ from typing import Any
 
 from src.agent.working_state import project_working_state
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
+from src.knowledge.evidence_identity import mint_canonical_evidence_identity
 from src.knowledge.schemas import EvidenceRefV1
 
 
@@ -48,6 +49,34 @@ def _evidence_ref(
         retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
         score=score,
         rank=rank,
+    ).model_dump(mode="json")
+
+
+def _canonical_evidence_ref() -> dict[str, Any]:
+    tenant_id = "11111111-1111-1111-1111-111111111111"
+    resolution = mint_canonical_evidence_identity(
+        {
+            "tenant_id": tenant_id,
+            "scope_type": "tenant_policy",
+            "scope_id": tenant_id,
+            "document_version_id": "22222222-2222-2222-2222-222222222222",
+            "chunk_version_id": "33333333-3333-3333-3333-333333333333",
+            "doc_key": "policy_refund_timeout",
+            "document_version": 3,
+            "chunk_id": "chunk_001",
+            "chunk_version": 2,
+            "text_hash": "sha256:" + "a" * 64,
+        },
+        expected_tenant_id=tenant_id,
+        expected_scope_type="tenant_policy",
+        expected_scope_id=tenant_id,
+    )
+    assert resolution.identity is not None
+    return EvidenceRefV1.from_canonical_identity(
+        resolution.identity,
+        retrieved_at="2026-06-19T00:00:00.000Z",
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        rank=1,
     ).model_dump(mode="json")
 
 
@@ -168,6 +197,14 @@ def test_working_state_v1_projects_allowlisted_current_run_fields() -> None:
         "claim_verification_ref": "claim_verification_bundle/bundle-1",
         "risk_decision_ref": "risk_decision/run-001/action-001",
     }
+
+
+def test_working_state_preserves_complete_canonical_evidence_binding() -> None:
+    canonical_ref = _canonical_evidence_ref()
+
+    working_state = project_working_state(_base_state(verified_evidence_package=_verified_package(canonical_ref)))
+
+    assert working_state.retrieved_evidence_refs == [canonical_ref]
 
 
 def test_working_state_prefers_canonical_session_context_over_legacy_session_memory() -> None:

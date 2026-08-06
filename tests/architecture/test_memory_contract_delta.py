@@ -18,6 +18,7 @@ MEMORY_CONTEXT_BUNDLE_TEST_PATH = ROOT / "tests" / "memory" / "test_memory_conte
 MEMORY_POLICY_PATH = ROOT / "src" / "memory" / "policy.py"
 MEMORY_WRITE_SERVICE_PATH = ROOT / "src" / "memory" / "write_service.py"
 SESSION_MEMORY_SERVICE_PATH = ROOT / "src" / "memory" / "service.py"
+SESSION_MEMORY_REPOSITORY_PATH = ROOT / "src" / "memory" / "repository.py"
 MEMORY_CONTEXT_REFS_PATH = ROOT / "src" / "memory" / "context_refs.py"
 MEMORY_WRITE_AUDIT_MIGRATION_PATH = (
     ROOT / "src" / "db" / "migrations" / "versions" / "020_memory_write_event_policy_audit.py"
@@ -95,6 +96,7 @@ def test_memory_architecture_doc_matches_landed_facades_and_rules() -> None:
     policy_source = _source(MEMORY_POLICY_PATH)
     write_service_source = _source(MEMORY_WRITE_SERVICE_PATH)
     session_memory_service_source = _source(SESSION_MEMORY_SERVICE_PATH)
+    session_memory_repository_source = _source(SESSION_MEMORY_REPOSITORY_PATH)
     context_refs_source = _source(MEMORY_CONTEXT_REFS_PATH)
     audit_migration_source = _source(MEMORY_WRITE_AUDIT_MIGRATION_PATH)
     long_term_repository_source = _source(LONG_TERM_REPOSITORY_PATH)
@@ -117,7 +119,9 @@ def test_memory_architecture_doc_matches_landed_facades_and_rules() -> None:
     assert "def apply_policy_and_write" in write_service_source
     assert "def apply_policy_and_write_candidate" in write_service_source
     assert "emit_write_event" in session_memory_service_source
-    assert "SESSION_MEMORY_TYPE" in session_memory_service_source
+    assert "build_session_memory_candidate_identity" in session_memory_service_source
+    assert "SESSION_MEMORY_TYPE" not in session_memory_service_source
+    assert 'SESSION_MEMORY_TYPE = "session_slot"' in session_memory_repository_source
     assert "class MemoryContextBundle" in context_refs_source
     assert "policy_version" in audit_migration_source
     assert "blocked_by_json" in audit_migration_source
