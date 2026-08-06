@@ -612,7 +612,7 @@ class PolicyKnowledgeService:
 
         trusted_context = _package_trusted_context(knowledge_context, policy)
         try:
-            details = await self.get_verified_evidence_details(
+            details = await self.validate_current_evidence(
                 tenant_id=knowledge_context.tenant_id,
                 evidence_refs=candidates,
                 effective_at=knowledge_context.effective_at,
@@ -625,6 +625,7 @@ class PolicyKnowledgeService:
                 business_fact_refs=business_refs,
                 trusted_context=trusted_context,
                 risk_hints=_risk_hints(policy),
+                _validated_evidence_details=details,
             )
         except Exception:
             return _empty_verified_package(

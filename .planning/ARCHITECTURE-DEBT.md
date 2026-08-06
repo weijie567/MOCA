@@ -2367,3 +2367,12 @@
 - **处理状态**：✅ 已修复验证。unresolved 分支现在先通过 Alembic autocommit block 持久化 backfill/quarantine/audit preflight 结果，再抛出稳定的 retryable `RuntimeError`；因此 version table 保持 025。修复 legacy head 后可正常重跑 026，并仅在零 unresolved 时启用 canonical reads 与盖章 026。
 - **证据**：Phase 64.2 REVIEW WR-01；`src/db/migrations/versions/026_phase64_2_evidence_cutover.py`；`tests/integration/test_phase64_2_integrity_matrix.py::test_unresolved_cutover_remains_at_025_and_is_retryable`；定向 PostgreSQL 回归 `1 passed`，scoped Ruff 通过。
 - **剩余风险**：无当前已知缺口；运维仍必须按 025 → dual-write health → 026 的 staged 顺序执行，且 unresolved audit 中的具体 legacy head 需要在再次运行 migration 前修复。
+
+## 2026-08-06 — Phase 64.2 Review WR-02 verified-context 绕过 exact immutable identity ✅已修复验证
+
+- **子系统**：RAG verified package / prompt context builder / immutable evidence identity。
+- **问题现象 / 根因**：`PolicyKnowledgeService.build_verified_context()` 与独立 `ContextBuilder` 都调用 mutable logical-key details/compatibility content lookup；即使输入携带完整 canonical shape，也没有比较 persisted `evidence_id`、document/chunk version IDs、scope 与版本字段。
+- **影响**：调用方可保留真实 current `doc_key/chunk_id/text_hash`，但重新生成一组不存在的 immutable IDs 与自洽 `evidence_id`，让 unsupported policy content 进入非审批回答的 verified prompt/verifier surfaces。
+- **处理状态**：✅ 已修复验证。package owner 先调用 `validate_current_evidence()` 做 exact current-row comparison，并把同一个 typed validation result 通过私有参数传给 `ContextBuilder`，避免二次 mutable lookup 与两次校验之间的 current-head race；builder 独立使用时也优先 exact validator，validator 抛错或拒绝时不回落 compatibility content。只有不具备 exact seam 的历史 test double 才保留既有兼容分支。
+- **证据**：Phase 64.2 REVIEW WR-02；`src/knowledge/service.py`、`src/agent/rag_context/builder.py`；真实 PostgreSQL forged-ID 负向 `tests/knowledge/test_evidence_cutover.py::test_verified_context_rejects_forged_immutable_ids_for_real_current_logical_head`；builder no-fallback 测试与 package/status 回归合计 `25 passed`，scoped Ruff 通过。
+- **剩余风险**：🟡 compatibility 分支仍服务没有 `validate_current_evidence` seam 的隔离 test doubles；生产 `PolicyKnowledgeService` 始终实现 exact seam。architecture guard 后续应继续禁止 production owner 绕过该方法。

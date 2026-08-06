@@ -140,6 +140,45 @@ async def test_context_builder_returns_separate_prompt_verifier_debug_and_final_
 
 
 @pytest.mark.asyncio
+async def test_context_builder_prefers_exact_current_validator_and_does_not_fallback_on_rejection() -> None:
+    ContextBuilder, _RagContextBundle = _load_context_api()
+    evidence = _evidence_ref()
+
+    class ExactRejectingPolicyService(FakePolicyKnowledgeService):
+        def __init__(self) -> None:
+            super().__init__({evidence.evidence_id: "Compatibility content must not be used."})
+            self.exact_validation_calls = 0
+
+        async def validate_current_evidence(self, **_: Any) -> dict[str, Any]:
+            self.exact_validation_calls += 1
+            return {
+                "included": {},
+                "excluded": [
+                    {
+                        "evidence_id": evidence.evidence_id,
+                        "reason_code": "evidence_unavailable",
+                        "reason_codes": ["evidence_unavailable"],
+                    }
+                ],
+            }
+
+    service = ExactRejectingPolicyService()
+    bundle = await ContextBuilder(policy_service=service).build(
+        candidate_evidence_refs=[evidence],
+        business_fact_refs=[],
+        trusted_context=_trusted_context(),
+        risk_hints=[],
+    )
+
+    assert service.exact_validation_calls == 1
+    assert service.content_lookup_calls == []
+    assert bundle.citation_map == {}
+    assert bundle.prompt_context.citations == []
+    assert bundle.verifier_context.safe_refs == []
+    assert bundle.debug_context.truncated_or_excluded_evidence[0].reason_code == "evidence_unavailable"
+
+
+@pytest.mark.asyncio
 async def test_prompt_citation_ids_map_to_canonical_refs_with_bounded_prompt_safe_metadata() -> None:
     """CTX-03: prompt citations preserve canonical refs while exposing bounded safe metadata."""
     ContextBuilder, _RagContextBundle = _load_context_api()

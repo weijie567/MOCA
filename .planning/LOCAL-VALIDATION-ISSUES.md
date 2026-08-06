@@ -22559,3 +22559,23 @@ SUMMARY 首轮自检先正确打印五个 `FOUND` 文件，随后九个已存在
 
 **剩余问题和下次继续排查入口**
 无。后续 shell 脚本禁止把 `path` 用作 zsh 循环/任务变量，并继续避免 `HOME` 等系统选项名。
+
+## 2026-08-06 — Phase 64.2 Review WR-02 扩大回归暴露 reduced evidence fixture
+
+**问题现象**
+将 verified-context 构造切换到 exact immutable validator 后，相关四文件回归为 `23 passed, 1 failed`；失败用例期望 tenant-public policy package 为 `verified`，实际按新边界返回 `no_evidence`。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/agent/rag_context/test_context_builder.py tests/knowledge/test_verified_evidence_package.py tests/knowledge/test_phase22_evidence_validation.py tests/knowledge/test_tenant_scope.py`，失败节点为 `tests/knowledge/test_tenant_scope.py::test_tenant_public_policy_does_not_create_merchant_scoped_business_fact_authority`。
+
+**关键证据或命令**
+该正向 fixture 仍手工构造 `refund-policy/chunk_001@v3` reduced ref，缺少 `scope_type/scope_id`、document/chunk immutable version IDs 与版本号；fake retriever 也只暴露 mutable logical-key row，没有 `get_current_canonical_evidence_rows_by_keys` exact owner seam。
+
+**当前判断/根因**
+这是 Phase 64.2 evidence identity 收敛后的测试夹具漂移，不是 production 行为回归。新 fail-closed 结果正确；若恢复 legacy fallback 会重新打开 WR-02 的伪造 identity 漏洞。
+
+**已做处理**
+正向 fixture 改为通过 `PersistedEvidenceIdentityMaterialV1` 与 `mint_canonical_evidence_identity` 生成完整 canonical ref；fake current-row resolver 返回相同 exact binding 后再验证 tenant-public policy 与 business-fact authority 分离语义。
+
+**剩余问题和下次继续排查入口**
+重跑上述四文件及 WR-02 real-PostgreSQL forged-ID 负向节点；只有 exact validator、兼容 fallback 不被调用、verified package 原有状态矩阵全部通过后才提交。

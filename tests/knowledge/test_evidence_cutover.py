@@ -18,6 +18,10 @@ from src.db.models import (
     PolicyDocumentVersion,
     Tenant,
 )
+from src.knowledge.evidence_identity import (
+    PersistedEvidenceIdentityMaterialV1,
+    mint_canonical_evidence_identity,
+)
 from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import KnowledgeContext
 from src.knowledge.service import PolicyKnowledgeService
@@ -659,6 +663,79 @@ async def test_current_historical_and_legacy_resolution_are_separate_and_scope_b
     )
     assert wrong_scope.identity is None
     assert wrong_scope.external_reason is not None
+
+
+@pytest.mark.asyncio
+async def test_verified_context_rejects_forged_immutable_ids_for_real_current_logical_head(
+    session,
+    tmp_path: Path,
+) -> None:
+    tenant_id = await _seed_inactive_rollout(session)
+    repository = EvidenceVersionRepository(session)
+    rollout = await repository.activate_dual_write(
+        expected_rollout_version=0,
+        health_checked_at=datetime.now(UTC),
+    )
+    await session.commit()
+    source = _write_policy(tmp_path, "verified current immutable content")
+    await IngestionService(session=session, embedder=_EmbeddingService(), tenant_id=tenant_id).ingest_document(
+        source,
+        _metadata(),
+        expected_rollout_version=rollout.rollout_version,
+    )
+    await repository.reserve_backfill_watermark(expected_rollout_version=rollout.rollout_version)
+    await repository.reconcile_and_enable_canonical_reads(expected_rollout_version=rollout.rollout_version)
+    await session.commit()
+
+    persisted = (
+        await session.execute(select(PolicyChunkVersion).where(PolicyChunkVersion.tenant_id == tenant_id))
+    ).scalar_one()
+    forged = mint_canonical_evidence_identity(
+        PersistedEvidenceIdentityMaterialV1(
+            tenant_id=str(tenant_id),
+            scope_type=persisted.scope_type,
+            scope_id=persisted.scope_id,
+            document_version_id=str(uuid4()),
+            chunk_version_id=str(uuid4()),
+            doc_key=persisted.doc_key,
+            document_version=persisted.document_version,
+            chunk_id=persisted.chunk_id,
+            chunk_version=persisted.chunk_version,
+            text_hash=persisted.text_hash,
+        ),
+        expected_tenant_id=str(tenant_id),
+        expected_scope_type="tenant_policy",
+        expected_scope_id=str(tenant_id),
+    )
+    assert forged.identity is not None
+    forged_ref = repository.evidence_ref_from_identity(
+        forged.identity,
+        retrieved_at="2026-08-05T00:00:00Z",
+    )
+    knowledge = PolicyKnowledgeService(PolicyRetrievalEngine(session, embedder=_EmbeddingService()))
+
+    package = await knowledge.build_verified_context(
+        candidate_evidence_refs=[forged_ref],
+        business_fact_refs=[],
+        knowledge_context=KnowledgeContext(
+            tenant_id=str(tenant_id),
+            user_id="phase64-2-review",
+            role="support",
+            run_id="run-forged-immutable-context",
+            trace_id="trace-forged-immutable-context",
+            effective_at="2026-08-05T00:00:00Z",
+        ),
+        evidence_policy={"evidence_required": True},
+    )
+
+    assert package.status == "no_evidence"
+    assert package.reason_codes == ["evidence_unavailable"]
+    assert package.evidence_items == []
+    assert package.evidence_map == {}
+    assert package.citation_map == {}
+    assert package.prompt_projection["citations"] == []
+    assert package.verifier_projection["safe_refs"] == []
+    assert package.rejected_candidate_refs == [forged_ref]
 
 
 @pytest.mark.asyncio

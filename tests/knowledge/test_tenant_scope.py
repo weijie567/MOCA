@@ -7,6 +7,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from src.knowledge.evidence_identity import (
+    PersistedEvidenceIdentityMaterialV1,
+    mint_canonical_evidence_identity,
+)
 from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import (
     EvidenceRefV1,
@@ -130,6 +134,11 @@ async def test_factory_projected_knowledge_context_preserves_deny_before_query_b
 
 
 class FakeTenantPolicyRetriever:
+    def __init__(self, evidence: EvidenceRefV1) -> None:
+        identity = evidence.to_canonical_identity()
+        assert identity is not None
+        self.identity = identity
+
     async def get_canonical_evidence_rows_by_keys(
         self,
         *,
@@ -138,9 +147,7 @@ class FakeTenantPolicyRetriever:
     ) -> dict[tuple[str, str], dict]:
         return {
             key: {
-                "tenant_id": str(tenant_id),
-                "doc_key": key[0],
-                "chunk_id": key[1],
+                **self.identity.model_dump(mode="json"),
                 "content": "Tenant public policy describes refund timeout compensation.",
                 "policy_document_version": 3,
                 "current_policy_version": "v3",
@@ -154,24 +161,45 @@ class FakeTenantPolicyRetriever:
             for key in keys
         }
 
+    async def get_current_canonical_evidence_rows_by_keys(
+        self,
+        *,
+        tenant_id,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict]:
+        return await self.get_canonical_evidence_rows_by_keys(tenant_id=tenant_id, keys=keys)
+
 
 @pytest.mark.asyncio
 async def test_tenant_public_policy_does_not_create_merchant_scoped_business_fact_authority():
     """tenant public policy evidence is separate from merchant-scoped BusinessFactRefV1 / BusinessFactResultV1 business fact authority."""
     tenant_id = str(uuid4())
-    evidence = EvidenceRefV1(
-        tenant_id=tenant_id,
-        evidence_id="refund-policy/chunk_001@v3",
-        doc_key="refund-policy",
-        chunk_id="chunk_001",
-        policy_version="v3",
-        text_hash=evidence_text_hash("Tenant public policy describes refund timeout compensation."),
+    resolution = mint_canonical_evidence_identity(
+        PersistedEvidenceIdentityMaterialV1(
+            tenant_id=tenant_id,
+            scope_type="tenant_policy",
+            scope_id=tenant_id,
+            document_version_id=str(uuid4()),
+            chunk_version_id=str(uuid4()),
+            doc_key="refund-policy",
+            document_version=3,
+            chunk_id="chunk_001",
+            chunk_version=1,
+            text_hash=evidence_text_hash("Tenant public policy describes refund timeout compensation."),
+        ),
+        expected_tenant_id=tenant_id,
+        expected_scope_type="tenant_policy",
+        expected_scope_id=tenant_id,
+    )
+    assert resolution.identity is not None
+    evidence = EvidenceRefV1.from_canonical_identity(
+        resolution.identity,
         retrieved_at="2026-06-19T00:00:00.000Z",
         retrieval_config_version="retrieval.v3",
         score=0.9,
         rank=1,
     )
-    service = PolicyKnowledgeService(FakeTenantPolicyRetriever())
+    service = PolicyKnowledgeService(FakeTenantPolicyRetriever(evidence))
     package = await service.build_verified_context(
         candidate_evidence_refs=[evidence],
         business_fact_refs=[],
