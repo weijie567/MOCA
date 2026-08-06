@@ -22739,3 +22739,23 @@ Phase 64.2 本地 closeout 完成且工作树干净后，首次执行 `git push 
 
 **剩余问题和下次继续排查入口**
 本次 push 问题已解决。后续在相同桌面网络中若 GitHub CLI/Git 直连超时，应先读取 `scutil --proxy` 并显式传入当前代理，而不是重复直连或创建临时 SSH key。
+
+## 2026-08-06 — Phase 64.2 PR lint 暴露漏跑 Ruff formatter gate
+
+**问题现象**
+PR #3 的 GitHub Actions `test` job 通过，但 `lint` job 失败；`uv run ruff check .` 为绿色，随后独立的 `uv run ruff format --check .` 报告 26 个 Phase 64.2 Python 文件需要格式化。
+
+**如何检测/复现**
+查看 Actions run `31073980464` / lint job `92527761866`，或在 `codex/phase-64-2` 执行 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .`。本地结果与 CI 一致：`26 files would be reformatted, 485 files already formatted`。
+
+**关键证据或命令**
+CI 中 `uv run ruff check .` 已通过，失败步骤仅为 formatter check。执行 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff format .` 后恰好重排同一批 26 个文件，产生纯机械排版 diff（139 insertions / 191 deletions），没有新增文件或业务逻辑修复。
+
+**当前判断/根因**
+Phase closeout 只把 Ruff lint (`ruff check`) 作为仓库门禁，没有同时运行 CI 独立要求的 Ruff formatter gate (`ruff format --check`)；因此本地“Ruff 通过”结论不包含格式合规性。这是验证门禁遗漏，不是产品功能回归。
+
+**已做处理**
+已运行 Ruff formatter，并复跑 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .`、`UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .` 与 `git diff --check`，全部通过；额外串行重跑 Phase 64.2 聚合回归，结果为 `210 passed, 18 warnings in 269.23s`。
+
+**剩余问题和下次继续排查入口**
+本地修复已完成，待 push 后确认 PR lint 重跑转绿。后续 phase closeout 必须同时执行 `ruff check .` 与 `ruff format --check .`，不能用前者替代后者。
