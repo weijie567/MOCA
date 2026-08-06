@@ -20,6 +20,7 @@ from src.api.main import app
 from src.auth.jwt import hash_password
 from src.db.models import (
     Base,
+    EvidenceIdentityRollout,
     Merchant,
     Order,
     PolicyChunk,
@@ -458,7 +459,25 @@ def mock_llm_responses() -> dict[str, dict[str, Any]]:
     }
 
 
+async def _seed_approval_evidence_rollout(session: AsyncSession) -> None:
+    assert await session.get(EvidenceIdentityRollout, 1) is None
+    now = datetime.now(UTC)
+    session.add(
+        EvidenceIdentityRollout(
+            id=1,
+            rollout_version=0,
+            dual_write_enabled_at=now,
+            canonical_reads_enabled=True,
+            canonical_reads_enabled_at=now,
+            canonical_reads_disabled_at=None,
+            quarantine_reason=None,
+        )
+    )
+    await session.flush()
+
+
 async def _seed_approval_policy(session: AsyncSession, tenant_id: uuid.UUID) -> EvidenceRefV1:
+    await _seed_approval_evidence_rollout(session)
     policy_content = "补偿超过500元需人工审批。"
     policy_document = PolicyDocument(
         id=uuid.uuid4(),
