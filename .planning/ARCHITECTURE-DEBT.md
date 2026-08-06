@@ -2358,3 +2358,12 @@
 - **处理状态**：✅ 已修复验证。先用 owner-minted 完整 canonical ref 新增 RED，稳定证明六字段被删；随后只把这六个 `EvidenceRefV1` identity/version 字段加入既有 allowlist。未加入 query、risk、ranking、rerank/provider 或 raw provenance diagnostics，也未增加 raw dict fallback。
 - **证据**：Phase 64.2 Plan 09 remediation B；`src/agent/working_state.py`、`tests/agent/test_working_state.py` 及五个 EvidenceRef shape/diagnostic 测试；RED 为 `1 failed`，B 六文件为 `76 passed, 1 warning`，architecture/integration guard 为 `16 passed, 8 warnings`，全局 lastfailed 从 29 收敛到 22。
 - **剩余风险**：当前无已知 canonical working-state binding 缺口；最终 13-file focused aggregate、全仓 Ruff 与完整 suite 均绿色。`score` 仍是既有 `EvidenceRefV1` display 字段，但 approval authority projection 会剥离它；query/risk/rerank diagnostics 继续只存在于各自 bounded container。Phase 70 可统一评估 display score 是否最终从 ref schema 拆出。
+
+## 2026-08-06 — Phase 64.2 Review WR-01 evidence cutover 失败门禁被错误盖章 ✅已修复验证
+
+- **子系统**：RAG ingestion / immutable evidence migration cutover。
+- **问题现象 / 根因**：migration 026 在 final reconciliation 检出 unresolved current heads 后只写 quarantine/audit 并正常返回，Alembic 因此仍会把 026 记录为已应用；后续 migration 可越过本应阻断的 canonical-read gate，且正常重试不能再次执行 026。
+- **影响**：canonical reads 尚未启用、legacy head 仍无法证明 exact immutable binding 时，数据库 revision 却可能继续推进到 027/028，部署状态与真实证据可用性分裂。
+- **处理状态**：✅ 已修复验证。unresolved 分支现在先通过 Alembic autocommit block 持久化 backfill/quarantine/audit preflight 结果，再抛出稳定的 retryable `RuntimeError`；因此 version table 保持 025。修复 legacy head 后可正常重跑 026，并仅在零 unresolved 时启用 canonical reads 与盖章 026。
+- **证据**：Phase 64.2 REVIEW WR-01；`src/db/migrations/versions/026_phase64_2_evidence_cutover.py`；`tests/integration/test_phase64_2_integrity_matrix.py::test_unresolved_cutover_remains_at_025_and_is_retryable`；定向 PostgreSQL 回归 `1 passed`，scoped Ruff 通过。
+- **剩余风险**：无当前已知缺口；运维仍必须按 025 → dual-write health → 026 的 staged 顺序执行，且 unresolved audit 中的具体 legacy head 需要在再次运行 migration 前修复。

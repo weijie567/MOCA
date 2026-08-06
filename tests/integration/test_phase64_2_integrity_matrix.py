@@ -20,6 +20,7 @@ from src.db.models import (
     CaseMemoryIdentityClaim,
     CaseMemoryLineageLink,
     EvidenceIdentityRollout,
+    PolicyDocument,
     PolicyChunkVersion,
     PolicyDocumentVersion,
     Tenant,
@@ -235,6 +236,99 @@ def test_phase64_2_matrix_maps_every_locked_requirement() -> None:
         *(f"CLAUDE-R2-{index:02d}" for index in range(1, 5)),
     }
     assert all(test_names for test_names in matrix.values())
+
+
+def test_unresolved_cutover_remains_at_025_and_is_retryable(tmp_path: Path) -> None:
+    """A failed preflight persists quarantine state without stamping revision 026."""
+
+    tenant_id = uuid.uuid4()
+
+    async def exercise() -> None:
+        await _reset_migration_schema()
+        config = _migration_config()
+        engine = create_async_engine(_MIGRATION_DATABASE_URL, future=True, poolclass=NullPool)
+        session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        try:
+            await asyncio.to_thread(command.upgrade, config, "025_phase64_2_immutable_evidence")
+
+            async with session_factory() as setup_session:
+                setup_session.add(Tenant(id=tenant_id, name="phase64-2-cutover-retry", status="active"))
+                await setup_session.commit()
+                activated = await EvidenceVersionRepository(setup_session).activate_dual_write(
+                    expected_rollout_version=0,
+                    health_checked_at=datetime.now(UTC),
+                )
+                await setup_session.commit()
+                source = _write_staged_policy(tmp_path / "cutover-retry", "retryable policy")
+                result = await IngestionService(
+                    session=setup_session,
+                    embedder=_StagedEmbeddingService(),
+                    tenant_id=tenant_id,
+                ).ingest_document(
+                    source,
+                    _staged_metadata(),
+                    expected_rollout_version=activated.rollout_version,
+                )
+                assert result.status == "success"
+                document = (
+                    await setup_session.execute(
+                        select(PolicyDocument).where(PolicyDocument.tenant_id == tenant_id)
+                    )
+                ).scalar_one()
+                valid_fingerprint = document.policy_version_fingerprint
+                document.policy_version_fingerprint = None
+                await setup_session.commit()
+
+            with pytest.raises(
+                RuntimeError,
+                match="canonical evidence cutover blocked: unresolved legacy heads remain",
+            ):
+                await asyncio.to_thread(command.upgrade, config, "026_phase64_2_evidence_cutover")
+
+            async with engine.begin() as connection:
+                assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+                    "025_phase64_2_immutable_evidence"
+                )
+                rollout = (
+                    await connection.execute(
+                        text(
+                            "SELECT canonical_reads_enabled, quarantine_reason, audit_counts_json "
+                            "FROM evidence_identity_rollouts WHERE id = 1"
+                        )
+                    )
+                ).one()
+                assert rollout.canonical_reads_enabled is False
+                assert rollout.quarantine_reason == "legacy_unresolved"
+                assert rollout.audit_counts_json["unresolved_count"] == 1
+
+                await connection.execute(
+                    text(
+                        "UPDATE policy_documents SET policy_version_fingerprint = :fingerprint "
+                        "WHERE tenant_id = :tenant_id"
+                    ),
+                    {"fingerprint": valid_fingerprint, "tenant_id": tenant_id},
+                )
+
+            await asyncio.to_thread(command.upgrade, config, "026_phase64_2_evidence_cutover")
+
+            async with engine.connect() as connection:
+                assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+                    "026_phase64_2_evidence_cutover"
+                )
+                rollout = (
+                    await connection.execute(
+                        text(
+                            "SELECT canonical_reads_enabled, quarantine_reason "
+                            "FROM evidence_identity_rollouts WHERE id = 1"
+                        )
+                    )
+                ).one()
+                assert rollout.canonical_reads_enabled is True
+                assert rollout.quarantine_reason is None
+        finally:
+            await engine.dispose()
+
+    asyncio.run(exercise())
 
 
 def test_staged_024_to_028_upgrade_with_dual_write_activation(tmp_path: Path) -> None:

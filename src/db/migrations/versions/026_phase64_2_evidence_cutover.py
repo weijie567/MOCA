@@ -89,7 +89,14 @@ def upgrade() -> None:
             ),
             {"audit": audit, "expected_rollout_version": expected_rollout_version},
         )
-        return
+        # Preserve the operational preflight/quarantine result while keeping
+        # revision 026 unapplied.  Entering an Alembic autocommit block commits
+        # the reconciliation transaction before the retryable gate fails; the
+        # later exception therefore cannot erase the evidence needed to repair
+        # the legacy heads, and Alembic cannot stamp or continue past 025.
+        with op.get_context().autocommit_block():
+            pass
+        raise RuntimeError("canonical evidence cutover blocked: unresolved legacy heads remain")
 
     # The initial FOR UPDATE lock remains held continuously across this last
     # reconciliation/zero-gap assertion and the CAS read activation.
