@@ -22439,3 +22439,23 @@ A 组全部是历史 fixture 漂移：未 seed canonical owner row、graph emitt
 
 **剩余问题和下次继续排查入口**
 全局 lastfailed 现为 29 项：B 组 EvidenceRef shape 断言、C 组 CWC/CaseMemory provenance/typed refs/claim fake、D 组 staged migration 与日期 rollover。继续逐组修复并原子提交。
+
+## 2026-08-06 — Phase 64.2 Plan 09 remediation B：working-state 丢失 canonical EvidenceRef binding
+
+**问题现象**
+B 组旧 exact-shape 断言最初报 7 项失败；核对时又发现真实 working-state 投影会从完整 canonical ref 删除六个 immutable identity/version 字段。新增精确 RED 后稳定显示 expected 完整 ref 与 actual reduced ref 不相等。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short tests/agent/test_working_state.py::test_working_state_preserves_complete_canonical_evidence_binding`，修复前为 `1 failed`；修复后 B 六文件为 `76 passed, 1 warning`，Phase 64.2 architecture/integration guard 为 `16 passed, 8 warnings`。随后全局 `--lf` 为 `22 failed, 52 deselected, 6 warnings`，剩余均属 C/D。
+
+**关键证据或命令**
+`EVIDENCE_REF_KEYS` 原仅含 schema/tenant/evidence/doc/chunk/policy/hash/retrieval/score/rank；用 `mint_canonical_evidence_identity` 构造合法 ref 后，输出缺少 `scope_type`、`scope_id`、`document_version_id`、`chunk_version_id`、`document_version`、`chunk_version`。修复只增加这六项；query rewrite、risk、ranking/rerank/provider diagnostics 的 disjoint 断言仍通过。
+
+**当前判断/根因**
+这是 Plan 01 扩展 `EvidenceRefV1` 后 working-state allowlist 漏迁的 production bug，不是只改测试期望即可解决的 shape 漂移。若仅改成 `exclude_none` 断言，会掩盖 canonical ref 被降格的问题。
+
+**已做处理**
+经主 orchestrator 明确批准，以最小 production patch 保留完整 canonical binding；旧 schema field-set 断言同步纳入六字段，risk expected 改为 `EvidenceRefV1.model_validate(...).model_dump(mode="json")`。没有放宽 Pydantic schema、没有引入 display diagnostics 或 raw fallback。
+
+**剩余问题和下次继续排查入口**
+进入 C 组：迁移 CWC verified-fact typed refs、CaseMemory resolved provenance/direct rows 与 durable claim fake。D 组 staged migration/date rollover 暂未处理。

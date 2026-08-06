@@ -2347,3 +2347,12 @@
 - **处理状态**：✅已修复验证。Phase `64.2-09` 通过真实 promotion→review→approve→delete lifecycle、全禁止状态矩阵与 repository-wide ownership guard，锁定 single identity/provenance owner、contextual-only memory authority、durable terminal claims 与 CAS/no-resurrection。
 - **证据**：`tests/integration/test_phase64_2_integrity_matrix.py`、`tests/architecture/test_evidence_memory_integrity_boundaries.py`；实现 owner 包括 `src/memory/identity.py`、`src/memory/fact_promotion.py`、`src/memory/case_memory.py`、`src/memory/case_precedent.py`。
 - **剩余风险**：legacy risk 是 pre-027 行继续使用 `LegacyUnresolvedCaseMemoryProvenanceV1`，不能加入 authoritative matching；target/defer 为 Phase 68 通用 lifecycle registry 与 Phase 70 retrieval quality/PII governance，本 plan 不提前实现。
+
+## 2026-08-06 — Phase 64.2 Plan 09 working-state canonical evidence binding 丢失 ✅已修复验证
+
+- **子系统**：RAG / agent working-state / immutable evidence identity。
+- **问题现象 / 根因**：`src/agent/working_state.py` 的 `EVIDENCE_REF_KEYS` 停留在 Phase 64.2 前的 11 字段 allowlist；完整 canonical `EvidenceRefV1` 经 working-state 投影后会静默丢失 `scope_type`、`scope_id`、document/chunk version id 与 version 六个 exact binding 字段，退化为无法 exact-resolve 的 reduced/legacy shape。
+- **影响**：working-state 的 prompt-safe verified refs 虽不泄露 raw provenance，却不能继续证明 immutable tenant/scope/document/chunk binding；后续依赖该投影的 claim/action/replay 边界可能把 canonical authority 降格。
+- **处理状态**：✅ 已修复验证。先用 owner-minted 完整 canonical ref 新增 RED，稳定证明六字段被删；随后只把这六个 `EvidenceRefV1` identity/version 字段加入既有 allowlist。未加入 query、risk、ranking、rerank/provider 或 raw provenance diagnostics，也未增加 raw dict fallback。
+- **证据**：Phase 64.2 Plan 09 remediation B；`src/agent/working_state.py`、`tests/agent/test_working_state.py` 及五个 EvidenceRef shape/diagnostic 测试；RED 为 `1 failed`，B 六文件为 `76 passed, 1 warning`，architecture/integration guard 为 `16 passed, 8 warnings`，全局 lastfailed 从 29 收敛到 22。
+- **剩余风险**：当前无已知 canonical working-state binding 缺口。`score` 仍是既有 `EvidenceRefV1` display 字段，但 approval authority projection 会剥离它；query/risk/rerank diagnostics 继续只存在于各自 bounded container。Phase 70 可统一评估 display score 是否最终从 ref schema 拆出。
