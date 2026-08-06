@@ -22719,3 +22719,23 @@ UAT gap 修复并提交后，按 verify-work 收尾尝试运行 `gsd-tools audit
 
 **剩余问题和下次继续排查入口**
 无产品侧剩余问题。后续若升级 GSD，可重新核对 audit-open 的实际入口；升级前继续使用 artifact 直接审计。
+
+## 2026-08-06 — Phase 64.2 首次 GitHub push 遇到 HTTPS 空响应
+
+**问题现象**
+Phase 64.2 本地 closeout 完成且工作树干净后，首次执行 `git push -u origin codex/phase-64-2` 长时间无进度，最终返回 `fatal: unable to access ... Empty reply from server`。
+
+**如何检测/复现**
+在已通过 `gh auth status`、远端为 `https://github.com/weijie567/MOCA.git` 的独立分支上执行上述 push；本轮在约一分钟传输后由 GitHub HTTPS 连接返回空响应。
+
+**关键证据或命令**
+失败后 `git status -sb` 仍显示 `codex/phase-64-2...origin/main [ahead 85]`；`git ls-remote --heads origin codex/phase-64-2` 无输出，确认远端分支没有建立，不能把本轮当作成功 push。
+
+**当前判断/根因**
+认证状态正常、远端可读取且本地对象/提交完整，当前判断为 GitHub HTTPS 传输的瞬时网络中断，不是代码、分支或凭据错误。
+
+**已做处理**
+没有重复并发 push；先核对远端分支确实不存在并保留原本地分支，再记录本事故。下一步只重试一次相同、显式分支的 push，并以远端 tracking/ls-remote 结果作为成功证据。
+
+**剩余问题和下次继续排查入口**
+若重试仍失败，停止继续传输并保留本地完整分支，后续从 GitHub 网络/代理链路继续排查；不得声称 PR 已创建。
