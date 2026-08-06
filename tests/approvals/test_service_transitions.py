@@ -160,10 +160,13 @@ async def _seed_canonical_approval_evidence(
     *,
     tenant_id: UUID,
     suffix: str,
+    doc_key: str | None = None,
+    chunk_id: str | None = None,
+    content: str | None = None,
 ) -> dict[str, Any]:
-    doc_key = f"approval-policy-{suffix}"[:64]
-    chunk_id = f"chunk-{suffix}"[:64]
-    content = f"Canonical approval fixture {suffix}."
+    doc_key = doc_key or f"approval-policy-{suffix}"[:64]
+    chunk_id = chunk_id or f"chunk-{suffix}"[:64]
+    content = content or f"Canonical approval fixture {suffix}."
     document = PolicyDocument(
         tenant_id=tenant_id,
         doc_key=doc_key,
@@ -227,6 +230,27 @@ async def _seed_canonical_approval_evidence(
             )
         ]
     )[0]
+
+
+async def _canonical_phase34_binding(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    run_id: UUID,
+    merchant_id: str = "merchant-1",
+    suffix: str | None = None,
+) -> dict[str, Any]:
+    evidence_ref = await _seed_canonical_approval_evidence(
+        session,
+        tenant_id=tenant_id,
+        suffix=suffix or str(run_id),
+    )
+    return _phase34_binding_overrides(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        merchant_id=merchant_id,
+        evidence_ref=evidence_ref,
+    )
 
 
 async def _mark_run_business_scope(session: AsyncSession, run_id: UUID, binding: dict[str, Any]) -> None:

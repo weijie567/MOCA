@@ -22,6 +22,7 @@ from src.db.models import ActionDraft, AgentRun
 from src.db.models import ActionSafetySnapshot as ActionSafetySnapshotRow
 from src.db.models import ApprovalAssignment, ApprovalLevel, ApprovalRequest
 from tests.approvals.test_service_transitions import (
+    _canonical_phase34_binding,
     _create_command,
     _create_run,
     _decision_command,
@@ -109,7 +110,12 @@ async def _approved_business_merchant_request(
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
-    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id, merchant_id=merchant_id)
+    binding = await _canonical_phase34_binding(
+        session,
+        tenant_id=tenant_id,
+        run_id=run_id,
+        merchant_id=merchant_id,
+    )
     await _mark_run_business_merchant(session, run_id, binding)
     created = await ApprovalService(session).create_request(
         _create_command(tenant_id=tenant_id, run_id=run_id, requested_by=requested_by, **binding)
@@ -278,8 +284,18 @@ async def test_approval_create_rejects_business_merchant_run_target_mismatch_wit
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
-    run_binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id, merchant_id="merchant-1")
-    command_binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id, merchant_id="merchant-other")
+    run_binding = await _canonical_phase34_binding(
+        session,
+        tenant_id=tenant_id,
+        run_id=run_id,
+        merchant_id="merchant-1",
+    )
+    command_binding = _phase34_binding_overrides(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        merchant_id="merchant-other",
+        evidence_ref=run_binding["verified_evidence_refs"][0],
+    )
     await _mark_run_business_merchant(session, run_id, run_binding)
 
     with pytest.raises(ApprovalTransitionError) as exc:
@@ -299,7 +315,7 @@ async def test_approval_create_rejects_business_merchant_run_missing_target_with
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
-    run_binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    run_binding = await _canonical_phase34_binding(session, tenant_id=tenant_id, run_id=run_id)
     await _mark_run_business_merchant(session, run_id, run_binding)
 
     with pytest.raises(ApprovalTransitionError) as exc:
@@ -319,7 +335,7 @@ async def test_approval_create_rejects_unknown_legacy_run_with_business_target_w
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
-    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    binding = await _canonical_phase34_binding(session, tenant_id=tenant_id, run_id=run_id)
 
     with pytest.raises(ApprovalTransitionError) as exc:
         await ApprovalService(session).create_request(

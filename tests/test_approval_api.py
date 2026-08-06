@@ -37,7 +37,10 @@ from src.db.models import (
 )
 from src.db.session import get_session
 from src.knowledge.schemas import EvidenceRefV1
-from tests.approvals.test_service_transitions import _create_command, _phase34_binding_overrides
+from tests.approvals.test_service_transitions import (
+    _canonical_phase34_binding,
+    _create_command,
+)
 
 
 @dataclass(frozen=True)
@@ -236,16 +239,17 @@ async def _create_approval(
     tenant = seeded_session[tenant_key]
     requester = requested_by or seeded_session["users"]["cs_zhang"]
     run_id = await _create_run(session, tenant_id=tenant.id, user_id=requester.id, thread_id=thread_id)
-    binding_overrides = (
-        _phase34_binding_overrides(
-            tenant_id=tenant.id,
-            run_id=run_id,
-            merchant_id=str(requester.merchant_id or seeded_session["merchant"].id),
-        )
-        if with_phase34_bindings
-        else {}
+    canonical_binding = await _canonical_phase34_binding(
+        session,
+        tenant_id=tenant.id,
+        run_id=run_id,
+        merchant_id=str(requester.merchant_id or seeded_session["merchant"].id),
     )
-    if binding_overrides:
+    binding_overrides = canonical_binding if with_phase34_bindings else {
+        "evidence_refs": canonical_binding["evidence_refs"],
+        "verified_evidence_refs": canonical_binding["verified_evidence_refs"],
+    }
+    if with_phase34_bindings:
         await _mark_run_business_merchant(session, run_id, binding_overrides)
     created = await ApprovalService(session).create_request(
         _create_command(
