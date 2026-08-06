@@ -22720,22 +22720,22 @@ UAT gap 修复并提交后，按 verify-work 收尾尝试运行 `gsd-tools audit
 **剩余问题和下次继续排查入口**
 无产品侧剩余问题。后续若升级 GSD，可重新核对 audit-open 的实际入口；升级前继续使用 artifact 直接审计。
 
-## 2026-08-06 — Phase 64.2 首次 GitHub push 遇到 HTTPS 空响应
+## 2026-08-06 — Phase 64.2 GitHub push 直连未使用 macOS 系统代理
 
 **问题现象**
-Phase 64.2 本地 closeout 完成且工作树干净后，首次执行 `git push -u origin codex/phase-64-2` 长时间无进度，最终返回 `fatal: unable to access ... Empty reply from server`。
+Phase 64.2 本地 closeout 完成且工作树干净后，首次执行 `git push -u origin codex/phase-64-2` 长时间无进度，最终返回 `Empty reply from server`；强制 HTTP/1.1 的第二次直连又在 75 秒后返回无法连接 `github.com:443`。
 
 **如何检测/复现**
-在已通过 `gh auth status`、远端为 `https://github.com/weijie567/MOCA.git` 的独立分支上执行上述 push；本轮在约一分钟传输后由 GitHub HTTPS 连接返回空响应。
+在已通过 `gh auth status`、远端为 `https://github.com/weijie567/MOCA.git` 的独立分支上执行上述 push，而 shell 未导出 proxy 环境变量。直接 `curl -I https://github.com` 同样超时；`scutil --proxy` 显示 macOS HTTPS proxy 为 `127.0.0.1:53824`，显式 `curl -x http://127.0.0.1:53824 -I https://github.com` 返回 200。
 
 **关键证据或命令**
-失败后 `git status -sb` 仍显示 `codex/phase-64-2...origin/main [ahead 85]`；`git ls-remote --heads origin codex/phase-64-2` 无输出，确认远端分支没有建立，不能把本轮当作成功 push。
+首次失败后 `git status -sb` 仍显示 `codex/phase-64-2...origin/main [ahead 85]`；`git ls-remote --heads origin codex/phase-64-2` 无输出。GitHub API 域名可访问且认证正常；SSH 网络可达但本机没有 GitHub SSH public key。最终使用一次性 `git -c http.proxy=http://127.0.0.1:53824 -c https.proxy=http://127.0.0.1:53824 push -u origin codex/phase-64-2` 成功创建并 tracking 远端分支。
 
 **当前判断/根因**
-认证状态正常、远端可读取且本地对象/提交完整，当前判断为 GitHub HTTPS 传输的瞬时网络中断，不是代码、分支或凭据错误。
+根因是本机 shell/Git 直连路径没有自动采用 macOS 系统代理，而当前网络到 `github.com:443` 的直连不可达；不是代码、分支、GitHub token 或仓库权限错误。
 
 **已做处理**
-没有重复并发 push；先核对远端分支确实不存在并保留原本地分支，再记录本事故。下一步只重试一次相同、显式分支的 push，并以远端 tracking/ls-remote 结果作为成功证据。
+没有并发 push；先确认远端分支不存在，再完成直连/API/SSH/系统代理的只读诊断。只对成功路径临时传入本地代理参数，没有修改永久 Git 配置；远端 `codex/phase-64-2` 已创建并设置 tracking。
 
 **剩余问题和下次继续排查入口**
-若重试仍失败，停止继续传输并保留本地完整分支，后续从 GitHub 网络/代理链路继续排查；不得声称 PR 已创建。
+本次 push 问题已解决。后续在相同桌面网络中若 GitHub CLI/Git 直连超时，应先读取 `scutil --proxy` 并显式传入当前代理，而不是重复直连或创建临时 SSH key。
