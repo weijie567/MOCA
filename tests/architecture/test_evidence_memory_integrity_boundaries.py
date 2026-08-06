@@ -263,6 +263,7 @@ def test_phase64_2_contract_owners_keep_exact_scope_and_separate_authority() -> 
     evidence = (ROOT / EVIDENCE_OWNER).read_text(encoding="utf-8")
     repository = (ROOT / "src/repositories/evidence_version_repo.py").read_text(encoding="utf-8")
     promotion = (ROOT / PROMOTION_OWNER).read_text(encoding="utf-8")
+    cwc_lifecycle = (ROOT / "src/memory/case_working_context_lifecycle.py").read_text(encoding="utf-8")
     provenance = (ROOT / "src/memory/schemas.py").read_text(encoding="utf-8")
     case_memory = (ROOT / CASE_MEMORY_OWNER).read_text(encoding="utf-8")
 
@@ -270,6 +271,9 @@ def test_phase64_2_contract_owners_keep_exact_scope_and_separate_authority() -> 
     assert "expected_scope_id=str(tenant_id)" in repository
     assert 'candidate.authority_class == "contextual_only"' in promotion
     assert 'candidate.authority_class == "unknown"' in promotion
+    assert "resolve_policy_evidence_ref_exact" in cwc_lifecycle
+    assert "EvidenceVersionRepository(session).resolve_immutable_evidence" in cwc_lifecycle
+    assert "_validated_policy_evidence_ids" in cwc_lifecycle
     assert 'memory_authority_class: Literal["contextual_only"]' in provenance
     assert "LegacyUnresolvedCaseMemoryProvenanceV1" in provenance
     assert "CaseMemoryIdentityClaim" in case_memory

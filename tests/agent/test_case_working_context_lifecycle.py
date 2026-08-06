@@ -717,6 +717,7 @@ def test_project_terminal_write_candidate_policy_refs_use_full_canonical_identit
         run_id=uuid.uuid4(),
         expected_version=None,
         final_response="按政策继续审核。",
+        _validated_policy_evidence_ids=frozenset({evidence_ref.evidence_id}),
     )
 
     assert projection.candidate is not None
@@ -791,6 +792,7 @@ def test_terminal_projection_promotes_valid_mixed_members_independently_and_dedu
         run_id=uuid.uuid4(),
         expected_version=None,
         final_response="已核对当前事实和租户政策。",
+        _validated_policy_evidence_ids=frozenset({evidence_ref.evidence_id}),
     )
 
     assert projection.candidate is not None
@@ -965,6 +967,101 @@ def _reset_capturing_service(
         memory_id=memory_id if memory_id is not None else uuid.uuid4(),
         version=version,
     )
+
+
+@pytest.mark.asyncio
+async def test_terminal_policy_promotion_requires_explicit_exact_resolver_success(
+    phase45_session_factory,
+) -> None:
+    _reset_capturing_service()
+    resolver_calls: list[tuple[uuid.UUID, str]] = []
+
+    async def exact_success_resolver(
+        session: AsyncSession,
+        *,
+        tenant_id: uuid.UUID,
+        evidence_ref: EvidenceRefV1,
+    ) -> bool:
+        assert session is not None
+        assert evidence_ref.scope_type == "tenant_policy"
+        assert evidence_ref.scope_id == str(tenant_id)
+        resolver_calls.append((tenant_id, evidence_ref.evidence_id))
+        return True
+
+    async with phase45_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_lifecycle_scope(session)
+            observed_at = datetime.now(UTC)
+            evidence_ref = _promotion_evidence_ref(scope["tenant"].id, observed_at=observed_at)
+            result = await CaseWorkingContextLifecycleAdapter(
+                case_working_context_service_cls=_CapturingCwcService,
+                policy_evidence_resolver=exact_success_resolver,
+            ).write_after_terminal_success(
+                session=session,
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id=scope["run"].thread_id,
+                run_id=scope["run"].id,
+                final_state=_terminal_state(
+                    scope,
+                    tool_results=[
+                        _promotion_tool_result(
+                            tenant_id=scope["tenant"].id,
+                            observed_at=observed_at,
+                            authority_class="policy_evidence",
+                            policy_evidence_refs=[evidence_ref],
+                        )
+                    ],
+                ),
+                final_response="按已验证政策继续审核。",
+            )
+
+    assert result.status_ref.write_status == "written"
+    assert resolver_calls == [(scope["tenant"].id, evidence_ref.evidence_id)]
+    content = _CapturingCwcService.calls[0]["candidate"].content
+    assert [fact.authority_class for fact in content.verified_facts] == ["policy_evidence"]
+    assert content.policy_refs == [evidence_ref]
+
+
+@pytest.mark.asyncio
+async def test_terminal_policy_promotion_rejects_canonical_shaped_nonexistent_ids(
+    phase45_session_factory,
+) -> None:
+    _reset_capturing_service()
+    async with phase45_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_lifecycle_scope(session)
+            observed_at = datetime.now(UTC)
+            nonexistent_ref = _promotion_evidence_ref(scope["tenant"].id, observed_at=observed_at)
+            result = await CaseWorkingContextLifecycleAdapter(
+                case_working_context_service_cls=_CapturingCwcService,
+            ).write_after_terminal_success(
+                session=session,
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id=scope["run"].thread_id,
+                run_id=scope["run"].id,
+                final_state=_terminal_state(
+                    scope,
+                    tool_results=[
+                        _promotion_tool_result(
+                            tenant_id=scope["tenant"].id,
+                            observed_at=observed_at,
+                            authority_class="policy_evidence",
+                            policy_evidence_refs=[nonexistent_ref],
+                        )
+                    ],
+                ),
+                final_response="无法验证政策来源。",
+            )
+
+    assert result.status_ref.write_status == "written"
+    content = _CapturingCwcService.calls[0]["candidate"].content
+    assert content.verified_facts == []
+    assert content.policy_refs == []
+    assert len(content.observations) == 1
+    assert content.observations[0].reason_code == "invalid_authoritative_ref"
+    assert content.observations[0].reference_validation == "invalid"
 
 
 @pytest.mark.asyncio

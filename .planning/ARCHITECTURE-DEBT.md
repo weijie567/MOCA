@@ -2376,3 +2376,12 @@
 - **处理状态**：✅ 已修复验证。package owner 先调用 `validate_current_evidence()` 做 exact current-row comparison，并把同一个 typed validation result 通过私有参数传给 `ContextBuilder`，避免二次 mutable lookup 与两次校验之间的 current-head race；builder 独立使用时也优先 exact validator，validator 抛错或拒绝时不回落 compatibility content。只有不具备 exact seam 的历史 test double 才保留既有兼容分支。
 - **证据**：Phase 64.2 REVIEW WR-02；`src/knowledge/service.py`、`src/agent/rag_context/builder.py`；真实 PostgreSQL forged-ID 负向 `tests/knowledge/test_evidence_cutover.py::test_verified_context_rejects_forged_immutable_ids_for_real_current_logical_head`；builder no-fallback 测试与 package/status 回归合计 `25 passed`，scoped Ruff 通过。
 - **剩余风险**：🟡 compatibility 分支仍服务没有 `validate_current_evidence` seam 的隔离 test doubles；生产 `PolicyKnowledgeService` 始终实现 exact seam。architecture guard 后续应继续禁止 production owner 绕过该方法。
+
+## 2026-08-06 — Phase 64.2 Review WR-03 CWC policy authority 只验 shape 未验 retained row ✅已修复验证
+
+- **子系统**：记忆 / Case Working Context promotion / RAG immutable evidence provenance。
+- **问题现象 / 根因**：terminal CWC projection 只用 Pydantic、tenant/scope 字符串与本地 canonical shape 检查 policy refs，随后把未显式声明的 `reference_validation` 默认成 `valid`；没有在可信 tenant 下解析 retained immutable row。
+- **影响**：随机生成但结构自洽的 document/chunk version IDs 可被提升为 `policy_evidence` verified fact，并继续进入 reviewed CaseMemory provenance，形成不存在的政策 authority。
+- **处理状态**：✅ 已修复验证。async lifecycle adapter 现在注入单 ref exact resolver，生产默认调用 `EvidenceVersionRepository(session).resolve_immutable_evidence(...)`，固定可信 `tenant_id`、`scope_type="tenant_policy"`、`scope_id=str(tenant_id)` 并比较返回 identity。每个 tool result 的全部 policy refs 都成功解析后，sync projection 才收到私有 validated-ID 集；未提供验证集的纯 projection 默认 fail-closed，business-fact promotion 不受影响。missing/forged/cross-tenant/cross-scope 或 resolver 异常只保留 observation/rejection，不进入 `verified_facts`/`policy_refs`。
+- **证据**：Phase 64.2 REVIEW WR-03；`src/memory/case_working_context_lifecycle.py`；`tests/agent/test_case_working_context_lifecycle.py::test_terminal_policy_promotion_requires_explicit_exact_resolver_success` 与 `::test_terminal_policy_promotion_rejects_canonical_shaped_nonexistent_ids`；memory/architecture/integration 定向回归 `79 passed`，scoped Ruff 通过。
+- **剩余风险**：🟡 business-fact refs 仍按其自身 service contract、tenant/freshness 字段验证；本条只收敛 policy evidence retained-row authority。后续 architecture guard 应继续锁定 production adapter 的 exact resolver 默认值与纯 projection 的无验证 fail-closed 行为。

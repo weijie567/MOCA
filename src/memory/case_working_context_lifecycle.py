@@ -28,7 +28,9 @@ from src.memory.case_working_context_schemas import (
 from src.memory.context_refs import CaseWorkingContextLifecycleStatusV1, CaseWorkingContextRef
 from src.memory.fact_promotion import FactPromotionCandidateV1, FactPromotionResultV1, promote_verified_fact
 from src.memory.schemas import MemorySourceRefV1
+from src.knowledge.evidence_identity import EvidenceIdentityResolutionStatus
 from src.knowledge.schemas import EvidenceRefV1
+from src.repositories.evidence_version_repo import EvidenceVersionRepository
 from src.tools.contracts import BusinessFactRefV1
 
 if TYPE_CHECKING:
@@ -36,6 +38,7 @@ if TYPE_CHECKING:
 
 
 CaseResolver = Callable[..., Awaitable[CaseIdentityResult]]
+PolicyEvidenceResolver = Callable[..., Awaitable[bool]]
 
 _TERMINAL_PROHIBITED_PII_MARKERS = {"身份证", "手机号", "password", "secret"}
 _TERMINAL_SENSITIVE_PII_PATTERNS = (
@@ -47,6 +50,34 @@ _TERMINAL_SENSITIVE_PII_PATTERNS = (
     ),
 )
 _DEFAULT_OBSERVED_AT = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+async def resolve_policy_evidence_ref_exact(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    evidence_ref: EvidenceRefV1,
+) -> bool:
+    """Resolve one policy ref against the trusted tenant's retained row."""
+
+    try:
+        identity = evidence_ref.to_canonical_identity()
+        if (
+            identity is None
+            or evidence_ref.tenant_id != str(tenant_id)
+            or identity.scope_type != "tenant_policy"
+            or identity.scope_id != str(tenant_id)
+        ):
+            return False
+        resolution = await EvidenceVersionRepository(session).resolve_immutable_evidence(
+            evidence_ref,
+            expected_tenant_id=tenant_id,
+            expected_scope_type="tenant_policy",
+            expected_scope_id=str(tenant_id),
+        )
+    except Exception:
+        return False
+    return resolution.status is EvidenceIdentityResolutionStatus.CANONICAL and resolution.identity == identity
 
 
 @dataclass(frozen=True)
@@ -71,11 +102,13 @@ class CaseWorkingContextLifecycleAdapter:
         repository_cls: type[Any] = CaseWorkingContextRepository,
         conversation_repository_cls: type[Any] = ConversationRepository,
         case_working_context_service_cls: type[Any] = CaseWorkingContextService,
+        policy_evidence_resolver: PolicyEvidenceResolver = resolve_policy_evidence_ref_exact,
     ) -> None:
         self._case_resolver = case_resolver
         self._repository_cls = repository_cls
         self._conversation_repository_cls = conversation_repository_cls
         self._case_working_context_service_cls = case_working_context_service_cls
+        self._policy_evidence_resolver = policy_evidence_resolver
 
     async def resolve_case(
         self,
@@ -279,6 +312,12 @@ class CaseWorkingContextLifecycleAdapter:
                 ),
             )
 
+        validated_policy_evidence_ids = await _validated_policy_evidence_ids(
+            final_state,
+            session=session,
+            tenant_id=tenant_id,
+            resolver=self._policy_evidence_resolver,
+        )
         projection = project_terminal_write_candidate(
             state=final_state,
             tenant_id=tenant_id,
@@ -286,6 +325,7 @@ class CaseWorkingContextLifecycleAdapter:
             run_id=run_id,
             expected_version=expected_version,
             final_response=final_response,
+            _validated_policy_evidence_ids=validated_policy_evidence_ids,
         )
         if projection.candidate is None:
             return CaseWorkingContextLifecycleResult(
@@ -417,6 +457,7 @@ def project_terminal_write_candidate(
     run_id: uuid.UUID,
     expected_version: int | None,
     final_response: str,
+    _validated_policy_evidence_ids: frozenset[str] | None = None,
 ) -> TerminalProjectionResult:
     try:
         return _project_terminal_write_candidate(
@@ -426,6 +467,7 @@ def project_terminal_write_candidate(
             run_id=run_id,
             expected_version=expected_version,
             final_response=final_response,
+            validated_policy_evidence_ids=_validated_policy_evidence_ids or frozenset(),
         )
     except Exception:
         return TerminalProjectionResult(
@@ -449,6 +491,7 @@ def _project_terminal_write_candidate(
     run_id: uuid.UUID,
     expected_version: int | None,
     final_response: str,
+    validated_policy_evidence_ids: frozenset[str],
 ) -> TerminalProjectionResult:
     if _is_clarification_only_state(state):
         return TerminalProjectionResult(
@@ -469,6 +512,7 @@ def _project_terminal_write_candidate(
         state,
         tenant_id=tenant_id,
         source_ref=source_ref,
+        validated_policy_evidence_ids=validated_policy_evidence_ids,
     )
     content = CaseWorkingContextContentV1(
         customer_request=_truncate(_non_empty_str(state.get("user_query")), 500),
@@ -545,11 +589,44 @@ def _project_issue_type(state: Mapping[str, Any]) -> str | None:
     return _truncate(issue_type, 64)
 
 
+async def _validated_policy_evidence_ids(
+    state: Mapping[str, Any],
+    *,
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    resolver: PolicyEvidenceResolver,
+) -> frozenset[str]:
+    """Return only complete per-result ref sets proven by the exact resolver."""
+
+    validated: set[str] = set()
+    for item in _iter_mappings(state.get("tool_results")):
+        refs, refs_invalid, compatibility_only = _parse_policy_refs(item.get("policy_evidence_refs"))
+        if refs_invalid or compatibility_only or not refs:
+            continue
+        item_is_valid = True
+        for ref in refs:
+            try:
+                if not await resolver(
+                    session,
+                    tenant_id=tenant_id,
+                    evidence_ref=ref,
+                ):
+                    item_is_valid = False
+                    break
+            except Exception:
+                item_is_valid = False
+                break
+        if item_is_valid:
+            validated.update(ref.evidence_id for ref in refs)
+    return frozenset(validated)
+
+
 def _project_promoted_content(
     state: Mapping[str, Any],
     *,
     tenant_id: uuid.UUID,
     source_ref: MemorySourceRefV1,
+    validated_policy_evidence_ids: frozenset[str],
 ) -> tuple[
     list[CaseWorkingContextVerifiedFactV1],
     list[CaseWorkingContextObservationV1],
@@ -561,7 +638,11 @@ def _project_promoted_content(
     seen_facts: set[str] = set()
     seen_policy_refs: set[str] = set()
     for item in _iter_mappings(state.get("tool_results")):
-        candidate = _promotion_candidate_from_item(item, tenant_id=tenant_id)
+        candidate = _promotion_candidate_from_item(
+            item,
+            tenant_id=tenant_id,
+            validated_policy_evidence_ids=validated_policy_evidence_ids,
+        )
         if candidate is None:
             continue
         fact_source_ref = _source_ref_with_tool_result(source_ref, item)
@@ -604,6 +685,7 @@ def _promotion_candidate_from_item(
     item: Mapping[str, Any],
     *,
     tenant_id: uuid.UUID,
+    validated_policy_evidence_ids: frozenset[str],
 ) -> FactPromotionCandidateV1 | None:
     summary = _first_non_empty_str(item, ("summary", "prompt_summary", "tool_summary"))
     if summary is None:
@@ -631,6 +713,13 @@ def _promotion_candidate_from_item(
         refs_invalid=business_invalid or policy_invalid,
         compatibility_only=compatibility_only,
     )
+    if (
+        authority_class == "policy_evidence"
+        and policy_refs
+        and reference_validation == "valid"
+        and any(ref.evidence_id not in validated_policy_evidence_ids for ref in policy_refs)
+    ):
+        reference_validation = "invalid"
     freshness_result = _promotion_freshness(
         item.get("freshness_result"),
         observed_at=observed_at,
