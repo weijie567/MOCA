@@ -287,7 +287,7 @@ def _section(source: str, heading: str, next_heading: str) -> str:
 
 def _load_phase_plan_frontmatters() -> dict[str, dict]:
     paths = sorted(PHASE_DIR.glob("64.2-??-PLAN.md"))
-    expected_names = [f"64.2-{number:02d}-PLAN.md" for number in range(1, 10)]
+    expected_names = [f"64.2-{number:02d}-PLAN.md" for number in range(1, 12)]
     assert [path.name for path in paths] == expected_names
     plans: dict[str, dict] = {}
     for path in paths:
@@ -436,7 +436,7 @@ def test_phase64_2_decision_coverage_and_key_links_are_complete() -> None:
 def test_phase64_2_plan_graph_is_exact_acyclic_and_shared_file_ordered() -> None:
     plans = _load_phase_plan_frontmatters()
 
-    assert set(plans) == {f"64.2-{number:02d}" for number in range(1, 10)}
+    assert set(plans) == {f"64.2-{number:02d}" for number in range(1, 12)}
     assert _plan_graph_violations(plans) == frozenset()
 
 
