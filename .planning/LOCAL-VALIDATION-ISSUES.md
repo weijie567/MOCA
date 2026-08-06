@@ -22519,3 +22519,23 @@ D 组新增共享 staged helper 后，首轮精确六项仍为 `6 failed`。五�
 
 **剩余问题和下次继续排查入口**
 后续完整验证已完成：五个历史 migration/search 文件及 Phase 64.2 immutable/cutover migration 文件为 `37 passed, 29 warnings`，scoped Ruff 与 diff check 通过；全局 `--lf` 因 lastfailed 已清空而自动回退为 full suite，最终为 `4455 passed, 4 skipped, 152 warnings in 1993.29s`。D 组无剩余失败；既有 LangGraph/Alembic/resource warnings 不作为本组回归，后续按独立维护入口处理。
+
+## 2026-08-06 — Phase 64.2 Plan 09 closeout artifact 探测再次触发 zsh nomatch
+
+**问题现象**
+closeout 前探测 UAT/SECURITY/SUMMARY 文件时，命令把不存在的 `*UAT*`、`*SECURITY*` 作为未引用 glob 直接交给 zsh；shell 在执行 `rg` 前报 `no matches found`。
+
+**如何检测/复现**
+在 phase 目录尚无 UAT/SECURITY 文件时运行包含 `.planning/.../*UAT*` 或 `.planning/.../*SECURITY*` 的未引用 glob，即可复现。
+
+**关键证据或命令**
+失败输出为 `zsh: no matches found: .planning/.../*UAT*`。随后改用 `find <phase-dir> -maxdepth 1 \( -name '*UAT*' -o -name '*SECURITY*' -o -name '*SUMMARY*' \) -type f -print`，确认当时没有 UAT/SECURITY，只有既有 Plan 01-08 summaries。
+
+**当前判断/根因**
+这是重复出现的 zsh `nomatch` 文件探测错误，不是测试、产品代码或 closeout artifact 内容失败；失败的 glob 命令不作为验证证据。
+
+**已做处理**
+后续全部使用精确路径，或先通过 `rg --files` / `find` 获得存在的路径；Plan 09 UAT 由本次 closeout 显式创建，不增造独立 SECURITY artifact。
+
+**剩余问题和下次继续排查入口**
+无功能性剩余问题。后续 zsh 环境继续避免对可能不存在的路径使用未引用 glob。

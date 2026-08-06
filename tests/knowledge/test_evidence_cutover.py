@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -500,7 +500,7 @@ async def test_current_retrieval_is_canonical_and_fails_closed_while_operational
     service = IngestionService(session=session, embedder=_EmbeddingService(), tenant_id=tenant_id)
     ingested = await service.ingest_document(
         source,
-        _metadata(),
+        _metadata(effective_date=date(2026, 8, 5)),
         expected_rollout_version=rollout.rollout_version,
     )
     await repository.reserve_backfill_watermark(expected_rollout_version=rollout.rollout_version)
@@ -560,7 +560,7 @@ async def test_current_retrieval_is_canonical_and_fails_closed_while_operational
     changed = _write_policy(tmp_path, "canonical current disabled 期间的新内容")
     write_while_disabled = await service.ingest_document(
         changed,
-        _metadata(),
+        _metadata(effective_date=date(2026, 8, 5)),
         expected_rollout_version=disabled_epoch,
     )
     assert write_while_disabled.status == "success"
