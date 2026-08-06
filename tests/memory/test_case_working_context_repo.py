@@ -531,9 +531,7 @@ async def test_repo_rejects_updated_by_run_id_from_another_tenant(phase44_sessio
                 scope,
                 content=_content(source_ref, tenant_id=scope["tenant"].id),
                 source_ref=source_ref,
-            ).model_copy(
-                update={"updated_by_run_id": other_scope["run"].id}
-            )
+            ).model_copy(update={"updated_by_run_id": other_scope["run"].id})
 
             with pytest.raises(ValueError, match="updated_by_run_id does not belong to tenant"):
                 await CaseWorkingContextRepository(session).write_working_context(candidate)
@@ -561,9 +559,7 @@ async def test_repo_rejects_source_ref_run_ids_from_another_tenant_when_updater_
                 scope,
                 content=_content(source_ref, tenant_id=scope["tenant"].id),
                 source_ref=source_ref,
-            ).model_copy(
-                update={"updated_by_run_id": None}
-            )
+            ).model_copy(update={"updated_by_run_id": None})
 
             with pytest.raises(ValueError, match="source_ref run_id/agent_run_id does not belong to tenant"):
                 await CaseWorkingContextRepository(session).write_working_context(candidate)

@@ -151,9 +151,7 @@ def _classify_identity_rows() -> list[list[Mapping[str, object]]]:
                 "SELECT id, tenant_id, identity_algorithm_version, scope_type, scope_id, candidate_hash, "
                 "content_hash, source_identity_hash, review_status, review_reason, lifecycle_version, "
                 "expires_at, deleted_at, reviewed_at, created_at, updated_at "
-                "FROM case_memories WHERE "
-                + _RESOLVED_FILTER
-                + " ORDER BY created_at, id"
+                "FROM case_memories WHERE " + _RESOLVED_FILTER + " ORDER BY created_at, id"
             )
         )
         .mappings()

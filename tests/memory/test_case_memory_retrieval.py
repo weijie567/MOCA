@@ -198,11 +198,15 @@ def _case_row(
     refund_case = seeded_session["refund_case"]
     resolved_tenant_id = tenant_id or refund_case.tenant_id
     resolved_scope_id = scope_id or str(refund_case.id)
-    source_ref = dict(source_ref_json) if source_ref_json is not None else {
-        "source_type": source_type,
-        "business_object_type": "refund_case",
-        "business_object_id": str(refund_case.id),
-    }
+    source_ref = (
+        dict(source_ref_json)
+        if source_ref_json is not None
+        else {
+            "source_type": source_type,
+            "business_object_type": "refund_case",
+            "business_object_id": str(refund_case.id),
+        }
+    )
     source_ref.setdefault("business_object_type", "refund_case")
     source_ref.setdefault("business_object_id", str(refund_case.id))
     content_for_identity = (

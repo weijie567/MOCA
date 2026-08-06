@@ -146,9 +146,7 @@ def test_orm_and_migration_define_exact_additive_immutable_foundation() -> None:
         assert item_name in dependency_items
     assert "ck_evidence_identity_rollouts_singleton" in rollout_items
     assert "ck_evidence_identity_rollouts_version_nonnegative" in rollout_items
-    assert "'archived'" in str(
-        document_items["ck_policy_document_versions_lifecycle_status"].sqltext
-    )
+    assert "'archived'" in str(document_items["ck_policy_document_versions_lifecycle_status"].sqltext)
     assert "'archived'" in str(chunk_items["ck_policy_chunk_versions_lifecycle_status"].sqltext)
     assert "'archived'" in source.split("_LIFECYCLE_CHECK =", 1)[1].split("\n", 1)[0]
 
@@ -369,9 +367,7 @@ def test_upgrade_performs_no_backfill() -> None:
                     },
                 )
                 await conn.execute(
-                    text(
-                        "UPDATE policy_document_versions SET lifecycle_status = 'archived' WHERE id = :id"
-                    ),
+                    text("UPDATE policy_document_versions SET lifecycle_status = 'archived' WHERE id = :id"),
                     {"id": document_version_id},
                 )
                 await conn.execute(

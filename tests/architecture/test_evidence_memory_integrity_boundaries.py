@@ -121,15 +121,16 @@ def find_integrity_boundary_violations(relative_path: str, source: str) -> froze
                 if (position := body.find(token)) >= 0
             ]
             validation_position = body.find("_validate_canonical_snapshot_evidence")
-            if persistence_positions and (
-                validation_position < 0 or validation_position > min(persistence_positions)
-            ):
+            if persistence_positions and (validation_position < 0 or validation_position > min(persistence_positions)):
                 violations.add("approval_persistence_without_recomputation")
 
     if relative_path == REPLAY_OWNER:
         if re.search(r"\bPolicyDocument\b|\bPolicyChunk\b", source):
             violations.add("historical_lookup_through_mutable_heads")
-        if "Read-only adapter for evidence JSON" not in source or "resolve_persisted_legacy_event_evidence" not in source:
+        if (
+            "Read-only adapter for evidence JSON" not in source
+            or "resolve_persisted_legacy_event_evidence" not in source
+        ):
             violations.add("legacy_projection_not_read_only")
 
     if relative_path == PRECEDENT_OWNER:
@@ -234,8 +235,7 @@ def test_phase64_2_canonical_owners_pass_boundary_guards() -> None:
         CASE_MEMORY_OWNER,
     )
     violations = {
-        path: find_integrity_boundary_violations(path, (ROOT / path).read_text(encoding="utf-8"))
-        for path in owners
+        path: find_integrity_boundary_violations(path, (ROOT / path).read_text(encoding="utf-8")) for path in owners
     }
 
     assert violations == {path: frozenset() for path in owners}
@@ -331,9 +331,7 @@ def _plan_graph_violations(plans: dict[str, dict]) -> frozenset[str]:
         left_files = set(left.get("files_modified", [])) | set(left.get("conditional_files_modified", []))
         for right_id in plan_ids[index + 1 :]:
             right = plans[right_id]
-            right_files = set(right.get("files_modified", [])) | set(
-                right.get("conditional_files_modified", [])
-            )
+            right_files = set(right.get("files_modified", [])) | set(right.get("conditional_files_modified", []))
             if not left_files.intersection(right_files):
                 continue
             if left["wave"] == right["wave"]:

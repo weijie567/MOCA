@@ -83,10 +83,13 @@ def _source_ref(**overrides: str) -> dict[str, str]:
 
 
 def test_memory_content_hash_is_stable_across_whitespace() -> None:
-    assert normalize_memory_content(
-        "  Refund  policy\npreference  ",
-        identity_profile=LEGACY_MEMORY_IDENTITY_PROFILE,
-    ) == "refund policy preference"
+    assert (
+        normalize_memory_content(
+            "  Refund  policy\npreference  ",
+            identity_profile=LEGACY_MEMORY_IDENTITY_PROFILE,
+        )
+        == "refund policy preference"
+    )
 
     content_hash = canonical_memory_content_hash(
         memory_type="long_term_fact",
@@ -695,9 +698,7 @@ async def test_cwc_service_calls_named_owner_once_and_events_exact_result(monkey
     assert calls == [trusted_candidate]
     assert result.candidate_hash == expected.candidate_hash
     assert event_kwargs["candidate_hash"] == expected.candidate_hash
-    assert event_kwargs["source_ref_json"] == expected.normalized_source_ref.model_dump(
-        mode="json", exclude_none=True
-    )
+    assert event_kwargs["source_ref_json"] == expected.normalized_source_ref.model_dump(mode="json", exclude_none=True)
 
 
 def test_memory_callers_have_no_local_candidate_identity_builders() -> None:

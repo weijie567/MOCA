@@ -403,9 +403,7 @@ def test_migration_backfills_exact_claims_and_survivor_to_many_lineage() -> None
 
                 unresolved = (
                     await conn.execute(
-                        text(
-                            "SELECT review_status FROM case_memories WHERE id = :id"
-                        ),
+                        text("SELECT review_status FROM case_memories WHERE id = :id"),
                         {"id": unresolved_id},
                     )
                 ).one()
@@ -595,7 +593,9 @@ async def test_review_cas_is_single_winner_and_exact_retry_reuses_event(
     row = await session.get(CaseMemory, written.memory_id)
     claim = await _claim_for_memory(session, written.memory_id)
     event_count = await session.scalar(
-        select(func.count()).select_from(MemoryWriteEvent).where(
+        select(func.count())
+        .select_from(MemoryWriteEvent)
+        .where(
             MemoryWriteEvent.memory_id == written.memory_id,
             MemoryWriteEvent.reason_code == "approved",
         )
@@ -674,9 +674,7 @@ async def test_terminal_delete_or_tombstone_retains_claim_and_blocks_delayed_sub
     claim = await _claim_for_memory(session, written.memory_id)
     tombstones = list(
         (
-            await session.execute(
-                select(MemoryTombstone).where(MemoryTombstone.tenant_id == candidate.tenant_id)
-            )
+            await session.execute(select(MemoryTombstone).where(MemoryTombstone.tenant_id == candidate.tenant_id))
         ).scalars()
     )
     rows = list(
@@ -730,9 +728,7 @@ async def test_correction_terminalizes_old_claim_and_records_direct_and_associat
     links = list(
         (
             await session.execute(
-                select(CaseMemoryLineageLink).where(
-                    CaseMemoryLineageLink.survivor_case_memory_id == event.memory_id
-                )
+                select(CaseMemoryLineageLink).where(CaseMemoryLineageLink.survivor_case_memory_id == event.memory_id)
             )
         ).scalars()
     )

@@ -271,9 +271,7 @@ def test_unresolved_cutover_remains_at_025_and_is_retryable(tmp_path: Path) -> N
                 )
                 assert result.status == "success"
                 document = (
-                    await setup_session.execute(
-                        select(PolicyDocument).where(PolicyDocument.tenant_id == tenant_id)
-                    )
+                    await setup_session.execute(select(PolicyDocument).where(PolicyDocument.tenant_id == tenant_id))
                 ).scalar_one()
                 valid_fingerprint = document.policy_version_fingerprint
                 document.policy_version_fingerprint = None
@@ -476,9 +474,7 @@ def test_staged_024_to_028_upgrade_with_dual_write_activation(tmp_path: Path) ->
 
             async def activate_first() -> int:
                 async with session_factory() as activation_session:
-                    state = await EvidenceVersionRepository(
-                        activation_session
-                    ).reconcile_and_enable_canonical_reads(
+                    state = await EvidenceVersionRepository(activation_session).reconcile_and_enable_canonical_reads(
                         expected_rollout_version=2,
                         after_zero_gap=pause_after_zero_gap,
                     )
@@ -644,9 +640,7 @@ def test_staged_024_to_028_upgrade_with_dual_write_activation(tmp_path: Path) ->
                     )
                 ).one()
                 assert legacy.identity_resolution_status == "legacy_unresolved"
-                assert legacy.provenance_json["schema_version"] == (
-                    "case_memory_provenance_legacy_unresolved.v1"
-                )
+                assert legacy.provenance_json["schema_version"] == ("case_memory_provenance_legacy_unresolved.v1")
                 assert legacy.lifecycle_version == 1
 
                 now = datetime(2026, 8, 5, 10, 0, tzinfo=UTC)

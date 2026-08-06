@@ -341,9 +341,15 @@ async def test_create_persists_one_repository_canonical_evidence_list(
     [
         ("forged_id", lambda ref, _other, _tenant: _forged_ref(ref, evidence_id="sha256:" + "f" * 64)),
         ("changed_hash", lambda ref, _other, _tenant: _forged_ref(ref, text_hash="sha256:" + "f" * 64)),
-        ("wrong_document_version", lambda ref, _other, _tenant: _forged_ref(ref, document_version=2, policy_version="v2")),
+        (
+            "wrong_document_version",
+            lambda ref, _other, _tenant: _forged_ref(ref, document_version=2, policy_version="v2"),
+        ),
         ("wrong_chunk_version", lambda ref, _other, _tenant: _forged_ref(ref, chunk_version=2)),
-        ("request_scope_substitution", lambda ref, _other, _tenant: _forged_ref(ref, scope_id="merchant-request-scope")),
+        (
+            "request_scope_substitution",
+            lambda ref, _other, _tenant: _forged_ref(ref, scope_id="merchant-request-scope"),
+        ),
         ("same_tenant_cross_scope", lambda ref, _other, _tenant: _forged_ref(ref, scope_type="merchant_policy")),
         ("cross_tenant", lambda _ref, other, _tenant: other),
         ("legacy_ambiguous", lambda ref, _other, _tenant: _legacy_ref(ref)),
@@ -459,7 +465,9 @@ async def test_create_rejects_existing_snapshot_with_divergent_evidence_without_
         retrieval_config_version=command.retrieval_config_version,
         evidence_refs=[snapshot_ref],
         target_merchant_id=command.target_merchant_id,
-        target_merchant_ref=command.target_merchant_ref.model_dump(mode="json") if command.target_merchant_ref else None,
+        target_merchant_ref=command.target_merchant_ref.model_dump(mode="json")
+        if command.target_merchant_ref
+        else None,
         business_fact_refs=[ref.model_dump(mode="json") for ref in command.business_fact_refs],
         created_at=command.created_at,
         created_by=command.requested_by,
@@ -517,7 +525,9 @@ async def test_edit_changed_evidence_uses_one_repository_canonical_binding(
     decision = await session.get(ApprovalDecision, result.decision_id)
     snapshot = (
         await session.execute(
-            select(ActionSafetySnapshot).where(ActionSafetySnapshot.action_payload_hash == result.new_action_payload_hash)
+            select(ActionSafetySnapshot).where(
+                ActionSafetySnapshot.action_payload_hash == result.new_action_payload_hash
+            )
         )
     ).scalar_one()
 
@@ -575,7 +585,9 @@ async def test_attach_info_changed_evidence_uses_one_repository_canonical_bindin
     expected_action.pop("verified_evidence_refs")
     snapshot = (
         await session.execute(
-            select(ActionSafetySnapshot).where(ActionSafetySnapshot.action_payload_hash == result.new_action_payload_hash)
+            select(ActionSafetySnapshot).where(
+                ActionSafetySnapshot.action_payload_hash == result.new_action_payload_hash
+            )
         )
     ).scalar_one()
     event = (

@@ -257,9 +257,7 @@ def build_session_memory_candidate_identity(
         "user_id": str(typed.user_id),
         "thread_id": typed.thread_id,
         "run_id": str(typed.run_id),
-        "explicit_slots": {
-            key: slot.model_dump(mode="json") for key, slot in sorted(typed.explicit_slots.items())
-        },
+        "explicit_slots": {key: slot.model_dump(mode="json") for key, slot in sorted(typed.explicit_slots.items())},
         "unresolved_questions": list(typed.unresolved_questions),
         "last_intent": typed.last_intent,
         "session_summary": typed.session_summary,
@@ -546,9 +544,7 @@ def _normalize_source_ref_v2(source_ref: Mapping[str, Any]) -> MemorySourceRefV1
     if not any(_has_source_discriminator(source_ref.get(key)) for key in _SOURCE_IDENTITY_DISCRIMINATORS):
         raise MemoryIdentityError("source identity requires a durable discriminator")
     normalized = {
-        key: _normalize_v2_string(value, field_name=key)
-        for key, value in source_ref.items()
-        if value is not None
+        key: _normalize_v2_string(value, field_name=key) for key, value in source_ref.items() if value is not None
     }
     try:
         return MemorySourceRefV1.model_validate(normalized)
@@ -557,10 +553,7 @@ def _normalize_source_ref_v2(source_ref: Mapping[str, Any]) -> MemorySourceRefV1
 
 
 def _source_identity_hash_v2(source_ref: MemorySourceRefV1) -> str:
-    complete_source_ref = {
-        key: getattr(source_ref, key)
-        for key in sorted(ALLOWED_SOURCE_REF_KEYS)
-    }
+    complete_source_ref = {key: getattr(source_ref, key) for key in sorted(ALLOWED_SOURCE_REF_KEYS)}
     return _hash(
         {"schema_version": _V2_SOURCE_HASH_SCHEMA_VERSION, **complete_source_ref},
         schema_version=_V2_SOURCE_HASH_SCHEMA_VERSION,

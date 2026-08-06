@@ -441,10 +441,13 @@ async def _run_case_action(
     _assert_memory_reviewer(user)
     memory_uuid = _parse_memory_id(memory_id)
     repository = CaseMemoryRepository(session)
-    if await repository.get_resolved_case_memory(
-        tenant_id=user.tenant_id,
-        case_memory_id=memory_uuid,
-    ) is None:
+    if (
+        await repository.get_resolved_case_memory(
+            tenant_id=user.tenant_id,
+            case_memory_id=memory_uuid,
+        )
+        is None
+    ):
         raise _generic_memory_not_found()
     await _ensure_run_in_tenant(session=session, tenant_id=user.tenant_id, run_id=body.run_id)
     service = CaseMemoryService(repository)
@@ -603,12 +606,9 @@ def _case_detail(
         review_reason=provenance.review_reason,
         source_authorities=_source_authority_items(provenance.source_authorities),
         evidence_refs=[
-            ref.model_dump(mode="json", exclude_none=True, exclude={"score"})
-            for ref in provenance.evidence_refs
+            ref.model_dump(mode="json", exclude_none=True, exclude={"score"}) for ref in provenance.evidence_refs
         ],
-        business_fact_refs=[
-            ref.model_dump(mode="json", exclude_none=True) for ref in provenance.business_fact_refs
-        ],
+        business_fact_refs=[ref.model_dump(mode="json", exclude_none=True) for ref in provenance.business_fact_refs],
         lineage=_case_lineage_item(memory, lineage),
     )
 
@@ -622,12 +622,9 @@ def _source_authority_items(
             source_status=authority.source_status,
             source_authority_class=authority.source_authority_class,
             source_ref=authority.source_ref.model_dump(mode="json", exclude_none=True),
-            business_fact_refs=[
-                ref.model_dump(mode="json", exclude_none=True) for ref in authority.business_fact_refs
-            ],
+            business_fact_refs=[ref.model_dump(mode="json", exclude_none=True) for ref in authority.business_fact_refs],
             evidence_refs=[
-                ref.model_dump(mode="json", exclude_none=True, exclude={"score"})
-                for ref in authority.evidence_refs
+                ref.model_dump(mode="json", exclude_none=True, exclude={"score"}) for ref in authority.evidence_refs
             ],
         )
         for authority in authorities

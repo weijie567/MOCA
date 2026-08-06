@@ -202,9 +202,7 @@ def test_working_state_v1_projects_allowlisted_current_run_fields() -> None:
 def test_working_state_preserves_complete_canonical_evidence_binding() -> None:
     canonical_ref = _canonical_evidence_ref()
 
-    working_state = project_working_state(
-        _base_state(verified_evidence_package=_verified_package(canonical_ref))
-    )
+    working_state = project_working_state(_base_state(verified_evidence_package=_verified_package(canonical_ref)))
 
     assert working_state.retrieved_evidence_refs == [canonical_ref]
 

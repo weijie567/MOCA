@@ -158,11 +158,7 @@ class FakeCanonicalRetriever:
         keys: list[tuple[str, str]],
     ) -> dict[tuple[str, str], dict[str, Any]]:
         self.calls.append({"method": "canonical", "tenant_id": str(tenant_id), "keys": keys})
-        return {
-            key: row
-            for key, row in self.rows.items()
-            if key in keys and row["tenant_id"] == str(tenant_id)
-        }
+        return {key: row for key, row in self.rows.items() if key in keys and row["tenant_id"] == str(tenant_id)}
 
     async def get_current_canonical_evidence_rows_by_keys(
         self,
@@ -171,11 +167,7 @@ class FakeCanonicalRetriever:
         keys: list[tuple[str, str]],
     ) -> dict[tuple[str, str], dict[str, Any]]:
         self.calls.append({"method": "current", "tenant_id": str(tenant_id), "keys": keys})
-        return {
-            key: row
-            for key, row in self.rows.items()
-            if key in keys and row["tenant_id"] == str(tenant_id)
-        }
+        return {key: row for key, row in self.rows.items() if key in keys and row["tenant_id"] == str(tenant_id)}
 
 
 class CountingPolicyKnowledgeService(PolicyKnowledgeService):

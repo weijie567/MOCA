@@ -104,23 +104,25 @@ async def _counts(
             select(func.count()).select_from(CaseMemory).where(CaseMemory.tenant_id == tenant_id)
         )
         claims = await check.scalar(
-            select(func.count()).select_from(CaseMemoryIdentityClaim).where(
-                CaseMemoryIdentityClaim.tenant_id == tenant_id
-            )
+            select(func.count())
+            .select_from(CaseMemoryIdentityClaim)
+            .where(CaseMemoryIdentityClaim.tenant_id == tenant_id)
         )
         links = await check.scalar(
-            select(func.count()).select_from(CaseMemoryLineageLink).where(
-                CaseMemoryLineageLink.tenant_id == tenant_id
-            )
+            select(func.count()).select_from(CaseMemoryLineageLink).where(CaseMemoryLineageLink.tenant_id == tenant_id)
         )
         events = await check.scalar(
-            select(func.count()).select_from(MemoryWriteEvent).where(
+            select(func.count())
+            .select_from(MemoryWriteEvent)
+            .where(
                 MemoryWriteEvent.tenant_id == tenant_id,
                 MemoryWriteEvent.memory_type == CASE_MEMORY_TYPE,
             )
         )
         tombstones = await check.scalar(
-            select(func.count()).select_from(MemoryTombstone).where(
+            select(func.count())
+            .select_from(MemoryTombstone)
+            .where(
                 MemoryTombstone.tenant_id == tenant_id,
                 MemoryTombstone.memory_type == CASE_MEMORY_TYPE,
             )
@@ -248,9 +250,7 @@ async def test_identical_review_retry_race_reuses_one_event(
         row = await check.get(CaseMemory, memory_id)
         claim = (
             await check.execute(
-                select(CaseMemoryIdentityClaim).where(
-                    CaseMemoryIdentityClaim.owner_case_memory_id == memory_id
-                )
+                select(CaseMemoryIdentityClaim).where(CaseMemoryIdentityClaim.owner_case_memory_id == memory_id)
             )
         ).scalar_one()
     assert row is not None and row.review_status == "approved" and row.lifecycle_version == 2
@@ -285,9 +285,7 @@ async def test_approve_reject_race_has_one_cas_winner(
         row = await check.get(CaseMemory, memory_id)
         claim = (
             await check.execute(
-                select(CaseMemoryIdentityClaim).where(
-                    CaseMemoryIdentityClaim.owner_case_memory_id == memory_id
-                )
+                select(CaseMemoryIdentityClaim).where(CaseMemoryIdentityClaim.owner_case_memory_id == memory_id)
             )
         ).scalar_one()
     assert row is not None and row.review_status in {"approved", "rejected"} and row.lifecycle_version == 2
@@ -331,9 +329,7 @@ async def test_review_expiry_race_has_one_terminal_transition(
         row = await check.get(CaseMemory, memory_id)
         claim = (
             await check.execute(
-                select(CaseMemoryIdentityClaim).where(
-                    CaseMemoryIdentityClaim.owner_case_memory_id == memory_id
-                )
+                select(CaseMemoryIdentityClaim).where(CaseMemoryIdentityClaim.owner_case_memory_id == memory_id)
             )
         ).scalar_one()
     assert row is not None and row.review_status in {"approved", "superseded"}
@@ -413,9 +409,7 @@ async def test_delayed_exact_submit_cannot_revive_terminal_claim(
         row = await check.get(CaseMemory, memory_id)
         claim = (
             await check.execute(
-                select(CaseMemoryIdentityClaim).where(
-                    CaseMemoryIdentityClaim.owner_case_memory_id == memory_id
-                )
+                select(CaseMemoryIdentityClaim).where(CaseMemoryIdentityClaim.owner_case_memory_id == memory_id)
             )
         ).scalar_one()
     assert row is not None and row.lifecycle_version == claim.lifecycle_version == 2
@@ -455,9 +449,7 @@ async def test_correction_duplicate_submit_race_preserves_lineage_and_two_claims
     async with factory() as check:
         old_claim = (
             await check.execute(
-                select(CaseMemoryIdentityClaim).where(
-                    CaseMemoryIdentityClaim.owner_case_memory_id == memory_id
-                )
+                select(CaseMemoryIdentityClaim).where(CaseMemoryIdentityClaim.owner_case_memory_id == memory_id)
             )
         ).scalar_one()
         new_row = await check.get(CaseMemory, correction_event.memory_id)

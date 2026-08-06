@@ -1287,9 +1287,7 @@ class CaseMemoryService:
         expected_values = {
             "summary": correction.summary,
             "excerpt": correction.excerpt,
-            "applicability": (
-                correction.applicability if correction.applicability is not None else old.applicability
-            ),
+            "applicability": (correction.applicability if correction.applicability is not None else old.applicability),
             "outcome": correction.outcome if correction.outcome is not None else old.outcome,
             "caveats": correction.caveats if correction.caveats is not None else old.caveats,
         }
@@ -1613,9 +1611,7 @@ def _resolved_candidate_provenance(
         if getattr(provenance, field_name) != value:
             raise ValueError("case memory provenance does not match tenant, scope, source, or identity")
     expected_policy_refs = _validated_policy_refs(candidate.policy_refs, tenant_id=candidate.tenant_id)
-    provenance_policy_refs = [
-        ref.model_dump(mode="json", exclude_none=True) for ref in provenance.evidence_refs
-    ]
+    provenance_policy_refs = [ref.model_dump(mode="json", exclude_none=True) for ref in provenance.evidence_refs]
     if expected_policy_refs != provenance_policy_refs:
         raise ValueError("case memory provenance evidence refs do not match candidate policy refs")
     if provenance.source_cwc_id is not None:
@@ -1662,9 +1658,7 @@ def resolved_case_memory_provenance(memory: CaseMemory) -> CaseMemoryProvenanceV
         or identity.source_identity_hash != memory.source_identity_hash
     ):
         return None
-    provenance_policy_refs = [
-        ref.model_dump(mode="json", exclude_none=True) for ref in envelope.evidence_refs
-    ]
+    provenance_policy_refs = [ref.model_dump(mode="json", exclude_none=True) for ref in envelope.evidence_refs]
     if provenance_policy_refs != stored_policy_refs:
         return None
     if memory.created_by_run_id is not None and envelope.source_run_id != memory.created_by_run_id:

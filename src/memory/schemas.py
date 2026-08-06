@@ -363,9 +363,7 @@ class CaseMemoryProvenanceV1(BaseModel):
                 ):
                     raise ValueError("evidence authority must use exact tenant-policy canonical scope")
         if _model_list(self.business_fact_refs) != _model_list(
-            _ordered_unique_refs(
-                ref for authority in self.source_authorities for ref in authority.business_fact_refs
-            )
+            _ordered_unique_refs(ref for authority in self.source_authorities for ref in authority.business_fact_refs)
         ):
             raise ValueError("aggregate business fact refs must exactly match source authorities")
         if _model_list(self.evidence_refs) != _model_list(

@@ -245,10 +245,14 @@ async def _create_approval(
         run_id=run_id,
         merchant_id=str(requester.merchant_id or seeded_session["merchant"].id),
     )
-    binding_overrides = canonical_binding if with_phase34_bindings else {
-        "evidence_refs": canonical_binding["evidence_refs"],
-        "verified_evidence_refs": canonical_binding["verified_evidence_refs"],
-    }
+    binding_overrides = (
+        canonical_binding
+        if with_phase34_bindings
+        else {
+            "evidence_refs": canonical_binding["evidence_refs"],
+            "verified_evidence_refs": canonical_binding["verified_evidence_refs"],
+        }
+    )
     if with_phase34_bindings:
         await _mark_run_business_merchant(session, run_id, binding_overrides)
     created = await ApprovalService(session).create_request(

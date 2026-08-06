@@ -339,7 +339,9 @@ _EVIDENCE_SOURCE_LOCATOR_CHECK = (
     "ARRAY['source_type', 'source_checksum', 'source_uri', 'page_number', 'source_block_refs']::text[]) "
     "= '{}'::jsonb"
 )
-_EVIDENCE_LIFECYCLE_CHECK = "lifecycle_status IN ('active', 'superseded', 'corrected', 'archived', 'expired', 'tombstoned')"
+_EVIDENCE_LIFECYCLE_CHECK = (
+    "lifecycle_status IN ('active', 'superseded', 'corrected', 'archived', 'expired', 'tombstoned')"
+)
 
 
 class PolicyDocumentVersion(TimestampMixin, Base):

@@ -327,9 +327,7 @@ async def test_investigate_event_replays_exact_original_evidence(
     events = list(
         (
             await session.execute(
-                select(AgentTraceEvent)
-                .where(AgentTraceEvent.run_id == run.id)
-                .order_by(AgentTraceEvent.sequence)
+                select(AgentTraceEvent).where(AgentTraceEvent.run_id == run.id).order_by(AgentTraceEvent.sequence)
             )
         ).scalars()
     )

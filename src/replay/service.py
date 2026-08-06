@@ -203,10 +203,7 @@ class ReplayService:
                 expected_scope_type="tenant_policy",
                 expected_scope_id=expected_scope_id,
             )
-            if (
-                resolution.status is not EvidenceIdentityResolutionStatus.CANONICAL
-                or resolution.identity is None
-            ):
+            if resolution.status is not EvidenceIdentityResolutionStatus.CANONICAL or resolution.identity is None:
                 raise ValueError("evidence unavailable")
             identity = resolution.identity
             document = (
@@ -469,9 +466,8 @@ class ReplayService:
             resolution.identity,
             trusted_tenant_id=trusted_tenant_id,
         )
-        if (
-            snapshot.retained_content_hash != chunk.text_hash
-            or snapshot.retained_content_locator != dict(chunk.source_locator_json)
+        if snapshot.retained_content_hash != chunk.text_hash or snapshot.retained_content_locator != dict(
+            chunk.source_locator_json
         ):
             raise ValueError("evidence unavailable")
         lifecycle = await self._current_evidence_lifecycle(document, chunk)
@@ -670,7 +666,4 @@ def _project_evidence_lifecycle(value: str) -> str:
 
 
 def _stored_evidence_snapshots(event: AgentTraceEvent) -> list[ReplayEvidenceSnapshotV1]:
-    return [
-        ReplayEvidenceSnapshotV1.model_validate(snapshot)
-        for snapshot in (event.evidence_snapshot_refs_json or [])
-    ]
+    return [ReplayEvidenceSnapshotV1.model_validate(snapshot) for snapshot in (event.evidence_snapshot_refs_json or [])]

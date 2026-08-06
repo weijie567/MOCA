@@ -116,9 +116,7 @@ class FactPromotionResultV1(BaseModel):
             self.decision != "observe" or self.reason_code != "contextual_only_non_authoritative"
         ):
             raise ValueError("contextual_only authority must remain a contextual observation")
-        if self.authority_class == "unknown" and (
-            self.decision != "reject" or self.reason_code != "unknown_authority"
-        ):
+        if self.authority_class == "unknown" and (self.decision != "reject" or self.reason_code != "unknown_authority"):
             raise ValueError("unknown authority must remain rejected")
         if self.decision != "promote":
             if self.reason_code in {"authoritative_business_fact", "authoritative_policy_evidence"}:
@@ -151,9 +149,7 @@ class FactPromotionResultV1(BaseModel):
         from src.memory.schemas import MemorySourceRefV1
 
         typed_source_ref = (
-            source_ref
-            if isinstance(source_ref, MemorySourceRefV1)
-            else MemorySourceRefV1.model_validate(source_ref)
+            source_ref if isinstance(source_ref, MemorySourceRefV1) else MemorySourceRefV1.model_validate(source_ref)
         )
         return CaseWorkingContextVerifiedFactV1(
             text=self.summary,

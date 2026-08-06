@@ -1084,10 +1084,7 @@ class ApprovalService:
                 )
             except Exception as exc:
                 raise self._canonical_evidence_error("repository_unavailable") from exc
-            if (
-                resolution.status is not EvidenceIdentityResolutionStatus.CANONICAL
-                or resolution.identity is None
-            ):
+            if resolution.status is not EvidenceIdentityResolutionStatus.CANONICAL or resolution.identity is None:
                 raise self._canonical_evidence_error(str(resolution.internal_reason))
             if resolution.identity.evidence_id in seen_identities:
                 raise self._canonical_evidence_error("duplicate_evidence")
@@ -1101,10 +1098,7 @@ class ApprovalService:
                 )
             )
 
-        return [
-            EvidenceRefV1.model_validate(projected)
-            for projected in canonical_evidence_projection(canonical_refs)
-        ]
+        return [EvidenceRefV1.model_validate(projected) for projected in canonical_evidence_projection(canonical_refs)]
 
     @classmethod
     def _assert_exact_canonical_evidence(

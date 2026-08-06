@@ -497,19 +497,19 @@ async def _seed_approval_policy(session: AsyncSession, tenant_id: uuid.UUID) -> 
     session.add(policy_document)
     await session.flush()
     policy_chunk = PolicyChunk(
-            id=uuid.uuid4(),
-            tenant_id=tenant_id,
-            doc_id=policy_document.id,
-            chunk_id="approval_refund_policy#001",
-            section="高风险补偿",
-            content=policy_content,
-            search_text=policy_content,
-            source_block_refs_json=[],
-            ocr_metadata_json={},
-            risk_level="high",
-            effective_date=policy_document.effective_date,
-            embedding=None,
-        )
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        doc_id=policy_document.id,
+        chunk_id="approval_refund_policy#001",
+        section="高风险补偿",
+        content=policy_content,
+        search_text=policy_content,
+        source_block_refs_json=[],
+        ocr_metadata_json={},
+        risk_level="high",
+        effective_date=policy_document.effective_date,
+        embedding=None,
+    )
     session.add(policy_chunk)
     await session.flush()
     document_version = PolicyDocumentVersion(

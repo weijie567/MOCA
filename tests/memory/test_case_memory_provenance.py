@@ -574,10 +574,13 @@ async def test_review_adds_reviewer_provenance_without_changing_source_authority
     assert after.review_reason == "canonical provenance verified"
     assert row.lifecycle_version == 2
     assert after.memory_authority_class == before.memory_authority_class == "contextual_only"
-    assert json.dumps(
-        [item.model_dump(mode="json") for item in after.source_authorities],
-        sort_keys=True,
-    ) == source_bytes
+    assert (
+        json.dumps(
+            [item.model_dump(mode="json") for item in after.source_authorities],
+            sort_keys=True,
+        )
+        == source_bytes
+    )
 
 
 @pytest.mark.asyncio
