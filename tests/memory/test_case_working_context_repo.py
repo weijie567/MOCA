@@ -22,6 +22,10 @@ from src.db.models import (
     RefundCase,
     Tenant,
 )
+from src.knowledge.evidence_identity import (
+    PersistedEvidenceIdentityMaterialV1,
+    mint_canonical_evidence_identity,
+)
 from src.memory.case_working_context import (
     CaseWorkingContextRepository,
     dehydrate_content,
@@ -41,6 +45,7 @@ from src.memory.case_working_context_schemas import (
     normalize_case_working_context_content_sources,
 )
 from src.memory.schemas import MemorySourceRefV1
+from src.tools.contracts import BusinessFactRefV1
 from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
 
 
@@ -76,6 +81,51 @@ def _source_ref(**overrides: str) -> MemorySourceRefV1:
     if "agent_run_id" in overrides and "run_id" not in overrides:
         payload["run_id"] = overrides["agent_run_id"]
     return MemorySourceRefV1.model_validate(payload)
+
+
+def _business_fact_ref(
+    *,
+    tenant_id: uuid.UUID,
+    source_ref: MemorySourceRefV1,
+    observed_at: datetime,
+) -> BusinessFactRefV1:
+    return BusinessFactRefV1(
+        tenant_id=str(tenant_id),
+        source_system="moca",
+        resource_type="refund_case",
+        resource_id=source_ref.business_object_id or "refund-case-unknown",
+        resource_version="v1",
+        data_freshness_at=observed_at,
+        retrieved_at=observed_at,
+    )
+
+
+def _canonical_policy_ref(*, tenant_id: uuid.UUID, observed_at: datetime) -> CaseWorkingContextPolicyRefV1:
+    material = PersistedEvidenceIdentityMaterialV1(
+        tenant_id=str(tenant_id),
+        scope_type="tenant_policy",
+        scope_id=str(tenant_id),
+        document_version_id="00000000-0000-0000-0000-000000006491",
+        chunk_version_id="00000000-0000-0000-0000-000000006492",
+        doc_key="refund_policy",
+        document_version=1,
+        chunk_id="refund-policy#001",
+        chunk_version=1,
+        text_hash=f"sha256:{'a' * 64}",
+    )
+    resolution = mint_canonical_evidence_identity(
+        material,
+        expected_tenant_id=str(tenant_id),
+        expected_scope_type="tenant_policy",
+        expected_scope_id=str(tenant_id),
+    )
+    assert resolution.identity is not None
+    return CaseWorkingContextPolicyRefV1.from_canonical_identity(
+        resolution.identity,
+        retrieved_at=observed_at.isoformat(),
+        retrieval_config_version="retrieval.v3",
+        rank=1,
+    )
 
 
 async def _seed_case_scope(session: AsyncSession) -> dict:
@@ -124,8 +174,18 @@ async def _seed_case_scope(session: AsyncSession) -> dict:
 
 
 def _content(
-    source_ref: MemorySourceRefV1, *, customer_request: str = "用户询问退款进度"
+    source_ref: MemorySourceRefV1,
+    *,
+    tenant_id: uuid.UUID,
+    customer_request: str = "用户询问退款进度",
 ) -> CaseWorkingContextContentV1:
+    observed_at = datetime(2026, 7, 2, 10, 0, tzinfo=UTC)
+    business_fact_ref = _business_fact_ref(
+        tenant_id=tenant_id,
+        source_ref=source_ref,
+        observed_at=observed_at,
+    )
+    policy_ref = _canonical_policy_ref(tenant_id=tenant_id, observed_at=observed_at)
     return CaseWorkingContextContentV1(
         customer_request=customer_request,
         issue_type="refund_status",
@@ -135,14 +195,18 @@ def _content(
         verified_facts=[
             CaseWorkingContextVerifiedFactV1(
                 text="退款单状态为 reviewing",
+                authority_class="business_fact",
+                status="success",
+                promotion_reason_code="authoritative_business_fact",
                 source_ref=source_ref,
-                observed_at=datetime(2026, 7, 2, 10, 0, tzinfo=UTC),
+                observed_at=observed_at,
+                business_fact_refs=[business_fact_ref],
             ),
         ],
         missing_info=["需要补充破损照片"],
         evidence_refs=[CaseWorkingContextEvidencePointerV1(ref_type="tool_result", ref_id="tool-result-1")],
         actions_taken=[CaseWorkingContextActionTakenV1(action="查询退款单状态", source_ref=source_ref)],
-        policy_refs=[CaseWorkingContextPolicyRefV1(doc_id="refund-policy", chunk_id="refund-policy#001", version="v1")],
+        policy_refs=[policy_ref],
         agent_recommendations=[
             CaseWorkingContextRecommendationV1(recommended_step="要求用户上传照片", staff_decision=None),
         ],
@@ -176,11 +240,22 @@ def _candidate(
 
 def test_schema_claims_facts_actions_and_commitments_require_source_refs() -> None:
     source_ref = _source_ref()
+    observed_at = datetime.now(UTC)
     claim = CaseWorkingContextClaimV1(text="用户称商品破损", verified=False, source_ref=source_ref)
     fact = CaseWorkingContextVerifiedFactV1(
         text="退款单状态为 reviewing",
+        authority_class="business_fact",
+        status="success",
+        promotion_reason_code="authoritative_business_fact",
         source_ref=source_ref,
-        observed_at=datetime.now(UTC),
+        observed_at=observed_at,
+        business_fact_refs=[
+            _business_fact_ref(
+                tenant_id=uuid.uuid4(),
+                source_ref=source_ref,
+                observed_at=observed_at,
+            )
+        ],
     )
     action = CaseWorkingContextActionTakenV1(action="已查询退款单", source_ref=source_ref)
     commitment = CaseWorkingContextCommitmentV1(
@@ -205,11 +280,22 @@ def test_schema_claims_facts_actions_and_commitments_require_source_refs() -> No
 
 def test_schema_claims_and_verified_facts_are_distinct_types() -> None:
     source_ref = _source_ref()
+    observed_at = datetime.now(UTC)
     claim = CaseWorkingContextClaimV1(text="用户称商品破损", verified=False, source_ref=source_ref)
     fact = CaseWorkingContextVerifiedFactV1(
         text="系统确认物流已签收",
+        authority_class="business_fact",
+        status="success",
+        promotion_reason_code="authoritative_business_fact",
         source_ref=source_ref,
-        observed_at=datetime.now(UTC),
+        observed_at=observed_at,
+        business_fact_refs=[
+            _business_fact_ref(
+                tenant_id=uuid.uuid4(),
+                source_ref=source_ref,
+                observed_at=observed_at,
+            )
+        ],
     )
 
     with pytest.raises(ValidationError):
@@ -301,7 +387,11 @@ async def test_repo_write_creates_version_one_without_revision(phase44_session_f
         async with session.begin():
             scope = await _seed_case_scope(session)
             source_ref = _source_ref(agent_run_id=str(scope["run"].id))
-            candidate = _candidate(scope, content=_content(source_ref), source_ref=source_ref)
+            candidate = _candidate(
+                scope,
+                content=_content(source_ref, tenant_id=scope["tenant"].id),
+                source_ref=source_ref,
+            )
 
             result = await CaseWorkingContextRepository(session).write_working_context(candidate)
             revision_count = await session.scalar(select(func.count()).select_from(CaseWorkingContextRevision))
@@ -327,13 +417,21 @@ async def test_repo_write_updates_version_and_snapshots_prior_content(phase44_se
             source_ref = _source_ref(agent_run_id=str(scope["run"].id))
             repository = CaseWorkingContextRepository(session)
             await repository.write_working_context(
-                _candidate(scope, content=_content(source_ref, customer_request="初始请求"), source_ref=source_ref)
+                _candidate(
+                    scope,
+                    content=_content(source_ref, tenant_id=scope["tenant"].id, customer_request="初始请求"),
+                    source_ref=source_ref,
+                )
             )
 
             result = await repository.write_working_context(
                 _candidate(
                     scope,
-                    content=_content(source_ref, customer_request="更新后的请求"),
+                    content=_content(
+                        source_ref,
+                        tenant_id=scope["tenant"].id,
+                        customer_request="更新后的请求",
+                    ),
                     source_ref=source_ref,
                     expected_version=1,
                 )
@@ -362,12 +460,20 @@ async def test_repo_write_expected_version_conflict_does_not_clobber(phase44_ses
             source_ref = _source_ref(agent_run_id=str(scope["run"].id))
             repository = CaseWorkingContextRepository(session)
             first = await repository.write_working_context(
-                _candidate(scope, content=_content(source_ref, customer_request="初始请求"), source_ref=source_ref)
+                _candidate(
+                    scope,
+                    content=_content(source_ref, tenant_id=scope["tenant"].id, customer_request="初始请求"),
+                    source_ref=source_ref,
+                )
             )
             conflict = await repository.write_working_context(
                 _candidate(
                     scope,
-                    content=_content(source_ref, customer_request="冲突写入"),
+                    content=_content(
+                        source_ref,
+                        tenant_id=scope["tenant"].id,
+                        customer_request="冲突写入",
+                    ),
                     source_ref=source_ref,
                     expected_version=99,
                 )
@@ -395,7 +501,11 @@ async def test_repo_write_expected_version_without_active_row_returns_conflict(p
             result = await repository.write_working_context(
                 _candidate(
                     scope,
-                    content=_content(source_ref, customer_request="stale create"),
+                    content=_content(
+                        source_ref,
+                        tenant_id=scope["tenant"].id,
+                        customer_request="stale create",
+                    ),
                     source_ref=source_ref,
                     expected_version=1,
                 )
@@ -417,7 +527,11 @@ async def test_repo_rejects_updated_by_run_id_from_another_tenant(phase44_sessio
             scope = await _seed_case_scope(session)
             other_scope = await _seed_case_scope(session)
             source_ref = _source_ref(agent_run_id=str(other_scope["run"].id))
-            candidate = _candidate(scope, content=_content(source_ref), source_ref=source_ref).model_copy(
+            candidate = _candidate(
+                scope,
+                content=_content(source_ref, tenant_id=scope["tenant"].id),
+                source_ref=source_ref,
+            ).model_copy(
                 update={"updated_by_run_id": other_scope["run"].id}
             )
 
@@ -443,7 +557,11 @@ async def test_repo_rejects_source_ref_run_ids_from_another_tenant_when_updater_
                 run_id=str(other_scope["run"].id),
                 agent_run_id=str(other_scope["run"].id),
             )
-            candidate = _candidate(scope, content=_content(source_ref), source_ref=source_ref).model_copy(
+            candidate = _candidate(
+                scope,
+                content=_content(source_ref, tenant_id=scope["tenant"].id),
+                source_ref=source_ref,
+            ).model_copy(
                 update={"updated_by_run_id": None}
             )
 
@@ -463,7 +581,7 @@ async def test_repo_maps_every_content_field_to_json_columns_and_hydrates(phase4
         async with session.begin():
             scope = await _seed_case_scope(session)
             source_ref = _source_ref(agent_run_id=str(scope["run"].id))
-            content = _content(source_ref)
+            content = _content(source_ref, tenant_id=scope["tenant"].id)
             expected_content = normalize_case_working_context_content_sources(
                 content,
                 run_id=scope["run"].id,
@@ -527,7 +645,11 @@ async def test_repo_concurrent_first_writes_serialize_without_integrity_error(ph
                     updated_by_run_id=scope_ids["run_id"],
                     source_ref=source_ref,
                     expected_version=None,
-                    content=_content(source_ref, customer_request=label),
+                    content=_content(
+                        source_ref,
+                        tenant_id=scope_ids["tenant_id"],
+                        customer_request=label,
+                    ),
                 )
                 return await CaseWorkingContextRepository(session).write_working_context(candidate)
 

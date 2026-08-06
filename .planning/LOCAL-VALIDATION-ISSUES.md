@@ -22459,3 +22459,43 @@ B 组旧 exact-shape 断言最初报 7 项失败；核对时又发现真实 work
 
 **剩余问题和下次继续排查入口**
 进入 C 组：迁移 CWC verified-fact typed refs、CaseMemory resolved provenance/direct rows 与 durable claim fake。D 组 staged migration/date rollover 暂未处理。
+
+## 2026-08-06 — Phase 64.2 Plan 09 remediation C 首轮暴露 CWC reduced policy ref
+
+**问题现象**
+C 组六文件首轮回归为 `117 passed, 8 failed, 1 warning`；8 项均在 `tests/memory/test_case_working_context_repo.py` 的共享 `_content` 构造阶段失败，尚未进入 repository 写入。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/agent/test_case_working_context_lifecycle.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_case_precedent_generation.py tests/memory/test_case_working_context_repo.py tests/memory/test_memory_policy.py tests/memory/test_phase45_contract_alignment.py`。Pydantic 对 `CaseWorkingContextPolicyRefV1` 报 tenant/evidence/doc/policy/hash/retrieval 等字段缺失。
+
+**关键证据或命令**
+共享 fixture 仍调用 `CaseWorkingContextPolicyRefV1(doc_id="refund-policy", chunk_id="refund-policy#001", version="v1")`，但该名字现在只是 `EvidenceRefV1` 的 compatibility import，不是旧 reduced model；Plan 05 后 canonical ref 还必须携带完整 tenant-policy scope 与 document/chunk version binding。
+
+**当前判断/根因**
+这是 CWC 历史 fixture 的第二层漂移：旧 verified-fact shape 先前在更早阶段失败，遮住了同一 `_content` 中的 reduced policy ref。没有生产代码失败证据，也不应恢复 reduced compatibility model。
+
+**已做处理**
+在同一测试文件新增共享 canonical policy-ref constructor，通过 `PersistedEvidenceIdentityMaterialV1` 与 `mint_canonical_evidence_identity` 生成完整 immutable binding，再由 `EvidenceRefV1.from_canonical_identity` 投影；所有 repository 用例继续从统一 `_content` 消费该 ref，未修改 production 或增加 fallback。
+
+**剩余问题和下次继续排查入口**
+重跑 C 六文件、全局 `--lf`、scoped Ruff 与 memory architecture guards；只有全部通过后才提交 C 组。
+
+## 2026-08-06 — Phase 64.2 Plan 09 C 组 guard 文件探测触发 zsh nomatch
+
+**问题现象**
+定位 memory architecture guards 时，命令中的 `tests/memory/test_*architecture*` 没有匹配文件，zsh 在执行 `rg` 前报 `no matches found`；同一命令中其他只读定位仍返回了实际 guard 路径。
+
+**如何检测/复现**
+在仓库根目录运行包含未引用 glob 的 `rg -l ... tests/memory/test_*architecture* ...`；当前目录不存在匹配文件时即可复现。
+
+**关键证据或命令**
+shell 输出为 `zsh:2: no matches found: tests/memory/test_*architecture*`。随后直接使用已确认的精确路径 `tests/architecture/test_evidence_memory_integrity_boundaries.py` 与 `tests/architecture/test_memory_contract_delta.py` 执行验证。
+
+**当前判断/根因**
+这是 zsh `nomatch` 的命令探测错误，不是测试、产品代码或 architecture guard 失败；该次 glob 命令不作为验证结论。
+
+**已做处理**
+改用 `rg --files tests | rg 'architecture|phase64_2|contract_alignment'` 输出的精确路径，并以项目入口重跑相关 guards，结果为 `43 passed, 1 warning`。
+
+**剩余问题和下次继续排查入口**
+后续文件探测避免未引用 glob，优先使用 `rg --files` 后管道过滤或传递精确路径。

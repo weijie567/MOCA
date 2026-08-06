@@ -140,7 +140,8 @@ def test_phase45_cwc_lifecycle_has_no_case_memories_backfill() -> None:
         "CaseMemoryRepository",
         "CaseMemoryService",
         "case_memories",
-        "search_case_memory",
+        "submit_case_memory_candidate",
+        "insert_case_memory",
     ):
         assert token not in source
 
