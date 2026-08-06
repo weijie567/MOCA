@@ -22539,3 +22539,23 @@ closeout 前探测 UAT/SECURITY/SUMMARY 文件时，命令把不存在的 `*UAT*
 
 **剩余问题和下次继续排查入口**
 无功能性剩余问题。后续 zsh 环境继续避免对可能不存在的路径使用未引用 glob。
+
+## 2026-08-06 — Phase 64.2 Plan 09 SUMMARY 自检脚本覆盖 zsh 特殊 `path` 变量
+
+**问题现象**
+SUMMARY 首轮自检先正确打印五个 `FOUND` 文件，随后九个已存在 commit 被错误打印为 `MISSING`，同一 shell 继续报 `rg: command not found` 与 `git: command not found`。
+
+**如何检测/复现**
+在 zsh 中使用 `for path in ...`；小写 `path` 是与 `PATH` 绑定的特殊数组，循环赋值会覆盖命令搜索路径。后续外部命令因此无法启动，`git cat-file` 的 command-not-found 又被条件分支误判为 commit missing。
+
+**关键证据或命令**
+无效输出先有五个文件 `FOUND`，随后连续九个 commit `MISSING`，最后明确出现 `zsh: command not found: rg`、`zsh: command not found: git`。这些 commit 在前一轮 `git log`/`git cat-file` 中已存在，但必须在新的正常 shell 重跑后才作为最终自检依据。
+
+**当前判断/根因**
+这是自检脚本变量命名导致的单 shell PATH 污染，不是文件或 commit 丢失，也不影响已执行的 pytest/Ruff 结果；该轮自检整体作废。
+
+**已做处理**
+改用 `task_file` / `task_hash` 等非特殊变量，并在新的 exec shell 中从头重跑文件、commit、metadata marker、diff 与 status 自检。
+
+**剩余问题和下次继续排查入口**
+无。后续 shell 脚本禁止把 `path` 用作 zsh 循环/任务变量，并继续避免 `HOME` 等系统选项名。
