@@ -22579,3 +22579,23 @@ SUMMARY 首轮自检先正确打印五个 `FOUND` 文件，随后九个已存在
 
 **剩余问题和下次继续排查入口**
 重跑上述四文件及 WR-02 real-PostgreSQL forged-ID 负向节点；只有 exact validator、兼容 fallback 不被调用、verified package 原有状态矩阵全部通过后才提交。
+
+## 2026-08-06 — Phase 64.2 Review fix 联合验证路径拼写与重叠 PostgreSQL 进程
+
+**问题现象**
+最终联合验证首轮引用了不存在的 `tests/memory/test_case_working_context_concurrency.py`，pytest 未收集测试；改正路径后，执行器返回后台 session，但编排时遗漏保存 session id，又误启动了第二组相同测试。两组进程并发重置同一个 PostgreSQL 测试库，随后出现 DDL deadlock 与系统表唯一约束冲突。
+
+**如何检测/复现**
+首轮运行包含错误路径的联合 pytest 命令，可见 `ERROR: file or directory not found: tests/memory/test_case_working_context_concurrency.py`；真实文件为 `tests/memory/test_case_memory_concurrency.py`。随后若同时启动两组使用同一 `moca_test` 数据库、都会执行 schema reset/create 的测试，即可触发共享 DDL 冲突。
+
+**关键证据或命令**
+重叠运行输出包含 PostgreSQL `deadlock detected`，以及 `pg_type_typname_nsp_index` 的 `UniqueViolationError`。进程检查确认仍有一组 `uv run pytest`（PID 16111）及其仓库虚拟环境 pytest 子进程（PID 16122）存活；两者均来自当前 worktree 的联合验证命令。
+
+**当前判断/根因**
+这是验证命令路径拼写与后台进程编排错误，不是产品代码回归。路径错误轮次没有测试结论；共享数据库重叠轮次受到测试间 DDL 竞争污染，同样不能作为代码结论。
+
+**已做处理**
+已用精确 PID 向当前 worktree 的遗留 pytest 父子进程发送终止信号，并确认进程退出。后续使用正确路径，按批次串行运行共享 PostgreSQL 测试；后台执行必须保存 session id，并持续轮询到明确 exit code，禁止启动重叠副本。
+
+**剩余问题和下次继续排查入口**
+已按无重叠顺序完成最终 review-fix 验证：数据库/生命周期主批次 `129 passed, 1 warning`，RAG/工作记忆/架构边界批次 `37 passed, 1 warning`，三个真实 PostgreSQL 集成节点 `3 passed, 4 warnings`；合计 `169 passed`。所有修改文件的 scoped Ruff 为 `All checks passed!`。当前无剩余回归，后续仍须保持共享 PostgreSQL 测试串行执行并完整轮询后台 session。
