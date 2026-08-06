@@ -22699,3 +22699,23 @@ post-review 全量 pytest 在后台正常运行期间，两次用于轮询同一
 
 **剩余问题和下次继续排查入口**
 无产品侧剩余问题。后续长跑命令继续保存 session id、只轮询既有进程，并保持轮询包装器输入简单，避免嵌入不必要的转义文本。
+
+## 2026-08-06 — Phase 64.2 verify-work 的 audit-open 命令与本机 gsd-tools 不兼容
+
+**问题现象**
+UAT gap 修复并提交后，按 verify-work 收尾尝试运行 `gsd-tools audit open`，本机安装的 CLI 返回 `Unknown command: audit`；随后尝试常见的 `--help` 也返回该工具不接受 help/version flag。
+
+**如何检测/复现**
+运行 `node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs audit open`，再运行同一入口的 `--help`；前者报未知命令，后者提示应无参数运行以显示 usage。
+
+**关键证据或命令**
+无参数运行后，usage 只列出 `state`、`verify`、`frontmatter`、`init`、`workstream` 等命令，确实没有 `audit`。这发生在 UAT 已用 `4462 passed, 4 skipped` 关闭之后，不影响测试结果。
+
+**当前判断/根因**
+当前本机 `gsd-tools.cjs` 版本与 verify-work 文档中的 audit-open 辅助命令不一致，属于 GSD 工具版本/接口差异，不是 MOCA 产品或 UAT 失败。
+
+**已做处理**
+停止调用不存在的命令，改为直接读取当前 phase 的 UAT frontmatter、Tests/Summary/Gaps，并通过仓库搜索检查 open UAT 状态；不伪造 audit-open 成功结论。
+
+**剩余问题和下次继续排查入口**
+无产品侧剩余问题。后续若升级 GSD，可重新核对 audit-open 的实际入口；升级前继续使用 artifact 直接审计。

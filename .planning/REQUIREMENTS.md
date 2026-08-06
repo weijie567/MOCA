@@ -50,11 +50,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Evidence Identity Immutable Replay And Memory Provenance
 
-- [ ] **SC-64.2-1**: Only successful, complete, scope-valid authoritative tool or retrieval observations with validated canonical source references can enter CWC `verified_facts`; all denied, unavailable, stale, malformed, partial, timeout, error, unresolved, and compatibility-only observations remain non-authoritative and cannot enter reviewed case memory as verified facts.
-- [ ] **SC-64.2-2**: Evidence identity has one tenant-bound canonical computation and validation path shared by ingestion, retrieval, agent state, APIs, memory, approval snapshots, and replay; forged, mismatched, cross-scope, and ambiguous legacy aliases fail closed without existence leakage.
-- [ ] **SC-64.2-3**: Re-ingestion and correction retain immutable document/chunk/evidence versions, and replay resolves the exact original version, content hash, scope, and integrity binding after supersession, archival, expiry, or tombstoning; compatibility backfill upgrades only uniquely provable legacy refs.
-- [ ] **SC-64.2-4**: Nodes, services, events, stores, deduplication, and review flows consume one version-aware memory candidate identity owner, while reviewed case-memory records preserve real tenant/scope, source status/authority, source run/event/evidence refs, reviewer decision, candidate identity, and correction/supersession lineage.
-- [ ] **SC-64.2-5**: Database uniqueness, lifecycle compare-and-set, idempotent services, and PostgreSQL concurrency tests prevent duplicate candidates or competing reviews and enforce deterministic expiry, rejection, correction, supersession, deletion, and tombstone no-resurrection behavior without merging distinct identities.
+- [x] **SC-64.2-1**: Only successful, complete, scope-valid authoritative tool or retrieval observations with validated canonical source references can enter CWC `verified_facts`; all denied, unavailable, stale, malformed, partial, timeout, error, unresolved, and compatibility-only observations remain non-authoritative and cannot enter reviewed case memory as verified facts.
+- [x] **SC-64.2-2**: Evidence identity has one tenant-bound canonical computation and validation path shared by ingestion, retrieval, agent state, APIs, memory, approval snapshots, and replay; forged, mismatched, cross-scope, and ambiguous legacy aliases fail closed without existence leakage.
+- [x] **SC-64.2-3**: Re-ingestion and correction retain immutable document/chunk/evidence versions, and replay resolves the exact original version, content hash, scope, and integrity binding after supersession, archival, expiry, or tombstoning; compatibility backfill upgrades only uniquely provable legacy refs.
+- [x] **SC-64.2-4**: Nodes, services, events, stores, deduplication, and review flows consume one version-aware memory candidate identity owner, while reviewed case-memory records preserve real tenant/scope, source status/authority, source run/event/evidence refs, reviewer decision, candidate identity, and correction/supersession lineage.
+- [x] **SC-64.2-5**: Database uniqueness, lifecycle compare-and-set, idempotent services, and PostgreSQL concurrency tests prevent duplicate candidates or competing reviews and enforce deterministic expiry, rejection, correction, supersession, deletion, and tombstone no-resurrection behavior without merging distinct identities.
 
 ## Future Requirements
 
@@ -108,11 +108,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SC-64.1-3 | Phase 64.1 | Complete |
 | SC-64.1-4 | Phase 64.1 | Complete |
 | SC-64.1-5 | Phase 64.1 | Complete |
-| SC-64.2-1 | Phase 64.2 | Planned |
-| SC-64.2-2 | Phase 64.2 | Planned |
-| SC-64.2-3 | Phase 64.2 | Planned |
-| SC-64.2-4 | Phase 64.2 | Planned |
-| SC-64.2-5 | Phase 64.2 | Planned |
+| SC-64.2-1 | Phase 64.2 | Complete |
+| SC-64.2-2 | Phase 64.2 | Complete |
+| SC-64.2-3 | Phase 64.2 | Complete |
+| SC-64.2-4 | Phase 64.2 | Complete |
+| SC-64.2-5 | Phase 64.2 | Complete |
 
 **Coverage:**
 - v2.2 requirements: 28 total
@@ -121,4 +121,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-07-09*
-*Last updated: 2026-08-05 for Phase 64.2 planning*
+*Last updated: 2026-08-06 for Phase 64.2 completion*

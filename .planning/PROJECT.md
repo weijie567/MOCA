@@ -13,7 +13,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 ## Current State
 
 **Last shipped milestone:** v2.1 Core Subsystem Hardening (shipped 2026-07-08)
-**Current focus:** v2.2 follow-up architecture hardening is active. Phase 64.1 Runtime Safety And Approval Contract Repair is complete; Phase 64.2 Evidence Identity Immutable Replay And Memory Provenance is next.
+**Current focus:** v2.2 follow-up architecture hardening is active. Phase 64.2 Evidence Identity Immutable Replay And Memory Provenance is complete; Phase 65 Trace Event And Console Label Consistency is next.
 
 MOCA now has hardened core subsystem boundaries across ToolPlatform, intent recognition, memory, RAG/claim routing, approval, canonical Agent Graph runtime, and the Phase 62 business-query/drilldown path. v2.1 closed all 24 tracked requirements and passed the milestone audit with no integration blockers.
 
