@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import PolicyChunk, PolicyDocument
+from src.db.models import EvidenceIdentityRollout, PolicyChunk, PolicyDocument
 from src.knowledge.schemas import KnowledgeContext
 from src.platform.context_projections import project_to_knowledge_context
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
+from src.rag.versioning import build_policy_version_fingerprint
+from src.repositories.evidence_version_repo import EvidenceVersionRepository
+
+
+SEARCH_EFFECTIVE_AT = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
 
 
 def _unit_vector(index: int, dimensions: int = 1024) -> list[float]:
@@ -20,46 +26,82 @@ def _unit_vector(index: int, dimensions: int = 1024) -> list[float]:
 
 
 async def _seed_policy_chunks(session: AsyncSession, tenant_id: uuid.UUID) -> None:
+    chunks = (
+        ("test_refund_001", "七天无理由", "七天无理由退款需要商品不影响二次销售。", 0),
+        ("test_refund_002", "质量问题", "质量问题退款需要买家提供照片或检测证明。", 1),
+    )
+    document_content = "\n\n".join(chunk_content for _, _, chunk_content, _ in chunks)
+    await session.execute(text("CREATE SEQUENCE IF NOT EXISTS evidence_ingestion_write_seq"))
+    session.add(EvidenceIdentityRollout(id=1, rollout_version=0, audit_counts_json={}))
+    await session.flush()
+    repository = EvidenceVersionRepository(session)
+    activated = await repository.activate_dual_write(
+        expected_rollout_version=0,
+        health_checked_at=datetime.now(UTC),
+    )
+    await session.commit()
+
+    write_sequence = await repository.allocate_ingestion_sequence()
     document = PolicyDocument(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
         doc_key="test_refund",
         doc_type="refund_rule",
         title="测试退款规则",
-        effective_date=date(2026, 1, 1),
+        effective_date=SEARCH_EFFECTIVE_AT.date(),
         risk_level="high",
-        content="测试用退款规则文档",
+        version=1,
+        content=document_content,
+        source_type="test_fixture",
+        source_checksum="test-search-refund-v1",
+        parser_metadata_json={},
+        policy_version_fingerprint=build_policy_version_fingerprint(
+            citation_text=document_content,
+            title="测试退款规则",
+            doc_type="refund_rule",
+            risk_level="high",
+            effective_date=SEARCH_EFFECTIVE_AT.date(),
+        ),
+        evidence_write_sequence=write_sequence,
     )
     session.add(document)
     await session.flush()
 
-    session.add_all(
-        [
-            PolicyChunk(
-                id=uuid.uuid4(),
-                tenant_id=tenant_id,
-                doc_id=document.id,
-                chunk_id="test_refund_001",
-                section="七天无理由",
-                content="七天无理由退款需要商品不影响二次销售。",
-                risk_level="high",
-                effective_date=document.effective_date,
-                embedding=_unit_vector(0),
-            ),
-            PolicyChunk(
-                id=uuid.uuid4(),
-                tenant_id=tenant_id,
-                doc_id=document.id,
-                chunk_id="test_refund_002",
-                section="质量问题",
-                content="质量问题退款需要买家提供照片或检测证明。",
-                risk_level="high",
-                effective_date=document.effective_date,
-                embedding=_unit_vector(1),
-            ),
-        ]
+    policy_chunks = [
+        PolicyChunk(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            doc_id=document.id,
+            chunk_id=chunk_id,
+            section=section,
+            content=chunk_content,
+            search_text=f"测试退款规则\n{section}\n{chunk_content}",
+            source_block_refs_json=[],
+            ocr_metadata_json={},
+            risk_level="high",
+            effective_date=document.effective_date,
+            embedding=_unit_vector(embedding_index),
+            evidence_write_sequence=write_sequence,
+        )
+        for chunk_id, section, chunk_content, embedding_index in chunks
+    ]
+    session.add_all(policy_chunks)
+    await session.flush()
+    await repository.append_immutable_version(
+        tenant_id=tenant_id,
+        document=document,
+        chunks=policy_chunks,
+        write_sequence=write_sequence,
     )
     await session.commit()
+
+    await repository.reserve_backfill_watermark(expected_rollout_version=activated.rollout_version)
+    await session.commit()
+    enabled = await repository.reconcile_and_enable_canonical_reads(
+        expected_rollout_version=activated.rollout_version,
+    )
+    await session.commit()
+    assert enabled.canonical_reads_enabled is True
 
 
 async def _post_search(client, auth_headers, query: str, username: str = "cs_zhang"):
@@ -130,7 +172,9 @@ async def test_search_returns_api_response(client, auth_headers, session: AsyncS
 
     with patch("src.api.routers.search.EmbeddingService") as embedding_service:
         embedding_service.return_value.embed_query = AsyncMock(return_value=_unit_vector(0))
-        response = await _post_search(client, auth_headers, "七天无理由退款怎么处理？")
+        with patch("src.api.routers.search.datetime") as search_datetime:
+            search_datetime.now.return_value = SEARCH_EFFECTIVE_AT
+            response = await _post_search(client, auth_headers, "七天无理由退款怎么处理？")
 
     payload = response.json()
     assert response.status_code == 200
@@ -200,7 +244,7 @@ async def test_search_excludes_chunk_with_mismatched_document_tenant(
         doc_key="other_refund",
         doc_type="refund_rule",
         title="异租户退款规则",
-        effective_date=date(2026, 1, 1),
+        effective_date=SEARCH_EFFECTIVE_AT.date(),
         risk_level="high",
         content="异租户退款规则文档",
     )

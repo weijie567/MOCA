@@ -22499,3 +22499,23 @@ shell 输出为 `zsh:2: no matches found: tests/memory/test_*architecture*`。�
 
 **剩余问题和下次继续排查入口**
 后续文件探测避免未引用 glob，优先使用 `rg --files` 后管道过滤或传递精确路径。
+
+## 2026-08-06 — Phase 64.2 Plan 09 remediation D 暴露不可逆 cutover 与 mutable-only 搜索夹具
+
+**问题现象**
+D 组新增共享 staged helper 后，首轮精确六项仍为 `6 failed`。五个 migration 测试都已成功通过 025 expansion 与真实 dual-write CAS/health activation 并升级到 head，但随后尝试从 028 一路降到旧 revision 时被 026 保留门禁拒绝；搜索测试把 effective date 与 projected effective_at 固定同日后仍返回 `no_evidence`。
+
+**如何检测/复现**
+使用项目入口运行 D 组六个历史失败节点。migration 失败统一为 `refusing downgrade: immutable history, dependencies, snapshots, or canonical refs exist`；search 命中 mutable `PolicyChunk` 后，在 canonical evidence ref 重取阶段 fail closed。
+
+**关键证据或命令**
+`026_phase64_2_evidence_cutover.downgrade()` 明确在 canonical reads、watermark/reconciliation 或 immutable rows 存在时拒绝降级。共享 helper 的 025 默认态断言与 `EvidenceVersionRepository.activate_dual_write(expected_rollout_version=0, ...)` 均已通过，说明升级 gate 正常。搜索 fixture 只直插 mutable document/chunk，没有 immutable current binding 与已启用 rollout；当前 `PolicyRetrievalEngine._evidence_refs_for_hits` 必须由 repository 精确重取 canonical identity。
+
+**当前判断/根因**
+两类均为旧 harness 语义错误，不是 production bug：早期 migration 的自身 downgrade 不应从不可逆的 Phase 64.2 cutover 之后穿越执行；当前搜索不能再把 mutable-only chunk 当成 canonical evidence。仅固定日期不足以修复第二层漂移。
+
+**已做处理**
+五个 migration 测试改为在各自 target revision 验证自身 downgrade/reupgrade，完成后从 reupgraded target 调同一共享 staged helper，经 production repository CAS/health owner 升到 head；未关闭或清空 rollout flag，未绕过 026 guard。搜索共享 seeder 使用 `EvidenceVersionRepository` 分配 sequence、追加 immutable version、reserve watermark、reconcile 并启用 canonical reads，同时固定 document/chunk effective date 与 API projected effective_at 为同一 UTC 日期。精确六项复跑为 `6 passed, 26 warnings`。
+
+**剩余问题和下次继续排查入口**
+后续完整验证已完成：五个历史 migration/search 文件及 Phase 64.2 immutable/cutover migration 文件为 `37 passed, 29 warnings`，scoped Ruff 与 diff check 通过；全局 `--lf` 因 lastfailed 已清空而自动回退为 full suite，最终为 `4455 passed, 4 skipped, 152 warnings in 1993.29s`。D 组无剩余失败；既有 LangGraph/Alembic/resource warnings 不作为本组回归，后续按独立维护入口处理。

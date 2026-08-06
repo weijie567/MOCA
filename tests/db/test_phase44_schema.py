@@ -17,6 +17,7 @@ from sqlalchemy.pool import NullPool
 from src.db.models import Base
 from src.memory.policy import MemoryPolicyDecision
 from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
+from tests.migration_helpers import upgrade_to_head_with_evidence_cutover
 
 
 MIGRATION_022_PATH = Path("src/db/migrations/versions/022_case_working_context.py")
@@ -286,7 +287,7 @@ def test_phase44_migration_upgrade_insert_and_downgrade_guard() -> None:
     asyncio.run(_reset_database(database_url))
     cfg = _alembic_config(database_url)
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "022_case_working_context")
     upgraded_tables = asyncio.run(_table_names(database_url))
     assert PHASE44_TABLES.issubset(upgraded_tables)
 
@@ -303,6 +304,8 @@ def test_phase44_migration_upgrade_insert_and_downgrade_guard() -> None:
     assert downgraded_tables.isdisjoint({"case_working_contexts", "case_working_context_revisions"})
     assert "case_working_context" not in asyncio.run(_memory_type_check_definition(database_url))
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "022_case_working_context")
     reupgraded_tables = asyncio.run(_table_names(database_url))
     assert PHASE44_TABLES.issubset(reupgraded_tables)
+
+    asyncio.run(upgrade_to_head_with_evidence_cutover(cfg, database_url=database_url))

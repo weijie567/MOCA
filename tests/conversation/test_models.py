@@ -15,6 +15,7 @@ from sqlalchemy.pool import NullPool
 
 from src.db.models import Base
 from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
+from tests.migration_helpers import upgrade_to_head_with_evidence_cutover
 
 
 MIGRATION_PATH = Path("src/db/migrations/versions/011_memory_foundation_v2.py")
@@ -288,7 +289,7 @@ def test_memory_foundation_migration_downgrade_round_trip() -> None:
     asyncio.run(_reset_database(database_url))
     cfg = _alembic_config(database_url)
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "011_memory_foundation_v2")
     upgraded_tables = asyncio.run(_table_names(database_url))
     assert PHASE_TABLES.issubset(upgraded_tables)
     assert "agent_trace_events" in upgraded_tables
@@ -298,9 +299,11 @@ def test_memory_foundation_migration_downgrade_round_trip() -> None:
     assert downgraded_tables.isdisjoint(PHASE_TABLES)
     assert "agent_trace_events" in downgraded_tables
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "011_memory_foundation_v2")
     reupgraded_tables = asyncio.run(_table_names(database_url))
     assert PHASE_TABLES.issubset(reupgraded_tables)
+
+    asyncio.run(upgrade_to_head_with_evidence_cutover(cfg, database_url=database_url))
 
 
 def test_thread_user_scope_migration_downgrade_fails_on_active_duplicate_threads() -> None:
@@ -308,7 +311,7 @@ def test_thread_user_scope_migration_downgrade_fails_on_active_duplicate_threads
     asyncio.run(_reset_database(database_url))
     cfg = _alembic_config(database_url)
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "012_thread_user_scope")
     asyncio.run(_insert_active_thread_id_duplicates(database_url))
 
     with pytest.raises(RuntimeError, match="Cannot downgrade 012_thread_user_scope"):
@@ -317,6 +320,8 @@ def test_thread_user_scope_migration_downgrade_fails_on_active_duplicate_threads
     source = THREAD_SCOPE_MIGRATION_PATH.read_text(encoding="utf-8")
     assert "HAVING COUNT(*) > 1" in source
     assert "Archive, delete, or merge" in source
+
+    asyncio.run(upgrade_to_head_with_evidence_cutover(cfg, database_url=database_url))
 
 
 @pytest.mark.parametrize("table_name", sorted(PHASE_TABLES))

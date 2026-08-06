@@ -9,6 +9,8 @@ from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from tests.migration_helpers import upgrade_to_head_with_evidence_cutover
+
 
 MIGRATION_PATH = Path("src/db/migrations/versions/024_phase64_1_resume_attempt_lease.py")
 DATABASE_URL = "postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test"
@@ -99,7 +101,7 @@ def test_resume_attempt_migration_upgrade_downgrade_reupgrade_round_trip() -> No
     async def round_trip() -> None:
         await _reset_schema()
         cfg = _config()
-        await asyncio.to_thread(command.upgrade, cfg, "head")
+        await asyncio.to_thread(command.upgrade, cfg, "024_phase64_1_resume_attempt_lease")
         columns, schema_items = await _schema_snapshot()
         assert columns == EXPECTED_COLUMNS
         assert schema_items == EXPECTED_SCHEMA_ITEMS
@@ -109,9 +111,11 @@ def test_resume_attempt_migration_upgrade_downgrade_reupgrade_round_trip() -> No
         assert columns == set()
         assert schema_items == set()
 
-        await asyncio.to_thread(command.upgrade, cfg, "head")
+        await asyncio.to_thread(command.upgrade, cfg, "024_phase64_1_resume_attempt_lease")
         columns, schema_items = await _schema_snapshot()
         assert columns == EXPECTED_COLUMNS
         assert schema_items == EXPECTED_SCHEMA_ITEMS
+
+        await upgrade_to_head_with_evidence_cutover(cfg, database_url=DATABASE_URL)
 
     asyncio.run(round_trip())
