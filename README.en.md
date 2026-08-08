@@ -2,11 +2,11 @@
 
 **English** | [简体中文](README.md)
 
-> A personal AI Agent engineering project demonstrating safety boundaries, auditability, and verifiable workflow design.
+> An open-source reference implementation for trustworthy merchant-operations agents, demonstrating safety boundaries, auditability, and verifiable workflows.
 >
-> **Project scope:** MOCA uses a simulated merchant operations scenario and synthetic data. It is not a commercial deployment; the source is public for portfolio review and currently has no open-source license.
+> **Project scope:** MOCA uses a simulated merchant operations scenario and synthetic data. It is not a commercial deployment; the project is open source under the [Apache License 2.0](LICENSE).
 
-[Architecture](#system-architecture) · [Agent Workflow](#agent-workflow) · [Safety](#safety-boundaries) · [Evaluation](#evaluation) · [Local Demo](#local-run-and-demo) · [Documentation](#project-documentation)
+[Architecture](#system-architecture) · [Agent Workflow](#agent-workflow) · [Safety](#safety-boundaries) · [Evaluation](#evaluation) · [Local Demo](#local-run-and-demo) · [Documentation](#project-documentation) · [License](#license)
 
 ## Project Positioning
 
@@ -120,7 +120,6 @@ These values are evaluation gates, not current measured scores. Deterministic, l
 
 ## Current Status
 
-- **Latest release tag:** `v2.1`, covering ToolPlatform, intent recognition, memory, RAG and claim routing, approval, and canonical graph boundary hardening.
 - **Current main branch:** continued product-experience work on direct responses, clarification quality, business metric queries, frontend timeline behavior, and UX regression cases.
 - **Runtime graph:** the current canonical workflow has 15 registered nodes.
 - **Action boundary:** simulated action drafts only; no real payment, refund, coupon, or external fulfillment execution.
@@ -220,6 +219,10 @@ tests/              # Unit, integration, Agent, approval, trace, and API tests
 - All write actions are simulated action drafts.
 - Live LLM evaluation is optional local validation; deterministic tests avoid provider dependency.
 - Database-backed integration tests and live provider checks are local commands, not lightweight CI defaults.
+
+## License
+
+MOCA is open source under the [Apache License 2.0](LICENSE). You may use, modify, and distribute the project subject to the license terms.
 
 ## One-Line Summary
 
