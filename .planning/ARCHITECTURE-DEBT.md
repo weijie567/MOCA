@@ -397,6 +397,15 @@
 - **证据**：Phase 64.3 Plan 02 commits `eec8b48`、`bce7d0c`、`a70dffb`、`f917869`；`src/rag/evaluation/parser_parity.py`、`scripts/eval_rag_parser_parity.py`、`tests/eval/test_rag_parser_parity.py`；父级门禁 `46 passed, 1 warning`；真实 CLI 输出 `parser_parity_run.v1` / `parser_direct` / 9 variants / `completed_quality_fail`。详细事故见 `.planning/LOCAL-VALIDATION-ISSUES.md` 第 33 条。
 - **剩余风险 / 目标 phase**：Phase 64.4 planning 必须消费该 baseline 并决定是否纳入 chunking/reindex scope；若不纳入，则必须在 Phase 65 前正式插入 Phase 64.5 `RAG Parser/OCR Quality Remediation`，分别定位 hidden-text policy、OCR raster/input 适配与 table/page/provenance projection，不得静默 defer。
 
+## 2026-08-10 — Phase 64.3 same-token nonzero-progress recovery 误拒绝已修复 ✅已修复验证
+
+- **子系统**：RAG evaluation round state machine / ingestion crash recovery / immutable replay preservation。
+- **问题现象 / 根因**：Plan 03 初版 runtime 只接受刚 claim 且 progress=0 的 round。即使 durable repository 已能安全分类 reservation-only、NULL-doc job-only、failure-job 或 exact-complete projection，同一 owner/run/round token 在 nonzero progress 重试时仍会被 runtime 提前拒绝。
+- **影响**：合法的 crash retry 无法进入已规划的精确投影分类/CAS 恢复，会把可证明的 evaluation-owned 中间状态变成人工卡死；但不存在跨 token 放宽或广泛删除权限。
+- **处理状态**：✅ 已修复验证。runtime 现在每次重新加锁并读取 durable round，继续校验 exact tenant/marker/allowlist/run token/round token/format/state/progress，然后才通过现有分类与 CAS 协议恢复。只有 exact-complete 投影可推进；reservation/job-only/failure 精确清理后重试；malformed/multiple/mismatched 继续 fail closed。
+- **证据**：Phase 64.3 Plan 03 follow-up commit `16f3007`；`src/rag/evaluation/retrieval_rounds.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；focused gate `35 passed`，Plans 01–03 + facade gate `81 passed`，Phase 64.2 historical replay regression `1 passed`；真实 PostgreSQL 029 upgrade/downgrade/re-upgrade 与 immutable sentinel/trigger 保真通过。
+- **剩余风险**：🟡 live provider 完整三轮尚因 embedding provider 未配置而未运行；恢复协议已有 deterministic/DB-backed 证据，但 Phase 04 仍必须在真实 provider baseline 中保留 safe cleanup 和 baseline-eligibility 门禁。
+
 ## RAG-56-03-01：RAG context routing status drift 与 partial action/risk 漏挡 ✅已修复验证
 
 - **问题现象/根因**：`route_after_rag_context` 原本在 router 内维护一份手写 `RAG_CONTEXT_STATUSES`，虽然当时与 schema 一致，但存在后续 drift 风险；同时顶层 `rag_context_status` 缺失时会回退读取 `verified_evidence_package.status`，`no_evidence` 携带 missing business facts 时会先进入 `clarification_gate`，`partial` 允许谓词也没有覆盖 action intent、`risk_signals`、`evidence_policy.risk_level`、package stale/conflict/rejected evidence 指示，导致 unsafe evidence 或 action/risk-bound partial 可能进入 generation。

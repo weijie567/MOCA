@@ -4,8 +4,8 @@ status: running
 current_step: execute
 plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-08-10T19:19:10+08:00"
-next_command: "$gsd-execute-phase 64.3 --wave 2 # resume Plan 03"
+updated_at: "2026-08-10T19:59:42+08:00"
+next_command: "$gsd-execute-phase 64.3 --wave 3"
 ---
 
 # Phase 64.3 Autopilot Checkpoint
@@ -23,6 +23,8 @@ next_command: "$gsd-execute-phase 64.3 --wave 2 # resume Plan 03"
 - Parent wave gate passed: `28 passed, 1 warning`; scoped Ruff lint/format and `git diff --check` passed. Six PDFs / thirty rendered pages passed agent visual QA.
 - Wave 2 / Plan 02 complete (`dbcfc3f`): production-bound direct parser evaluator and persistence-free all-nine CLI are implemented.
 - Parent Plan 02 gate passed: Plan 01+02 tests `46 passed, 1 warning`; forbidden dependency, scoped Ruff lint/format, and diff checks passed. Real CLI truthfully reports `completed_quality_fail` for all nine variants, with the parser/OCR quality debt recorded for Phase 64.4/64.5 triage.
+- Wave 2 / Plan 03 complete (`6963134`): evaluation-only round ownership, migration 029, exact recovery/cleanup, real service-bound retrieval runtime, and provider preflight CLI are implemented.
+- Parent Wave 2 gate passed: Plans 01–03 + facade `81 passed, 5 warnings`; historical replay regression `1 passed`; scoped Ruff lint/format and diff checks passed. Isolated real PostgreSQL proved upgrade/downgrade/re-upgrade, one-active-round uniqueness, safe-abandon gating, and immutable history/trigger preservation.
 
 ## Evidence
 
@@ -34,4 +36,4 @@ next_command: "$gsd-execute-phase 64.3 --wave 2 # resume Plan 03"
 
 ## Last Failure
 
-Provider closeout preflight is currently missing `DASHSCOPE_API_KEY`, `RAG_FORMAT_PARITY_RUN_TOKEN`, `EVIDENCE_ROLLOUT_VERSION`, and a detected ready PostgreSQL evaluation runtime. This does not block Waves 2 implementation, but the phase must remain fail-closed if the prerequisites are still absent at the real-provider gate. Current GSD `roadmap.update-plan-progress` / `verify.key-links` helpers do not parse this decimal-phase plan shape reliably; completion/wiring is being checked from summaries and repository evidence instead.
+Plan 03 provider preflight is now proven fail-closed. A migrated isolated PostgreSQL reduced the remaining prerequisite to the real embedding provider; without it the CLI returns `unavailable_prerequisite`, `baseline_eligible=false`, exit `2`. Wave 3 must load a configured local provider without exposing secrets and rerun the real baseline; if unavailable, phase closeout remains blocked. Current GSD `roadmap.update-plan-progress` / `verify.key-links` helpers do not parse this decimal-phase plan shape reliably; completion/wiring is being checked from summaries and repository evidence instead.

@@ -1,12 +1,68 @@
 # 本地验证问题记录
 
-## 34. Phase 64.3 Plan 02 self-check 在 zsh 中误用特殊变量 `path`
+## 36. Phase 64.3 Alembic offline SQL 被历史 migration 016 的在线查询阻断
 
 日期：2026-08-10
 
 ### 问题现象
 
-Plan 02 首次 summary self-check 使用 `for path in ...`，随后同一 zsh 中的 `git` / `rg` 报 `command not found`。
+尝试以 Alembic offline SQL 作 migration 029 的可逆性门禁时，链上历史 migration 016 仍读取实时数据库状态，导致 offline 模式不能作为该仓库的有效全链验证。转用隔离真实 PostgreSQL 后，首次 025→029 upgrade 又被 migration 026 预期的 staged-cutover 健康证明拒绝。
+
+### 如何检测 / 复现
+
+对当前 Alembic chain 运行 offline SQL，然后在新建的无 volume `pgvector/pgvector:0.8.2-pg16` 容器中运行真实 upgrade。在没有 Phase 64.2 `dual_write_enabled_at` 健康 proof 时，026 正确 fail closed。
+
+### 关键证据或命令
+
+隔离库中安装精确 Phase 64.2 健康 proof 后，025→029 upgrade 通过；029 partial unique index 拒绝第二个 non-terminal round；active round downgrade 被拒绝；`expire -> exact zero-current proof -> abandoned` 后 downgrade 成功。production sentinel 的 head / immutable document / immutable chunk / 两条 trigger 保留为 `t|1|1|1|t|t`，再 upgrade 回 029 仍成功。
+
+### 当前判断 / 根因
+
+offline 失败是历史 migration 016 的实时 DB 依赖；026 初次拒绝是已接受 staged-cutover 安全门，不是 029 回归。
+
+### 已做处理
+
+改用一次性无 volume 隔离库，仅在该库内安装所需 Phase 64.2 proof，完成真实 upgrade/downgrade/re-upgrade、并发约束与 history/trigger 保真门禁。临时容器已 stop+rm，没有触碰现有容器或共享数据。
+
+### 剩余问题和下次继续排查入口
+
+无 Phase 64.3 migration 剩余阻塞。后续不得把 offline SQL 失败当成 029 失败，也不得绕过 026 健康 proof；继续入口为 migrations 016/026/029 与 Plan 03 Summary 的 PostgreSQL gate。
+
+## 35. Phase 64.3 provider CLI 在真实 embedding provider 缺失时 fail closed
+
+日期：2026-08-10
+
+### 问题现象
+
+普通 host 运行 provider CLI 时同时缺少可用数据库和 embedding provider；切到已迁移的隔离 PostgreSQL 后，数据库/schema/pgvector/fixed tenant/rollout/OCR 检查通过，剩余阻塞精确收敛为 embedding provider 不可用。
+
+### 如何检测 / 复现
+
+使用 `scripts/eval_rag_format_parity.py` 的 provider-only 入口先在普通 host 运行，再将 DSN 指向已完成 029 migration 的隔离库；两次都不启用 fake。
+
+### 关键证据或命令
+
+隔离库运行输出 `outcome=unavailable_prerequisite`、`baseline_eligible=false`、exit code `2`；没有 score、quality pass/fail、credential、DSN、raw provider/parser payload、绝对路径或 cross-tenant fact。OCR `chi_sim+eng` 已可用。
+
+### 当前判断 / 根因
+
+Plan 03 的 provider preflight 和 taxonomy 正确；当前是运行时凭据/配置缺失，不是质量失败或可被 fake 替代的情形。
+
+### 已做处理
+
+保留 fail-closed exit 2 和 baseline-ineligible 语义，没有降级 gate。Plan 04 必须使用真实 provider 才能写 canonical baseline。
+
+### 剩余问题和下次继续排查入口
+
+当前还不能完成 provider baseline。继续入口：仅检查本地 gitignored `.env`/运行环境是否已配置 provider（不输出 secret），在隔离 DB 中运行 Plan 04；如仍不可用，autopilot 必须保持阻塞而不伪造 baseline。
+
+## 34. Phase 64.3 Plans 02/03 shell wrapper 误用 zsh 特殊变量 `path` / `status`
+
+日期：2026-08-10
+
+### 问题现象
+
+Plan 02 首次 summary self-check 使用 `for path in ...`，随后同一 zsh 中的 `git` / `rg` 报 `command not found`。Plan 03 首次 CLI exit-code wrapper 又使用 `status=$?`，被 zsh 的只读特殊参数拒绝；CLI 本身已正确输出 safe unavailable payload。
 
 ### 如何检测 / 复现
 
@@ -14,7 +70,7 @@ Plan 02 首次 summary self-check 使用 `for path in ...`，随后同一 zsh �
 
 ### 关键证据或命令
 
-首轮只在 self-check wrapper 出现 `git: command not found` / `rg: command not found`，产品 pytest、CLI 和 repo diff 都没有同类失败。将循环变量改为 `artifact_file` / `commit_id` 后同一检查通过。
+首轮只在 self-check wrapper 出现 `git: command not found` / `rg: command not found`；Plan 03 wrapper 只出现 `read-only variable: status`。产品 pytest、CLI 和 repo diff 都没有同类失败。将变量改为 `artifact_file` / `commit_id` / `exit_code` 后同一检查通过。
 
 ### 当前判断 / 根因
 
@@ -22,7 +78,7 @@ Plan 02 首次 summary self-check 使用 `for path in ...`，随后同一 zsh �
 
 ### 已做处理
 
-改用非特殊变量重跑 self-check，Summary 与五个 Plan 02 commits 均可验证；错误脚本未造成仓库修改。
+改用非特殊变量重跑 self-check 和 provider CLI，Plan 02 Summary/五个 commits 及 Plan 03 safe exit `2` 均可验证；错误脚本未造成仓库修改。
 
 ### 剩余问题和下次继续排查入口
 
