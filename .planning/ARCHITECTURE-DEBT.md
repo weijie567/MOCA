@@ -379,14 +379,14 @@
 **范围**：检索、rerank、query rewrite、ContextBuilder、claim 验证、evidence 契约。
 **已 ship**：v1.3 混合检索、v1.4 生产 ingestion+OCR、v1.5 ContextBuilder+幻觉控制、v1.6 rerank+query rewrite。
 
-## 2026-08-10 — Phase 64.3 format-parity fixture 生成缺少确定性 identity ⚠️修复计划已锁定
+## 2026-08-10 — Phase 64.3 format-parity fixture 生成缺少确定性 identity ✅已修复验证
 
 - **子系统**：RAG evaluation / format-parity fixture contract / baseline identity。
 - **问题现象 / 根因**：隔离临时根目录双构建验证确认，相同 Markdown、工具和字体环境下，三份 Markdown 哈希稳定，但六份 PDF 与 manifest SHA-256 全部变化。当前 `evaluation/rag_sources/build_fixtures.py` 没有固定 PDF metadata、document/trailer ID、时间字段，也没有把 builder、ReportLab/Pillow/PDFium、字体 SHA 与 raster 参数作为 generator identity 写入 manifest。
 - **影响**：即使语义内容和页数/文本层完全一致，重跑 generator 也会产生新 fixture hash，导致 Phase 64.3 以 byte hash 绑定的 baseline identity 无法证明可复现；维护者也无法区分真实内容变化和容器 metadata 漂移。
-- **处理状态**：⚠️ 已完成仓库/双构建验证并在 Phase 64.3 plan review 采纳修复，尚未实现。`64.3-01-PLAN.md` 已要求 deterministic metadata/ID/time、版本化 generator/tool/font identity、双构建 byte-equivalence、自动语义检查和 agent visual QA；禁止只刷新 hash。
-- **证据**：Phase 64.3 Claude finding C-01/C-02；`.planning/phases/64.3-rag-format-parity-and-document-quality-evaluation/64.3-PLAN-REVIEW-DECISIONS.md`；`evaluation/rag_sources/build_fixtures.py`；本地双构建命令与结果详见 `.planning/LOCAL-VALIDATION-ISSUES.md` 第 29 条。
-- **剩余风险**：🔴 在 Plan 01 Task 3 实现并通过同 generator identity 下六 PDF + manifest 双构建全同哈希前，不得生成或接受 provider canonical baseline。跨机器复现还必须拿到相同字体字节和记录的工具版本；不能把“输入/配置可追溯”夸大成 live provider 指标逐位相同。
+- **处理状态**：✅ 已修复验证。数字 PDF 现在固定 ReportLab invariant metadata/trailer identity，扫描 PDF 固定时间、image metadata、DPI/MediaBox 与编码参数；每条 manifest record 记录同一版本化 builder/tool/font identity。隔离输出根目录间隔 1.1 秒双构建的 3 Markdown、6 PDF 与完整 manifest 逐字节一致；identity 改变时在写 manifest 前 fail closed。完整 3/9 family 已原子重生成，并通过语义 anchor/table 顺序、文本层、页数、30 页像素与 contact-sheet 目检。
+- **证据**：Phase 64.3 Plan 01 Task 3，commit `76f88cc`；`evaluation/rag_sources/build_fixtures.py`、`evaluation/rag_sources/format_parity_manifest.jsonl`、`tests/eval/test_rag_format_parity_contract.py`、`evaluation/rag_sources/README.md`；focused gate `28 passed, 1 warning`，scoped Ruff lint/format 均通过；本地 renderer 排查记录见 `.planning/LOCAL-VALIDATION-ISSUES.md`。
+- **剩余风险**：🟡 跨机器复现仍必须拿到相同字体字节和 manifest 记录的工具版本；identity 不同必须建立新 baseline，不能把 fixture 字节可复现夸大成 live provider 指标逐位相同。
 
 ## RAG-56-03-01：RAG context routing status drift 与 partial action/risk 漏挡 ✅已修复验证
 
