@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy.dialects import postgresql
 
+import src.rag.evaluation.retrieval_rounds as retrieval_rounds_module
 from src.db.models import RagEvaluationRound
 from src.repositories.rag_evaluation_round_repo import (
     FORMAT_PARITY_DOC_KEYS,
@@ -452,6 +453,165 @@ def test_provider_runtime_owns_real_service_boundaries_and_contract_mode_is_inel
         contract.model_copy(update={"baseline_eligible": True}).model_validate(
             contract.model_copy(update={"baseline_eligible": True}).model_dump()
         )
+
+
+class _TrackedTransaction:
+    def __init__(self, session: _TransactionTrackingSession) -> None:
+        self.session = session
+
+    async def __aenter__(self) -> None:
+        if self.session.active:
+            raise RuntimeError("transaction scope conflict")
+        self.session.active = True
+        self.session.begin_count += 1
+
+    async def __aexit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.session.active = False
+        if exc_type is None:
+            self.session.commit_count += 1
+        else:
+            self.session.rollback_count += 1
+
+
+class _TransactionTrackingSession:
+    def __init__(self) -> None:
+        self.active = False
+        self.begin_count = 0
+        self.commit_count = 0
+        self.rollback_count = 0
+        self.implicit_query_count = 0
+
+    def begin(self) -> _TrackedTransaction:
+        return _TrackedTransaction(self)
+
+    def mark_service_query(self) -> None:
+        self.implicit_query_count += 1
+        if not self.active:
+            self.active = True
+
+
+class _TransactionalEngineSpy:
+    mismatch_recording = False
+    calls = 0
+
+    def __init__(self, session: _TransactionTrackingSession, *, embedder: object) -> None:
+        del embedder
+        self.session = session
+
+    async def retrieve_run(self, **kwargs: object) -> PolicyRetrievalRun:
+        type(self).calls += 1
+        self.session.mark_service_query()
+        query = str(kwargs["query"])
+        return PolicyRetrievalRun(
+            status="no_evidence",
+            hits=[],
+            evidence_refs=[],
+            best_score=0.0,
+            original_query="unexpected query" if type(self).mismatch_recording else query,
+            fallback_reason="no_candidates",
+        )
+
+
+class _TransactionRoundRepository:
+    cleanup_calls = 0
+
+    def __init__(self, session: _TransactionTrackingSession) -> None:
+        self.session = session
+
+    async def read_progress(self, owner: EvaluationRoundIdentity) -> object:
+        return SimpleNamespace(state="retrieving", has_attempt_reservation=False)
+
+    async def prove_retrieval_ready(self, owner: EvaluationRoundIdentity) -> EvaluationRoundIdentity:
+        return owner
+
+    async def cleanup_current_projection(
+        self,
+        owner: EvaluationRoundIdentity,
+        *,
+        terminal_state: str,
+        failure_code: str | None = None,
+    ) -> EvaluationRoundIdentity:
+        del terminal_state, failure_code
+        assert self.session.active
+        type(self).cleanup_calls += 1
+        return owner
+
+    async def create_round(
+        self,
+        *,
+        run_token: UUID,
+        round_token: UUID,
+        round_format: str,
+        lease_expires_at: datetime,
+        expected_rollout_version: int,
+    ) -> EvaluationRoundIdentity:
+        del lease_expires_at
+        return EvaluationRoundIdentity(
+            round_id=uuid4(),
+            tenant_id=FORMAT_PARITY_TENANT_ID,
+            owner_marker=FORMAT_PARITY_OWNER_MARKER,
+            run_token=run_token,
+            round_token=round_token,
+            round_format=round_format,
+            state_version=1,
+            next_document_index=3,
+            expected_rollout_version=expected_rollout_version,
+        )
+
+
+@pytest.fixture
+def transaction_runtime(monkeypatch: pytest.MonkeyPatch) -> _TransactionTrackingSession:
+    _TransactionalEngineSpy.calls = 0
+    _TransactionalEngineSpy.mismatch_recording = False
+    _TransactionRoundRepository.cleanup_calls = 0
+    session = _TransactionTrackingSession()
+    monkeypatch.setattr(retrieval_rounds_module, "PolicyRetrievalEngine", _TransactionalEngineSpy)
+    monkeypatch.setattr(retrieval_rounds_module, "RagEvaluationRoundRepository", _TransactionRoundRepository)
+    monkeypatch.setattr(retrieval_rounds_module, "IngestionService", lambda *args, **kwargs: object())
+    return session
+
+
+@pytest.mark.asyncio
+async def test_each_service_search_closes_its_short_transaction_before_cleanup(
+    transaction_runtime: _TransactionTrackingSession,
+) -> None:
+    owner = _identity(next_document_index=3)
+    result = await run_retrieval_parity(
+        _dataset(),
+        session=transaction_runtime,  # type: ignore[arg-type]
+        embedder=object(),  # type: ignore[arg-type]
+        owner=owner,
+        generated_at="2026-08-10T00:00:00Z",
+    )
+
+    assert result.outcome == "completed_quality_fail"
+    assert transaction_runtime.active is False
+    assert transaction_runtime.implicit_query_count == 54
+    assert _TransactionalEngineSpy.calls == 54
+    assert _TransactionRoundRepository.cleanup_calls == 3
+    assert transaction_runtime.commit_count == transaction_runtime.begin_count
+    assert transaction_runtime.rollback_count == 0
+
+
+@pytest.mark.asyncio
+async def test_recording_failure_rolls_back_search_transaction_and_preserves_reason_for_cleanup(
+    transaction_runtime: _TransactionTrackingSession,
+) -> None:
+    _TransactionalEngineSpy.mismatch_recording = True
+    result = await run_retrieval_parity(
+        _dataset(),
+        session=transaction_runtime,  # type: ignore[arg-type]
+        embedder=object(),  # type: ignore[arg-type]
+        owner=_identity(next_document_index=3),
+        generated_at="2026-08-10T00:00:00Z",
+    )
+
+    assert result.outcome == "execution_error"
+    assert result.rounds[0].reason_code == "retrieval_recording_mismatch"
+    assert transaction_runtime.active is False
+    assert transaction_runtime.rollback_count == 1
+    assert _TransactionalEngineSpy.calls == 1
+    assert _TransactionRoundRepository.cleanup_calls == 1
 
 
 def _provider_argv(**overrides: str) -> list[str]:
