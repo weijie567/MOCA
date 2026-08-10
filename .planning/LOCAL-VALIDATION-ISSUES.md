@@ -1,5 +1,35 @@
 # 本地验证问题记录
 
+## 32. Phase 64.3 post-wave GSD tracking / key-link helper 不能解析当前 plan 形状
+
+日期：2026-08-10
+
+### 问题现象
+
+Wave 1 完成后，`roadmap.update-plan-progress 64.3 01 complete` 返回 `no matching checkbox found`；随后对 Plans 02/03 执行 `verify.key-links` 时，虽然 plan frontmatter 存在完整的 inline `from/to/via/pattern`，helper 仍返回空字段和 `Source file not found`。
+
+### 如何检测 / 复现
+
+- `gsd-sdk query roadmap.update-plan-progress 64.3 01 complete`
+- `gsd-sdk query verify.key-links .planning/phases/64.3-rag-format-parity-and-document-quality-evaluation/64.3-02-PLAN.md`
+- `gsd-sdk query verify.key-links .planning/phases/64.3-rag-format-parity-and-document-quality-evaluation/64.3-03-PLAN.md`
+
+### 关键证据或命令
+
+`phase-plan-index 64.3` 正确把 `64.3-01` 识别为 `has_summary: true`，而 Plans 02/03 的 YAML frontmatter 可直接读到完整 `key_links`。`verify.key-links` 返回的所有 `from/to/via` 却为空字符串，证明失败在 helper 解析层，不是已实现链接缺失。ROADMAP 的 Phase 64.3 plan 列表使用编号 bullet，不是 helper 期待的 checkbox。
+
+### 当前判断 / 根因
+
+这是当前 GSD SDK helper 对 decimal phase / numbered plan bullet / inline YAML mapping 的元数据兼容问题，不是 MOCA 产品回归。不能把该 helper 结果当成真实 cross-plan wiring 失败。
+
+### 已做处理
+
+保持 ROADMAP 不变，使用 `phase-plan-index` 的 summary 检测作为 plan 完成事实；手工检查下一 wave 的 prior-wave 连线，确认 `src/rag/evaluation/contracts.py` 与 `FormatParityDataset` 已存在。下一 wave 内尚未创建的 source 文件按 workflow 规则跳过预检。
+
+### 剩余问题和下次继续排查入口
+
+执行后继续用真实文件、导入、测试和 phase verifier 验证 wiring；不修改已审核 plan 的语义仅为迁就 helper。GSD SDK 升级后可重跑上述两类 query。
+
 ## 31. Phase 64.3 `state.begin-phase` 长选项被本机 GSD SDK 当成位置参数
 
 日期：2026-08-10
