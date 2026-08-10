@@ -12,6 +12,34 @@
 
 每个主题都是 5 页左右的完整政策，不是重复句子的长度填充；内容包含多级标题、列表、表格、例外、流程、场景示例和审计字段。
 
+## Canonical lineage 与原子 reconciliation
+
+Markdown 是三个政策族唯一声明的 source of truth。2026-08-10 的仓库历史核对确认：fixture 家族在 `660a571`（完整 commit `660a571d260d1e9a4afa9547b257426726b62e0d`，`feat(eval): add RAG quality benchmark corpus`）一次性引入，三个 Markdown 路径都没有第二个历史版本。因此当前 checked-in Markdown 即 canonical bytes；不存在一个可从 Git 恢复、且能匹配 manifest stale hash 的更早 Markdown revision。
+
+核对命令与结果：
+
+```text
+$ git log --all --oneline -- evaluation/rag_sources/fixtures
+660a571 feat(eval): add RAG quality benchmark corpus
+
+$ git log --all --format='%H %s' -- evaluation/rag_sources/fixtures/refund_eligibility_and_return/refund_eligibility_and_return.md
+660a571d260d1e9a4afa9547b257426726b62e0d feat(eval): add RAG quality benchmark corpus
+$ git log --all --format='%H %s' -- evaluation/rag_sources/fixtures/quality_compensation_and_approval/quality_compensation_and_approval.md
+660a571d260d1e9a4afa9547b257426726b62e0d feat(eval): add RAG quality benchmark corpus
+$ git log --all --format='%H %s' -- evaluation/rag_sources/fixtures/cross_border_and_digital_goods/cross_border_and_digital_goods.md
+660a571d260d1e9a4afa9547b257426726b62e0d feat(eval): add RAG quality benchmark corpus
+```
+
+`git show 660a571:<Markdown path> | shasum -a 256` 与当前文件得到同一组 canonical hash；Task 1 的流式 SHA-256 核对同时证明 manifest 中只有 Markdown 三项 stale、六个 PDF 项仍匹配其当前 bytes：
+
+| 政策族 | manifest stale Markdown SHA-256 | current / `660a571` canonical Markdown SHA-256 |
+| --- | --- | --- |
+| `eval_refund_eligibility_and_return` | `b59685b3f1594906284c362b5af4ab8b3df8132a9bed6a158245406723dfee99` | `81654bb2e4adbc7b95b41823c90d77754785c4243d60fed2b382ec7fae9ce8c7` |
+| `eval_quality_compensation_and_approval` | `e7fb86822ea99f96139b89d3a14f498588fba69e4625b8d374f9f02db4c8eb5e` | `f7c115028dcd20da2c7e0b0033612b4bf5857c006408131b3a1bf63f5eb96cea` |
+| `eval_cross_border_and_digital_goods` | `c4bd19adcc696104fd56a1531da1f3b31d1b301f6f9fb0c471374f2d19fe0c83` | `8641827819922c734f3baebc913b009c70e41fe37ca551380e24cebcf19e5cb9` |
+
+manifest 自引入 commit 起即与其同一 commit 中的 Markdown bytes 不一致，所以只改三条 SHA 的 **hash-only refresh** 不构成 lineage reconciliation，也不得用于放行 evaluator。批准的原子路线是：保留当前 canonical Markdown；使用锁定的 generator、字体和工具链重新生成全部三个 digital PDF 与三个 scanned PDF；对六个 PDF 做页数、文字层、heading/anchor/table 顺序的自动检查和全页视觉检查；最后一次性重写完整 manifest 的 generator metadata 与 Markdown/PDF 全部九条 hash。任一步未通过时，整个 3/9 家族继续 fail closed。
+
 ## 文件布局
 
 ```text
