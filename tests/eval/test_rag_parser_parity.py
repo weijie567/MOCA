@@ -186,19 +186,24 @@ def test_one_dimension_failure_does_not_erase_other_scores(
 
     if mutation == "anchor":
         fact_index = next(index for index, anchor in enumerate(policy.gold.anchors) if anchor.kind == "fact")
-        blocks[fact_index] = replace(blocks[fact_index], text="unrelated visible policy text")
+        blocks[fact_index] = replace(
+            blocks[fact_index],
+            text="unrelated visible policy text",
+            normalized_text="unrelated visible policy text",
+        )
     elif mutation == "heading":
         heading_index = next(index for index, anchor in enumerate(policy.gold.anchors) if anchor.kind == "heading")
         blocks[heading_index] = replace(blocks[heading_index], block_type="paragraph")
     elif mutation == "table":
-        table_index = next(
-            index for index, anchor in enumerate(policy.gold.anchors) if anchor.kind == "table_header"
-        )
+        table_index = next(index for index, anchor in enumerate(policy.gold.anchors) if anchor.kind == "table_header")
         blocks[table_index] = replace(blocks[table_index], block_type="paragraph", table_metadata={})
     elif mutation == "locator":
         blocks = [replace(block, box=None) for block in blocks]
     else:
-        blocks = [block for block in blocks if block.page_number != variant.pages]
+        blocks = [
+            replace(block, page_number=1, box=_source_box(1)) if block.page_number == variant.pages else block
+            for block in blocks
+        ]
 
     result = score_parser_result(
         policy=policy,
@@ -257,8 +262,7 @@ def test_scanned_pdf_empty_garbled_and_zero_anchor_output_are_ocr_quality_failur
         assert scored.outcome == "completed_quality_fail"
         assert scored.ocr_diagnostics.status == "failed"
         assert any(
-            observation.primary_stage == "ocr" and observation.status == "missed"
-            for observation in scored.observations
+            observation.primary_stage == "ocr" and observation.status == "missed" for observation in scored.observations
         )
 
 
@@ -346,6 +350,11 @@ def test_serialized_diagnostics_are_bounded_allowlisted_and_safe(
     result = score_parser_result(policy=policy, variant=variant, parse_result=hostile)
     payload = result.model_dump(mode="json")
     serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    serialized_snippets = json.dumps(
+        [item["safe_snippet"] for item in payload["safe_diagnostics"]],
+        ensure_ascii=False,
+        sort_keys=True,
+    )
 
     assert len(result.safe_diagnostics[0].safe_snippet or "") <= 160
     for forbidden in (
@@ -356,11 +365,11 @@ def test_serialized_diagnostics_are_bounded_allowlisted_and_safe(
         "parser_dump",
         "word_boxes",
         "arbitrary_metadata",
-        "exception",
         "stack_trace",
         "file_path",
     ):
         assert forbidden not in serialized
+    assert "exception" not in serialized_snippets
 
 
 def test_scoring_is_byte_equivalent_for_identical_dtos_and_clock(
@@ -374,8 +383,7 @@ def test_scoring_is_byte_equivalent_for_identical_dtos_and_clock(
 
     assert first.model_dump_json() == second.model_dump_json()
     assert [
-        (item.policy_id, item.variant, item.case_id, item.anchor_id, item.reason_code)
-        for item in first.observations
+        (item.policy_id, item.variant, item.case_id, item.anchor_id, item.reason_code) for item in first.observations
     ] == sorted(
         (
             item.policy_id,
