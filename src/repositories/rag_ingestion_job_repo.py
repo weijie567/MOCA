@@ -23,6 +23,8 @@ _UNSAFE_MESSAGE_PATTERNS = (
 )
 _SAFE_DOC_KEY = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _SAFE_SOURCE_TYPE = re.compile(r"^[a-z0-9][a-z0-9_]{0,31}$")
+_EVALUATION_OWNER_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_PRODUCTION_SHA256_PREFIX = "sha256:"
 _FORBIDDEN_TRACE_KEYS = FORBIDDEN_MESSAGE_KEYS | {
     "debug_image",
     "debug_payload",
@@ -43,6 +45,14 @@ _FORBIDDEN_TRACE_KEYS = FORBIDDEN_MESSAGE_KEYS | {
     "stack_trace",
     "traceback",
 }
+
+
+def canonical_ingestion_source_checksum(owner_checksum: str) -> str:
+    """Map one strict evaluation-owner digest to production persistence form."""
+
+    if not _EVALUATION_OWNER_SHA256.fullmatch(owner_checksum):
+        raise ValueError("evaluation_source_checksum_invalid")
+    return f"{_PRODUCTION_SHA256_PREFIX}{owner_checksum}"
 
 
 class RagIngestionJobRepository:
@@ -103,12 +113,13 @@ class RagIngestionJobRepository:
         The caller durably CAS-records the sole UUID before requesting deletion.
         """
 
+        persisted_checksum = canonical_ingestion_source_checksum(source_checksum)
         stmt = (
             select(RagIngestionJob)
             .where(
                 RagIngestionJob.tenant_id == tenant_id,
                 RagIngestionJob.doc_key == doc_key,
-                RagIngestionJob.source_checksum == source_checksum,
+                RagIngestionJob.source_checksum == persisted_checksum,
                 RagIngestionJob.created_at >= reserved_at,
                 RagIngestionJob.doc_id.is_(None),
             )
@@ -129,12 +140,13 @@ class RagIngestionJobRepository:
     ) -> list[RagIngestionJob]:
         """Lock all exact post-reservation jobs for projection classification."""
 
+        persisted_checksum = canonical_ingestion_source_checksum(source_checksum)
         stmt = (
             select(RagIngestionJob)
             .where(
                 RagIngestionJob.tenant_id == tenant_id,
                 RagIngestionJob.doc_key == doc_key,
-                RagIngestionJob.source_checksum == source_checksum,
+                RagIngestionJob.source_checksum == persisted_checksum,
                 RagIngestionJob.created_at >= reserved_at,
             )
             .order_by(RagIngestionJob.created_at, RagIngestionJob.id)
@@ -153,11 +165,12 @@ class RagIngestionJobRepository:
     ) -> int:
         """Delete one CAS-claimed attempt; never delete by doc-key alone."""
 
+        persisted_checksum = canonical_ingestion_source_checksum(source_checksum)
         stmt = delete(RagIngestionJob).where(
             RagIngestionJob.id == job_id,
             RagIngestionJob.tenant_id == tenant_id,
             RagIngestionJob.doc_key == doc_key,
-            RagIngestionJob.source_checksum == source_checksum,
+            RagIngestionJob.source_checksum == persisted_checksum,
         )
         result = await self.session.execute(stmt)
         return result.rowcount or 0

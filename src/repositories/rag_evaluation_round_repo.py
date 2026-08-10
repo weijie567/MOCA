@@ -24,7 +24,10 @@ from src.db.models import (
 )
 from src.repositories.document_block_repo import DocumentBlockRepository
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
-from src.repositories.rag_ingestion_job_repo import RagIngestionJobRepository
+from src.repositories.rag_ingestion_job_repo import (
+    RagIngestionJobRepository,
+    canonical_ingestion_source_checksum,
+)
 
 
 FORMAT_PARITY_TENANT_ID = UUID("64300000-0000-4000-8000-000000000001")
@@ -429,6 +432,7 @@ class RagEvaluationRoundRepository:
         reserved_at = row.reservation_at
         if doc_key is None or checksum is None or reserved_at is None:
             raise EvaluationIsolationError("reservation_missing")
+        persisted_checksum = canonical_ingestion_source_checksum(checksum)
         head_rows = (
             (
                 await self.session.execute(
@@ -510,7 +514,7 @@ class RagEvaluationRoundRepository:
         bound_ids = {chunk.chunk_id for chunk in chunk_versions}
         projection = AttemptProjection(
             head_count=len(head_rows),
-            matching_head_count=int(head is not None and head.source_checksum == checksum),
+            matching_head_count=int(head is not None and head.source_checksum == persisted_checksum),
             block_count=len(blocks),
             chunk_count=len(chunks),
             immutable_document_count=len(document_versions),

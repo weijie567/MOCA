@@ -255,6 +255,9 @@ async def test_null_doc_job_candidate_lock_and_delete_use_full_exact_predicates(
     assert "rag_ingestion_jobs.doc_id IS NULL" in select_sql
     assert "FOR UPDATE" in select_sql
     assert "LIMIT" in select_sql
+    select_params = session.statements[-1].compile(dialect=postgresql.dialect()).params
+    assert f"sha256:{checksum}" in select_params.values()
+    assert checksum not in select_params.values()
 
     job_id = uuid4()
     deleted = await repo.delete_exact_evaluation_attempt(
