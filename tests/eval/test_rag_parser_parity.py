@@ -1,20 +1,26 @@
 from __future__ import annotations
 
+import ast
 import json
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from src.rag.evaluation.contracts import (
+    EvaluationOutcome,
+    FormatParityContractError,
     FormatParityDataset,
     FormatParityPolicy,
     FormatParityVariant,
     load_format_parity_contract,
 )
 from src.rag.evaluation.parser_parity import (
+    ParserParityRunV1,
     comparison_text_contains,
+    evaluate_parser_parity,
     score_parser_result,
 )
 from src.rag.parsers.base import ParseResult, ParsedBlock, ParserWarning, SourceBox
@@ -394,3 +400,230 @@ def test_scoring_is_byte_equivalent_for_identical_dtos_and_clock(
         )
         for item in first.observations
     )
+
+
+class _RegistrySpy:
+    def __init__(
+        self,
+        dataset: FormatParityDataset,
+        *,
+        raise_on_call: int | None = None,
+        scanned_failure_code: str | None = None,
+    ) -> None:
+        self.dataset = dataset
+        self.raise_on_call = raise_on_call
+        self.scanned_failure_code = scanned_failure_code
+        self.calls: list[tuple[Path, str, str, dict[str, Any]]] = []
+
+    def parse(
+        self,
+        path: Path,
+        *,
+        doc_key: str,
+        source_type: str,
+        metadata: dict[str, Any],
+    ) -> ParseResult:
+        self.calls.append((path, doc_key, source_type, metadata))
+        if self.raise_on_call == len(self.calls):
+            raise RuntimeError("Traceback /Users/alice/private.pdf raw_payload=secret")
+        policy = next(item for item in self.dataset.policies if item.doc_key == doc_key)
+        variant = next(item for item in policy.variants if Path(item.path).name == path.name)
+        if variant.format == "scanned_pdf" and self.scanned_failure_code:
+            return ParseResult(
+                status="failed",
+                source_type=variant.source_type,
+                parser_name="fixture_parser",
+                parser_version="1.0",
+                blocks=(),
+                warnings=(),
+                failure_code=self.scanned_failure_code,
+                safe_message="OCR prerequisite is unavailable.",
+            )
+        return _complete_result(policy, variant)
+
+
+def test_evaluate_parser_parity_calls_production_registry_shape_for_exact_nine_fixtures(
+    parity_dataset: FormatParityDataset,
+) -> None:
+    registry = _RegistrySpy(parity_dataset)
+
+    run = evaluate_parser_parity(
+        parity_dataset,
+        parser_registry=registry,  # type: ignore[arg-type]
+        generated_at="2026-08-10T00:00:00Z",
+    )
+
+    assert isinstance(run, ParserParityRunV1)
+    assert run.schema_version == "parser_parity_run.v1"
+    assert run.command == "scripts/eval_rag_parser_parity.py"
+    assert run.mode == "contract_test"
+    assert len(registry.calls) == 9
+    assert {doc_key for _, doc_key, _, _ in registry.calls} == {
+        "eval_refund_eligibility_and_return",
+        "eval_quality_compensation_and_approval",
+        "eval_cross_border_and_digital_goods",
+    }
+    assert {(metadata["format"], source_type) for _, _, source_type, metadata in registry.calls} == {
+        ("markdown", "policy_markdown"),
+        ("digital_pdf", "policy_pdf"),
+        ("scanned_pdf", "policy_pdf"),
+    }
+    for path, doc_key, source_type, metadata in registry.calls:
+        assert path.is_absolute()
+        assert path.is_relative_to(REPOSITORY_ROOT / "evaluation/rag_sources/fixtures")
+        assert metadata == {
+            "doc_key": doc_key,
+            "title": metadata["title"],
+            "source_type": source_type,
+            "format": metadata["format"],
+            "source_checksum": f"sha256:{metadata['sha256']}",
+            "sha256": metadata["sha256"],
+            "pages": metadata["pages"],
+            "extractable_text_chars": metadata["extractable_text_chars"],
+            "declared_mime": metadata["declared_mime"],
+        }
+    assert [(result.policy_id, result.variant) for result in run.variant_results] == sorted(
+        ((result.policy_id, result.variant) for result in run.variant_results),
+        key=lambda item: (item[0], {"markdown": 0, "digital_pdf": 1, "scanned_pdf": 2}[item[1]]),
+    )
+
+
+def test_parser_mode_has_no_persistence_or_retrieval_dependency() -> None:
+    owned_files = (
+        REPOSITORY_ROOT / "src/rag/evaluation/parser_parity.py",
+        REPOSITORY_ROOT / "scripts/eval_rag_parser_parity.py",
+    )
+    forbidden_imports = {
+        "sqlalchemy",
+        "src.db",
+        "src.knowledge",
+        "src.rag.embedder",
+        "src.rag.ingestion",
+        "src.repositories",
+    }
+
+    for path in owned_files:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        imported = {
+            node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module is not None
+        }
+        imported.update(alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names)
+        assert not {
+            module
+            for module in imported
+            if any(module == forbidden or module.startswith(f"{forbidden}.") for forbidden in forbidden_imports)
+        }
+
+    from scripts import eval_rag_parser_parity
+
+    assert eval_rag_parser_parity.DEFAULT_MODE == "parser_direct"
+
+
+def test_contract_invalidity_stops_before_first_parser_call(
+    parity_dataset: FormatParityDataset,
+    tmp_path: Path,
+) -> None:
+    from scripts.eval_rag_parser_parity import run_parser_parity
+
+    invalid_manifest = tmp_path / "manifest.jsonl"
+    invalid_manifest.write_text("{not-json}\n", encoding="utf-8")
+    output = tmp_path / "result.json"
+    registry = _RegistrySpy(parity_dataset)
+
+    with pytest.raises(FormatParityContractError, match="manifest_schema_invalid"):
+        run_parser_parity(
+            manifest_path=invalid_manifest,
+            gold_path=GOLD_PATH,
+            output_path=output,
+            generated_at="2026-08-10T00:00:00Z",
+            parser_registry=registry,  # type: ignore[arg-type]
+        )
+
+    assert registry.calls == []
+    assert not output.exists()
+
+
+def test_one_parser_exception_is_safe_and_does_not_skip_remaining_fixtures(
+    parity_dataset: FormatParityDataset,
+) -> None:
+    registry = _RegistrySpy(parity_dataset, raise_on_call=4)
+
+    run = evaluate_parser_parity(
+        parity_dataset,
+        parser_registry=registry,  # type: ignore[arg-type]
+        generated_at="2026-08-10T00:00:00Z",
+    )
+    serialized = run.model_dump_json()
+
+    assert len(registry.calls) == 9
+    assert run.outcome == EvaluationOutcome.EXECUTION_ERROR
+    failed = [result for result in run.variant_results if result.outcome == EvaluationOutcome.EXECUTION_ERROR]
+    assert len(failed) == 1
+    assert failed[0].safe_diagnostics[0].code == "parser_invariant_error"
+    assert "/Users/" not in serialized
+    assert "raw_payload" not in serialized
+    assert "Traceback" not in serialized
+
+
+def test_missing_ocr_runtime_is_unavailable_but_contract_double_cannot_claim_baseline(
+    parity_dataset: FormatParityDataset,
+) -> None:
+    registry = _RegistrySpy(parity_dataset, scanned_failure_code="ocr_runtime_unavailable")
+
+    run = evaluate_parser_parity(
+        parity_dataset,
+        parser_registry=registry,  # type: ignore[arg-type]
+        generated_at="2026-08-10T00:00:00Z",
+    )
+
+    scanned = [result for result in run.variant_results if result.variant == "scanned_pdf"]
+    assert len(registry.calls) == 9
+    assert run.mode == "contract_test"
+    assert run.mode != "parser_direct"
+    assert run.outcome == EvaluationOutcome.UNAVAILABLE_PREREQUISITE
+    assert all(result.outcome == EvaluationOutcome.UNAVAILABLE_PREREQUISITE for result in scanned)
+    assert all(result.ocr_diagnostics.status == "failed" for result in scanned)
+
+
+def test_cli_writer_records_all_plan01_hashes_and_stable_results(
+    parity_dataset: FormatParityDataset,
+    tmp_path: Path,
+) -> None:
+    from scripts.eval_rag_parser_parity import run_parser_parity
+
+    output = tmp_path / "parser-parity.json"
+    registry = _RegistrySpy(parity_dataset)
+
+    first = run_parser_parity(
+        manifest_path=MANIFEST_PATH,
+        gold_path=GOLD_PATH,
+        output_path=output,
+        generated_at="2026-08-10T00:00:00Z",
+        parser_registry=registry,  # type: ignore[arg-type]
+    )
+    first_bytes = output.read_bytes()
+    second = run_parser_parity(
+        manifest_path=MANIFEST_PATH,
+        gold_path=GOLD_PATH,
+        output_path=output,
+        generated_at="2026-08-10T00:00:00Z",
+        parser_registry=_RegistrySpy(parity_dataset),  # type: ignore[arg-type]
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert first == second
+    assert output.read_bytes() == first_bytes
+    assert payload["schema_version"] == "parser_parity_run.v1"
+    assert payload["mode"] == "contract_test"
+    assert payload["inputs"] == {
+        "baseline_identity": parity_dataset.baseline_identity,
+        "fixture_hashes": [
+            {"path": path, "sha256": digest} for path, digest in sorted(parity_dataset.fixture_hashes.items())
+        ],
+        "gold_hash": parity_dataset.gold_hash,
+        "manifest_hash": parity_dataset.manifest_hash,
+    }
+    assert len(payload["variant_results"]) == 9
+    assert {case["case_id"] for result in payload["variant_results"] for case in result["case_results"]} == {
+        case.case_id for policy in parity_dataset.policies for case in policy.gold.cases
+    }
