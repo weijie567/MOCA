@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 import re
 from typing import Any, Literal
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -107,7 +107,7 @@ class ProjectionInspection:
     document_id: UUID | None
     job_id: UUID | None
     job_error_code: str | None
-    head_mapping: dict[str, str]
+    head_mapping: dict[str, dict[str, Any]]
     immutable_counts: dict[str, int]
 
 
@@ -115,6 +115,119 @@ class ProjectionInspection:
 class RoundProgress:
     state: str
     has_attempt_reservation: bool
+
+
+@dataclass(frozen=True)
+class RunSequenceState:
+    completed_results: tuple[dict[str, Any], ...]
+    active: EvaluationRoundIdentity | None
+    next_format: str | None
+
+
+def validate_run_sequence(
+    rows: list[RagEvaluationRound],
+    *,
+    run_token: UUID,
+    expected_rollout_version: int,
+    now: datetime,
+) -> RunSequenceState:
+    """Validate exact deterministic format order and durable terminal proofs."""
+
+    by_format: dict[str, RagEvaluationRound] = {}
+    for row in rows:
+        if row.round_format in by_format:
+            raise EvaluationIsolationError("round_sequence_duplicate")
+        by_format[row.round_format] = row
+    present = tuple(format_name for format_name in ROUND_FORMATS if format_name in by_format)
+    if set(by_format) != set(present) or present != ROUND_FORMATS[: len(present)]:
+        raise EvaluationIsolationError("round_sequence_order_mismatch")
+
+    completed_results: list[dict[str, Any]] = []
+    active: EvaluationRoundIdentity | None = None
+    for index, round_format in enumerate(present):
+        row = by_format[round_format]
+        expected_round_token = uuid5(NAMESPACE_URL, f"{run_token}:{round_format}")
+        if (
+            row.tenant_id != FORMAT_PARITY_TENANT_ID
+            or row.owner_marker != FORMAT_PARITY_OWNER_MARKER
+            or row.run_token != run_token
+            or row.round_token != expected_round_token
+            or row.expected_rollout_version != expected_rollout_version
+            or tuple(row.doc_keys_json) != FORMAT_PARITY_DOC_KEYS
+        ):
+            raise EvaluationIsolationError("round_sequence_identity_mismatch")
+        if row.state in TERMINAL_STATES:
+            if row.state != "completed" or index != len(completed_results):
+                raise EvaluationIsolationError("round_sequence_terminal_mismatch")
+            completed_results.append(_validated_terminal_result(row))
+            continue
+        if active is not None or index != len(present) - 1:
+            raise EvaluationIsolationError("round_sequence_active_mismatch")
+        if row.lease_expires_at <= now or row.terminal_at is not None:
+            raise EvaluationIsolationError("active_round_mismatch")
+        active = _identity_from_row(row)
+
+    if active is not None:
+        next_format = None
+    elif len(present) < len(ROUND_FORMATS):
+        next_format = ROUND_FORMATS[len(present)]
+    else:
+        next_format = None
+    return RunSequenceState(
+        completed_results=tuple(completed_results),
+        active=active,
+        next_format=next_format,
+    )
+
+
+def _identity_from_row(row: RagEvaluationRound) -> EvaluationRoundIdentity:
+    return EvaluationRoundIdentity(
+        round_id=row.id,
+        tenant_id=row.tenant_id,
+        owner_marker=row.owner_marker,
+        run_token=row.run_token,
+        round_token=row.round_token,
+        round_format=row.round_format,
+        state_version=row.state_version,
+        next_document_index=row.next_document_index,
+        expected_rollout_version=row.expected_rollout_version,
+    )
+
+
+def _validated_terminal_result(row: RagEvaluationRound) -> dict[str, Any]:
+    proof = row.post_state_proof_json
+    current = proof.get("current") if isinstance(proof, dict) else None
+    head_keys = proof.get("head_keys") if isinstance(proof, dict) else None
+    result = proof.get("round_result") if isinstance(proof, dict) else None
+    try:
+        current_is_clean = isinstance(current, dict) and all(
+            int(current.get(key, -1)) == 0 for key in ("blocks", "chunks", "jobs")
+        )
+        head_key_set = set(head_keys) if isinstance(head_keys, list) else set()
+    except (TypeError, ValueError):
+        raise EvaluationIsolationError("terminal_round_proof_invalid") from None
+    if (
+        row.next_document_index != len(FORMAT_PARITY_DOC_KEYS)
+        or row.next_step != "done"
+        or row.terminal_at is None
+        or row.failure_code is not None
+        or row.attempt_doc_key is not None
+        or row.expected_source_checksum is not None
+        or row.reservation_at is not None
+        or row.claimed_job_id is not None
+        or not current_is_clean
+        or not isinstance(head_keys, list)
+        or head_key_set != set(FORMAT_PARITY_DOC_KEYS)
+        or not isinstance(result, dict)
+        or result.get("round_format") != row.round_format
+        or result.get("round_token") != str(row.round_token)
+        or result.get("outcome") not in {"completed_pass", "completed_quality_fail"}
+        or result.get("pre_state_proved") is not True
+        or result.get("post_state_proved") is not True
+        or result.get("immutable_history_preserved") is not True
+    ):
+        raise EvaluationIsolationError("terminal_round_proof_invalid")
+    return dict(result)
 
 
 def classify_attempt_projection(projection: AttemptProjection) -> ProjectionState:
@@ -160,6 +273,44 @@ class RagEvaluationRoundRepository:
         self.job_repo = RagIngestionJobRepository(session)
         self.block_repo = DocumentBlockRepository(session)
         self.chunk_repo = PolicyChunkRepository(session)
+
+    async def lock_run_rows(self, run_token: UUID) -> list[RagEvaluationRound]:
+        """Lock one exact run plus any active row that could conflict with it."""
+
+        active_rows = list(
+            (
+                await self.session.execute(
+                    select(RagEvaluationRound)
+                    .where(
+                        RagEvaluationRound.tenant_id == FORMAT_PARITY_TENANT_ID,
+                        RagEvaluationRound.state.not_in(TERMINAL_STATES),
+                    )
+                    .order_by(RagEvaluationRound.created_at, RagEvaluationRound.id)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if len(active_rows) > 1:
+            raise EvaluationIsolationError("active_round_cardinality")
+        if active_rows and active_rows[0].run_token != run_token:
+            raise EvaluationIsolationError("active_round_mismatch")
+        return list(
+            (
+                await self.session.execute(
+                    select(RagEvaluationRound)
+                    .where(
+                        RagEvaluationRound.tenant_id == FORMAT_PARITY_TENANT_ID,
+                        RagEvaluationRound.run_token == run_token,
+                    )
+                    .order_by(RagEvaluationRound.created_at, RagEvaluationRound.id)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     async def create_round(
         self,
@@ -243,8 +394,8 @@ class RagEvaluationRoundRepository:
             owner,
             state="ingesting",
             next_step="ingest",
-            pre_state_proof_json={"current": current_counts, "head_keys": list(head_mapping)},
-            head_mappings_json=head_mapping,
+            pre_state_proof_json={"current": current_counts, "head_ids": head_mapping},
+            head_mappings_json={},
             immutable_counts_json=immutable,
         )
 
@@ -432,8 +583,9 @@ class RagEvaluationRoundRepository:
         if owner.next_document_index != len(FORMAT_PARITY_DOC_KEYS):
             raise EvaluationIsolationError("retrieval_progress_incomplete")
         heads = await self._lock_tenant_heads()
+        await self._prove_recorded_projection(row, heads, require_all=True)
         current = await self._current_counts(heads)
-        if len(heads) != 3 or current["blocks"] <= 0 or current["chunks"] <= 0 or current["jobs"]:
+        if current["jobs"]:
             raise EvaluationIsolationError("retrieval_projection_invalid")
         return await self._cas(row, owner, state="cleaning", next_step="cleanup")
 
@@ -443,15 +595,20 @@ class RagEvaluationRoundRepository:
         *,
         terminal_state: Literal["completed", "abandoned"],
         failure_code: str | None = None,
+        round_result: dict[str, Any] | None = None,
     ) -> EvaluationRoundIdentity:
         allowed = frozenset({"cleaning", "expired", "ingesting", "retrieving"})
         row = await self.lock_owned(owner, allowed_states=allowed)
         heads = await self._lock_tenant_heads()
+        proved_heads = await self._prove_recorded_projection(row, heads, require_all=False)
+        before_current = await self._current_counts(heads)
+        if before_current["jobs"]:
+            raise EvaluationIsolationError("projection_drift")
         before_immutable = await self._immutable_counts()
         recorded = {key: int(value) for key, value in row.immutable_counts_json.items() if isinstance(value, int)}
         if any(before_immutable.get(key, 0) < value for key, value in recorded.items()):
             raise EvaluationIsolationError("immutable_history_regressed")
-        for head in heads:
+        for head in proved_heads:
             await self.block_repo.delete_by_document_id(head.id, row.tenant_id)
             await self.chunk_repo.delete_by_document_id(head.id, row.tenant_id)
         current = await self._current_counts(heads)
@@ -460,12 +617,18 @@ class RagEvaluationRoundRepository:
         after_immutable = await self._immutable_counts()
         if any(after_immutable[key] < before_immutable[key] for key in before_immutable):
             raise EvaluationIsolationError("immutable_history_regressed")
+        post_proof: dict[str, Any] = {
+            "current": current,
+            "head_keys": [head.doc_key for head in heads],
+        }
+        if round_result is not None:
+            post_proof["round_result"] = dict(round_result)
         return await self._cas(
             row,
             owner,
             state=terminal_state,
             next_step="done",
-            post_state_proof_json={"current": current, "head_keys": [head.doc_key for head in heads]},
+            post_state_proof_json=post_proof,
             immutable_counts_json=after_immutable,
             failure_code=failure_code,
             safe_message="evaluation round completed"
@@ -590,9 +753,136 @@ class RagEvaluationRoundRepository:
             document_id=head.id if head is not None else None,
             job_id=jobs[0].id if len(jobs) == 1 else None,
             job_error_code=getattr(jobs[0], "error_code", None) if len(jobs) == 1 else None,
-            head_mapping={doc_key: str(head.id)} if head is not None else {},
+            head_mapping=(
+                {
+                    doc_key: {
+                        "head_id": str(head.id),
+                        "source_checksum": str(head.source_checksum),
+                        "block_count": len(blocks),
+                        "chunk_count": len(chunks),
+                        "canonical_binding_count": len(chunk_ids & bound_ids),
+                    }
+                }
+                if head is not None
+                else {}
+            ),
             immutable_counts=immutable,
         )
+
+    async def _prove_recorded_projection(
+        self,
+        row: RagEvaluationRound,
+        heads: list[PolicyDocument],
+        *,
+        require_all: bool,
+    ) -> list[PolicyDocument]:
+        raw_proof = row.head_mappings_json
+        if not isinstance(raw_proof, dict):
+            raise EvaluationIsolationError("projection_proof_invalid")
+        proof_keys = set(raw_proof)
+        if not proof_keys.issubset(FORMAT_PARITY_DOC_KEYS):
+            raise EvaluationIsolationError("projection_proof_invalid")
+        if require_all and proof_keys != set(FORMAT_PARITY_DOC_KEYS):
+            raise EvaluationIsolationError("projection_proof_incomplete")
+        heads_by_key = {head.doc_key: head for head in heads}
+        if any(doc_key not in heads_by_key for doc_key in proof_keys):
+            raise EvaluationIsolationError("projection_drift")
+
+        proved_heads: list[PolicyDocument] = []
+        for head in heads:
+            actual = await self._head_projection(head)
+            expected = raw_proof.get(head.doc_key)
+            if expected is None:
+                if actual["block_count"] or actual["chunk_count"] or actual["canonical_binding_count"]:
+                    raise EvaluationIsolationError("projection_drift")
+                continue
+            if not isinstance(expected, dict) or set(expected) != {
+                "head_id",
+                "source_checksum",
+                "block_count",
+                "chunk_count",
+                "canonical_binding_count",
+            }:
+                raise EvaluationIsolationError("projection_proof_invalid")
+            if actual != expected:
+                raise EvaluationIsolationError("projection_drift")
+            if (
+                int(actual["block_count"]) <= 0
+                or int(actual["chunk_count"]) <= 0
+                or actual["canonical_binding_count"] != actual["chunk_count"]
+            ):
+                raise EvaluationIsolationError("projection_drift")
+            proved_heads.append(head)
+        return proved_heads
+
+    async def _head_projection(self, head: PolicyDocument) -> dict[str, Any]:
+        blocks = list(
+            (
+                await self.session.execute(
+                    select(DocumentBlock)
+                    .where(
+                        DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
+                        DocumentBlock.doc_id == head.id,
+                    )
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        chunks = list(
+            (
+                await self.session.execute(
+                    select(PolicyChunk)
+                    .where(
+                        PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
+                        PolicyChunk.doc_id == head.id,
+                    )
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        document_versions = list(
+            (
+                await self.session.execute(
+                    select(PolicyDocumentVersion).where(
+                        PolicyDocumentVersion.tenant_id == FORMAT_PARITY_TENANT_ID,
+                        PolicyDocumentVersion.policy_document_id == head.id,
+                        PolicyDocumentVersion.doc_key == head.doc_key,
+                        PolicyDocumentVersion.document_version == head.version,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        chunk_versions: list[PolicyChunkVersion] = []
+        if len(document_versions) == 1:
+            chunk_versions = list(
+                (
+                    await self.session.execute(
+                        select(PolicyChunkVersion).where(
+                            PolicyChunkVersion.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            PolicyChunkVersion.policy_document_version_id == document_versions[0].id,
+                            PolicyChunkVersion.doc_key == head.doc_key,
+                            PolicyChunkVersion.document_version == head.version,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        chunk_ids = {str(chunk.chunk_id) for chunk in chunks}
+        bound_ids = {str(chunk.chunk_id) for chunk in chunk_versions}
+        return {
+            "head_id": str(head.id),
+            "source_checksum": str(head.source_checksum),
+            "block_count": len(blocks),
+            "chunk_count": len(chunks),
+            "canonical_binding_count": len(chunk_ids & bound_ids),
+        }
 
     async def _lock_tenant_heads(self) -> list[PolicyDocument]:
         heads = list(
@@ -615,8 +905,20 @@ class RagEvaluationRoundRepository:
 
     async def _current_counts(self, heads: list[PolicyDocument]) -> dict[str, int]:
         document_ids = [head.id for head in heads]
+        jobs = int(
+            (
+                await self.session.execute(
+                    select(func.count())
+                    .select_from(RagIngestionJob)
+                    .where(
+                        RagIngestionJob.tenant_id == FORMAT_PARITY_TENANT_ID,
+                        RagIngestionJob.doc_key.in_(FORMAT_PARITY_DOC_KEYS),
+                    )
+                )
+            ).scalar_one()
+        )
         if not document_ids:
-            return {"documents": 0, "blocks": 0, "chunks": 0, "jobs": 0}
+            return {"documents": 0, "blocks": 0, "chunks": 0, "jobs": jobs}
         blocks = int(
             (
                 await self.session.execute(
@@ -637,18 +939,6 @@ class RagEvaluationRoundRepository:
                     .where(
                         PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
                         PolicyChunk.doc_id.in_(document_ids),
-                    )
-                )
-            ).scalar_one()
-        )
-        jobs = int(
-            (
-                await self.session.execute(
-                    select(func.count())
-                    .select_from(RagIngestionJob)
-                    .where(
-                        RagIngestionJob.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        RagIngestionJob.doc_key.in_(FORMAT_PARITY_DOC_KEYS),
                     )
                 )
             ).scalar_one()

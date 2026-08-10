@@ -30,6 +30,7 @@ from src.repositories.rag_evaluation_round_repo import (
     EvaluationRoundIdentity,
     ProjectionState,
     RagEvaluationRoundRepository,
+    validate_run_sequence,
 )
 
 
@@ -193,16 +194,33 @@ async def run_retrieval_parity(
 
     if owner.tenant_id != FORMAT_PARITY_TENANT_ID or owner.owner_marker != FORMAT_PARITY_OWNER_MARKER:
         raise EvaluationIsolationError("identity_mismatch")
-    if owner.round_format != ROUND_FORMATS[0]:
+    if owner.round_format not in ROUND_FORMATS:
         raise EvaluationIsolationError("initial_round_mismatch")
     ingestion_service = IngestionService(session, embedder, FORMAT_PARITY_TENANT_ID)
     recording_engine = RecordingPolicyRetrievalEngine(PolicyRetrievalEngine(session, embedder=embedder))
     knowledge_service = PolicyKnowledgeService(recording_engine)
     round_repo = RagEvaluationRoundRepository(session)
     current_owner = owner
+    start_index = ROUND_FORMATS.index(owner.round_format)
     round_results: list[RetrievalRoundResultV1] = []
+    if start_index:
+        async with session.begin():
+            sequence = validate_run_sequence(
+                await round_repo.lock_run_rows(owner.run_token),
+                run_token=owner.run_token,
+                expected_rollout_version=owner.expected_rollout_version,
+                now=datetime.now(UTC),
+            )
+        if sequence.active != owner or len(sequence.completed_results) != start_index:
+            raise EvaluationIsolationError("resume_sequence_mismatch")
+        try:
+            round_results.extend(
+                RetrievalRoundResultV1.model_validate(payload) for payload in sequence.completed_results
+            )
+        except ValueError:
+            raise EvaluationIsolationError("terminal_round_result_invalid") from None
 
-    for format_index, round_format in enumerate(ROUND_FORMATS):
+    for format_index, round_format in enumerate(ROUND_FORMATS[start_index:], start=start_index):
         if current_owner.round_format != round_format:
             raise EvaluationIsolationError("round_format_mismatch")
         ingestions: list[IngestionObservationV1] = []
@@ -213,6 +231,7 @@ async def run_retrieval_parity(
         post_state_proved = False
         immutable_preserved = False
         ingestion_quality_failed = False
+        successful_round: RetrievalRoundResultV1 | None = None
         try:
             async with session.begin():
                 progress = await round_repo.read_progress(current_owner)
@@ -314,10 +333,23 @@ async def run_retrieval_parity(
                         )
                 if any(not _case_quality_pass(case) for case in observations):
                     terminal_outcome = EvaluationOutcome.COMPLETED_QUALITY_FAIL
+            successful_round = RetrievalRoundResultV1(
+                round_format=round_format,
+                round_token=str(current_owner.round_token),
+                outcome=terminal_outcome,
+                ingestions=tuple(ingestions),
+                cases=tuple(observations),
+                pre_state_proved=pre_state_proved,
+                exactly_three_current_proved=len(ingestions) == 3
+                and all(observation.status == "success" for observation in ingestions),
+                post_state_proved=True,
+                immutable_history_preserved=True,
+            )
             async with session.begin():
                 current_owner = await round_repo.cleanup_current_projection(
                     current_owner,
                     terminal_state="completed",
+                    round_result=successful_round.model_dump(mode="json"),
                 )
             post_state_proved = True
             immutable_preserved = True
@@ -339,7 +371,9 @@ async def run_retrieval_parity(
                 failure_reason = "cleanup_proof_failed"
 
         round_results.append(
-            RetrievalRoundResultV1(
+            successful_round
+            if successful_round is not None and terminal_outcome is not EvaluationOutcome.EXECUTION_ERROR
+            else RetrievalRoundResultV1(
                 round_format=round_format,
                 round_token=str(current_owner.round_token),
                 outcome=terminal_outcome,

@@ -16,11 +16,11 @@ from typing import Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
-from src.db.models import EvidenceIdentityRollout, RagEvaluationRound, Tenant
+from src.db.models import EvidenceIdentityRollout, Tenant
 from src.db.session import SessionLocal
 from src.knowledge.config import (
     MIN_SIMILARITY_THRESHOLD,
@@ -61,6 +61,7 @@ from src.repositories.rag_evaluation_round_repo import (
     EvaluationIsolationError,
     EvaluationRoundIdentity,
     RagEvaluationRoundRepository,
+    validate_run_sequence,
 )
 
 
@@ -663,55 +664,25 @@ async def _claim_or_resume(
     run_token: UUID,
     expected_rollout_version: int,
 ) -> EvaluationRoundIdentity:
-    active_rows = list(
-        (
-            await session.execute(
-                select(RagEvaluationRound)
-                .where(
-                    RagEvaluationRound.tenant_id == FORMAT_PARITY_TENANT_ID,
-                    RagEvaluationRound.state.not_in(("completed", "abandoned")),
-                )
-                .with_for_update()
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if len(active_rows) > 1:
-        raise EvaluationIsolationError("active_round_cardinality")
-    if active_rows:
-        row = active_rows[0]
-        if (
-            row.owner_marker != FORMAT_PARITY_OWNER_MARKER
-            or row.run_token != run_token
-            or row.round_format != "markdown"
-            or row.expected_rollout_version != expected_rollout_version
-            or tuple(row.doc_keys_json)
-            != (
-                "eval_refund_eligibility_and_return",
-                "eval_quality_compensation_and_approval",
-                "eval_cross_border_and_digital_goods",
-            )
-            or row.lease_expires_at <= datetime.now(UTC)
-        ):
-            raise EvaluationIsolationError("active_round_mismatch")
-        return EvaluationRoundIdentity(
-            round_id=row.id,
-            tenant_id=row.tenant_id,
-            owner_marker=row.owner_marker,
-            run_token=row.run_token,
-            round_token=row.round_token,
-            round_format=row.round_format,
-            state_version=row.state_version,
-            next_document_index=row.next_document_index,
-            expected_rollout_version=row.expected_rollout_version,
-        )
     repository = RagEvaluationRoundRepository(session)
+    now = datetime.now(UTC)
+    rows = await repository.lock_run_rows(run_token)
+    sequence = validate_run_sequence(
+        rows,
+        run_token=run_token,
+        expected_rollout_version=expected_rollout_version,
+        now=now,
+    )
+    if sequence.active is not None:
+        return sequence.active
+    if sequence.next_format is None:
+        raise EvaluationIsolationError("run_sequence_complete")
+    next_format = sequence.next_format
     return await repository.create_round(
         run_token=run_token,
-        round_token=uuid5(NAMESPACE_URL, f"{run_token}:markdown"),
-        round_format="markdown",
-        lease_expires_at=datetime.now(UTC) + timedelta(hours=2),
+        round_token=uuid5(NAMESPACE_URL, f"{run_token}:{next_format}"),
+        round_format=next_format,
+        lease_expires_at=now + timedelta(hours=2),
         expected_rollout_version=expected_rollout_version,
     )
 
