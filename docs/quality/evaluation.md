@@ -156,8 +156,8 @@ make eval-rag-format-parity-contract
 make eval-rag-format-parity-parser
 
 # 3. 真实 provider/OCR、固定 evaluation tenant、三轮 production ingestion/retrieval
-export RAG_FORMAT_PARITY_RUN_TOKEN="<new-nonzero-uuid>"
-export EVIDENCE_ROLLOUT_VERSION="<current-positive-rollout-version>"
+export RAG_FORMAT_PARITY_RUN_TOKEN="$(UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from uuid import uuid4; print(uuid4())')"
+export EVIDENCE_ROLLOUT_VERSION="1"
 TMPDIR=/private/tmp make eval-rag-format-parity-provider
 
 # 4. 原有 22-case chunk-ID/fallback 历史回归；映射保持不变

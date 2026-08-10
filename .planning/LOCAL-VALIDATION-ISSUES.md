@@ -23103,3 +23103,103 @@ Pillow 12.2.0 的 PDF writer 只把 `time.struct_time` 识别为 PDF date，普�
 
 **剩余问题和下次继续排查入口**
 当前固定工具和字体 identity 下无剩余本机失败。跨机器重建必须使用 manifest 记录的同一 ReportLab/Pillow/PDFium/pdfplumber 版本和相同字体 bytes；identity 不一致时不得复用本 baseline，也不能把 fixture 字节可复现扩张为 live provider 指标逐位可复现。
+
+## 2026-08-10 — Phase 64.3 real-provider 前三轮尝试暴露 checksum、事务与 scanned progression 阻断
+
+**问题现象**
+Provider baseline 的连续尝试依次在 exact ingestion-attempt 证明、retrieval 后 cleanup、scanned-PDF ingestion 分类处停止：evaluation owner 使用裸 SHA-256，而生产 job 保存带算法前缀的 checksum；KnowledgeService search 留下 implicit transaction；可用 OCR 下第二次真实持久化的 scanned `malformed_source` 被当成 evaluator error，而不是受控质量失败。
+
+**如何检测/复现**
+使用固定 evaluation tenant/marker、显式 UUID run token 和 rollout version 运行 full-provider，逐轮检查 durable owner state、exact job/head/block/chunk projection、transaction 状态与 zero-residual cleanup。对应 RED 测试分别固定了 checksum lookup/delete、search 后 transaction boundary、以及只允许 scanned `malformed_source` 在两次真实失败与精确清理证明后推进的行为。
+
+**关键证据或命令**
+Checksum RED/GREEN commits 为 `4c00863` / `c4b71c3`；retrieval transaction RED/GREEN 为 `7ea1b99` / `be32691`；controlled scanned progression RED/GREEN 为 `bb88d1d` / `9186cb9`。最终 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_rag_retrieval_round_isolation.py tests/eval/test_rag_format_parity_report.py -q --tb=short` 纳入 Phase 64.3 final focused gate，完整 focused 结果为 111 passed。
+
+**当前判断/根因**
+三项均属于 evaluation runtime 与生产 ingestion/retrieval seam 的精确契约不一致：checksum 表示不统一、read transaction 生命周期未在 cleanup 前关闭、以及完成质量失败与执行错误的 taxonomy 缺少受控 scanned 分支。它们不是 provider 质量分数本身。
+
+**已做处理**
+增加严格单向 checksum canonicalization；每次 production search 与 observation capture 使用短事务并在 cleanup 前关闭/rollback；仅对精确证明的第二次 persisted scanned `malformed_source` 做 zero-residual cleanup 后继续，其他错误保持 fail closed。最终三轮 real-provider run 完成且 canonical outcome 保持 `completed_quality_fail`。
+
+**剩余问题和下次继续排查入口**
+这三项阻断已修复并纳入回归。后续从 `tests/eval/test_rag_retrieval_round_isolation.py` 的 checksum、transaction 和 scanned quality taxonomy cases 继续；不得放宽 fixed tenant、exact token/key/checksum、immutable non-regression 或其他 error 的 fail-closed 语义。
+
+## 2026-08-10 — Phase 64.3 provider attempt 005 完成三轮后因 report command 超长静默无 artifact
+
+**问题现象**
+Attempt 005 已完成三种格式的真实 ingestion/retrieval 与清理，但 runtime config 的 `command` 超过 schema 512 字符限制；当时 post-run `OSError/ValueError` 只让 CLI exit 2，没有 canonical pair，也没有 diagnostic，外观上像 provider 运行后 artifact 静默缺失。
+
+**如何检测/复现**
+先用与 CLI 相同 argparse 值构造 report config，再经 strict Pydantic validation；纠正 preflight 后稳定得到 `command:string_too_long`。一轮临时 preflight 曾漏传 `repository_root`，修正后才得到上述决定性错误，前一次输出不作为结论。
+
+**关键证据或命令**
+Task 2 RED commit `78db1cb` 覆盖 config/build/persist failure；GREEN commit `518b26b` 将 persistence destination 从 command descriptor 移除，最终 command 长度 377，并新增 `report_config_failed`、`report_build_failed`、`report_persist_failed` 三段安全 diagnostic。Canonical strict loader 与 12,045-byte Markdown projection 在 final gate 字节级一致。
+
+**当前判断/根因**
+根因是 reproducibility descriptor 混入不参与 configured identity 的 output/diagnostic 路径，并且 post-run exception boundary 没有持久安全 reason code。One-off preflight 的 `repository_root` 漏项是验证命令错误，不是产品根因。
+
+**已做处理**
+完成 exact RED/GREEN，分段捕获 report config/build/persist 失败并只输出稳定 reason code；canonical pair 仍只允许 completed/full-provider/eligible result 原子写入。命令 preflight 改用完整 repository context，不再把 output destinations 纳入 identity descriptor。
+
+**剩余问题和下次继续排查入口**
+已修复并由 final report tests 覆盖。后续如扩展 CLI flags，先运行同一 config preflight 并保持 command 小于 schema 上限；任何 unavailable/error 只读 diagnostic，不能把旧 canonical pair重新标成新运行结果。
+
+## 2026-08-10 — Phase 64.3 provider 诊断 shell 与 macOS OCR temp 环境陷阱
+
+**问题现象**
+诊断 artifact 哈希循环一度使用 zsh 特殊变量 `path`，覆盖命令搜索路径，导致 `shasum`/`jq` 看似不存在；修正变量名后 `shasum` 又打印本机 locale fallback warning。另一个独立问题是 macOS temp symlink 形式的临时图片路径让 pytesseract/Tesseract 的 Leptonica 读取失败，OCR runtime/traineddata 明明可用却返回 `malformed_source`。
+
+**如何检测/复现**
+Shell 事故通过变量赋值前后比较命令解析并改名复跑；hash 再由项目 Python `hashlib` 交叉验证。OCR 事故对同一三份 scanned fixture 的 15 页分别在 platform-default 与 realpath-normalized temp mode 下只读运行：默认模式失败，归一化后 15/15 OCR 成功。
+
+**关键证据或命令**
+Provider final run 以安全枚举 `ocr_temp_directory_mode=explicit_macos_private_tmp` 记录环境差异；report/runtime 测试在 `tests/eval/test_rag_format_parity_report.py`。最终 canonical run token 为 `64f30400-0000-4000-8000-000000000006`，strict JSON 显示 completed real-provider pair。Locale warning 未改变 canonical JSON/Markdown SHA-256，最终 hash 由项目 Python 环境复核。
+
+**当前判断/根因**
+`path` 是 zsh 特殊数组变量，不能作为普通 loop variable。Locale warning 是本机 Perl locale fallback，不是 hash 失败。OCR 根因位于 production `OcrEngine` 调用 pytesseract 时对 macOS symlink temp path 的兼容与异常分类；command-level normalization 只证明可运行，不是 production parser 修复。
+
+**已做处理**
+Shell 循环改用非保留变量；最终完整性判断改由 strict loader、Python hash 与 byte compare 拥有。Provider command 在该主机使用 realpath-normalized temp 环境，并仅把安全 mode enum 写入 configured identity；未记录 credential、DSN、任意用户路径或原始 provider payload。
+
+**剩余问题和下次继续排查入口**
+Shell 与 baseline 执行环境已收口；production `OcrEngine` 仍需 post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening`（若未作为明确前置配套，则 Phase 64.5、Phase 65 前）修复路径传递和错误 taxonomy。Phase 64.4 只负责 token/chunk-boundary，不承接该 parser/OCR 债务。
+
+## 2026-08-10 — Phase 64.3 exact cleanup 后 `reused_binding` 无法重建 current projection
+
+**问题现象**
+旧 provider 尝试在一轮 exact cleanup 清空 current blocks/chunks、保留 immutable history 与 document head 后，以相同 fingerprint 再摄取；production ingestion 命中 `reused_binding`，但复用分支只对 cleanup 后已为空的 locked chunks 投影 write sequence，无法重建 current blocks/chunks，round 因 projection 不完整停止。
+
+**如何检测/复现**
+在 evaluation-only tenant 上完成一次 exact cleanup，然后对同一 doc key、相同 fingerprint/内容重摄取并检查 current projection。代码核对入口为 `src/rag/ingestion.py` 的 `reused_binding` 分支与 `src/repositories/rag_evaluation_round_repo.py::cleanup_current_projection()`：前者复用 `locked_chunks`，后者依法删除 current blocks/chunks但保留 head/immutable versions。
+
+**关键证据或命令**
+旧尝试的 transient diagnostic 已按成功 canonical run 的安全清理约定删除，不作为当前 artifact；仓库代码仍可直接证明该组合边界。Final stable-base 审计确认本 phase 未修改 production ingestion 来掩盖问题；410 个 existing RAG/eval/parser/knowledge tests 通过只证明现有合同，不证明这个重建场景已修复。
+
+**当前判断/根因**
+这是 production ingestion 的 unchanged/reused-binding 语义与 evaluation exact current-projection cleanup 组合后的真实架构缺口。它不同于 Phase 64.4 的 token/chunk-boundary 优化，也不应通过 broad cleanup 或删除 immutable history规避。
+
+**已做处理**
+Phase 64.3 没有越界修改 production ingestion；最终 canonical run 使用新的可证明轮次完成，问题写入长期架构债务并指定 owner。
+
+**剩余问题和下次继续排查入口**
+由 post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening` 处理；若不作为 64.4 的显式前置配套，则在 Phase 65 前建立 Phase 64.5。入口是为“head/immutable binding 存在、current blocks/chunks 已精确清空、相同 fingerprint 重摄取”新增 production integration RED，再决定安全重建 current projection 的契约；不得把该债务误归 Phase 64.4。
+
+## 2026-08-10 — Phase 64.3 Plan 05 acceptance 自检的 shell 引号与历史台账扫描范围错误
+
+**问题现象**
+首次 acceptance 聚合脚本把含 Markdown 反引号的 Python 断言放进 zsh 双引号，shell 先执行了其中两个标识，随后断言失败；同一脚本还把裸测试入口扫描扩到完整历史 `LOCAL-VALIDATION-ISSUES.md`，命中旧事故原文中的裸命令，造成与本次 Plan 05 artifact 无关的假失败。
+
+**如何检测/复现**
+错误输出包含两个 `command not found`，且 `rg` 命中行号全部位于本次 Phase 64.3 追加区段之前。检查 `git diff` 可确认 Plan 05 新增命令都使用 `UV_CACHE_DIR=/tmp/uv-cache uv run ...` 或 Make target。
+
+**关键证据或命令**
+修正后使用 shell 单引号保护 `UV_CACHE_DIR=/tmp/uv-cache uv run python -c '...'`，并只对 Makefile、evaluation 文档、64.3 validation 与本次 diff 新增行执行裸入口扫描；strict loader、12-row validation、ledger/owner 断言与 diff/static gates 全部重跑。
+
+**当前判断/根因**
+这是 validation wrapper 的 shell quoting 与 scope 选择错误，不是代码、canonical report 或 pytest 失败。历史台账按规则保留过去事故原文，不能把旧裸命令记录误算成本 plan 新增命令。
+
+**已做处理**
+改用不会触发 command substitution 的引用方式；裸入口 gate 改为扫描 Plan 05 当前 artifact 的新增命令行，不修改历史事故正文。
+
+**剩余问题和下次继续排查入口**
+无产品侧剩余问题。后续 shell 内嵌 Python 若包含 Markdown 反引号必须使用安全外层引用；artifact command scan 应以当前 diff/授权文件为边界。

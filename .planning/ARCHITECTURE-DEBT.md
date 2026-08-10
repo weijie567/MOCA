@@ -395,7 +395,7 @@
 - **影响**：当前生产 parser/OCR 无法对等保留同一 policy 的表格、语义 anchor、页码和 provenance locator；后续 retrieval/chunking 指标会被 parser 失真前置限制，不能将该结果当成 provider unavailable 或用 deterministic fake 粉饰。
 - **处理状态**：🔴 质量缺陷未修复；评估 taxonomy 已修正并验证，所有 OCR runtime 可用但 empty/garbled/zero-anchor 的结果都是 `completed_quality_fail` / `primary_stage=ocr`，而不是 unavailable 或 execution error。
 - **证据**：Phase 64.3 Plan 02 commits `eec8b48`、`bce7d0c`、`a70dffb`、`f917869`；`src/rag/evaluation/parser_parity.py`、`scripts/eval_rag_parser_parity.py`、`tests/eval/test_rag_parser_parity.py`；父级门禁 `46 passed, 1 warning`；真实 CLI 输出 `parser_parity_run.v1` / `parser_direct` / 9 variants / `completed_quality_fail`。详细事故见 `.planning/LOCAL-VALIDATION-ISSUES.md` 第 33 条。
-- **剩余风险 / 目标 phase**：Phase 64.4 planning 必须消费该 baseline 并决定是否纳入 chunking/reindex scope；若不纳入，则必须在 Phase 65 前正式插入 Phase 64.5 `RAG Parser/OCR Quality Remediation`，分别定位 hidden-text policy、OCR raster/input 适配与 table/page/provenance projection，不得静默 defer。
+- **剩余风险 / 目标 phase**：Phase 64.4 必须消费 baseline，但只拥有 token/chunk-boundary、reindex 与 A/B；parser/OCR/table/ingestion projection 不得误归 Phase 64.4。后者统一命名为 post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening`，若未作为 64.4 的显式前置配套，则必须在 Phase 65 前正式插入 Phase 64.5，分别定位 hidden-text policy、OCR raster/input 适配与 table/page/provenance projection，不得静默 defer。
 
 ## 2026-08-10 — Phase 64.3 same-token nonzero-progress recovery 误拒绝已修复 ✅已修复验证
 
@@ -404,7 +404,61 @@
 - **影响**：合法的 crash retry 无法进入已规划的精确投影分类/CAS 恢复，会把可证明的 evaluation-owned 中间状态变成人工卡死；但不存在跨 token 放宽或广泛删除权限。
 - **处理状态**：✅ 已修复验证。runtime 现在每次重新加锁并读取 durable round，继续校验 exact tenant/marker/allowlist/run token/round token/format/state/progress，然后才通过现有分类与 CAS 协议恢复。只有 exact-complete 投影可推进；reservation/job-only/failure 精确清理后重试；malformed/multiple/mismatched 继续 fail closed。
 - **证据**：Phase 64.3 Plan 03 follow-up commit `16f3007`；`src/rag/evaluation/retrieval_rounds.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；focused gate `35 passed`，Plans 01–03 + facade gate `81 passed`，Phase 64.2 historical replay regression `1 passed`；真实 PostgreSQL 029 upgrade/downgrade/re-upgrade 与 immutable sentinel/trigger 保真通过。
-- **剩余风险**：🟡 live provider 完整三轮尚因 embedding provider 未配置而未运行；恢复协议已有 deterministic/DB-backed 证据，但 Phase 04 仍必须在真实 provider baseline 中保留 safe cleanup 和 baseline-eligibility 门禁。
+- **剩余风险**：🟡 real-provider 三轮已在 Plan 04 完成，并产出 strict `completed_quality_fail` canonical pair；恢复协议继续由 deterministic/DB-backed tests、safe cleanup 和 baseline-eligibility 门禁保护。Observed quality misses 分别交由下述 Phase 64.4 chunk-boundary、Phase 64.5 parser/ingestion 与命名 retrieval follow-up，不把 evaluation runtime 修复误报成生产质量已通过。
+
+## 2026-08-10 — Phase 64.3 evaluation/production checksum bridge ✅已修复验证
+
+- **子系统**：RAG evaluation isolation / production ingestion job identity。
+- **问题现象 / 根因**：evaluation round owner 持有 64 位裸 SHA-256，production `RagIngestionJob.source_checksum` 持久化 `sha256:<digest>`；exact attempt lookup、projection classification 与删除因此无法证明同一 job，真实 provider round 被阻断。
+- **影响**：合法 evaluation attempt 会被误判为 reservation-only/malformed，无法安全恢复或 cleanup；若改成宽松 doc-key 查询又会扩大删除边界。
+- **处理状态**：✅ 已修复验证。只在 evaluation exact-attempt seam 增加严格单向 owner digest canonicalization，lookup/all-attempt/delete 均使用同一 production representation；任意非 64-hex 或已带前缀输入继续拒绝，未新增 doc-key-only 删除。
+- **证据**：Phase 64.3 Plan 03 RED/GREEN commits `4c00863` / `c4b71c3`；`src/repositories/rag_evaluation_round_repo.py`、`src/repositories/rag_ingestion_job_repo.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；Plan 05 focused gate 111 passed，full RAG/eval/parser/knowledge regression 410 passed。
+- **剩余风险**：当前 bridge 仅服务固定 evaluation owner 的 exact attempt，不是全局 checksum alias API；后续必须保留 strict input pattern、tenant/doc/checksum/reservation tuple 与 CAS deletion。
+
+## 2026-08-10 — Phase 64.3 retrieval implicit transaction leak ✅已修复验证
+
+- **子系统**：RAG evaluation runtime / production KnowledgeService retrieval / cleanup transaction boundary。
+- **问题现象 / 根因**：production search 与 recording capture 留下 SQLAlchemy implicit transaction；随后 `session.begin()` 执行 exact cleanup 时因已有 transaction 失败，并把真实 stage reason 覆盖成 cleanup/execution error。
+- **影响**：三轮 provider baseline 无法在 retrieval observation 后证明 zero-residual cleanup；错误归因也会从质量 miss 漂移为 evaluator error。
+- **处理状态**：✅ 已修复验证。每次 service search 与单次 recorded capture 都在短事务内完成，离开该边界前 commit/rollback，cleanup 才开启自己的 exact transaction；未修改 production retrieval/rerank 逻辑或指标。
+- **证据**：Phase 64.3 Plan 03 RED/GREEN commits `7ea1b99` / `be32691`；`src/rag/evaluation/retrieval_rounds.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；Plan 04 real-provider 三轮完成，Plan 05 111/410 tests 与 scoped Ruff 通过。
+- **剩余风险**：当前无已知未闭合 transaction；后续调整 KnowledgeService capture 顺序时必须继续断言 search observation 与 cleanup 不共享隐式 transaction。
+
+## 2026-08-10 — Phase 64.3 controlled scanned progression ✅已修复验证
+
+- **子系统**：RAG evaluation runtime / scanned ingestion quality taxonomy / immutable isolation。
+- **问题现象 / 根因**：OCR runtime 可用时，scanned fixture 的真实 `malformed_source` 属于本次待记录的 parser/OCR 质量结果；旧 runtime 却把第二次 persisted failure 一律当 execution error，无法完成 honest red baseline。
+- **影响**：scanned parser/OCR 质量缺口会被错误描述为 evaluator 不可用，Phase 64.3 无法对三种格式给出 completed attribution。
+- **处理状态**：✅ 已修复验证。仅允许 scanned-PDF 的第二次真实 persisted `malformed_source` 在 exact job deletion、zero-residual current proof 和 immutable non-regression 后推进并记录 quality failure；其他 error code、format、次数或 projection 一律 fail closed。
+- **证据**：Phase 64.3 Plan 03 RED/GREEN commits `bb88d1d` / `9186cb9`；`src/rag/evaluation/retrieval_rounds.py`、`src/repositories/rag_evaluation_round_repo.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；最终 canonical report 为 `completed_quality_fail`、54 cases/46 failures。
+- **剩余风险**：🔴 此条只修复 evaluation taxonomy；production OCR 的 macOS temp-path 和错误分类缺口仍见下一条，不得把 controlled progression 解释成 OCR 已修复。
+
+## 2026-08-10 — Production `OcrEngine` macOS temp symlink 路径与错误分类 🔴待立项
+
+- **子系统**：RAG production parser / OCR runtime boundary。
+- **问题现象 / 根因**：同一三份 scanned fixture 的 15 页在 macOS platform-default symlink temp mode 下由 pytesseract/Tesseract/Leptonica 读取失败，realpath-normalized mode 下 15/15 OCR 成功。`OcrEngine.parse_image()` 直接将 Pillow image 交给 pytesseract，并把除 timeout 外的 RuntimeError/Exception 全部收敛为 `malformed_source`（`src/rag/parsers/ocr.py:53-70,157-164`），无法区分 source malformed 与 temp runtime transport failure。
+- **影响**：有效扫描文档可能因主机 temp path 表示而失败，并被错误归因为源文件损坏；command-level normalization 依赖运维记忆，跨入口不一致。
+- **处理状态**：🔴 待立项。Phase 64.3 只以 safe enum `explicit_macos_private_tmp` 记录并归一化 final baseline 环境，没有修改 production parser。
+- **证据**：Phase 64.3 Plan 04 commit `518b26b` 与 `64.3-04-SUMMARY.md`；`src/rag/parsers/ocr.py:53-70,157-164`；canonical report 记录 Tesseract 5.5.2 和 safe temp mode；本地事故细节见 `.planning/LOCAL-VALIDATION-ISSUES.md` 同日条目。
+- **剩余风险 / 目标 phase**：由 post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening` 修复 production temp input realpath/文件生命周期与安全错误 taxonomy；不属于 Phase 64.4。若未作为 64.4 显式前置配套，则 Phase 64.5、Phase 65 前立项。
+
+## 2026-08-10 — pdfplumber 0.11.10 unsupported rendering attrs 触发 digital hidden-text false positive 🔴待立项
+
+- **子系统**：RAG production PDF parser / hidden-text detection / provenance。
+- **问题现象 / 根因**：当前环境 pdfplumber 0.11.10；`_page_words()` 请求 `rendering_mode` 与 `text_rendering_mode` extra attrs（`src/rag/parsers/pdf.py:259-274`），该版本不提供这些 word attrs 时 exception 被吞并返回空列表。`_visible_page_text()` 随后看到 raw text 非空却无 visible words，统一发出 `hidden_text_ignored` 并丢弃可见 digital text（`src/rag/parsers/pdf.py:277-308`）。
+- **影响**：正常 digital PDF 被误判为隐藏文本，导致 semantic anchor、heading、table 与 PDF locator gate 大面积失败；错误吞并还让工具版本不兼容难以定位。
+- **处理状态**：🔴 待立项。Phase 64.3 保留 false positive 与质量红线，没有删掉 hidden-text safety guard 或修改 production parser。
+- **证据**：`UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import pdfplumber; print(pdfplumber.__version__)"` -> `0.11.10`；`src/rag/parsers/pdf.py:259-308`；Plan 04 canonical gates digital-PDF anchor 0.314286、PDF locator 0.528571，failure attribution保持真实。
+- **剩余风险 / 目标 phase**：post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening` 必须做版本兼容的 attrs 能力检测/降级，并保留真正 invisible text 的 fail-safe；不归 Phase 64.4。若未作为其显式前置配套，则 Phase 64.5、Phase 65 前立项。
+
+## 2026-08-10 — exact cleanup 后 production `reused_binding` 不能重建 current projection 🔴待立项
+
+- **子系统**：RAG production ingestion / immutable binding reuse / evaluation current-projection isolation。
+- **问题现象 / 根因**：evaluation cleanup 合法删除 current blocks/chunks并保留 document head/immutable versions（`src/repositories/rag_evaluation_round_repo.py:440-469`）。相同 fingerprint 再摄取时 production ingestion 可命中 `reused_binding`，却只对 cleanup 后为空的 `locked_chunks` 投影 sequence并把它作为 `persisted_chunks`，不会写入新解析出的 `db_blocks/db_chunks`（`src/rag/ingestion.py:358-381`）。
+- **影响**：head 与 exact immutable binding 仍存在时，current projection 无法从相同内容安全重建；后续 ingestion job 可报告 success/zero chunks，而 retrieval round 得到不完整 projection。
+- **处理状态**：🔴 待立项。旧 provider attempt 已诊断该组合边界；Phase 64.3 没有越界修改 production ingestion，也没有通过删除 immutable history或 broad reset规避。
+- **证据**：`src/rag/ingestion.py:358-381`、`src/repositories/rag_evaluation_round_repo.py:440-469`；Plan 05 stable-base diff 证明 production ingestion 未被 Phase 64.3 修改；本地事故见 `.planning/LOCAL-VALIDATION-ISSUES.md` 同日条目。
+- **剩余风险 / 目标 phase**：由 post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening` 定义“exact binding 存在但 current projection 缺失”的安全 rebuild contract 与 integration RED；不属于 Phase 64.4 token/chunk-boundary。若未作为 64.4 显式前置配套，则 Phase 64.5、Phase 65 前立项。
 
 ## RAG-56-03-01：RAG context routing status drift 与 partial action/risk 漏挡 ✅已修复验证
 
