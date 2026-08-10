@@ -128,8 +128,7 @@ def _parser_run(dataset, *, mode: str = "parser_direct", outcome: EvaluationOutc
             gold_hash=dataset.gold_hash,
             baseline_identity=dataset.baseline_identity,
             fixture_hashes=tuple(
-                FixtureHashV1(path=path, sha256=digest)
-                for path, digest in sorted(dataset.fixture_hashes.items())
+                FixtureHashV1(path=path, sha256=digest) for path, digest in sorted(dataset.fixture_hashes.items())
             ),
         ),
         prerequisites=(
@@ -143,9 +142,7 @@ def _parser_run(dataset, *, mode: str = "parser_direct", outcome: EvaluationOutc
         ),
         runtime_versions=(
             ParserRuntimeVersionV1(kind="parser", name="moca_parser_registry", version="21.01"),
-            ParserRuntimeVersionV1(
-                kind="ocr", name="tesseract", version="5.5.2", language="chi_sim+eng"
-            ),
+            ParserRuntimeVersionV1(kind="ocr", name="tesseract", version="5.5.2", language="chi_sim+eng"),
         ),
         variant_results=tuple(variants),
         safe_failures=(),
@@ -204,7 +201,7 @@ def _retrieval_run(
                         semantic_anchor_total=1,
                         no_answer_correct=False,
                         locator_expected=True,
-                        locator_covered=answerable_index != 3,
+                        locator_covered=answerable_index != 4,
                         rerank_observed=True,
                     )
                 )
@@ -327,6 +324,31 @@ def test_every_completed_miss_has_exactly_one_primary_stage(dataset) -> None:
     assert len({(f.policy_id, f.format, f.case_id) for f in report.failures}) == len(report.failures)
 
 
+def test_parser_and_ocr_misses_keep_their_primary_stage(dataset) -> None:
+    parser = _parser_run(dataset)
+    variants = list(parser.variant_results)
+    for wanted_format, wanted_stage in (("markdown", "parser"), ("scanned_pdf", "ocr")):
+        variant_index = next(
+            index
+            for index, variant in enumerate(variants)
+            if variant.variant == wanted_format and variant.policy_id == dataset.policies[0].doc_key
+        )
+        cases = list(variants[variant_index].case_results)
+        case_index = next(index for index, case in enumerate(cases) if case.status == "passed")
+        cases[case_index] = cases[case_index].model_copy(
+            update={
+                "status": "failed",
+                "primary_stage": wanted_stage,
+                "reason_codes": (f"{wanted_stage}_anchor_missing",),
+            }
+        )
+        variants[variant_index] = variants[variant_index].model_copy(update={"case_results": tuple(cases)})
+    parser = parser.model_copy(update={"variant_results": tuple(variants)})
+    report = _build_report(dataset, parser_run=parser)
+    stages = {failure.primary_stage for failure in report.failures}
+    assert {"parser", "ocr", "chunking", "retrieval", "provenance"} <= stages
+
+
 def test_malformed_completed_rows_become_execution_error(dataset) -> None:
     retrieval = _retrieval_run(dataset)
     broken_round = retrieval.rounds[0].model_copy(update={"cases": retrieval.rounds[0].cases[:-1]})
@@ -346,8 +368,14 @@ def test_markdown_is_projection_of_canonical_json_and_checked_snapshot(dataset) 
     assert projected == render_markdown(json.loads(json.dumps(canonical, sort_keys=True)))
     assert projected.startswith("# RAG Format Parity Baseline\n\n")
     assert "Canonical schema: `rag_format_parity_report.v1`" in projected
-    assert "Provider reproducibility records exact inputs/config/toolchain and attributable observations; it does not promise bit-identical scores across live runs." in projected
-    assert "| overall | 0.400000 | 0.600000 | 0.800000 | 0.550000 | 0.800000 | 1.000000 | 0.833333 | 0.800000 |" in projected
+    assert (
+        "Provider reproducibility records exact inputs/config/toolchain and attributable observations; it does not promise bit-identical scores across live runs."
+        in projected
+    )
+    assert (
+        "| overall | 0.400000 | 0.600000 | 0.800000 | 0.550000 | 0.800000 | 1.000000 | 0.833333 | 0.800000 |"
+        in projected
+    )
     reporting_source = (ROOT / "src/rag/evaluation/reporting.py").read_text(encoding="utf-8")
     renderer = reporting_source.split("def render_markdown", maxsplit=1)[1]
     assert "_aggregate" not in renderer
