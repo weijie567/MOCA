@@ -273,8 +273,9 @@ async def run_retrieval_parity(
                         question=case.question,
                         generated_at=generated_at,
                     )
-                    service_result = await knowledge_service.search(request, context)
-                    recorded = recording_engine.take_recording(expected_query=case.question)
+                    async with session.begin():
+                        service_result = await knowledge_service.search(request, context)
+                        recorded = recording_engine.take_recording(expected_query=case.question)
                     observations.append(
                         _case_observation(
                             policy_id=policy.doc_key,
