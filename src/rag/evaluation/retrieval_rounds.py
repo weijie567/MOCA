@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.retrieval import PolicyRetrievalEngine, PolicyRetrievalRun
+from src.knowledge.provenance import EvidenceProvenance
 from src.knowledge.schemas import (
     KnowledgeContext,
     KnowledgeSearchFilters,
@@ -135,6 +136,18 @@ class RecordingPolicyRetrievalEngine:
         if run is None or run.original_query != expected_query:
             raise EvaluationIsolationError("retrieval_recording_mismatch")
         return run
+
+    async def get_contents_by_evidence_keys(self, **kwargs: Any) -> dict[tuple[str, str], str]:
+        """Forward the service's verified-provenance lookup without another retrieval."""
+
+        return await self._delegate.get_contents_by_evidence_keys(**kwargs)
+
+    async def get_provenance_by_evidence_keys(
+        self, **kwargs: Any
+    ) -> dict[tuple[str, str], EvidenceProvenance]:
+        """Forward locator resolution for evidence refs recorded by the one search."""
+
+        return await self._delegate.get_provenance_by_evidence_keys(**kwargs)
 
 
 def ordered_gold_questions(dataset: FormatParityDataset) -> tuple[tuple[str, str, str], ...]:
@@ -284,13 +297,19 @@ async def run_retrieval_parity(
                         async with session.begin():
                             service_result = await knowledge_service.search(request, context)
                             recorded = recording_engine.take_recording(expected_query=case.question)
+                            provenance = await knowledge_service.get_verified_evidence_provenance(
+                                tenant_id=str(FORMAT_PARITY_TENANT_ID),
+                                evidence_refs=recorded.evidence_refs,
+                            )
                         observations.append(
                             _case_observation(
                                 policy_id=policy.doc_key,
+                                round_format=round_format,
                                 case=case,
                                 anchors_by_id=anchors_by_id,
                                 service_result=service_result,
                                 recorded=recorded,
+                                provenance_by_evidence_id=provenance,
                             )
                         )
                 if any(not _case_quality_pass(case) for case in observations):
@@ -464,10 +483,12 @@ async def _resolve_ingestion_attempt(
 def _case_observation(
     *,
     policy_id: str,
+    round_format: str,
     case: SemanticCase,
     anchors_by_id: dict[str, str],
     service_result: object,
     recorded: PolicyRetrievalRun,
+    provenance_by_evidence_id: dict[str, EvidenceProvenance],
 ) -> RetrievalCaseObservationV1:
     ranked_doc_keys = tuple(hit.doc_key for hit in recorded.hits[:5])
     expected_rank = next(
@@ -478,6 +499,15 @@ def _case_observation(
     hit_text = "\n".join(hit.text for hit in recorded.hits if hit.doc_key == policy_id)
     anchor_hits = sum(anchor in hit_text for anchor in expected_anchors)
     no_answer_correct = bool(case.no_answer and getattr(service_result, "status", None) == "no_evidence")
+    locator_covered = case.locator_constraints is None or _recorded_locator_satisfies(
+        recorded,
+        provenance_by_evidence_id=provenance_by_evidence_id,
+        doc_key=policy_id,
+        expected_anchors=expected_anchors,
+        allowed_pdf_pages=(
+            case.locator_constraints.pdf_pages if round_format in {"digital_pdf", "scanned_pdf"} else ()
+        ),
+    )
     return RetrievalCaseObservationV1(
         policy_id=policy_id,
         case_id=case.case_id,
@@ -493,11 +523,54 @@ def _case_observation(
         semantic_anchor_total=len(expected_anchors),
         no_answer_correct=no_answer_correct,
         locator_expected=case.locator_constraints is not None,
-        locator_covered=case.locator_constraints is None or expected_rank is not None,
+        locator_covered=locator_covered,
         query_rewrite=getattr(service_result, "query_rewrite", None),
         fallback_reason=recorded.fallback_reason,
         rerank_observed=recorded.diagnostics is not None,
     )
+
+
+def _recorded_locator_satisfies(
+    recorded: PolicyRetrievalRun,
+    *,
+    provenance_by_evidence_id: dict[str, EvidenceProvenance],
+    doc_key: str,
+    expected_anchors: list[str],
+    allowed_pdf_pages: tuple[int, ...],
+) -> bool:
+    """Fail closed unless each matched Gold anchor has recorded locator proof."""
+
+    refs_by_chunk: dict[str, list[Any]] = {}
+    for ref in recorded.evidence_refs:
+        if ref.doc_key == doc_key:
+            refs_by_chunk.setdefault(ref.chunk_id, []).append(ref)
+    allowed_pages = set(allowed_pdf_pages)
+    for anchor in expected_anchors:
+        matching_hits = [hit for hit in recorded.hits if hit.doc_key == doc_key and anchor in hit.text]
+        anchor_proved = False
+        for hit in matching_hits:
+            refs = refs_by_chunk.get(hit.chunk_id, [])
+            if len(refs) != 1:
+                continue
+            ref = refs[0]
+            provenance = provenance_by_evidence_id.get(ref.evidence_id)
+            if (
+                provenance is None
+                or provenance.doc_key != ref.doc_key
+                or provenance.chunk_id != ref.chunk_id
+                or provenance.evidence_id != ref.evidence_id
+            ):
+                continue
+            if any(
+                locator.source_block_id
+                and (not allowed_pages or locator.page_number in allowed_pages)
+                for locator in provenance.source_locators
+            ):
+                anchor_proved = True
+                break
+        if not anchor_proved:
+            return False
+    return bool(expected_anchors)
 
 
 def _case_quality_pass(case: RetrievalCaseObservationV1) -> bool:

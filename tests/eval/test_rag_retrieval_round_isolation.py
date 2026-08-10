@@ -25,8 +25,9 @@ from src.repositories.rag_evaluation_round_repo import (
     classify_attempt_projection,
 )
 from src.repositories.rag_ingestion_job_repo import RagIngestionJobRepository
-from src.knowledge.retrieval import PolicyRetrievalRun
-from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchRequest
+from src.knowledge.provenance import EvidenceProvenance, SourceLocator
+from src.knowledge.retrieval import PolicyRetrievalHit, PolicyRetrievalRun
+from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchRequest
 from src.knowledge.service import PolicyKnowledgeService
 from src.rag.evaluation.contracts import load_format_parity_contract
 from src.rag.evaluation.retrieval_rounds import (
@@ -539,6 +540,101 @@ async def test_recording_delegate_forwards_the_single_service_triggered_retrieva
     assert recording.fallback_reason == "no_candidates"
     with pytest.raises(EvaluationIsolationError, match="evaluation isolation denied"):
         delegate.take_recording(expected_query=request.query)
+
+
+def test_retrieval_locator_coverage_requires_recorded_evidence_locator_proof() -> None:
+    policy = _dataset().policies[0]
+    case = next(item for item in policy.gold.cases if item.locator_constraints is not None)
+    anchors = {anchor.anchor_id: anchor.text for anchor in policy.gold.anchors}
+    hit_text = "\n".join(anchors[anchor_id] for anchor_id in case.evidence_anchor_ids)
+    hit = PolicyRetrievalHit(
+        doc_key=policy.doc_key,
+        chunk_id="chunk-1",
+        title=policy.title,
+        section=str(case.expected_section),
+        policy_version="v1",
+        text=hit_text,
+        score=0.99,
+        rank=1,
+    )
+    service_result = SimpleNamespace(status="success", query_rewrite=None)
+    without_evidence = PolicyRetrievalRun(
+        status="success",
+        hits=[hit],
+        evidence_refs=[],
+        best_score=0.99,
+        original_query=case.question,
+    )
+
+    absent = retrieval_rounds_module._case_observation(
+        policy_id=policy.doc_key,
+        round_format="digital_pdf",
+        case=case,
+        anchors_by_id=anchors,
+        service_result=service_result,
+        recorded=without_evidence,
+        provenance_by_evidence_id={},
+    )
+    assert absent.hit_at_1 is True
+    assert absent.semantic_anchor_hits == absent.semantic_anchor_total
+    assert absent.locator_covered is False
+
+    evidence_ref = EvidenceRefV1.build(
+        tenant_id=str(FORMAT_PARITY_TENANT_ID),
+        doc_key=policy.doc_key,
+        chunk_id=hit.chunk_id,
+        policy_version="v1",
+        text=hit.text,
+        retrieved_at="2026-08-10T00:00:00Z",
+        retrieval_config_version="test",
+        score=hit.score,
+        rank=hit.rank,
+    )
+    recorded = PolicyRetrievalRun(
+        status="success",
+        hits=[hit],
+        evidence_refs=[evidence_ref],
+        best_score=0.99,
+        original_query=case.question,
+    )
+
+    def provenance(page_number: int) -> dict[str, EvidenceProvenance]:
+        return {
+            evidence_ref.evidence_id: EvidenceProvenance(
+                evidence_id=evidence_ref.evidence_id,
+                doc_key=policy.doc_key,
+                chunk_id=hit.chunk_id,
+                source_locators=[
+                    SourceLocator(
+                        source_block_id="pdf:block:0001",
+                        block_index=1,
+                        block_type="paragraph",
+                        page_number=page_number,
+                    )
+                ],
+            )
+        }
+
+    wrong_page = retrieval_rounds_module._case_observation(
+        policy_id=policy.doc_key,
+        round_format="digital_pdf",
+        case=case,
+        anchors_by_id=anchors,
+        service_result=service_result,
+        recorded=recorded,
+        provenance_by_evidence_id=provenance(5),
+    )
+    allowed_page = retrieval_rounds_module._case_observation(
+        policy_id=policy.doc_key,
+        round_format="digital_pdf",
+        case=case,
+        anchors_by_id=anchors,
+        service_result=service_result,
+        recorded=recorded,
+        provenance_by_evidence_id=provenance(case.locator_constraints.pdf_pages[0]),
+    )
+    assert wrong_page.locator_covered is False
+    assert allowed_page.locator_covered is True
 
 
 def test_provider_runtime_owns_real_service_boundaries_and_contract_mode_is_ineligible() -> None:
