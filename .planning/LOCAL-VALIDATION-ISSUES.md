@@ -1,5 +1,35 @@
 # 本地验证问题记录
 
+## 31. Phase 64.3 `state.begin-phase` 长选项被本机 GSD SDK 当成位置参数
+
+日期：2026-08-10
+
+### 问题现象
+
+执行 workflow 文档中的 `gsd-sdk query state.begin-phase --phase 64.3 --name rag-format-parity-and-document-quality-evaluation --plans 5` 后，返回值显示 `phase="--phase"` / `name="64.3"` / `plan_count="--name"`，并把 `.planning/STATE.md` 错写为 `Phase --phase`。
+
+### 如何检测 / 复现
+
+运行上述长选项命令后立即检查 `git diff -- .planning/STATE.md`；本机 SDK 会按位置解析 query handler 参数。
+
+### 关键证据或命令
+
+- 错误返回：`{"phase":"--phase","name":"64.3","plan_count":"--name"}`。
+- 差异证据：`last_activity` 和 `Current focus` 被改成 `Phase --phase`。
+- 正确入口：`gsd-sdk query state.begin-phase 64.3 rag-format-parity-and-document-quality-evaluation 5`。
+
+### 当前判断 / 根因
+
+当前安装的 GSD SDK `state.begin-phase` handler 仍使用位置参数，与 execute-phase workflow 中的长选项示例不一致。这是 GSD 工具接口差异，不是 MOCA 产品代码错误。
+
+### 已做处理
+
+立即使用位置参数重跑，并再次 diff-check；`STATE.md` 已正确显示 Phase 64.3、Plan 1 of 5、`EXECUTING`。错误状态未提交。
+
+### 剩余问题和下次继续排查入口
+
+后续所有 GSD state/phase writer 命令都必须检查返回值和实际 diff，不能仅信 workflow 示例；入口为 `.planning/STATE.md` 与 `gsd-sdk query state.begin-phase` 的实际返回。
+
 ## 30. Phase 64.3 material plan re-review 首次长时间无结果
 
 日期：2026-08-10
