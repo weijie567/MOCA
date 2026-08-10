@@ -227,6 +227,16 @@ def test_scanned_pdf_empty_garbled_and_zero_anchor_output_are_ocr_quality_failur
     policy, variant = _policy_and_variant(parity_dataset, variant_name="scanned_pdf")
     cases = (
         ParseResult(
+            status="failed",
+            source_type="policy_pdf",
+            parser_name="moca_pdf",
+            parser_version="21.03",
+            blocks=(),
+            warnings=(),
+            failure_code="malformed_source",
+            safe_message="Policy PDF source did not contain visible text.",
+        ),
+        ParseResult(
             status="degraded",
             source_type="policy_pdf",
             parser_name="fixture_parser",
@@ -559,7 +569,10 @@ def test_one_parser_exception_is_safe_and_does_not_skip_remaining_fixtures(
     assert run.outcome == EvaluationOutcome.EXECUTION_ERROR
     failed = [result for result in run.variant_results if result.outcome == EvaluationOutcome.EXECUTION_ERROR]
     assert len(failed) == 1
-    assert failed[0].safe_diagnostics[0].code == "parser_invariant_error"
+    assert {diagnostic.code for diagnostic in failed[0].safe_diagnostics} == {
+        "parser_exception_sanitized",
+        "parser_invariant_error",
+    }
     assert "/Users/" not in serialized
     assert "raw_payload" not in serialized
     assert "Traceback" not in serialized

@@ -2,25 +2,33 @@
 
 from __future__ import annotations
 
-import math
 import re
+import shutil
+import subprocess
 import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import replace
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.rag.evaluation.contracts import (
     EvaluationOutcome,
+    FormatParityDataset,
     FormatParityPolicy,
     FormatParityVariant,
     SemanticAnchor,
 )
-from src.rag.parsers.base import ParseResult, ParsedBlock, ParserWarning
+from src.rag.parsers.base import ParseResult, ParsedBlock, ParserWarning, safe_failed_result
+from src.rag.parsers.registry import ParserRegistry
 
 
 PARSER_PARITY_SCHEMA_VERSION = "parser_parity_variant.v1"
+PARSER_PARITY_RUN_SCHEMA_VERSION = "parser_parity_run.v1"
+PARSER_PARITY_COMMAND = "scripts/eval_rag_parser_parity.py"
 SAFE_SNIPPET_MAX_CHARS = 160
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _VARIANT_ORDER = {"markdown": 0, "digital_pdf": 1, "scanned_pdf": 2}
 _OCR_UNAVAILABLE_CODES = frozenset(
     {
@@ -54,6 +62,10 @@ DimensionName = Literal[
 DimensionStatus = Literal["passed", "failed", "not_applicable"]
 ObservationStatus = Literal["matched", "missed"]
 ParserPrimaryStage = Literal["parser", "ocr", "provenance"]
+CaseStatus = Literal["passed", "failed", "not_applicable"]
+ParserExecutionMode = Literal["parser_direct", "contract_test"]
+PrerequisiteStatus = Literal["available", "unavailable", "not_required"]
+RuntimeKind = Literal["parser", "ocr"]
 
 
 class ParserDimensionV1(BaseModel):
@@ -95,6 +107,30 @@ class SafeParserDiagnosticV1(BaseModel):
     safe_snippet: str | None = Field(default=None, max_length=SAFE_SNIPPET_MAX_CHARS)
 
 
+class ParserCaseResultV1(BaseModel):
+    """Case-level parser attribution without query/answer or evidence text."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy_id: str
+    variant: Literal["markdown", "digital_pdf", "scanned_pdf"]
+    case_id: str
+    category: Literal[
+        "facts",
+        "exceptions",
+        "amounts_time_limits",
+        "tables",
+        "cross_section",
+        "no_answer",
+    ]
+    status: CaseStatus
+    matched_anchors: int = Field(ge=0)
+    expected_anchors: int = Field(ge=0)
+    anchor_recall: float | None = Field(default=None, ge=0.0, le=1.0)
+    primary_stage: ParserPrimaryStage | None = None
+    reason_codes: tuple[str, ...] = ()
+
+
 class ParserVariantResultV1(BaseModel):
     """Stable intermediate result consumed by the all-fixture runner."""
 
@@ -119,7 +155,69 @@ class ParserVariantResultV1(BaseModel):
     ocr_diagnostics: ParserDimensionV1
     warning_failures: ParserDimensionV1
     observations: tuple[ParserObservationV1, ...]
+    case_results: tuple[ParserCaseResultV1, ...]
     safe_diagnostics: tuple[SafeParserDiagnosticV1, ...]
+
+
+class FixtureHashV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str
+    sha256: str
+
+
+class ParserParityInputsV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    manifest_hash: str
+    gold_hash: str
+    baseline_identity: str
+    fixture_hashes: tuple[FixtureHashV1, ...]
+
+
+class ParserPrerequisiteV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: Literal["persistence", "embedding_provider", "retrieval_runtime", "ocr_runtime"]
+    status: PrerequisiteStatus
+    reason_code: str
+    version: str | None = None
+    required_languages: tuple[str, ...] = ()
+
+
+class ParserRuntimeVersionV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: RuntimeKind
+    name: str
+    version: str
+    language: str | None = None
+
+
+class ParserRunFailureV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy_id: str
+    variant: Literal["markdown", "digital_pdf", "scanned_pdf"]
+    primary_stage: ParserPrimaryStage
+    reason_code: str
+
+
+class ParserParityRunV1(BaseModel):
+    """Canonical persistence-free result for all nine validated fixtures."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["parser_parity_run.v1"] = PARSER_PARITY_RUN_SCHEMA_VERSION
+    command: Literal["scripts/eval_rag_parser_parity.py"] = PARSER_PARITY_COMMAND
+    mode: ParserExecutionMode
+    generated_at: str
+    outcome: EvaluationOutcome
+    inputs: ParserParityInputsV1
+    prerequisites: tuple[ParserPrerequisiteV1, ...]
+    runtime_versions: tuple[ParserRuntimeVersionV1, ...]
+    variant_results: tuple[ParserVariantResultV1, ...]
+    safe_failures: tuple[ParserRunFailureV1, ...]
 
 
 def comparison_text_contains(
@@ -138,6 +236,74 @@ def comparison_text_contains(
     expected_copy = _comparison_copy(expected, allow_ocr_layout=allow_ocr_layout)
     candidate_copy = _comparison_copy(candidate, allow_ocr_layout=allow_ocr_layout)
     return bool(expected_copy) and expected_copy in candidate_copy
+
+
+def evaluate_parser_parity(
+    dataset: FormatParityDataset,
+    *,
+    parser_registry: ParserRegistry | None = None,
+    generated_at: str,
+) -> ParserParityRunV1:
+    """Run the exact validated 3x3 corpus through ``ParserRegistry.parse``."""
+
+    registry = parser_registry or ParserRegistry()
+    mode: ParserExecutionMode = "contract_test" if parser_registry is not None else "parser_direct"
+    ocr_prerequisite = _detect_ocr_prerequisite()
+    prerequisites = (
+        ParserPrerequisiteV1(
+            name="persistence",
+            status="not_required",
+            reason_code="parser_direct_has_no_persistence_dependency",
+        ),
+        ParserPrerequisiteV1(
+            name="embedding_provider",
+            status="not_required",
+            reason_code="parser_direct_has_no_embedding_dependency",
+        ),
+        ParserPrerequisiteV1(
+            name="retrieval_runtime",
+            status="not_required",
+            reason_code="parser_direct_has_no_retrieval_dependency",
+        ),
+        ocr_prerequisite,
+    )
+
+    results: list[ParserVariantResultV1] = []
+    for policy in sorted(dataset.policies, key=lambda item: item.doc_key):
+        for variant in sorted(policy.variants, key=lambda item: _VARIANT_ORDER[item.format]):
+            parse_result = _parse_one_fixture(
+                registry=registry,
+                policy=policy,
+                variant=variant,
+            )
+            scored = score_parser_result(policy=policy, variant=variant, parse_result=parse_result)
+            if variant.format == "scanned_pdf" and ocr_prerequisite.status == "unavailable":
+                scored = _with_unavailable_ocr(scored, reason_code=ocr_prerequisite.reason_code)
+            results.append(scored)
+
+    variant_results = tuple(
+        sorted(
+            results,
+            key=lambda item: (item.policy_id, _VARIANT_ORDER[item.variant]),
+        )
+    )
+    return ParserParityRunV1(
+        mode=mode,
+        generated_at=str(generated_at),
+        outcome=_run_outcome(variant_results),
+        inputs=ParserParityInputsV1(
+            manifest_hash=dataset.manifest_hash,
+            gold_hash=dataset.gold_hash,
+            baseline_identity=dataset.baseline_identity,
+            fixture_hashes=tuple(
+                FixtureHashV1(path=path, sha256=digest) for path, digest in sorted(dataset.fixture_hashes.items())
+            ),
+        ),
+        prerequisites=prerequisites,
+        runtime_versions=_runtime_versions(variant_results, ocr_prerequisite=ocr_prerequisite),
+        variant_results=variant_results,
+        safe_failures=_run_failures(variant_results),
+    )
 
 
 def score_parser_result(
@@ -230,8 +396,15 @@ def score_parser_result(
         anchor_matches=anchor_matches,
         locator_matches=locator_matches,
     )
+    case_results = _build_case_results(
+        policy=policy,
+        variant=variant,
+        anchor_matches=anchor_matches,
+        locator_matches=locator_matches,
+    )
     safe_diagnostics = _safe_diagnostics(parse_result)
     outcome = _variant_outcome(
+        variant=variant,
         parse_result=parse_result,
         dimensions=(
             parse_status,
@@ -264,8 +437,116 @@ def score_parser_result(
         ocr_diagnostics=ocr_diagnostics,
         warning_failures=warning_failures,
         observations=observations,
+        case_results=case_results,
         safe_diagnostics=safe_diagnostics,
     )
+
+
+def _parse_one_fixture(
+    *,
+    registry: ParserRegistry,
+    policy: FormatParityPolicy,
+    variant: FormatParityVariant,
+) -> ParseResult:
+    path = (_REPOSITORY_ROOT / variant.path).resolve()
+    metadata = _parser_metadata(policy=policy, variant=variant)
+    try:
+        parse_result = registry.parse(
+            path,
+            doc_key=policy.doc_key,
+            source_type=variant.source_type,
+            metadata=metadata,
+        )
+        if not isinstance(parse_result, ParseResult):
+            raise TypeError("invalid parser result")
+    except Exception:
+        return safe_failed_result(
+            source_type=variant.source_type,
+            parser_name="moca_parser_registry",
+            parser_version="21.01",
+            failure_code="parser_invariant_error",
+            safe_message="Parser registry call failed safely.",
+            warnings=(
+                ParserWarning(
+                    code="parser_exception_sanitized",
+                    message="Parser exception details were not retained.",
+                ),
+            ),
+        )
+    return replace(
+        parse_result,
+        blocks=tuple(block for block in parse_result.blocks if block.text.strip()),
+    )
+
+
+def _parser_metadata(
+    *,
+    policy: FormatParityPolicy,
+    variant: FormatParityVariant,
+) -> dict[str, Any]:
+    declared_mime = "text/markdown" if variant.format == "markdown" else "application/pdf"
+    return {
+        "doc_key": policy.doc_key,
+        "title": policy.title,
+        "source_type": variant.source_type,
+        "format": variant.format,
+        "source_checksum": f"sha256:{variant.sha256}",
+        "sha256": variant.sha256,
+        "pages": variant.pages,
+        "extractable_text_chars": variant.extractable_text_chars,
+        "declared_mime": declared_mime,
+    }
+
+
+def _build_case_results(
+    *,
+    policy: FormatParityPolicy,
+    variant: FormatParityVariant,
+    anchor_matches: Mapping[str, tuple[ParsedBlock, ...]],
+    locator_matches: Mapping[str, tuple[ParsedBlock, ...]],
+) -> tuple[ParserCaseResultV1, ...]:
+    results: list[ParserCaseResultV1] = []
+    for case in sorted(policy.gold.cases, key=lambda item: item.case_id):
+        expected = len(case.evidence_anchor_ids)
+        if case.no_answer:
+            results.append(
+                ParserCaseResultV1(
+                    policy_id=policy.doc_key,
+                    variant=variant.format,
+                    case_id=case.case_id,
+                    category=case.category,
+                    status="not_applicable",
+                    matched_anchors=0,
+                    expected_anchors=0,
+                )
+            )
+            continue
+        matched = sum(bool(anchor_matches[anchor_id]) for anchor_id in case.evidence_anchor_ids)
+        locator_misses = [anchor_id for anchor_id in case.evidence_anchor_ids if not locator_matches[anchor_id]]
+        reasons: list[str] = []
+        primary_stage: ParserPrimaryStage | None = None
+        if matched != expected:
+            reasons.append("semantic_anchor_missing")
+            primary_stage = "ocr" if variant.format == "scanned_pdf" else "parser"
+        elif locator_misses:
+            reasons.append("provenance_locator_missing")
+            primary_stage = "provenance"
+        status: CaseStatus = "passed" if not reasons else "failed"
+        results.append(
+            ParserCaseResultV1(
+                policy_id=policy.doc_key,
+                variant=variant.format,
+                case_id=case.case_id,
+                category=case.category,
+                status=status,
+                matched_anchors=matched,
+                expected_anchors=expected,
+                anchor_recall=round(matched / expected, 6) if expected else None,
+                primary_stage=primary_stage,
+                reason_codes=tuple(reasons),
+            )
+        )
+    return tuple(results)
 
 
 def _comparison_copy(text: str, *, allow_ocr_layout: bool) -> str:
@@ -386,7 +667,10 @@ def _ocr_dimension(
         reasons.append("ocr_anchor_recall_zero")
     if any(bool(block.ocr_metadata.get("timeout")) for block in ocr_blocks):
         reasons.append("ocr_timeout")
-    if any(block.ocr_metadata.get("confidence_status") == "review_required" for block in ocr_blocks):
+    if any(
+        block.ocr_metadata.get("confidence_status") in {"rejected", "review_needed", "review_required"}
+        for block in ocr_blocks
+    ):
         reasons.append("ocr_output_garbled")
     if reasons:
         return _dimension(
@@ -581,12 +865,15 @@ def _first_ocr_metadata(blocks: Iterable[ParsedBlock]) -> Mapping[str, Any]:
 
 def _variant_outcome(
     *,
+    variant: FormatParityVariant,
     parse_result: ParseResult,
     dimensions: Sequence[ParserDimensionV1],
 ) -> EvaluationOutcome:
     failure_code = _safe_code(parse_result.failure_code, default="") if parse_result.failure_code else ""
     if failure_code in _OCR_UNAVAILABLE_CODES:
         return EvaluationOutcome.UNAVAILABLE_PREREQUISITE
+    if variant.format == "scanned_pdf" and failure_code == "malformed_source" and not parse_result.blocks:
+        return EvaluationOutcome.COMPLETED_QUALITY_FAIL
     if parse_result.status == "failed":
         return EvaluationOutcome.EXECUTION_ERROR
     if any(dimension.status == "failed" for dimension in dimensions):
@@ -594,11 +881,177 @@ def _variant_outcome(
     return EvaluationOutcome.COMPLETED_PASS
 
 
-def _finite_average(values: Iterable[Any]) -> float | None:
-    numbers: list[float] = []
-    for value in values:
-        if isinstance(value, int | float):
-            numeric = float(value)
-            if math.isfinite(numeric):
-                numbers.append(numeric)
-    return round(sum(numbers) / len(numbers), 4) if numbers else None
+def _detect_ocr_prerequisite() -> ParserPrerequisiteV1:
+    executable = shutil.which("tesseract")
+    if executable is None:
+        return ParserPrerequisiteV1(
+            name="ocr_runtime",
+            status="unavailable",
+            reason_code="ocr_executable_unavailable",
+            required_languages=("chi_sim", "eng"),
+        )
+    try:
+        version_result = subprocess.run(  # noqa: S603
+            [executable, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        language_result = subprocess.run(  # noqa: S603
+            [executable, "--list-langs"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ParserPrerequisiteV1(
+            name="ocr_runtime",
+            status="unavailable",
+            reason_code="ocr_runtime_unavailable",
+            required_languages=("chi_sim", "eng"),
+        )
+    languages = {
+        line.strip()
+        for line in language_result.stdout.splitlines()
+        if line.strip() and not line.lower().startswith("list of available languages")
+    }
+    if language_result.returncode != 0 or not {"chi_sim", "eng"}.issubset(languages):
+        return ParserPrerequisiteV1(
+            name="ocr_runtime",
+            status="unavailable",
+            reason_code="ocr_traineddata_unavailable",
+            required_languages=("chi_sim", "eng"),
+        )
+    version_line = version_result.stdout.splitlines()[0] if version_result.stdout.splitlines() else "unknown"
+    version_parts = version_line.split(maxsplit=1)
+    version = _safe_code(version_parts[-1], default="unknown")
+    return ParserPrerequisiteV1(
+        name="ocr_runtime",
+        status="available",
+        reason_code="ocr_runtime_available",
+        version=version,
+        required_languages=("chi_sim", "eng"),
+    )
+
+
+def _with_unavailable_ocr(
+    result: ParserVariantResultV1,
+    *,
+    reason_code: str,
+) -> ParserVariantResultV1:
+    return result.model_copy(
+        update={
+            "outcome": EvaluationOutcome.UNAVAILABLE_PREREQUISITE,
+            "ocr_diagnostics": _dimension(
+                "ocr_diagnostics",
+                "failed",
+                matched=0,
+                expected=1,
+                reason_codes=(reason_code,),
+            ),
+        }
+    )
+
+
+def _run_outcome(results: Sequence[ParserVariantResultV1]) -> EvaluationOutcome:
+    outcomes = {result.outcome for result in results}
+    for outcome in (
+        EvaluationOutcome.EXECUTION_ERROR,
+        EvaluationOutcome.UNAVAILABLE_PREREQUISITE,
+        EvaluationOutcome.COMPLETED_QUALITY_FAIL,
+        EvaluationOutcome.COMPLETED_PASS,
+    ):
+        if outcome in outcomes:
+            return outcome
+    return EvaluationOutcome.EXECUTION_ERROR
+
+
+def _runtime_versions(
+    results: Sequence[ParserVariantResultV1],
+    *,
+    ocr_prerequisite: ParserPrerequisiteV1,
+) -> tuple[ParserRuntimeVersionV1, ...]:
+    versions = {
+        ParserRuntimeVersionV1(
+            kind="parser",
+            name=result.parser_name,
+            version=result.parser_version,
+        )
+        for result in results
+    }
+    for result in results:
+        if result.ocr_engine is not None:
+            versions.add(
+                ParserRuntimeVersionV1(
+                    kind="ocr",
+                    name=result.ocr_engine,
+                    version=result.ocr_engine_version or ocr_prerequisite.version or "unknown",
+                    language=result.ocr_language,
+                )
+            )
+    if not any(item.kind == "ocr" for item in versions):
+        versions.add(
+            ParserRuntimeVersionV1(
+                kind="ocr",
+                name="tesseract",
+                version=ocr_prerequisite.version or "unavailable",
+                language="chi_sim+eng",
+            )
+        )
+    return tuple(sorted(versions, key=lambda item: (item.kind, item.name, item.version, item.language or "")))
+
+
+def _run_failures(results: Sequence[ParserVariantResultV1]) -> tuple[ParserRunFailureV1, ...]:
+    failures: list[ParserRunFailureV1] = []
+    for result in results:
+        for dimension in (
+            result.parse_status,
+            result.semantic_anchors,
+            result.heading_structure,
+            result.critical_tables,
+            result.provenance_locators,
+            result.pdf_page_coverage,
+            result.ocr_diagnostics,
+            result.warning_failures,
+        ):
+            if dimension.status != "failed":
+                continue
+            primary_stage: ParserPrimaryStage = "parser"
+            if dimension.dimension in {"provenance_locators", "pdf_page_coverage"}:
+                primary_stage = "provenance"
+            elif (
+                result.variant == "scanned_pdf"
+                and result.outcome == EvaluationOutcome.COMPLETED_QUALITY_FAIL
+                and dimension.dimension
+                in {
+                    "parse_status",
+                    "semantic_anchors",
+                    "heading_structure",
+                    "critical_tables",
+                    "ocr_diagnostics",
+                    "warning_failures",
+                }
+            ):
+                primary_stage = "ocr"
+            for reason_code in dimension.reason_codes or (f"{dimension.dimension}_failed",):
+                failures.append(
+                    ParserRunFailureV1(
+                        policy_id=result.policy_id,
+                        variant=result.variant,
+                        primary_stage=primary_stage,
+                        reason_code=reason_code,
+                    )
+                )
+    return tuple(
+        sorted(
+            failures,
+            key=lambda item: (
+                item.policy_id,
+                _VARIANT_ORDER[item.variant],
+                item.primary_stage,
+                item.reason_code,
+            ),
+        )
+    )
