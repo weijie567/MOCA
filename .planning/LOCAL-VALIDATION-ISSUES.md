@@ -1,5 +1,65 @@
 # 本地验证问题记录
 
+## 34. Phase 64.3 Plan 02 self-check 在 zsh 中误用特殊变量 `path`
+
+日期：2026-08-10
+
+### 问题现象
+
+Plan 02 首次 summary self-check 使用 `for path in ...`，随后同一 zsh 中的 `git` / `rg` 报 `command not found`。
+
+### 如何检测 / 复现
+
+在 zsh 中对特殊 array `path` 赋值后调用依赖 PATH 查找的命令；`path` 与 `PATH` 联动，循环变量会临时破坏命令查找。
+
+### 关键证据或命令
+
+首轮只在 self-check wrapper 出现 `git: command not found` / `rg: command not found`，产品 pytest、CLI 和 repo diff 都没有同类失败。将循环变量改为 `artifact_file` / `commit_id` 后同一检查通过。
+
+### 当前判断 / 根因
+
+这是 zsh 特殊变量命名冲突，不是依赖缺失或 MOCA 代码失败。
+
+### 已做处理
+
+改用非特殊变量重跑 self-check，Summary 与五个 Plan 02 commits 均可验证；错误脚本未造成仓库修改。
+
+### 剩余问题和下次继续排查入口
+
+无产品剩余问题。后续 zsh 临时脚本避免把 `path` 作普通标量名。
+
+## 33. Phase 64.3 真实 parser-direct 运行暴露三种格式的文档质量缺口
+
+日期：2026-08-10
+
+### 问题现象
+
+对已验证的 3-policy/9-variant corpus 运行真实 `ParserRegistry` 后，整体结果为 `completed_quality_fail`。三份 Markdown 都缺 critical-table anchor；三份 digital PDF 都为 degraded，并有 `hidden_text_ignored`、heading/semantic/page/provenance 缺口；三份 scanned PDF 在 OCR runtime 可用时仍返回 empty output / zero anchor recall / `malformed_source`。
+
+### 如何检测 / 复现
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_rag_parser_parity.py \
+  --output /tmp/moca-parser-parity.json \
+  --generated-at 2026-08-10T10:55:00Z
+```
+
+### 关键证据或命令
+
+输出为 `schema_version=parser_parity_run.v1`、`mode=parser_direct`、`variants=9`、`outcome=completed_quality_fail`。prerequisite 记录 Tesseract `5.5.2` 且 `chi_sim+eng` 可用，因此 scanned 结果不属于 `unavailable_prerequisite`。九个 variant 的 stable reason-code 聚合为：Markdown `critical_table_anchor_missing` x3；digital PDF `hidden_text_ignored` x3 并伴随 parse/structure/semantic/page/provenance misses；scanned PDF `ocr_output_empty` / `ocr_anchor_recall_zero` 各 x3 并伴随 malformed/structure/semantic/page/provenance misses。
+
+### 当前判断 / 根因
+
+已确认 parser/OCR 质量不达 Phase 64.3 semantic Gold；但各具体根因（PDF hidden-text 策略、OCR raster/input 适配、table/locator 投影）尚未在本 evaluation phase 内分别定位。这是真实质量 baseline，不能改写为 unavailable 或用 fake 代替。
+
+### 已做处理
+
+Plan 02 修正 evaluator taxonomy：OCR 可用但 empty/garbled/zero-anchor 统一归为 `completed_quality_fail` 且 `primary_stage=ocr`；稳定、有界的 diagnostics 已写入 parser run。没有在评估 phase 内越界修改生产 parser。
+
+### 剩余问题和下次继续排查入口
+
+Phase 64.4 planning 必须将此 baseline 作为输入并明确裁决：如果 parser/OCR 修复不属于 64.4 token-aware chunking 范围，则在 Phase 65 前插入并命名 Phase 64.5 RAG parser/OCR quality remediation，不得把红色 baseline 静默延后。继续入口：`/tmp/moca-parser-parity*.json`、`src/rag/parsers/`、`src/rag/evaluation/parser_parity.py`。
+
 ## 32. Phase 64.3 post-wave GSD tracking / key-link helper 不能解析当前 plan 形状
 
 日期：2026-08-10

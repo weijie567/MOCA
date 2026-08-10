@@ -388,6 +388,15 @@
 - **证据**：Phase 64.3 Plan 01 Task 3，commit `76f88cc`；`evaluation/rag_sources/build_fixtures.py`、`evaluation/rag_sources/format_parity_manifest.jsonl`、`tests/eval/test_rag_format_parity_contract.py`、`evaluation/rag_sources/README.md`；focused gate `28 passed, 1 warning`，scoped Ruff lint/format 均通过；本地 renderer 排查记录见 `.planning/LOCAL-VALIDATION-ISSUES.md`。
 - **剩余风险**：🟡 跨机器复现仍必须拿到相同字体字节和 manifest 记录的工具版本；identity 不同必须建立新 baseline，不能把 fixture 字节可复现夸大成 live provider 指标逐位相同。
 
+## 2026-08-10 — Phase 64.3 parser-direct baseline 确认 Markdown / digital PDF / scanned PDF 均有质量缺口 🔴待立项
+
+- **子系统**：RAG parser / OCR / document structure and provenance projection。
+- **问题现象 / 根因**：真实 `ParserRegistry` 对固定 3-policy/9-variant corpus 的运行完成但质量失败。Markdown 三例均未命中 critical-table anchor；digital PDF 三例均 degraded 且带 `hidden_text_ignored`，同时丢失 heading/semantic/page/provenance 维度；scanned PDF 在 Tesseract 5.5.2 + `chi_sim/eng` 已可用时仍为 empty output、zero anchor recall 和 `malformed_source`。具体底层根因尚未确认，不在 Phase 64.3 evaluation-only 范围内猜测。
+- **影响**：当前生产 parser/OCR 无法对等保留同一 policy 的表格、语义 anchor、页码和 provenance locator；后续 retrieval/chunking 指标会被 parser 失真前置限制，不能将该结果当成 provider unavailable 或用 deterministic fake 粉饰。
+- **处理状态**：🔴 质量缺陷未修复；评估 taxonomy 已修正并验证，所有 OCR runtime 可用但 empty/garbled/zero-anchor 的结果都是 `completed_quality_fail` / `primary_stage=ocr`，而不是 unavailable 或 execution error。
+- **证据**：Phase 64.3 Plan 02 commits `eec8b48`、`bce7d0c`、`a70dffb`、`f917869`；`src/rag/evaluation/parser_parity.py`、`scripts/eval_rag_parser_parity.py`、`tests/eval/test_rag_parser_parity.py`；父级门禁 `46 passed, 1 warning`；真实 CLI 输出 `parser_parity_run.v1` / `parser_direct` / 9 variants / `completed_quality_fail`。详细事故见 `.planning/LOCAL-VALIDATION-ISSUES.md` 第 33 条。
+- **剩余风险 / 目标 phase**：Phase 64.4 planning 必须消费该 baseline 并决定是否纳入 chunking/reindex scope；若不纳入，则必须在 Phase 65 前正式插入 Phase 64.5 `RAG Parser/OCR Quality Remediation`，分别定位 hidden-text policy、OCR raster/input 适配与 table/page/provenance projection，不得静默 defer。
+
 ## RAG-56-03-01：RAG context routing status drift 与 partial action/risk 漏挡 ✅已修复验证
 
 - **问题现象/根因**：`route_after_rag_context` 原本在 router 内维护一份手写 `RAG_CONTEXT_STATUSES`，虽然当时与 schema 一致，但存在后续 drift 风险；同时顶层 `rag_context_status` 缺失时会回退读取 `verified_evidence_package.status`，`no_evidence` 携带 missing business facts 时会先进入 `clarification_gate`，`partial` 允许谓词也没有覆盖 action intent、`risk_signals`、`evidence_policy.risk_level`、package stale/conflict/rejected evidence 指示，导致 unsafe evidence 或 action/risk-bound partial 可能进入 generation。
