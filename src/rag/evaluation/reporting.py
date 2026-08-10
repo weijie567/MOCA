@@ -245,6 +245,28 @@ class GateObservationV1(_FrozenModel):
     passed: bool | None
 
 
+class GateCountV1(_FrozenModel):
+    matched: int = Field(ge=0)
+    expected: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_count(self) -> GateCountV1:
+        if self.matched > self.expected:
+            raise ValueError("gate_count_invalid")
+        return self
+
+
+class ParserGateInputsV1(_FrozenModel):
+    """Persisted parser aggregates required to revalidate canonical gates."""
+
+    parse_success_rate: GateCountV1
+    markdown_anchor_coverage: GateCountV1
+    digital_pdf_anchor_coverage: GateCountV1
+    scanned_pdf_anchor_coverage: GateCountV1
+    critical_table_preservation: GateCountV1
+    pdf_locator_coverage: GateCountV1
+
+
 class FormatParityReportV1(_FrozenModel):
     schema_version: Literal["rag_format_parity_report.v1"] = REPORT_SCHEMA_VERSION
     outcome: EvaluationOutcome
@@ -258,6 +280,7 @@ class FormatParityReportV1(_FrozenModel):
     measurements: RuntimeMeasurementsV1
     prerequisites: tuple[ReportPrerequisiteV1, ...]
     targets: FormatParityTargetsV1
+    parser_gate_inputs: ParserGateInputsV1 | None = None
     gates: tuple[GateObservationV1, ...] = Field(min_length=8, max_length=8)
     metrics: ReportMetricsV1 | None
     case_rows: tuple[CaseResultRowV1, ...]
@@ -266,18 +289,56 @@ class FormatParityReportV1(_FrozenModel):
 
     @model_validator(mode="after")
     def validate_outcome_shape(self) -> FormatParityReportV1:
+        if self.targets != FORMAT_PARITY_TARGETS:
+            raise ValueError("target_profile_mismatch")
+        expected_gate_profile = tuple(
+            (target.metric, target.operator, target.target) for target in FORMAT_PARITY_TARGETS.gates
+        )
+        actual_gate_profile = tuple((gate.metric, gate.operator, gate.target) for gate in self.gates)
+        if actual_gate_profile != expected_gate_profile:
+            raise ValueError("gate_profile_mismatch")
         completed = self.outcome in _COMPLETED_OUTCOMES
         if completed != (self.metrics is not None):
             raise ValueError("completed outcome and metrics must agree")
         if self.baseline_eligible and (not completed or self.config.execution_kind != "full_provider"):
             raise ValueError("baseline eligibility requires completed full-provider execution")
         if completed:
-            failure_keys = {(item.policy_id, item.format, item.case_id) for item in self.failures}
-            miss_keys = {(item.policy_id, item.format, item.case_id) for item in self.case_rows if not item.passed}
-            if failure_keys != miss_keys or len(failure_keys) != len(self.failures):
+            if self.parser_gate_inputs is None:
+                raise ValueError("parser_gate_inputs_missing")
+            case_keys = tuple((item.policy_id, item.format, item.case_id) for item in self.case_rows)
+            if len(case_keys) != len(set(case_keys)):
+                raise ValueError("case_rows_duplicate")
+            recomputed_metrics = _aggregate_metrics(self.case_rows)
+            if self.metrics != recomputed_metrics:
+                raise ValueError("report_metrics_mismatch")
+            recomputed_gates = _evaluate_gates(self.parser_gate_inputs, metrics=recomputed_metrics)
+            if self.gates != recomputed_gates:
+                raise ValueError("gate_observation_mismatch")
+            expected_failures = tuple(
+                PrimaryFailureV1(
+                    policy_id=row.policy_id,
+                    format=row.format,
+                    case_id=row.case_id,
+                    primary_stage=row.primary_stage,
+                    reason_codes=row.reason_codes,
+                )
+                for row in self.case_rows
+                if not row.passed and row.primary_stage is not None
+            )
+            if self.failures != expected_failures:
                 raise ValueError("each completed miss must have exactly one primary failure")
+            quality_failed = bool(expected_failures) or any(gate.passed is False for gate in recomputed_gates)
+            expected_outcome = (
+                EvaluationOutcome.COMPLETED_QUALITY_FAIL
+                if quality_failed
+                else EvaluationOutcome.COMPLETED_PASS
+            )
+            if self.outcome is not expected_outcome:
+                raise ValueError("completed_outcome_mismatch")
         elif self.case_rows or self.failures:
             raise ValueError("non-completed result cannot expose quality rows")
+        elif self.parser_gate_inputs is not None or self.gates != _unevaluated_gates():
+            raise ValueError("non_completed_quality_evidence")
         return self
 
 
@@ -345,7 +406,8 @@ def build_format_parity_report(
 
     case_rows = tuple(_case_row(parser_case, retrieval_case) for parser_case, retrieval_case in indexed)
     metrics = _aggregate_metrics(case_rows)
-    gates = _evaluate_gates(parser_run, metrics=metrics)
+    parser_gate_inputs = _parser_gate_inputs(parser_run)
+    gates = _evaluate_gates(parser_gate_inputs, metrics=metrics)
     failures = tuple(
         PrimaryFailureV1(
             policy_id=row.policy_id,
@@ -380,6 +442,7 @@ def build_format_parity_report(
             measurements=measurements,
             prerequisites=prerequisites,
             targets=FORMAT_PARITY_TARGETS,
+            parser_gate_inputs=parser_gate_inputs,
             gates=gates,
             metrics=metrics,
             case_rows=case_rows,
@@ -699,27 +762,41 @@ def _rounded(value: float) -> float:
     return round(float(value), 6)
 
 
+def _parser_gate_inputs(parser_run: ParserParityRunV1) -> ParserGateInputsV1:
+    variants = parser_run.variant_results
+    return ParserGateInputsV1(
+        parse_success_rate=GateCountV1(
+            matched=sum(item.parse_status.status == "passed" for item in variants),
+            expected=len(variants),
+        ),
+        markdown_anchor_coverage=_dimension_counts(
+            item.semantic_anchors for item in variants if item.variant == "markdown"
+        ),
+        digital_pdf_anchor_coverage=_dimension_counts(
+            item.semantic_anchors for item in variants if item.variant == "digital_pdf"
+        ),
+        scanned_pdf_anchor_coverage=_dimension_counts(
+            item.semantic_anchors for item in variants if item.variant == "scanned_pdf"
+        ),
+        critical_table_preservation=_dimension_counts(item.critical_tables for item in variants),
+        pdf_locator_coverage=_dimension_counts(
+            item.provenance_locators for item in variants if item.variant != "markdown"
+        ),
+    )
+
+
 def _evaluate_gates(
-    parser_run: ParserParityRunV1,
+    parser_inputs: ParserGateInputsV1,
     *,
     metrics: ReportMetricsV1,
 ) -> tuple[GateObservationV1, ...]:
-    variants = parser_run.variant_results
     values: dict[GateMetric, float] = {
-        "parse_success_rate": _rate(item.parse_status.status == "passed" for item in variants),
-        "markdown_anchor_coverage": _dimension_recall(
-            item.semantic_anchors for item in variants if item.variant == "markdown"
-        ),
-        "digital_pdf_anchor_coverage": _dimension_recall(
-            item.semantic_anchors for item in variants if item.variant == "digital_pdf"
-        ),
-        "scanned_pdf_anchor_coverage": _dimension_recall(
-            item.semantic_anchors for item in variants if item.variant == "scanned_pdf"
-        ),
-        "critical_table_preservation": _dimension_recall(item.critical_tables for item in variants),
-        "pdf_locator_coverage": _dimension_recall(
-            item.provenance_locators for item in variants if item.variant != "markdown"
-        ),
+        "parse_success_rate": _count_recall(parser_inputs.parse_success_rate),
+        "markdown_anchor_coverage": _count_recall(parser_inputs.markdown_anchor_coverage),
+        "digital_pdf_anchor_coverage": _count_recall(parser_inputs.digital_pdf_anchor_coverage),
+        "scanned_pdf_anchor_coverage": _count_recall(parser_inputs.scanned_pdf_anchor_coverage),
+        "critical_table_preservation": _count_recall(parser_inputs.critical_table_preservation),
+        "pdf_locator_coverage": _count_recall(parser_inputs.pdf_locator_coverage),
         "retrieval_hit_at_5": metrics.overall.hit_at_5,
         "cross_format_hit_at_5_spread": metrics.cross_format_hit_at_5_spread,
     }
@@ -737,10 +814,16 @@ def _evaluate_gates(
     )
 
 
-def _dimension_recall(dimensions: Iterable[Any]) -> float:
+def _dimension_counts(dimensions: Iterable[Any]) -> GateCountV1:
     rows = list(dimensions)
     expected = sum(int(item.expected) for item in rows)
-    return _rounded(sum(int(item.matched) for item in rows) / expected) if expected else 0.0
+    if expected <= 0:
+        raise ValueError("parser_gate_evidence_missing")
+    return GateCountV1(matched=sum(int(item.matched) for item in rows), expected=expected)
+
+
+def _count_recall(counts: GateCountV1) -> float:
+    return _rounded(counts.matched / counts.expected)
 
 
 def _unevaluated_gates() -> tuple[GateObservationV1, ...]:

@@ -472,6 +472,52 @@ def test_strict_loader_and_validated_json_dump_reproduce_markdown_byte_for_byte(
         load_report(report_path)
 
 
+def test_strict_loader_rejects_target_gate_outcome_and_aggregate_tampering(dataset, tmp_path) -> None:
+    _targets, _model, _runtime, _build, load_report, _render = _reporting_api()
+    canonical = _build_report(dataset).model_dump(mode="json")
+    report_path = tmp_path / "tampered.json"
+
+    tampered_payloads = []
+
+    outcome_drift = json.loads(json.dumps(canonical))
+    outcome_drift["outcome"] = "completed_pass"
+    tampered_payloads.append(outcome_drift)
+
+    duplicate_targets = json.loads(json.dumps(canonical))
+    duplicate_targets["targets"]["gates"][1] = duplicate_targets["targets"]["gates"][0]
+    tampered_payloads.append(duplicate_targets)
+
+    target_value_drift = json.loads(json.dumps(canonical))
+    target_value_drift["targets"]["gates"][0]["target"] = 0.5
+    tampered_payloads.append(target_value_drift)
+
+    contradictory_gate = json.loads(json.dumps(canonical))
+    contradictory_gate["gates"][0]["observed"] = 0.0
+    contradictory_gate["gates"][0]["passed"] = True
+    tampered_payloads.append(contradictory_gate)
+
+    duplicate_gates = json.loads(json.dumps(canonical))
+    duplicate_gates["gates"][1] = duplicate_gates["gates"][0]
+    tampered_payloads.append(duplicate_gates)
+
+    parser_aggregate_drift = json.loads(json.dumps(canonical))
+    parser_aggregate_drift["parser_gate_inputs"]["parse_success_rate"]["matched"] -= 1
+    tampered_payloads.append(parser_aggregate_drift)
+
+    metrics_drift = json.loads(json.dumps(canonical))
+    metrics_drift["metrics"]["overall"]["hit_at_5"] = 0.0
+    tampered_payloads.append(metrics_drift)
+
+    failure_drift = json.loads(json.dumps(canonical))
+    failure_drift["failures"] = []
+    tampered_payloads.append(failure_drift)
+
+    for payload in tampered_payloads:
+        report_path.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises((ValidationError, ValueError)):
+            load_report(report_path)
+
+
 @pytest.mark.parametrize(
     ("parser_outcome", "retrieval_outcome", "expected"),
     [
