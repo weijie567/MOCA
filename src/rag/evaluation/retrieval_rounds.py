@@ -199,6 +199,7 @@ async def run_retrieval_parity(
         pre_state_proved = False
         post_state_proved = False
         immutable_preserved = False
+        ingestion_quality_failed = False
         try:
             async with session.begin():
                 progress = await round_repo.read_progress(current_owner)
@@ -252,41 +253,48 @@ async def run_retrieval_parity(
                         doc_meta,
                         expected_rollout_version=current_owner.expected_rollout_version,
                     )
-                current_owner, observation = await _resolve_ingestion_attempt(
+                current_owner, observation, ingestion_error = await _resolve_ingestion_attempt(
                     session=session,
                     round_repo=round_repo,
                     ingestion_service=ingestion_service,
                     owner=current_owner,
+                    round_format=round_format,
                     source_path=source_path,
                     source_checksum=variant.sha256,
                     doc_meta=doc_meta,
                     first_report=report,
                 )
                 ingestions.append(observation)
+                if ingestion_error is not None:
+                    raise EvaluationIsolationError(ingestion_error)
+                ingestion_quality_failed = ingestion_quality_failed or observation.status == "failed"
 
-            async with session.begin():
-                current_owner = await round_repo.prove_retrieval_ready(current_owner)
-            for policy in dataset.policies:
-                anchors_by_id = {anchor.anchor_id: anchor.text for anchor in policy.gold.anchors}
-                for case in policy.gold.cases:
-                    request, context = build_knowledge_query(
-                        question=case.question,
-                        generated_at=generated_at,
-                    )
-                    async with session.begin():
-                        service_result = await knowledge_service.search(request, context)
-                        recorded = recording_engine.take_recording(expected_query=case.question)
-                    observations.append(
-                        _case_observation(
-                            policy_id=policy.doc_key,
-                            case=case,
-                            anchors_by_id=anchors_by_id,
-                            service_result=service_result,
-                            recorded=recorded,
-                        )
-                    )
-            if any(not _case_quality_pass(case) for case in observations):
+            if ingestion_quality_failed:
                 terminal_outcome = EvaluationOutcome.COMPLETED_QUALITY_FAIL
+            else:
+                async with session.begin():
+                    current_owner = await round_repo.prove_retrieval_ready(current_owner)
+                for policy in dataset.policies:
+                    anchors_by_id = {anchor.anchor_id: anchor.text for anchor in policy.gold.anchors}
+                    for case in policy.gold.cases:
+                        request, context = build_knowledge_query(
+                            question=case.question,
+                            generated_at=generated_at,
+                        )
+                        async with session.begin():
+                            service_result = await knowledge_service.search(request, context)
+                            recorded = recording_engine.take_recording(expected_query=case.question)
+                        observations.append(
+                            _case_observation(
+                                policy_id=policy.doc_key,
+                                case=case,
+                                anchors_by_id=anchors_by_id,
+                                service_result=service_result,
+                                recorded=recorded,
+                            )
+                        )
+                if any(not _case_quality_pass(case) for case in observations):
+                    terminal_outcome = EvaluationOutcome.COMPLETED_QUALITY_FAIL
             async with session.begin():
                 current_owner = await round_repo.cleanup_current_projection(
                     current_owner,
@@ -319,7 +327,8 @@ async def run_retrieval_parity(
                 ingestions=tuple(ingestions),
                 cases=tuple(observations),
                 pre_state_proved=pre_state_proved,
-                exactly_three_current_proved=len(ingestions) == 3,
+                exactly_three_current_proved=len(ingestions) == 3
+                and all(observation.status == "success" for observation in ingestions),
                 post_state_proved=post_state_proved,
                 immutable_history_preserved=immutable_preserved,
                 reason_code=failure_reason,
@@ -365,13 +374,15 @@ async def _resolve_ingestion_attempt(
     round_repo: RagEvaluationRoundRepository,
     ingestion_service: IngestionService,
     owner: EvaluationRoundIdentity,
+    round_format: str,
     source_path: Path,
     source_checksum: str,
     doc_meta: dict[str, Any],
     first_report: object,
-) -> tuple[EvaluationRoundIdentity, IngestionObservationV1]:
+) -> tuple[EvaluationRoundIdentity, IngestionObservationV1, str | None]:
     report = first_report
-    for attempt in range(2):
+    real_report_count = int(report is not None)
+    for _inspection_attempt in range(3):
         async with session.begin():
             inspection = await round_repo.inspect_attempt(owner)
         if inspection.state is ProjectionState.EXACT_COMPLETE:
@@ -379,23 +390,61 @@ async def _resolve_ingestion_attempt(
                 owner = await round_repo.claim_attempt_job(owner, require_null_document=False)
             async with session.begin():
                 owner = await round_repo.advance_exact_complete(owner)
-            return owner, IngestionObservationV1(
-                doc_key=str(doc_meta["doc_key"]),
-                source_checksum=source_checksum,
-                status="success",
+            return (
+                owner,
+                IngestionObservationV1(
+                    doc_key=str(doc_meta["doc_key"]),
+                    source_checksum=source_checksum,
+                    status="success",
+                ),
+                None,
             )
         if inspection.state in {ProjectionState.JOB_ONLY, ProjectionState.FAILURE}:
+            if report is None:
+                real_report_count = max(real_report_count, 1)
             async with session.begin():
                 owner = await round_repo.claim_attempt_job(
                     owner,
                     require_null_document=inspection.state is ProjectionState.JOB_ONLY,
                 )
+            error_code = str(getattr(report, "error_code", None) or "ingestion_failed")
+            if (
+                real_report_count >= 2
+                and inspection.state is ProjectionState.FAILURE
+                and round_format == "scanned_pdf"
+                and error_code == "malformed_source"
+            ):
+                async with session.begin():
+                    owner = await round_repo.advance_exact_failed_quality(
+                        owner,
+                        error_code=error_code,
+                    )
+                return (
+                    owner,
+                    IngestionObservationV1(
+                        doc_key=str(doc_meta["doc_key"]),
+                        source_checksum=source_checksum,
+                        status="failed",
+                        error_code=error_code,
+                    ),
+                    None,
+                )
             async with session.begin():
                 owner = await round_repo.retry_attempt(owner)
         elif inspection.state is not ProjectionState.RESERVATION_ONLY:
             raise EvaluationIsolationError("malformed_projection")
-        if attempt == 1:
-            break
+        if real_report_count >= 2:
+            error_code = str(getattr(report, "error_code", None) or "ingestion_failed")
+            return (
+                owner,
+                IngestionObservationV1(
+                    doc_key=str(doc_meta["doc_key"]),
+                    source_checksum=source_checksum,
+                    status="failed",
+                    error_code=error_code,
+                ),
+                f"ingestion_failed:{error_code}",
+            )
         async with session.begin():
             owner = await round_repo.reserve_document(
                 owner,
@@ -408,8 +457,8 @@ async def _resolve_ingestion_attempt(
             doc_meta,
             expected_rollout_version=owner.expected_rollout_version,
         )
-    error_code = str(getattr(report, "error_code", None) or "ingestion_failed")
-    raise EvaluationIsolationError(f"ingestion_failed:{error_code}")
+        real_report_count += 1
+    raise AssertionError("ingestion attempt loop exhausted")
 
 
 def _case_observation(

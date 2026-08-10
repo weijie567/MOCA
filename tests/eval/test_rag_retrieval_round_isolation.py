@@ -364,10 +364,12 @@ async def test_failed_scanned_quality_transition_deletes_proves_then_advances_ca
         expected_source_checksum=checksum,
         reservation_at=reserved_at,
         claimed_job_id=job_id,
+        immutable_counts_json={"document_versions": 3, "chunk_versions": 13},
     )
     failure = SimpleNamespace(
         state=ProjectionState.FAILURE,
         job_id=job_id,
+        job_error_code="malformed_source",
         projection=AttemptProjection(job_count=1, failed_job_count=1),
         immutable_counts={"document_versions": 3, "chunk_versions": 13},
     )
@@ -814,6 +816,14 @@ class _ScannedFailureRoundRepository(_TransactionRoundRepository):
         )
 
 
+class _RecoveredReservationRoundRepository(_ScannedFailureRoundRepository):
+    inspections: list[ProjectionState] = []
+
+    async def inspect_attempt(self, owner: EvaluationRoundIdentity) -> object:
+        del owner
+        return SimpleNamespace(state=type(self).inspections.pop(0))
+
+
 async def _run_scanned_failure(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -841,6 +851,40 @@ async def _run_scanned_failure(
 
 
 @pytest.mark.asyncio
+async def test_recovered_reservation_requires_two_real_malformed_reports_before_quality_advance() -> None:
+    _ScannedFailureIngestionService.error_code = "malformed_source"
+    _ScannedFailureIngestionService.calls = []
+    _RecoveredReservationRoundRepository.inspections = [
+        ProjectionState.RESERVATION_ONLY,
+        ProjectionState.FAILURE,
+        ProjectionState.FAILURE,
+    ]
+    _RecoveredReservationRoundRepository.quality_advance_calls = 0
+    _RecoveredReservationRoundRepository.retry_calls = 0
+    session = _TransactionTrackingSession()
+    repo = _RecoveredReservationRoundRepository(session)
+    owner, observation, fatal_reason = await retrieval_rounds_module._resolve_ingestion_attempt(  # noqa: SLF001
+        session=session,  # type: ignore[arg-type]
+        round_repo=repo,  # type: ignore[arg-type]
+        ingestion_service=_ScannedFailureIngestionService(),  # type: ignore[arg-type]
+        owner=_identity(round_format="scanned_pdf"),
+        round_format="scanned_pdf",
+        source_path=Path("evaluation/scanned-placeholder.pdf"),
+        source_checksum="c" * 64,
+        doc_meta={"doc_key": FORMAT_PARITY_DOC_KEYS[0]},
+        first_report=None,
+    )
+
+    assert owner.next_document_index == 1
+    assert observation.status == "failed"
+    assert observation.error_code == "malformed_source"
+    assert fatal_reason is None
+    assert _ScannedFailureIngestionService.calls == [FORMAT_PARITY_DOC_KEYS[0]] * 2
+    assert _RecoveredReservationRoundRepository.retry_calls == 1
+    assert _RecoveredReservationRoundRepository.quality_advance_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_three_scanned_malformed_sources_are_quality_failure_without_retrieval(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -864,17 +908,22 @@ async def test_three_scanned_malformed_sources_are_quality_failure_without_retri
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_code",
+    ["embedding_count_mismatch", "db_write_failed", "job_trace_unavailable", "unexpected_provider_failure"],
+)
 async def test_other_second_ingestion_error_remains_execution_error_with_stable_reason(
     monkeypatch: pytest.MonkeyPatch,
+    error_code: str,
 ) -> None:
-    result, session = await _run_scanned_failure(monkeypatch, error_code="embedding_failed")
+    result, session = await _run_scanned_failure(monkeypatch, error_code=error_code)
 
     assert result.outcome == "execution_error"
     assert result.baseline_eligible is False
     assert len(result.rounds) == 3
     scanned = result.rounds[2]
     assert scanned.outcome == "execution_error"
-    assert scanned.reason_code == "ingestion_failed:embedding_failed"
+    assert scanned.reason_code == f"ingestion_failed:{error_code}"
     assert scanned.cases == ()
     assert scanned.post_state_proved is True
     assert scanned.immutable_history_preserved is True

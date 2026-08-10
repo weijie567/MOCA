@@ -106,6 +106,7 @@ class ProjectionInspection:
     projection: AttemptProjection
     document_id: UUID | None
     job_id: UUID | None
+    job_error_code: str | None
     head_mapping: dict[str, str]
     immutable_counts: dict[str, int]
 
@@ -369,6 +370,63 @@ class RagEvaluationRoundRepository:
             immutable_counts_json=inspection.immutable_counts,
         )
 
+    async def advance_exact_failed_quality(
+        self,
+        owner: EvaluationRoundIdentity,
+        *,
+        error_code: str,
+    ) -> EvaluationRoundIdentity:
+        """Advance one controlled scanned-PDF failure after exact cleanup proof."""
+
+        if owner.round_format != "scanned_pdf" or error_code != "malformed_source":
+            raise EvaluationIsolationError("quality_failure_not_allowed")
+        row = await self.lock_owned(owner, allowed_states=frozenset({"ingesting"}))
+        inspection = await self._inspect_locked(row)
+        if inspection.state is not ProjectionState.FAILURE:
+            raise EvaluationIsolationError("quality_failure_projection_mismatch")
+        if inspection.job_error_code != error_code:
+            raise EvaluationIsolationError("quality_failure_code_mismatch")
+        if row.claimed_job_id is None or row.claimed_job_id != inspection.job_id:
+            raise EvaluationIsolationError("attempt_job_not_claimed")
+        deleted = await self.job_repo.delete_exact_evaluation_attempt(
+            job_id=row.claimed_job_id,
+            tenant_id=row.tenant_id,
+            doc_key=row.attempt_doc_key or "",
+            source_checksum=row.expected_source_checksum or "",
+        )
+        if deleted != 1:
+            raise EvaluationIsolationError("attempt_job_delete_mismatch")
+        residual = await self._inspect_locked(row)
+        if residual.state is not ProjectionState.RESERVATION_ONLY or any(
+            (
+                residual.projection.job_count,
+                residual.projection.block_count,
+                residual.projection.chunk_count,
+                residual.projection.canonical_binding_count,
+            )
+        ):
+            raise EvaluationIsolationError("quality_failure_residual")
+        recorded_immutable = {
+            key: int(value) for key, value in row.immutable_counts_json.items() if isinstance(value, int)
+        }
+        if any(residual.immutable_counts.get(key, 0) < value for key, value in recorded_immutable.items()):
+            raise EvaluationIsolationError("immutable_history_regressed")
+        next_index = owner.next_document_index + 1
+        state = "cleaning" if next_index == len(FORMAT_PARITY_DOC_KEYS) else "ingesting"
+        next_step = "cleanup" if state == "cleaning" else "ingest"
+        return await self._cas(
+            row,
+            owner,
+            state=state,
+            next_step=next_step,
+            next_document_index=next_index,
+            claimed_job_id=None,
+            attempt_doc_key=None,
+            expected_source_checksum=None,
+            reservation_at=None,
+            immutable_counts_json=residual.immutable_counts,
+        )
+
     async def prove_retrieval_ready(self, owner: EvaluationRoundIdentity) -> EvaluationRoundIdentity:
         row = await self.lock_owned(owner, allowed_states=frozenset({"retrieving"}))
         if owner.next_document_index != len(FORMAT_PARITY_DOC_KEYS):
@@ -531,6 +589,7 @@ class RagEvaluationRoundRepository:
             projection=projection,
             document_id=head.id if head is not None else None,
             job_id=jobs[0].id if len(jobs) == 1 else None,
+            job_error_code=getattr(jobs[0], "error_code", None) if len(jobs) == 1 else None,
             head_mapping={doc_key: str(head.id)} if head is not None else {},
             immutable_counts=immutable,
         )
