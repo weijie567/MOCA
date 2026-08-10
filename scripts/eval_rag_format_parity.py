@@ -236,7 +236,12 @@ def _generator_identity_hash(dataset: FormatParityDataset) -> str:
 
 
 def _build_execution_error_result(
-    *, dataset: FormatParityDataset, run_token: UUID, generated_at: str, reason_code: str
+    *,
+    dataset: FormatParityDataset,
+    run_token: UUID,
+    generated_at: str,
+    reason_code: str,
+    prerequisite_name: str = "evaluation_isolation",
 ) -> RetrievalParityRunV1:
     return RetrievalParityRunV1(
         mode="provider",
@@ -252,7 +257,7 @@ def _build_execution_error_result(
         rounds=(),
         prerequisites=(
             PrerequisiteStatusV1(
-                name="evaluation_isolation",
+                name=_safe_prerequisite_name(prerequisite_name),
                 available=False,
                 reason_code=_safe_reason_code(reason_code),
             ),
@@ -268,20 +273,13 @@ async def run_provider(args: argparse.Namespace) -> RetrievalParityRunV1:
             Path(args.gold),
             repository_root=Path.cwd(),
         )
-    except FormatParityContractError as exc:
-        empty = _empty_dataset()
-        if exc.reason_code in {"manifest_file_invalid", "gold_file_invalid", "fixture_file_invalid"}:
-            return build_unavailable_result(
-                dataset=empty,
-                run_token=run_token,
-                generated_at=args.generated_at,
-                missing=("evaluation_contract",),
-            )
+    except FormatParityContractError:
         return _build_execution_error_result(
-            dataset=empty,
+            dataset=_empty_dataset(),
             run_token=run_token,
             generated_at=args.generated_at,
             reason_code="evaluation_contract_invalid",
+            prerequisite_name="evaluation_contract",
         )
 
     missing: list[str] = []
@@ -362,23 +360,14 @@ async def run_full_provider(
             Path(args.gold),
             repository_root=Path.cwd(),
         )
-    except FormatParityContractError as exc:
-        outcome = (
-            EvaluationOutcome.UNAVAILABLE_PREREQUISITE
-            if exc.reason_code in {"manifest_file_invalid", "gold_file_invalid", "fixture_file_invalid"}
-            else EvaluationOutcome.EXECUTION_ERROR
-        )
+    except FormatParityContractError:
         return build_diagnostic(
             dataset=_empty_dataset(),
-            outcome=outcome,
+            outcome=EvaluationOutcome.EXECUTION_ERROR,
             generated_at=args.generated_at,
             run_token=run_token,
             prerequisites=("evaluation_contract",),
-            reason_codes=(
-                "prerequisite_unavailable"
-                if outcome is EvaluationOutcome.UNAVAILABLE_PREREQUISITE
-                else "evaluation_contract_invalid",
-            ),
+            reason_codes=("evaluation_contract_invalid",),
         )
 
     missing: list[str] = []

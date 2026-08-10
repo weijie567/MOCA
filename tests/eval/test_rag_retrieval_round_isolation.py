@@ -31,7 +31,7 @@ from src.knowledge.provenance import EvidenceProvenance, SourceLocator
 from src.knowledge.retrieval import PolicyRetrievalHit, PolicyRetrievalRun
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchRequest
 from src.knowledge.service import PolicyKnowledgeService
-from src.rag.evaluation.contracts import load_format_parity_contract
+from src.rag.evaluation.contracts import FormatParityContractError, load_format_parity_contract
 from src.rag.evaluation.retrieval_rounds import (
     RecordingPolicyRetrievalEngine,
     RetrievalParityRunV1,
@@ -1407,3 +1407,56 @@ def test_missing_prerequisites_are_safe_unavailable_not_zero_quality() -> None:
         "raw_payload",
     ):
         assert forbidden not in serialized.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["provider", "full-provider"])
+@pytest.mark.parametrize(
+    "reason_code",
+    [
+        "manifest_file_invalid",
+        "gold_file_invalid",
+        "fixture_file_invalid",
+        "fixture_checksum_mismatch",
+    ],
+)
+async def test_contract_load_read_and_hash_failures_are_execution_errors_for_both_provider_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    reason_code: str,
+) -> None:
+    def fail_contract(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise FormatParityContractError(reason_code)
+
+    monkeypatch.setattr(format_parity_cli, "load_format_parity_contract", fail_contract)
+    args = SimpleNamespace(
+        mode=mode,
+        manifest="missing-manifest.jsonl",
+        gold="missing-gold.json",
+        tenant_id=str(FORMAT_PARITY_TENANT_ID),
+        owner_marker=FORMAT_PARITY_OWNER_MARKER,
+        run_token=str(uuid4()),
+        expected_rollout_version=2,
+        generated_at="2026-08-10T00:00:00Z",
+    )
+
+    result = (
+        await format_parity_cli.run_provider(args)
+        if mode == "provider"
+        else await format_parity_cli.run_full_provider(args)
+    )
+    payload = result.model_dump(mode="json")
+
+    assert payload["outcome"] == "execution_error"
+    assert payload["baseline_eligible"] is False
+    if mode == "provider":
+        assert payload["rounds"] == []
+        assert payload["prerequisites"][0] == {
+            "name": "evaluation_contract",
+            "available": False,
+            "reason_code": "evaluation_contract_invalid",
+        }
+    else:
+        assert payload["prerequisites"] == ["evaluation_contract"]
+        assert payload["reason_codes"] == ["evaluation_contract_invalid"]
