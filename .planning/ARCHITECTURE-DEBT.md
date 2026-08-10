@@ -412,7 +412,7 @@
 - **问题现象 / 根因**：evaluation round owner 持有 64 位裸 SHA-256，production `RagIngestionJob.source_checksum` 持久化 `sha256:<digest>`；exact attempt lookup、projection classification 与删除因此无法证明同一 job，真实 provider round 被阻断。
 - **影响**：合法 evaluation attempt 会被误判为 reservation-only/malformed，无法安全恢复或 cleanup；若改成宽松 doc-key 查询又会扩大删除边界。
 - **处理状态**：✅ 已修复验证。只在 evaluation exact-attempt seam 增加严格单向 owner digest canonicalization，lookup/all-attempt/delete 均使用同一 production representation；任意非 64-hex 或已带前缀输入继续拒绝，未新增 doc-key-only 删除。
-- **证据**：Phase 64.3 Plan 03 RED/GREEN commits `4c00863` / `c4b71c3`；`src/repositories/rag_evaluation_round_repo.py`、`src/repositories/rag_ingestion_job_repo.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；Plan 05 focused gate 111 passed，full RAG/eval/parser/knowledge regression 410 passed。
+- **证据**：Phase 64.3 Plan 03 RED/GREEN commits `4c00863` / `c4b71c3`；`src/repositories/rag_evaluation_round_repo.py`、`src/repositories/rag_ingestion_job_repo.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；post-review Plan 05 focused gate 138 passed，full RAG/eval/parser/knowledge regression 437 passed。
 - **剩余风险**：当前 bridge 仅服务固定 evaluation owner 的 exact attempt，不是全局 checksum alias API；后续必须保留 strict input pattern、tenant/doc/checksum/reservation tuple 与 CAS deletion。
 
 ## 2026-08-10 — Phase 64.3 retrieval implicit transaction leak ✅已修复验证
@@ -421,7 +421,7 @@
 - **问题现象 / 根因**：production search 与 recording capture 留下 SQLAlchemy implicit transaction；随后 `session.begin()` 执行 exact cleanup 时因已有 transaction 失败，并把真实 stage reason 覆盖成 cleanup/execution error。
 - **影响**：三轮 provider baseline 无法在 retrieval observation 后证明 zero-residual cleanup；错误归因也会从质量 miss 漂移为 evaluator error。
 - **处理状态**：✅ 已修复验证。每次 service search 与单次 recorded capture 都在短事务内完成，离开该边界前 commit/rollback，cleanup 才开启自己的 exact transaction；未修改 production retrieval/rerank 逻辑或指标。
-- **证据**：Phase 64.3 Plan 03 RED/GREEN commits `7ea1b99` / `be32691`；`src/rag/evaluation/retrieval_rounds.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；Plan 04 real-provider 三轮完成，Plan 05 111/410 tests 与 scoped Ruff 通过。
+- **证据**：Phase 64.3 Plan 03 RED/GREEN commits `7ea1b99` / `be32691`；`src/rag/evaluation/retrieval_rounds.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；Plan 04 real-provider 三轮完成，post-review Plan 05 138/437 tests 与 scoped Ruff 通过。
 - **剩余风险**：当前无已知未闭合 transaction；后续调整 KnowledgeService capture 顺序时必须继续断言 search observation 与 cleanup 不共享隐式 transaction。
 
 ## 2026-08-10 — Phase 64.3 controlled scanned progression ✅已修复验证
@@ -430,8 +430,17 @@
 - **问题现象 / 根因**：OCR runtime 可用时，scanned fixture 的真实 `malformed_source` 属于本次待记录的 parser/OCR 质量结果；旧 runtime 却把第二次 persisted failure 一律当 execution error，无法完成 honest red baseline。
 - **影响**：scanned parser/OCR 质量缺口会被错误描述为 evaluator 不可用，Phase 64.3 无法对三种格式给出 completed attribution。
 - **处理状态**：✅ 已修复验证。仅允许 scanned-PDF 的第二次真实 persisted `malformed_source` 在 exact job deletion、zero-residual current proof 和 immutable non-regression 后推进并记录 quality failure；其他 error code、format、次数或 projection 一律 fail closed。
-- **证据**：Phase 64.3 Plan 03 RED/GREEN commits `bb88d1d` / `9186cb9`；`src/rag/evaluation/retrieval_rounds.py`、`src/repositories/rag_evaluation_round_repo.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；最终 canonical report 为 `completed_quality_fail`、54 cases/46 failures。
+- **证据**：Phase 64.3 Plan 03 RED/GREEN commits `bb88d1d` / `9186cb9`；`src/rag/evaluation/retrieval_rounds.py`、`src/repositories/rag_evaluation_round_repo.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；post-review canonical report 为 `completed_quality_fail`、54 cases/45 failures。
 - **剩余风险**：🔴 此条只修复 evaluation taxonomy；production OCR 的 macOS temp-path 和错误分类缺口仍见下一条，不得把 controlled progression 解释成 OCR 已修复。
+
+## 2026-08-10 — Phase 64.3 evaluator deep-review WR-01–WR-07 hardening ✅已修复验证
+
+- **子系统**：RAG format-parity evaluation / locator proof / strict report / round recovery / cleanup isolation。
+- **问题现象 / 根因**：deep review 确认评测器仍有七类可信度缺口：retrieval locator coverage 可由 rank 推断而非绑定实际 recorded provenance；PDF anchor 未按 case-specific allowed page 验证；strict loader 可接受 target、parser input、metrics、gate、failure 或 outcome 彼此矛盾的 canonical report；same-token resume 没有完整校验 UUIDv5 round identity、lease/state/projection；retrieval-ready 与 cleanup 前没有重新核验 exact recorded projection；只有 orphan ingestion jobs、没有 document heads 时会漏计残留；缺失/不可读 contract files 被错误归为 prerequisite unavailable 而不是 evaluator execution error。
+- **影响**：这些缺口不会直接改变生产检索行为，但会让错误或自相矛盾的 artifact 获得 baseline 资格、让 locator 分数高估、让恢复/清理跨越未重新证明的 durable state，或把评测器故障伪装成环境缺失。
+- **处理状态**：✅ 已修复验证。WR-01 将每个 Gold anchor 绑定 owner-recorded ref/source-block locator，PDF 还要求允许页；WR-02 按 `(case_id, anchor_id)` 验证 Markdown/PDF locator；WR-03 重新计算并交叉校验 exact target/gate profile、parser inputs、metrics、failures 与 outcome；WR-04 完整校验同 token 的 round identity/lease/terminal proof 并从首个未完成轮次恢复；WR-05 在 retrieval-ready 和 cleanup 前重验 exact projection；WR-06 把无 head 的 orphan jobs 纳入残留；WR-07 将缺失/不可读/invalid contract 归为 `execution_error`。修复 commits 为 `8105b3e`、`175149e`、`dc26464`、`ee9f367`、`3299e66`。
+- **证据**：fresh canonical commit `55962dc`，run token `64f30400-0000-4000-8000-000000000007`；strict result 为 `completed_quality_fail` / `baseline_eligible=true` / `full_provider`，54 cases/45 failures，overall locator coverage 0.333333，PDF locator gate 0.528571，6 个 parser gate inputs；JSON/Markdown SHA-256 分别为 `67c0c3da21e53842a93498de5507083bfe681e501d0cb3f48e3a0bd861cd5732` / `4491364f01436b27948da11dc9b47b839f6a9bff91506cb5fae86b354d9fc00c`。验证为 focused 138 passed、existing 437 passed、scoped Ruff、stable-base production diff 与危险清理/tenant fallback scan 全绿；current blocks/chunks/jobs 0/0/0、immutable documents/chunks 9/53，container/process/diagnostic clean。
+- **剩余风险**：本条只关闭 evaluation trust boundary，不表示生产质量已修复。下面已登记的 production `OcrEngine` macOS temp/error taxonomy、pdfplumber hidden-text false positive、table/provenance projection 与 exact-cleanup `reused_binding` 重建债务仍保持 🔴，继续由 post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening` / Phase 64.5（若非 64.4 显式前置）负责；Phase 64.4 仍只拥有 token/chunk-boundary、reindex 与 A/B。
 
 ## 2026-08-10 — Production `OcrEngine` macOS temp symlink 路径与错误分类 🔴待立项
 

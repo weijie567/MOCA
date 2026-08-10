@@ -23203,3 +23203,23 @@ Phase 64.3 没有越界修改 production ingestion；最终 canonical run 使用
 
 **剩余问题和下次继续排查入口**
 无产品侧剩余问题。后续 shell 内嵌 Python 若包含 Markdown 反引号必须使用安全外层引用；artifact command scan 应以当前 diff/授权文件为边界。
+
+## 2026-08-10 — Phase 64.3 post-review 验证 wrapper 的 Pydantic 定位、psql 引号与 typed summary 误用
+
+**问题现象**
+Post-review 验证出现三次只影响一次性检查命令的错误：旧 baseline 拒绝测试在读取 Pydantic validation error 时假设 `loc` 非空并触发 `IndexError`；首次只读数据库 proof 把 SQL UUID 写成 `\x27` 转义，psql 无法解析；Plan 05 文档对齐的 machine gate 断言已全部通过，但摘要输出对 typed `ParserGateInputsV1` 调用 `len()`，触发 `TypeError`。
+
+**如何检测/复现**
+第一项在构造缺少 parser gate inputs 的旧报告并读取 `exc.errors()[0]["loc"][0]` 时复现；第二项在 evaluation PostgreSQL 上运行带 `\x27` 的只读 UUID 查询时复现；第三项在 strict loader 成功后运行 `len(report.parser_gate_inputs)` 时复现。三者都发生在 validation wrapper 的展示/断言层，不在 provider、evaluation runtime 或 canonical persist 路径内。
+
+**关键证据或命令**
+修正第一项后按 error type/message 断言，稳定证明 strict loader 返回 `parser_gate_inputs_missing`；修正第二项为 SQL 中的精确 UUID literal 后，只读 proof 通过，当前 blocks/chunks/jobs 为 0/0/0、immutable documents/chunks 为 9/53；修正第三项为 typed fields / `model_dump()` 后，machine gate 打印 6 个 parser inputs，并核验 54 cases、45 failures、72,139-byte JSON、11,922-byte Markdown 与字节级 projection equality。
+
+**当前判断/根因**
+根因分别是 wrapper 对 Pydantic error location 的过强假设、shell/psql 引号层级错误，以及把 Pydantic model 误当作 collection。它们不是产品 bug，也没有使失败命令产生可信的质量结论。
+
+**已做处理**
+三条检查均改为契约直接拥有的字段或精确 literal 后重跑通过；严格 baseline、聚焦 138 tests、existing 437 tests、Ruff、生产漂移与危险清理扫描全部绿色。错误与修正过程均未改变数据库状态、provider 状态或 canonical artifact bytes。
+
+**剩余问题和下次继续排查入口**
+无产品侧剩余问题。后续负向 schema proof 应断言稳定 error code/message 而不是依赖 `loc` 必非空；psql 查询使用精确 SQL literal；typed Pydantic 子模型通过字段或 `model_dump()` 检查，不直接假设支持 collection protocol。

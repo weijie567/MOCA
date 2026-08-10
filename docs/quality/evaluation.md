@@ -211,21 +211,24 @@ Canonical report 按 overall、format、policy、case 报告 Hit@1/3/5、MRR、s
 | retrieval Hit@5 | `>= 0.90` | 0.977778 | PASS |
 | cross-format Hit@5 spread | `<= 0.10` | 0.066667 | PASS |
 
-每个 completed miss 恰有一个 primary stage：`parser` 表示解析/结构/表格或 parser locator 已丢失；`ocr` 表示扫描输入在可用 OCR runtime 下仍产生质量缺口；`chunking` 表示解析已有对应事实、但 retrieved chunk 未完整包含语义 anchor；`retrieval` 表示 top-k/no-answer/fallback 行为失败；`provenance` 表示命中证据但 locator 未覆盖。当前 46 个失败按 canonical JSON 归因为 parser 12、OCR 9、chunking 17、retrieval 8、provenance 0；“0”表示本次没有该 primary miss，不等于生产 provenance 能力被普遍证明。
+每个 completed miss 恰有一个 primary stage：`parser` 表示解析/结构/表格或 parser locator 已丢失；`ocr` 表示扫描输入在可用 OCR runtime 下仍产生质量缺口；`chunking` 表示解析已有对应事实、但 retrieved chunk 未完整包含语义 anchor；`retrieval` 表示 top-k/no-answer/fallback 行为失败；`provenance` 表示命中证据但 locator 未覆盖。当前 45 个失败按 canonical JSON 归因为 parser 12、OCR 9、chunking 16、retrieval 8、provenance 0；“0”表示本次没有该 primary miss，不等于生产 provenance 能力被普遍证明。
 
-Owner 必须按层分开：17 个 chunking miss 由 Phase 64.4 的 token/chunk-boundary 与 reindex/A-B 工作消费；parser/OCR/table/ingestion projection 缺陷属于 post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening`，不归 Phase 64.4，若未作为 64.4 的显式前置配套则在 Phase 65 前以 Phase 64.5 立项；8 个 retrieval miss 进入命名的 `RAG Retrieval Quality Optimization` follow-up；20–30 文档 mixed corpus 另由 `RAG Mixed Retrieval Corpus And Evaluation` follow-up 负责。本 phase 不为转绿而修改阈值、production parser/chunker/embedder/retrieval/reranker、ContextBuilder 或 claim verifier。
+Owner 必须按层分开：16 个 chunking miss 由 Phase 64.4 的 token/chunk-boundary 与 reindex/A-B 工作消费；parser/OCR/table/ingestion projection 缺陷属于 post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening`，不归 Phase 64.4，若未作为 64.4 的显式前置配套则在 Phase 65 前以 Phase 64.5 立项；8 个 retrieval miss 进入命名的 `RAG Retrieval Quality Optimization` follow-up；20–30 文档 mixed corpus 另由 `RAG Mixed Retrieval Corpus And Evaluation` follow-up 负责。本 phase 不为转绿而修改阈值、production parser/chunker/embedder/retrieval/reranker、ContextBuilder 或 claim verifier。
 
 ### 当前 canonical real-provider baseline
 
 Strict loader 于 2026-08-10 核验的状态如下：
 
 - Outcome：`completed_quality_fail`；`baseline_eligible=true`；`execution_kind=full_provider`。
-- Run token：`64f30400-0000-4000-8000-000000000006`；OCR temp mode：`explicit_macos_private_tmp`。
-- 54 case observations（45 answerable、9 no-answer），46 个 stage-attributed failures。
-- Overall：Hit@1 0.844444、Hit@3 0.911111、Hit@5 0.977778、MRR 0.894444、semantic-anchor coverage 0.200000、no-answer correctness 0.111111、fallback correctness 0.851852、locator coverage 1.000000。
+- Run token：`64f30400-0000-4000-8000-000000000007`；OCR temp mode：`explicit_macos_private_tmp`；fresh canonical commit `55962dc`。
+- 54 case observations（45 answerable、9 no-answer），45 个 stage-attributed failures。
+- Overall：Hit@1 0.844444、Hit@3 0.933333、Hit@5 0.977778、MRR 0.900000、semantic-anchor coverage 0.211111、no-answer correctness 0.111111、fallback correctness 0.851852、locator coverage 0.333333。
+- Parser gate inputs 共 6 项：parse 6/9、Markdown anchor 35/35、digital-PDF anchor 11/35、scanned-PDF anchor 26/35、critical table 11/33、PDF locator 37/70。这里的 PDF locator gate observed 为 0.528571，与 overall retrieval locator coverage 0.333333 是不同分母、不同层级的指标。
 - Input provenance：manifest SHA-256 `e5544b20ecdf05c2eaf3325b4e5f89a4ef752c0b8c0d23b8bac224f006fdd53b`；Gold SHA-256 `c6dc12536270fa9b9532ec4595e0a91d2b4ebddf83754a0f1ec107caabb64b8e`；generator identity `0a9f3cead84eeae36244f386a71a770337cd70fe64e7a17603a3e7d4b7ae0f24`；dataset identity `3b1ddd8c19f8fce0a37ad113f3d1161039c200e39e60ce0f2e4d0917d870e110`；configured identity `f2e73bb9dcb339e58d3eb69d696406623b25b526ba66b164cda74666b23a011f`。
 - Runtime config：DashScope `text-embedding-v4` / 1024 dimensions；`retrieval.v3`；RRF `k=60,dense=25,sparse=50,fuzzy=20`；`query_rewrite.v1`；`rerank.v2`；no-evidence threshold 0.55；`moca_markdown@21.01`、`moca_pdf@21.03`、Tesseract 5.5.2。
-- Artifact SHA-256：JSON `e621884b169f60b37911aa5c55bbcb1caeaf8d44f20e21ce257fd0f309728d94`；12,045-byte Markdown `ce1d0741f4187674b113c8a561217bca0b0bba0e73cd4b89c0de15c3da4cc86d`。
+- Artifact SHA-256：72,139-byte JSON `67c0c3da21e53842a93498de5507083bfe681e501d0cb3f48e3a0bd861cd5732`；11,922-byte Markdown `4491364f01436b27948da11dc9b47b839f6a9bff91506cb5fae86b354d9fc00c`。Strict loader 后重新投影与 Markdown 逐字节相等。
+- 隔离 closeout proof：当前 projection 的 blocks/chunks/jobs 为 0/0/0，immutable documents/chunks 为 9/53；evaluation container、process 与 diagnostic 均清理完成。该证明只覆盖固定 evaluation owner，不授权 broad cleanup。
+- Review hardening 后的 deterministic gates：focused 138 passed（1 warning），existing RAG/eval/parser/knowledge 437 passed（8 warnings），scoped Ruff、stable-base production diff 与危险清理/tenant-fallback scan 全部绿色。
 
 这里的“可复现”是：记录并校验相同 input/toolchain/config/command identity，且每个观测都可归因；live provider 的独立两次运行可能因服务行为而产生不同指标，不承诺 bit-identical scores。Deterministic fake 只能证明 contract/scoring/isolation/report 规则，不能成为 parser 或 provider baseline。
 
