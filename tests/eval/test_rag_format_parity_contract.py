@@ -3,10 +3,21 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import shutil
+import time
+import tomllib
 from copy import deepcopy
 from pathlib import Path
 
+import pdfplumber
+import pypdfium2
 import pytest
+from PIL import ImageChops, ImageStat
+
+from evaluation.rag_sources.build_fixtures import (
+    FixtureBuildError,
+    build_fixture_family,
+)
 
 from src.rag.evaluation.contracts import (
     FORMAT_PARITY_DOC_KEYS,
@@ -35,6 +46,21 @@ EXPECTED_STALE_MARKDOWN_HASHES = {
         "8641827819922c734f3baebc913b009c70e41fe37ca551380e24cebcf19e5cb9",
     ),
 }
+
+
+def _generator_identity(*, profile: str = "test-profile") -> dict[str, object]:
+    return {
+        "schema_version": "rag_format_parity_fixture_generator.v1",
+        "builder_sha256": "1" * 64,
+        "profile": profile,
+        "reportlab_version": "5.0.0",
+        "pillow_version": "12.2.0",
+        "pypdfium2_version": "5.10.1",
+        "pdfplumber_version": "0.11.10",
+        "cjk_font_sha256": "2" * 64,
+        "raster_dpi": 200,
+        "deterministic_metadata_profile": "moca-pdf-invariant-v1",
+    }
 
 
 def _sha256(path: Path) -> str:
@@ -113,6 +139,7 @@ def _make_valid_contract(tmp_path: Path) -> tuple[Path, Path, list[dict[str, obj
                 "parity_group": doc_key,
                 "source_of_truth": relative_markdown,
                 "title": f"Policy {index}",
+                "generator_identity": _generator_identity(),
                 "variants": [
                     {
                         "extractable_text_chars": len(markdown.read_text(encoding="utf-8")),
@@ -203,26 +230,21 @@ def test_valid_contract_returns_exact_3_groups_and_9_variants(tmp_path: Path) ->
     assert len(dataset.manifest_hash) == len(dataset.gold_hash) == 64
 
 
-def test_checked_in_manifest_exposes_three_markdown_mismatches_and_six_matching_pdfs() -> None:
+def test_checked_in_format_parity_contract_is_valid() -> None:
     records = _read_manifest(CHECKED_IN_MANIFEST)
-    actual_markdown: dict[str, tuple[str, str]] = {}
-    matching_pdf_count = 0
+    matching_fixture_count = 0
     for record in records:
-        doc_key = str(record["doc_key"])
         for variant in record["variants"]:
             fixture_path = REPOSITORY_ROOT / variant["path"]
             actual_hash = _sha256(fixture_path)
-            if variant["format"] == "markdown":
-                actual_markdown[doc_key] = (variant["sha256"], actual_hash)
-            else:
-                assert actual_hash == variant["sha256"]
-                matching_pdf_count += 1
+            assert actual_hash == variant["sha256"]
+            matching_fixture_count += 1
 
-    assert actual_markdown == EXPECTED_STALE_MARKDOWN_HASHES
-    assert matching_pdf_count == 6
-    with pytest.raises(FormatParityContractError, match="fixture_checksum_mismatch") as exc_info:
-        load_format_parity_contract(CHECKED_IN_MANIFEST, CHECKED_IN_GOLD, repository_root=REPOSITORY_ROOT)
-    assert exc_info.value.reason_code == "fixture_checksum_mismatch"
+    dataset = load_format_parity_contract(CHECKED_IN_MANIFEST, CHECKED_IN_GOLD, repository_root=REPOSITORY_ROOT)
+    assert matching_fixture_count == 9
+    assert len(dataset.policies) == 3
+    assert len(dataset.fixture_hashes) == 9
+    assert len(dataset.baseline_identity) == 64
 
 
 def test_duplicate_missing_and_extra_groups_fail_closed(tmp_path: Path) -> None:
@@ -321,3 +343,165 @@ def test_loader_exposes_no_validation_bypass() -> None:
         "gold_path",
         "repository_root",
     )
+
+
+def test_reportlab_is_locked_to_exact_required_version() -> None:
+    project = tomllib.loads((REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "reportlab==5.0.0" in project["project"]["dependencies"]
+    lock = (REPOSITORY_ROOT / "uv.lock").read_text(encoding="utf-8")
+    assert 'name = "reportlab"\nversion = "5.0.0"' in lock
+
+
+def _built_family_hashes(root: Path) -> dict[str, str]:
+    paths = sorted((root / "evaluation/rag_sources/fixtures").glob("*/*"))
+    paths.append(root / "evaluation/rag_sources/format_parity_manifest.jsonl")
+    return {path.relative_to(root).as_posix(): _sha256(path) for path in paths if path.is_file()}
+
+
+def test_fixture_builder_is_byte_deterministic_across_wall_clock_gap(tmp_path: Path) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+
+    first = build_fixture_family(repository_root=REPOSITORY_ROOT, output_root=first_root)
+    first_hashes = _built_family_hashes(first_root)
+    time.sleep(1.1)
+    second = build_fixture_family(repository_root=REPOSITORY_ROOT, output_root=second_root)
+    second_hashes = _built_family_hashes(second_root)
+
+    assert first_hashes == second_hashes
+    assert len(first_hashes) == 10  # three Markdown + six PDFs + complete manifest
+    assert first.generator_identity == second.generator_identity
+    assert first.manifest_hash == second.manifest_hash
+    assert len({record["generator_identity_hash"] for record in _read_manifest(first.manifest_path)}) == 1
+
+
+def test_changed_generator_identity_prevents_reuse(tmp_path: Path) -> None:
+    first = build_fixture_family(repository_root=REPOSITORY_ROOT, output_root=tmp_path / "first")
+
+    with pytest.raises(FixtureBuildError, match="generator_identity_mismatch") as exc_info:
+        build_fixture_family(
+            repository_root=REPOSITORY_ROOT,
+            output_root=tmp_path / "changed",
+            generator_profile="changed-profile",
+            expected_generator_identity=first.generator_identity,
+        )
+
+    assert exc_info.value.reason_code == "generator_identity_mismatch"
+    assert not (tmp_path / "changed/evaluation/rag_sources/format_parity_manifest.jsonl").exists()
+
+
+def _normalized(text: str) -> str:
+    return "".join(text.split())
+
+
+def _render_page(document: pypdfium2.PdfDocument, page_index: int):
+    page = document[page_index]
+    try:
+        return page.render(scale=1).to_pil().convert("L")
+    finally:
+        close_page = getattr(page, "close", None)
+        if callable(close_page):
+            close_page()
+
+
+def test_checked_in_pdfs_preserve_five_page_semantic_order_and_scan_pixels() -> None:
+    dataset = load_format_parity_contract(CHECKED_IN_MANIFEST, CHECKED_IN_GOLD, repository_root=REPOSITORY_ROOT)
+
+    for policy in dataset.policies:
+        variants = {variant.format: variant for variant in policy.variants}
+        digital_path = REPOSITORY_ROOT / variants["digital_pdf"].path
+        scanned_path = REPOSITORY_ROOT / variants["scanned_pdf"].path
+        with pdfplumber.open(digital_path) as digital:
+            assert len(digital.pages) == 5
+            digital_text = _normalized("\n".join(page.extract_text() or "" for page in digital.pages))
+        with pdfplumber.open(scanned_path) as scanned:
+            assert len(scanned.pages) == 5
+            assert sum(len(page.extract_text() or "") for page in scanned.pages) == 0
+
+        positions = [digital_text.index(_normalized(anchor.text)) for anchor in policy.gold.anchors]
+        assert positions == sorted(positions)
+        assert any(anchor.kind == "table_header" for anchor in policy.gold.anchors)
+        assert any(anchor.kind == "table_row" for anchor in policy.gold.anchors)
+
+        digital_document = pypdfium2.PdfDocument(str(digital_path))
+        scanned_document = pypdfium2.PdfDocument(str(scanned_path))
+        try:
+            assert len(digital_document) == len(scanned_document) == 5
+            for page_index in range(5):
+                digital_page = _render_page(digital_document, page_index)
+                scanned_page = _render_page(scanned_document, page_index)
+                assert digital_page.size == scanned_page.size
+                difference = ImageChops.difference(digital_page, scanned_page)
+                assert ImageStat.Stat(difference).mean[0] < 3.0
+        finally:
+            digital_document.close()
+            scanned_document.close()
+
+
+def test_semantic_gold_has_stable_shared_truth_and_no_chunk_binding() -> None:
+    raw = json.loads(CHECKED_IN_GOLD.read_text(encoding="utf-8"))
+    serialized = json.dumps(raw, ensure_ascii=False)
+    assert "expected_chunk_id" not in serialized
+    assert "format_answers" not in serialized
+
+    dataset = load_format_parity_contract(CHECKED_IN_MANIFEST, CHECKED_IN_GOLD, repository_root=REPOSITORY_ROOT)
+    case_ids: set[str] = set()
+    anchor_ids: set[str] = set()
+    categories: set[str] = set()
+    for policy in dataset.policies:
+        assert 8 <= len(policy.gold.anchors) <= 12
+        assert 6 <= len(policy.gold.cases) <= 8
+        local_anchors = {anchor.anchor_id for anchor in policy.gold.anchors}
+        assert not anchor_ids.intersection(local_anchors)
+        anchor_ids.update(local_anchors)
+        for case in policy.gold.cases:
+            assert case.case_id not in case_ids
+            case_ids.add(case.case_id)
+            categories.add(case.category)
+            assert set(case.evidence_anchor_ids).issubset(local_anchors)
+    assert categories == {
+        "facts",
+        "exceptions",
+        "amounts_time_limits",
+        "tables",
+        "cross_section",
+        "no_answer",
+    }
+
+
+@pytest.mark.parametrize("forbidden_key", ["expected_chunk_id", "expected_chunk_ids", "format_answers"])
+def test_gold_rejects_chunk_bound_or_format_specific_truth(tmp_path: Path, forbidden_key: str) -> None:
+    manifest_path, gold_path, _ = _make_valid_contract(tmp_path)
+    raw = json.loads(gold_path.read_text(encoding="utf-8"))
+    raw["policies"][0]["cases"][0][forbidden_key] = ["forbidden"]
+    gold_path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(FormatParityContractError, match="gold_(chunk_binding_forbidden|schema_invalid)"):
+        load_format_parity_contract(manifest_path, gold_path, repository_root=tmp_path)
+
+
+def test_manifest_gold_and_fixture_hashes_are_independent_reuse_inputs(tmp_path: Path) -> None:
+    shutil.copytree(REPOSITORY_ROOT / "evaluation/rag_sources", tmp_path / "evaluation/rag_sources")
+    shutil.copytree(REPOSITORY_ROOT / "evaluation/golden", tmp_path / "evaluation/golden")
+    manifest_path = tmp_path / "evaluation/rag_sources/format_parity_manifest.jsonl"
+    gold_path = tmp_path / "evaluation/golden/rag_format_parity_gold.json"
+    original = load_format_parity_contract(manifest_path, gold_path, repository_root=tmp_path)
+
+    manifest_path.write_bytes(manifest_path.read_bytes() + b"\n")
+    manifest_changed = load_format_parity_contract(manifest_path, gold_path, repository_root=tmp_path)
+    assert manifest_changed.manifest_hash != original.manifest_hash
+    assert manifest_changed.gold_hash == original.gold_hash
+    assert manifest_changed.fixture_hashes == original.fixture_hashes
+    assert manifest_changed.baseline_identity != original.baseline_identity
+
+    gold_path.write_bytes(gold_path.read_bytes() + b" \n")
+    gold_changed = load_format_parity_contract(manifest_path, gold_path, repository_root=tmp_path)
+    assert gold_changed.gold_hash != manifest_changed.gold_hash
+    assert gold_changed.manifest_hash == manifest_changed.manifest_hash
+    assert gold_changed.fixture_hashes == manifest_changed.fixture_hashes
+    assert gold_changed.baseline_identity != manifest_changed.baseline_identity
+
+    fixture_path = tmp_path / next(iter(original.fixture_hashes))
+    fixture_path.write_bytes(fixture_path.read_bytes() + b"tampered")
+    with pytest.raises(FormatParityContractError, match="fixture_checksum_mismatch"):
+        load_format_parity_contract(manifest_path, gold_path, repository_root=tmp_path)
