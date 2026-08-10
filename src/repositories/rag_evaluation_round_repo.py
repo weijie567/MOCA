@@ -61,6 +61,7 @@ class EvaluationRoundIdentity:
     round_format: str
     state_version: int
     next_document_index: int
+    run_identity_hash: str
     expected_rollout_version: int = 1
 
     def __post_init__(self) -> None:
@@ -74,6 +75,8 @@ class EvaluationRoundIdentity:
             raise EvaluationIsolationError("identity_mismatch")
         if self.state_version <= 0 or self.expected_rollout_version <= 0:
             raise EvaluationIsolationError("stale_state")
+        if not _SHA256.fullmatch(self.run_identity_hash):
+            raise EvaluationIsolationError("run_identity_mismatch")
         if not 0 <= self.next_document_index <= len(FORMAT_PARITY_DOC_KEYS):
             raise EvaluationIsolationError("stale_progress")
 
@@ -160,6 +163,7 @@ def validate_run_sequence(
     *,
     run_token: UUID,
     expected_rollout_version: int,
+    run_identity_hash: str,
     now: datetime,
 ) -> RunSequenceState:
     """Validate exact deterministic format order and durable terminal proofs."""
@@ -178,6 +182,8 @@ def validate_run_sequence(
     for index, round_format in enumerate(present):
         row = by_format[round_format]
         expected_round_token = uuid5(NAMESPACE_URL, f"{run_token}:{round_format}")
+        if row.run_identity_hash != run_identity_hash:
+            raise EvaluationIsolationError("run_identity_mismatch")
         if (
             row.tenant_id != FORMAT_PARITY_TENANT_ID
             or row.owner_marker != FORMAT_PARITY_OWNER_MARKER
@@ -221,6 +227,7 @@ def _identity_from_row(row: RagEvaluationRound) -> EvaluationRoundIdentity:
         round_format=row.round_format,
         state_version=row.state_version,
         next_document_index=row.next_document_index,
+        run_identity_hash=row.run_identity_hash,
         expected_rollout_version=row.expected_rollout_version,
     )
 
@@ -429,6 +436,7 @@ class RagEvaluationRoundRepository:
         run_token: UUID,
         round_token: UUID,
         round_format: str,
+        run_identity_hash: str,
         lease_expires_at: datetime,
         expected_rollout_version: int = 1,
     ) -> EvaluationRoundIdentity:
@@ -441,6 +449,7 @@ class RagEvaluationRoundRepository:
             round_format=round_format,
             state_version=1,
             next_document_index=0,
+            run_identity_hash=run_identity_hash,
             expected_rollout_version=expected_rollout_version,
         )
         row = RagEvaluationRound(
@@ -454,6 +463,7 @@ class RagEvaluationRoundRepository:
             state="claimed",
             state_version=1,
             expected_rollout_version=expected_rollout_version,
+            run_identity_hash=identity.run_identity_hash,
             next_document_index=0,
             next_step="preflight",
             lease_expires_at=lease_expires_at,
@@ -491,6 +501,42 @@ class RagEvaluationRoundRepository:
             state=row.state,
             has_attempt_reservation=row.attempt_doc_key is not None,
         )
+
+    async def prove_run_identity(self, owner: EvaluationRoundIdentity) -> EvaluationRoundIdentity:
+        """Re-lock the durable identity immediately before one provider search."""
+
+        await self.lock_owned(owner)
+        return owner
+
+    async def prove_advanced_document(
+        self,
+        owner: EvaluationRoundIdentity,
+        *,
+        doc_key: str,
+        source_checksum: str,
+    ) -> EvaluationRoundIdentity:
+        """Prove a skipped cursor against its recorded and current projection."""
+
+        row = await self.lock_owned(
+            owner,
+            allowed_states=frozenset({"ingesting", "retrieving", "cleaning"}),
+        )
+        try:
+            document_index = FORMAT_PARITY_DOC_KEYS.index(doc_key)
+        except ValueError:
+            raise EvaluationIsolationError("document_order_mismatch") from None
+        if document_index >= owner.next_document_index or not _SHA256.fullmatch(source_checksum):
+            raise EvaluationIsolationError("advanced_document_mismatch")
+        raw_proof = row.head_mappings_json
+        expected = raw_proof.get(doc_key) if isinstance(raw_proof, dict) else None
+        if (
+            not isinstance(expected, dict)
+            or expected.get("source_checksum") != canonical_ingestion_source_checksum(source_checksum)
+        ):
+            raise EvaluationIsolationError("advanced_document_checksum_mismatch")
+        heads = await self._lock_tenant_heads()
+        await self._prove_recorded_projection(row, heads, require_all=False)
+        return owner
 
     async def prove_recorded_anchor_locators(
         self,
@@ -1164,6 +1210,7 @@ class RagEvaluationRoundRepository:
                 RagEvaluationRound.round_format == owner.round_format,
                 RagEvaluationRound.state_version == owner.state_version,
                 RagEvaluationRound.expected_rollout_version == owner.expected_rollout_version,
+                RagEvaluationRound.run_identity_hash == owner.run_identity_hash,
                 RagEvaluationRound.next_document_index == owner.next_document_index,
             )
             .values(**values, state_version=next_version, updated_at=func.now())
@@ -1179,11 +1226,14 @@ class RagEvaluationRoundRepository:
             round_format=owner.round_format,
             state_version=next_version,
             next_document_index=int(values.get("next_document_index", owner.next_document_index)),
+            run_identity_hash=owner.run_identity_hash,
             expected_rollout_version=owner.expected_rollout_version,
         )
 
     @staticmethod
     def _assert_owned(row: RagEvaluationRound, owner: EvaluationRoundIdentity) -> None:
+        if row.run_identity_hash != owner.run_identity_hash:
+            raise EvaluationIsolationError("run_identity_mismatch")
         actual_identity = (
             row.tenant_id,
             row.owner_marker,

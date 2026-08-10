@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
@@ -12,7 +13,7 @@ from pathlib import Path
 import sys
 import tempfile
 import time
-from typing import Literal
+from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -52,6 +53,7 @@ from src.rag.evaluation.reporting import (
 from src.rag.evaluation.retrieval_rounds import (
     PrerequisiteStatusV1,
     RetrievalParityRunV1,
+    rebuild_completed_retrieval_parity,
     run_retrieval_parity,
 )
 from src.rag.parsers.runtime import check_ocr_runtime
@@ -71,6 +73,57 @@ DEFAULT_MANIFEST = "evaluation/rag_sources/format_parity_manifest.jsonl"
 DEFAULT_GOLD = "evaluation/golden/rag_format_parity_gold.json"
 CANONICAL_JSON_NAME = "baseline.json"
 CANONICAL_MARKDOWN_NAME = "baseline.md"
+
+
+class RetrievalRunFixtureIdentityV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    doc_key: str
+    format: Literal["markdown", "digital_pdf", "scanned_pdf"]
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class RetrievalRunIdentityV1(BaseModel):
+    """Allowlisted identity sealed into every durable evaluation round."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["rag_format_parity_run_identity.v1"] = "rag_format_parity_run_identity.v1"
+    manifest_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    gold_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    fixtures: tuple[RetrievalRunFixtureIdentityV1, ...]
+    generator_identity_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    baseline_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    generated_at: str
+    effective_at: str
+    execution_mode: Literal["provider", "full-provider"]
+    embedding_provider: Literal["dashscope"] = "dashscope"
+    embedding_model: str
+    embedding_dimensions: int = Field(gt=0)
+    retrieval_config_version: str
+    rrf_config: str
+    rewrite_config: str
+    reranker_config: str
+    no_evidence_threshold: float = Field(ge=0.0, le=1.0)
+    tenant_id: str
+    owner_marker: str
+    expected_rollout_version: int = Field(gt=0)
+
+
+@dataclass(frozen=True)
+class ClaimOrResumeOutcome:
+    owner: EvaluationRoundIdentity | None
+    completed_results: tuple[dict[str, Any], ...]
+    run_identity_hash: str
+
+    def __post_init__(self) -> None:
+        completed = self.owner is None
+        if (
+            not re_full_sha256(self.run_identity_hash)
+            or completed != (len(self.completed_results) == 3)
+            or (self.owner is not None and self.owner.run_identity_hash != self.run_identity_hash)
+        ):
+            raise EvaluationIsolationError("run_sequence_outcome_invalid")
 
 
 class DiagnosticInputIdentityV1(BaseModel):
@@ -235,6 +288,58 @@ def _generator_identity_hash(dataset: FormatParityDataset) -> str:
     return hashlib.sha256(next(iter(identities)).encode("utf-8")).hexdigest()
 
 
+def re_full_sha256(value: str) -> bool:
+    return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+
+
+def _rrf_config_identity() -> str:
+    return f"rrf_k={RRF_K};dense={ORIGINAL_QUERY_TOP_K};sparse={SPARSE_CANDIDATE_TOP_K};fuzzy={FUZZY_CANDIDATE_TOP_K}"
+
+
+def build_run_identity_hash(
+    dataset: FormatParityDataset,
+    *,
+    args: argparse.Namespace,
+) -> str:
+    """Hash only stable allowlisted values; never persist paths, DSNs, or secrets."""
+
+    identity = RetrievalRunIdentityV1(
+        manifest_hash=dataset.manifest_hash,
+        gold_hash=dataset.gold_hash,
+        fixtures=tuple(
+            RetrievalRunFixtureIdentityV1(
+                doc_key=policy.doc_key,
+                format=variant.format,
+                sha256=variant.sha256,
+            )
+            for policy in dataset.policies
+            for variant in policy.variants
+        ),
+        generator_identity_hash=_generator_identity_hash(dataset),
+        baseline_identity=dataset.baseline_identity,
+        generated_at=str(args.generated_at),
+        effective_at=str(args.generated_at),
+        execution_mode=args.mode,
+        embedding_model=settings.embedding_model,
+        embedding_dimensions=settings.embedding_dimensions,
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        rrf_config=_rrf_config_identity(),
+        rewrite_config=f"{QUERY_REWRITE_CONFIG_VERSION}:enabled",
+        reranker_config=f"{RERANK_CONFIG_VERSION}:enabled",
+        no_evidence_threshold=MIN_SIMILARITY_THRESHOLD,
+        tenant_id=str(args.tenant_id),
+        owner_marker=str(args.owner_marker),
+        expected_rollout_version=int(args.expected_rollout_version),
+    )
+    payload = json.dumps(
+        identity.model_dump(mode="json"),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _build_execution_error_result(
     *,
     dataset: FormatParityDataset,
@@ -290,6 +395,7 @@ async def run_provider(args: argparse.Namespace) -> RetrievalParityRunV1:
         missing.append("ocr_traineddata")
 
     owner: EvaluationRoundIdentity | None = None
+    claim_started = False
     try:
         async with SessionLocal() as session:
             db_missing = await asyncio.wait_for(
@@ -308,10 +414,23 @@ async def run_provider(args: argparse.Namespace) -> RetrievalParityRunV1:
                     missing=tuple(missing),
                 )
             async with session.begin():
-                owner = await _claim_or_resume(
+                run_identity_hash = build_run_identity_hash(dataset, args=args)
+                claim = await _claim_or_resume(
                     session,
                     run_token=run_token,
                     expected_rollout_version=args.expected_rollout_version,
+                    run_identity_hash=run_identity_hash,
+                )
+                claim_started = True
+            owner = claim.owner
+            if owner is None:
+                return rebuild_completed_retrieval_parity(
+                    dataset,
+                    completed_results=claim.completed_results,
+                    generated_at=args.generated_at,
+                    run_token=run_token,
+                    run_identity_hash=claim.run_identity_hash,
+                    expected_run_identity_hash=run_identity_hash,
                 )
             return await run_retrieval_parity(
                 dataset,
@@ -330,7 +449,7 @@ async def run_provider(args: argparse.Namespace) -> RetrievalParityRunV1:
             reason_code=exc.reason_code,
         )
     except Exception:
-        if owner is None:
+        if not claim_started:
             missing.append("database_runtime")
         else:
             return _build_execution_error_result(
@@ -421,20 +540,32 @@ async def run_full_provider(
                     or ("parser_execution_failed",),
                 )
 
+            run_identity_hash = build_run_identity_hash(dataset, args=args)
             async with session.begin():
-                owner = await _claim_or_resume(
+                claim = await _claim_or_resume(
                     session,
                     run_token=run_token,
                     expected_rollout_version=args.expected_rollout_version,
+                    run_identity_hash=run_identity_hash,
                 )
             retrieval_started = time.monotonic()
-            retrieval_run = await run_retrieval_parity(
-                dataset,
-                session=session,
-                embedder=EmbeddingService(),
-                owner=owner,
-                generated_at=args.generated_at,
-            )
+            if claim.owner is None:
+                retrieval_run = rebuild_completed_retrieval_parity(
+                    dataset,
+                    completed_results=claim.completed_results,
+                    generated_at=args.generated_at,
+                    run_token=run_token,
+                    run_identity_hash=claim.run_identity_hash,
+                    expected_run_identity_hash=run_identity_hash,
+                )
+            else:
+                retrieval_run = await run_retrieval_parity(
+                    dataset,
+                    session=session,
+                    embedder=EmbeddingService(),
+                    owner=claim.owner,
+                    generated_at=args.generated_at,
+                )
             retrieval_duration_ms = (time.monotonic() - retrieval_started) * 1000
     except EvaluationIsolationError as exc:
         return build_diagnostic(
@@ -593,9 +724,7 @@ def _runtime_config(
         embedding_model=settings.embedding_model,
         embedding_dimensions=settings.embedding_dimensions,
         retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
-        rrf_config=(
-            f"rrf_k={RRF_K};dense={ORIGINAL_QUERY_TOP_K};sparse={SPARSE_CANDIDATE_TOP_K};fuzzy={FUZZY_CANDIDATE_TOP_K}"
-        ),
+        rrf_config=_rrf_config_identity(),
         rewrite_config=f"{QUERY_REWRITE_CONFIG_VERSION}:enabled",
         reranker_config=f"{RERANK_CONFIG_VERSION}:enabled",
         no_evidence_threshold=MIN_SIMILARITY_THRESHOLD,
@@ -652,7 +781,8 @@ async def _claim_or_resume(
     *,
     run_token: UUID,
     expected_rollout_version: int,
-) -> EvaluationRoundIdentity:
+    run_identity_hash: str,
+) -> ClaimOrResumeOutcome:
     repository = RagEvaluationRoundRepository(session)
     now = datetime.now(UTC)
     rows = await repository.lock_run_rows(run_token)
@@ -660,19 +790,34 @@ async def _claim_or_resume(
         rows,
         run_token=run_token,
         expected_rollout_version=expected_rollout_version,
+        run_identity_hash=run_identity_hash,
         now=now,
     )
     if sequence.active is not None:
-        return sequence.active
+        return ClaimOrResumeOutcome(
+            owner=sequence.active,
+            completed_results=sequence.completed_results,
+            run_identity_hash=run_identity_hash,
+        )
     if sequence.next_format is None:
-        raise EvaluationIsolationError("run_sequence_complete")
+        return ClaimOrResumeOutcome(
+            owner=None,
+            completed_results=sequence.completed_results,
+            run_identity_hash=run_identity_hash,
+        )
     next_format = sequence.next_format
-    return await repository.create_round(
+    owner = await repository.create_round(
         run_token=run_token,
         round_token=uuid5(NAMESPACE_URL, f"{run_token}:{next_format}"),
         round_format=next_format,
+        run_identity_hash=run_identity_hash,
         lease_expires_at=now + timedelta(hours=2),
         expected_rollout_version=expected_rollout_version,
+    )
+    return ClaimOrResumeOutcome(
+        owner=owner,
+        completed_results=sequence.completed_results,
+        run_identity_hash=run_identity_hash,
     )
 
 

@@ -50,6 +50,7 @@ def upgrade() -> None:
         sa.Column("state", sa.String(length=32), nullable=False, server_default="claimed"),
         sa.Column("state_version", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("expected_rollout_version", sa.Integer(), nullable=False),
+        sa.Column("run_identity_hash", sa.String(length=64), nullable=False),
         sa.Column("next_document_index", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("next_step", sa.String(length=32), nullable=False, server_default="preflight"),
         sa.Column("attempt_doc_key", sa.String(length=64)),
@@ -94,6 +95,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "expected_rollout_version > 0",
             name="ck_rag_evaluation_rounds_rollout_version_positive",
+        ),
+        sa.CheckConstraint(
+            "run_identity_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_rag_evaluation_rounds_run_identity_hash",
         ),
         sa.CheckConstraint(
             "next_document_index BETWEEN 0 AND 3",

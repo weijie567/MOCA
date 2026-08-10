@@ -50,6 +50,7 @@ from scripts.eval_rag_format_parity import (
 
 
 MIGRATION = Path("src/db/migrations/versions/029_phase64_3_rag_eval_rounds.py")
+RUN_IDENTITY_HASH = "d" * 64
 
 
 def _identity(**overrides: object) -> EvaluationRoundIdentity:
@@ -62,6 +63,7 @@ def _identity(**overrides: object) -> EvaluationRoundIdentity:
         "round_format": "markdown",
         "state_version": 1,
         "next_document_index": 0,
+        "run_identity_hash": RUN_IDENTITY_HASH,
     }
     values.update(overrides)
     return EvaluationRoundIdentity(**values)
@@ -96,6 +98,7 @@ def _sequence_row(
         state=state,
         state_version=7,
         expected_rollout_version=expected_rollout_version,
+        run_identity_hash=RUN_IDENTITY_HASH,
         next_document_index=3 if terminal else 0,
         next_step="done" if terminal else "preflight",
         attempt_doc_key=None,
@@ -138,6 +141,7 @@ def test_fixed_evaluation_identity_and_orm_constraints_are_exact() -> None:
         "state",
         "state_version",
         "expected_rollout_version",
+        "run_identity_hash",
         "next_document_index",
         "next_step",
         "attempt_doc_key",
@@ -156,6 +160,7 @@ def test_fixed_evaluation_identity_and_orm_constraints_are_exact() -> None:
     assert all(value in checks for value in (*ROUND_FORMATS, *FORMAT_PARITY_DOC_KEYS))
     assert "state_version > 0" in checks
     assert "next_document_index >= 0" in checks
+    assert "run_identity_hash" in checks
     active_index = next(index for index in table.indexes if index.name == "uq_rag_evaluation_rounds_one_active_tenant")
     assert active_index.unique is True
     assert "completed" in str(active_index.dialect_options["postgresql"]["where"])
@@ -208,12 +213,15 @@ async def test_same_token_resume_creates_only_first_missing_round_or_returns_any
 
     _RunRepository.create_calls = []
     monkeypatch.setattr(format_parity_cli, "RagEvaluationRoundRepository", _RunRepository)
-    owner = await format_parity_cli._claim_or_resume(
+    claim = await format_parity_cli._claim_or_resume(
         SimpleNamespace(),  # type: ignore[arg-type]
         run_token=run_token,
         expected_rollout_version=2,
+        run_identity_hash=RUN_IDENTITY_HASH,
     )
 
+    owner = claim.owner
+    assert owner is not None
     assert owner.round_format == expected_format
     assert owner.round_token == uuid5(NAMESPACE_URL, f"{run_token}:{expected_format}")
     assert len(_RunRepository.create_calls) == expected_create_count
@@ -221,12 +229,106 @@ async def test_same_token_resume_creates_only_first_missing_round_or_returns_any
         rows,
         run_token=run_token,
         expected_rollout_version=2,
+        run_identity_hash=RUN_IDENTITY_HASH,
         now=datetime.now(UTC),
     )
     assert tuple(result["round_format"] for result in sequence.completed_results) == completed_formats
 
 
-@pytest.mark.parametrize("drift", ["run_token", "tenant_id", "round_token", "format_gap"])
+@pytest.mark.asyncio
+async def test_post_final_terminal_claim_rebuilds_without_new_round_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_token = UUID("64300000-0000-4000-8000-000000000099")
+    rows = [
+        _sequence_row(run_token=run_token, round_format=round_format, state="completed")
+        for round_format in ROUND_FORMATS
+    ]
+
+    class _CompletedRunRepository:
+        create_calls = 0
+
+        def __init__(self, session: object) -> None:
+            del session
+
+        async def lock_run_rows(self, requested_token: UUID) -> list[SimpleNamespace]:
+            assert requested_token == run_token
+            return rows
+
+        async def create_round(self, **kwargs: object) -> EvaluationRoundIdentity:
+            del kwargs
+            type(self).create_calls += 1
+            raise AssertionError("completed run must not create another round")
+
+    monkeypatch.setattr(format_parity_cli, "RagEvaluationRoundRepository", _CompletedRunRepository)
+    claim = await format_parity_cli._claim_or_resume(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        run_token=run_token,
+        expected_rollout_version=2,
+        run_identity_hash=RUN_IDENTITY_HASH,
+    )
+
+    assert claim.owner is None
+    assert len(claim.completed_results) == 3
+    rebuilt = retrieval_rounds_module.rebuild_completed_retrieval_parity(
+        _dataset(),
+        completed_results=claim.completed_results,
+        generated_at="2026-08-10T00:00:00Z",
+        run_token=run_token,
+        run_identity_hash=claim.run_identity_hash,
+        expected_run_identity_hash=RUN_IDENTITY_HASH,
+    )
+    assert rebuilt.outcome == "completed_pass"
+    assert tuple(item.round_format for item in rebuilt.rounds) == ROUND_FORMATS
+    assert _CompletedRunRepository.create_calls == 0
+    with pytest.raises(EvaluationIsolationError) as caught:
+        retrieval_rounds_module.rebuild_completed_retrieval_parity(
+            _dataset(),
+            completed_results=claim.completed_results,
+            generated_at="2026-08-10T00:00:00Z",
+            run_token=run_token,
+            run_identity_hash=claim.run_identity_hash,
+            expected_run_identity_hash="e" * 64,
+        )
+    assert caught.value.reason_code == "run_identity_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_claim_rejects_run_identity_drift_before_create_or_resume_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_token = UUID("64300000-0000-4000-8000-000000000099")
+    row = _sequence_row(run_token=run_token, round_format="markdown", state="claimed")
+    row.run_identity_hash = "e" * 64
+
+    class _DriftRepository:
+        create_calls = 0
+
+        def __init__(self, session: object) -> None:
+            del session
+
+        async def lock_run_rows(self, requested_token: UUID) -> list[SimpleNamespace]:
+            assert requested_token == run_token
+            return [row]
+
+        async def create_round(self, **kwargs: object) -> EvaluationRoundIdentity:
+            del kwargs
+            type(self).create_calls += 1
+            raise AssertionError("identity drift must fail before create")
+
+    monkeypatch.setattr(format_parity_cli, "RagEvaluationRoundRepository", _DriftRepository)
+    with pytest.raises(EvaluationIsolationError) as caught:
+        await format_parity_cli._claim_or_resume(
+            SimpleNamespace(),  # type: ignore[arg-type]
+            run_token=run_token,
+            expected_rollout_version=2,
+            run_identity_hash=RUN_IDENTITY_HASH,
+        )
+    assert caught.value.reason_code == "run_identity_mismatch"
+    assert _DriftRepository.create_calls == 0
+
+
+@pytest.mark.parametrize("drift", ["run_token", "tenant_id", "round_token", "run_identity_hash", "format_gap"])
 def test_run_sequence_rejects_cross_scope_and_deterministic_order_drift(drift: str) -> None:
     run_token = UUID("64300000-0000-4000-8000-000000000099")
     row = _sequence_row(run_token=run_token, round_format="markdown", state="claimed")
@@ -236,16 +338,21 @@ def test_run_sequence_rejects_cross_scope_and_deterministic_order_drift(drift: s
         row.tenant_id = uuid4()
     elif drift == "round_token":
         row.round_token = uuid4()
+    elif drift == "run_identity_hash":
+        row.run_identity_hash = "e" * 64
     else:
         row.round_format = "digital_pdf"
 
-    with pytest.raises(EvaluationIsolationError):
+    with pytest.raises(EvaluationIsolationError) as caught:
         validate_run_sequence(
             [row],
             run_token=run_token,
             expected_rollout_version=2,
+            run_identity_hash=RUN_IDENTITY_HASH,
             now=datetime.now(UTC),
         )
+    if drift == "run_identity_hash":
+        assert caught.value.reason_code == "run_identity_mismatch"
 
 
 def test_migration_is_chained_partial_unique_and_evaluation_only() -> None:
@@ -625,6 +732,60 @@ async def test_retrieval_ready_requires_all_three_recorded_projection_proofs(
         await repo.prove_retrieval_ready(owner)
     assert caught.value.reason_code == "projection_proof_incomplete"
     assert events == [True]
+
+
+@pytest.mark.asyncio
+async def test_advanced_document_skip_compares_current_checksum_to_structured_projection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checksum = "a" * 64
+    owner = _identity(next_document_index=1)
+    row = SimpleNamespace(
+        head_mappings_json={
+            FORMAT_PARITY_DOC_KEYS[0]: {
+                "head_id": str(uuid4()),
+                "source_checksum": "sha256:" + checksum,
+                "block_count": 1,
+                "chunk_count": 1,
+                "canonical_binding_count": 1,
+            }
+        }
+    )
+    repo = RagEvaluationRoundRepository(SimpleNamespace())  # type: ignore[arg-type]
+    proof_calls: list[bool] = []
+
+    async def lock_owned(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        return row
+
+    async def lock_heads() -> list[object]:
+        return []
+
+    async def prove_projection(*args: object, **kwargs: object) -> list[object]:
+        del args
+        proof_calls.append(bool(kwargs["require_all"]))
+        return []
+
+    monkeypatch.setattr(repo, "lock_owned", lock_owned)
+    monkeypatch.setattr(repo, "_lock_tenant_heads", lock_heads)
+    monkeypatch.setattr(repo, "_prove_recorded_projection", prove_projection)
+
+    with pytest.raises(EvaluationIsolationError) as caught:
+        await repo.prove_advanced_document(
+            owner,
+            doc_key=FORMAT_PARITY_DOC_KEYS[0],
+            source_checksum="b" * 64,
+        )
+    assert caught.value.reason_code == "advanced_document_checksum_mismatch"
+    assert proof_calls == []
+
+    restored = await repo.prove_advanced_document(
+        owner,
+        doc_key=FORMAT_PARITY_DOC_KEYS[0],
+        source_checksum=checksum,
+    )
+    assert restored == owner
+    assert proof_calls == [False]
 
 
 @pytest.mark.asyncio
@@ -1107,6 +1268,8 @@ class _TransactionalEngineSpy:
 
 class _TransactionRoundRepository:
     cleanup_calls = 0
+    advanced_proof_calls = 0
+    search_identity_proof_calls = 0
 
     def __init__(self, session: _TransactionTrackingSession) -> None:
         self.session = session
@@ -1115,6 +1278,19 @@ class _TransactionRoundRepository:
         return SimpleNamespace(state="retrieving", has_attempt_reservation=False)
 
     async def prove_retrieval_ready(self, owner: EvaluationRoundIdentity) -> EvaluationRoundIdentity:
+        return owner
+
+    async def prove_advanced_document(
+        self,
+        owner: EvaluationRoundIdentity,
+        **kwargs: object,
+    ) -> EvaluationRoundIdentity:
+        del kwargs
+        type(self).advanced_proof_calls += 1
+        return owner
+
+    async def prove_run_identity(self, owner: EvaluationRoundIdentity) -> EvaluationRoundIdentity:
+        type(self).search_identity_proof_calls += 1
         return owner
 
     async def cleanup_current_projection(
@@ -1136,6 +1312,7 @@ class _TransactionRoundRepository:
         run_token: UUID,
         round_token: UUID,
         round_format: str,
+        run_identity_hash: str,
         lease_expires_at: datetime,
         expected_rollout_version: int,
     ) -> EvaluationRoundIdentity:
@@ -1149,6 +1326,7 @@ class _TransactionRoundRepository:
             round_format=round_format,
             state_version=1,
             next_document_index=3,
+            run_identity_hash=run_identity_hash,
             expected_rollout_version=expected_rollout_version,
         )
 
@@ -1158,6 +1336,8 @@ def transaction_runtime(monkeypatch: pytest.MonkeyPatch) -> _TransactionTracking
     _TransactionalEngineSpy.calls = 0
     _TransactionalEngineSpy.mismatch_recording = False
     _TransactionRoundRepository.cleanup_calls = 0
+    _TransactionRoundRepository.advanced_proof_calls = 0
+    _TransactionRoundRepository.search_identity_proof_calls = 0
     session = _TransactionTrackingSession()
     monkeypatch.setattr(retrieval_rounds_module, "PolicyRetrievalEngine", _TransactionalEngineSpy)
     monkeypatch.setattr(retrieval_rounds_module, "RagEvaluationRoundRepository", _TransactionRoundRepository)
@@ -1183,6 +1363,8 @@ async def test_each_service_search_closes_its_short_transaction_before_cleanup(
     assert transaction_runtime.implicit_query_count == 54
     assert _TransactionalEngineSpy.calls == 54
     assert _TransactionRoundRepository.cleanup_calls == 3
+    assert _TransactionRoundRepository.advanced_proof_calls == 9
+    assert _TransactionRoundRepository.search_identity_proof_calls == 54
     assert transaction_runtime.commit_count == transaction_runtime.begin_count
     assert transaction_runtime.rollback_count == 0
 
@@ -1279,6 +1461,7 @@ class _ScannedFailureRoundRepository(_TransactionRoundRepository):
         run_token: UUID,
         round_token: UUID,
         round_format: str,
+        run_identity_hash: str,
         lease_expires_at: datetime,
         expected_rollout_version: int,
     ) -> EvaluationRoundIdentity:
@@ -1292,6 +1475,7 @@ class _ScannedFailureRoundRepository(_TransactionRoundRepository):
             round_format=round_format,
             state_version=1,
             next_document_index=0 if round_format == "scanned_pdf" else 3,
+            run_identity_hash=run_identity_hash,
             expected_rollout_version=expected_rollout_version,
         )
 
@@ -1473,6 +1657,46 @@ def test_cli_is_provider_only_and_has_no_fake_or_reset_switch() -> None:
     source = Path("scripts/eval_rag_format_parity.py").read_text(encoding="utf-8").lower()
     for forbidden in ("first active", "truncate", "delete.*prefix", "--fake", "reset-all"):
         assert forbidden not in source
+
+
+def test_run_identity_hash_covers_inputs_time_mode_provider_and_rollout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _dataset()
+    args = SimpleNamespace(
+        mode="full-provider",
+        generated_at="2026-08-10T00:00:00Z",
+        tenant_id=str(FORMAT_PARITY_TENANT_ID),
+        owner_marker=FORMAT_PARITY_OWNER_MARKER,
+        expected_rollout_version=2,
+    )
+    baseline = format_parity_cli.build_run_identity_hash(dataset, args=args)
+    assert len(baseline) == 64
+
+    gold_drift = dataset.model_copy(update={"gold_hash": "e" * 64})
+    assert format_parity_cli.build_run_identity_hash(gold_drift, args=args) != baseline
+
+    policies = list(dataset.policies)
+    variants = list(policies[0].variants)
+    variants[0] = variants[0].model_copy(update={"sha256": "f" * 64})
+    policies[0] = policies[0].model_copy(update={"variants": tuple(variants)})
+    fixture_drift = dataset.model_copy(update={"policies": tuple(policies)})
+    assert format_parity_cli.build_run_identity_hash(fixture_drift, args=args) != baseline
+
+    generated_drift = SimpleNamespace(**vars(args))
+    generated_drift.generated_at = "2026-08-11T00:00:00Z"
+    assert format_parity_cli.build_run_identity_hash(dataset, args=generated_drift) != baseline
+
+    mode_drift = SimpleNamespace(**vars(args))
+    mode_drift.mode = "provider"
+    assert format_parity_cli.build_run_identity_hash(dataset, args=mode_drift) != baseline
+
+    rollout_drift = SimpleNamespace(**vars(args))
+    rollout_drift.expected_rollout_version = 3
+    assert format_parity_cli.build_run_identity_hash(dataset, args=rollout_drift) != baseline
+
+    monkeypatch.setattr(format_parity_cli.settings, "embedding_model", "provider-config-drift")
+    assert format_parity_cli.build_run_identity_hash(dataset, args=args) != baseline
 
 
 def test_missing_prerequisites_are_safe_unavailable_not_zero_quality() -> None:

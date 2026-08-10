@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -213,6 +213,7 @@ async def run_retrieval_parity(
                 await round_repo.lock_run_rows(owner.run_token),
                 run_token=owner.run_token,
                 expected_rollout_version=owner.expected_rollout_version,
+                run_identity_hash=owner.run_identity_hash,
                 now=datetime.now(UTC),
             )
         if sequence.active != owner or len(sequence.completed_results) != start_index:
@@ -253,6 +254,12 @@ async def run_retrieval_parity(
             for document_index, policy in enumerate(dataset.policies):
                 variant = next(item for item in policy.variants if item.format == round_format)
                 if document_index < current_owner.next_document_index:
+                    async with session.begin():
+                        current_owner = await round_repo.prove_advanced_document(
+                            current_owner,
+                            doc_key=policy.doc_key,
+                            source_checksum=variant.sha256,
+                        )
                     ingestions.append(
                         IngestionObservationV1(
                             doc_key=policy.doc_key,
@@ -318,6 +325,7 @@ async def run_retrieval_parity(
                             generated_at=generated_at,
                         )
                         async with session.begin():
+                            current_owner = await round_repo.prove_run_identity(current_owner)
                             service_result = await knowledge_service.search(request, context)
                             recorded = recording_engine.take_recording(expected_query=case.question)
                             provenance = await knowledge_service.get_verified_evidence_provenance(
@@ -419,6 +427,7 @@ async def run_retrieval_parity(
                     run_token=owner.run_token,
                     round_token=uuid5(NAMESPACE_URL, f"{owner.run_token}:{next_format}"),
                     round_format=next_format,
+                    run_identity_hash=owner.run_identity_hash,
                     lease_expires_at=datetime.now(UTC) + timedelta(hours=2),
                     expected_rollout_version=owner.expected_rollout_version,
                 )
@@ -436,6 +445,51 @@ async def run_retrieval_parity(
         gold_hash=dataset.gold_hash,
         baseline_identity=dataset.baseline_identity,
         rounds=tuple(round_results),
+        prerequisites=(
+            PrerequisiteStatusV1(name="postgresql_pgvector", available=True),
+            PrerequisiteStatusV1(name="embedding_provider", available=True),
+            PrerequisiteStatusV1(name="tesseract_chi_sim_eng", available=True),
+        ),
+    )
+
+
+def rebuild_completed_retrieval_parity(
+    dataset: FormatParityDataset,
+    *,
+    completed_results: tuple[dict[str, Any], ...],
+    generated_at: str,
+    run_token: UUID,
+    run_identity_hash: str,
+    expected_run_identity_hash: str,
+) -> RetrievalParityRunV1:
+    """Rebuild a completed run from strict terminal proofs without provider mutation."""
+
+    if run_identity_hash != expected_run_identity_hash:
+        raise EvaluationIsolationError("run_identity_mismatch")
+    try:
+        rounds = tuple(RetrievalRoundResultV1.model_validate(payload) for payload in completed_results)
+    except ValueError:
+        raise EvaluationIsolationError("terminal_round_result_invalid") from None
+    expected_tokens = tuple(str(uuid5(NAMESPACE_URL, f"{run_token}:{name}")) for name in ROUND_FORMATS)
+    if (
+        tuple(item.round_format for item in rounds) != ROUND_FORMATS
+        or tuple(item.round_token for item in rounds) != expected_tokens
+        or any(item.outcome not in {EvaluationOutcome.COMPLETED_PASS, EvaluationOutcome.COMPLETED_QUALITY_FAIL} for item in rounds)
+    ):
+        raise EvaluationIsolationError("terminal_round_result_invalid")
+    overall = _overall_outcome(list(rounds))
+    return RetrievalParityRunV1(
+        mode="provider",
+        baseline_eligible=True,
+        outcome=overall,
+        generated_at=generated_at,
+        tenant_id=str(FORMAT_PARITY_TENANT_ID),
+        owner_marker=FORMAT_PARITY_OWNER_MARKER,
+        run_token=str(run_token),
+        manifest_hash=dataset.manifest_hash,
+        gold_hash=dataset.gold_hash,
+        baseline_identity=dataset.baseline_identity,
+        rounds=rounds,
         prerequisites=(
             PrerequisiteStatusV1(name="postgresql_pgvector", available=True),
             PrerequisiteStatusV1(name="embedding_provider", available=True),

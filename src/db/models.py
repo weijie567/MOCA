@@ -346,6 +346,10 @@ class RagEvaluationRound(TimestampMixin, Base):
             name="ck_rag_evaluation_rounds_rollout_version_positive",
         ),
         CheckConstraint(
+            "run_identity_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_rag_evaluation_rounds_run_identity_hash",
+        ),
+        CheckConstraint(
             "next_document_index >= 0 AND next_document_index <= 3",
             name="ck_rag_evaluation_rounds_document_index",
         ),
@@ -393,6 +397,7 @@ class RagEvaluationRound(TimestampMixin, Base):
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="claimed", server_default="claimed")
     state_version: Mapped[int] = mapped_column(nullable=False, default=1, server_default=text("1"))
     expected_rollout_version: Mapped[int] = mapped_column(nullable=False)
+    run_identity_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     next_document_index: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
     next_step: Mapped[str] = mapped_column(String(32), nullable=False, default="preflight", server_default="preflight")
     attempt_doc_key: Mapped[str | None] = mapped_column(String(64))
