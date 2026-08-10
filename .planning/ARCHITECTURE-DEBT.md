@@ -379,6 +379,15 @@
 **范围**：检索、rerank、query rewrite、ContextBuilder、claim 验证、evidence 契约。
 **已 ship**：v1.3 混合检索、v1.4 生产 ingestion+OCR、v1.5 ContextBuilder+幻觉控制、v1.6 rerank+query rewrite。
 
+## 2026-08-10 — Phase 64.3 format-parity fixture 生成缺少确定性 identity ⚠️修复计划已锁定
+
+- **子系统**：RAG evaluation / format-parity fixture contract / baseline identity。
+- **问题现象 / 根因**：隔离临时根目录双构建验证确认，相同 Markdown、工具和字体环境下，三份 Markdown 哈希稳定，但六份 PDF 与 manifest SHA-256 全部变化。当前 `evaluation/rag_sources/build_fixtures.py` 没有固定 PDF metadata、document/trailer ID、时间字段，也没有把 builder、ReportLab/Pillow/PDFium、字体 SHA 与 raster 参数作为 generator identity 写入 manifest。
+- **影响**：即使语义内容和页数/文本层完全一致，重跑 generator 也会产生新 fixture hash，导致 Phase 64.3 以 byte hash 绑定的 baseline identity 无法证明可复现；维护者也无法区分真实内容变化和容器 metadata 漂移。
+- **处理状态**：⚠️ 已完成仓库/双构建验证并在 Phase 64.3 plan review 采纳修复，尚未实现。`64.3-01-PLAN.md` 已要求 deterministic metadata/ID/time、版本化 generator/tool/font identity、双构建 byte-equivalence、自动语义检查和 agent visual QA；禁止只刷新 hash。
+- **证据**：Phase 64.3 Claude finding C-01/C-02；`.planning/phases/64.3-rag-format-parity-and-document-quality-evaluation/64.3-PLAN-REVIEW-DECISIONS.md`；`evaluation/rag_sources/build_fixtures.py`；本地双构建命令与结果详见 `.planning/LOCAL-VALIDATION-ISSUES.md` 第 29 条。
+- **剩余风险**：🔴 在 Plan 01 Task 3 实现并通过同 generator identity 下六 PDF + manifest 双构建全同哈希前，不得生成或接受 provider canonical baseline。跨机器复现还必须拿到相同字体字节和记录的工具版本；不能把“输入/配置可追溯”夸大成 live provider 指标逐位相同。
+
 ## RAG-56-03-01：RAG context routing status drift 与 partial action/risk 漏挡 ✅已修复验证
 
 - **问题现象/根因**：`route_after_rag_context` 原本在 router 内维护一份手写 `RAG_CONTEXT_STATUSES`，虽然当时与 schema 一致，但存在后续 drift 风险；同时顶层 `rag_context_status` 缺失时会回退读取 `verified_evidence_package.status`，`no_evidence` 携带 missing business facts 时会先进入 `clarification_gate`，`partial` 允许谓词也没有覆盖 action intent、`risk_signals`、`evidence_policy.risk_level`、package stale/conflict/rejected evidence 指示，导致 unsafe evidence 或 action/risk-bound partial 可能进入 generation。

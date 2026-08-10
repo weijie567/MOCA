@@ -1,5 +1,133 @@
 # 本地验证问题记录
 
+## 30. Phase 64.3 material plan re-review 首次长时间无结果
+
+日期：2026-08-10
+
+### 问题现象
+
+Phase 64.3 接受首轮 Claude findings 并大幅修订计划后，复用 `phase_64_3_plan_check` 执行全量 GSD re-review，连续多次 30 秒等待仍无结果；发送收敛消息后仍未返回。
+
+### 如何检测 / 复现
+
+通过 agent status 持续观察到 `phase_64_3_plan_check: running`，但没有 checkpoint/final payload。该过程只读 planning artifacts，没有代码写入。
+
+### 关键证据或命令
+
+- 多次 `wait_agent(timeout_ms=30000)` 超时。
+- `interrupt_agent` 返回 previous status `running`。
+- 随后对同一 agent 发起只读、仅检查当前 planning diff 的 bounded follow-up。
+
+### 当前判断 / 根因
+
+未确认是长上下文读取、agent 工具等待还是输出收敛问题；没有证据表明是计划本身错误。不能把无返回当作 checker 通过。
+
+### 已做处理
+
+中断无结果的全量 turn，改为限定文件和检查维度的 bounded re-review。第二次正常返回 2 blockers / 2 warnings，均按仓库证据采纳并修订；后续仍需 clean re-review 才能进入执行。
+
+### 剩余问题和下次继续排查入口
+
+本 phase 后续 checker 优先使用 bounded diff review；若再次超过多个 30 秒窗口无 checkpoint，先读 agent status，再中断并缩小输入，禁止直接跳过 checker gate。
+
+## 29. Phase 64.3 fixture builder 重跑会生成不同 PDF 与 manifest 哈希
+
+日期：2026-08-10
+
+### 问题现象
+
+Claude plan review 质疑 `evaluation/rag_sources/build_fixtures.py` 的 PDF 字节可复现性。把完整 `evaluation/rag_sources` 复制到隔离临时根目录后，用同一代码、Markdown、字体和工具环境连续构建两次，三份 Markdown 哈希保持不变，但六份 PDF 和完整 manifest 的 SHA-256 全部变化。
+
+### 如何检测 / 复现
+
+在隔离临时根目录执行两次：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run --with reportlab python <temp-root>/evaluation/rag_sources/build_fixtures.py
+```
+
+两次执行之间保留 wall-clock 间隔，然后分别对九份 fixture 与 `format_parity_manifest.jsonl` 执行 `shasum -a 256` 并 `diff -u`。
+
+### 关键证据或命令
+
+- 两轮日志都报告 3 groups / 9 fixtures、每个 PDF 5 页，文本层统计完全一致。
+- `diff -u hashes1.txt hashes2.txt` 显示六个 PDF 和 manifest 哈希全部变化，三个 Markdown 哈希完全相同。
+- 当前 builder 使用 ReportLab/Pillow/PDFium，但没有固定 PDF metadata、document/trailer ID、时间字段，也没有把工具/字体 identity 写进 manifest。
+
+### 当前判断 / 根因
+
+这是已确认的 RAG 评测 fixture 生成契约缺陷，不是语义内容漂移。PDF 容器中的非确定性 metadata/ID 使“fixture byte hash 作为可复现 baseline identity”目前不成立。
+
+### 已做处理
+
+Phase 64.3 plan review 已采纳 C-01：Plan 01 现在要求固定数字/扫描 PDF 的 metadata、ID、时间与图像参数，记录 builder/tool/font/raster identity，并增加有 wall-clock 间隔的双构建 byte-equivalence 测试；同时要求自动语义检查与 agent visual QA。
+
+### 剩余问题和下次继续排查入口
+
+当前仅完成计划修订，生成器尚未修复。执行 `64.3-01-PLAN.md` Task 3 时从 ReportLab invariant/document ID、Pillow PDF creation/modification metadata、字体 SHA 与 PDFium/Pillow 版本入手；只有双构建六 PDF + manifest 全部同哈希后才能关闭本条。
+
+## 28. Phase 64.3 ROADMAP 更新被写成字面量 patch 片段
+
+日期：2026-08-10
+
+### 问题现象
+
+首版 plan agent 声称已更新 Phase 64.3 plan 数量与列表，但 `git diff` 显示它把 `@@`、`-**Plans:**`、`+**Plans:**` 等补丁文本追加到了 `.planning/ROADMAP.md` 文件末尾，真实 Phase 64.3 章节仍是 `0 plans` / `TBD`。
+
+### 如何检测 / 复现
+
+```bash
+rg -n '^@@|^[+-]\*\*Plans|^[+-]- \[' .planning/ROADMAP.md
+sed -n '175,205p' .planning/ROADMAP.md
+```
+
+### 关键证据或命令
+
+`git diff -- .planning/ROADMAP.md` 明确显示末尾新增的是字面量 patch 内容，而不是对 Phase 64.3 段落的真实修改。
+
+### 当前判断 / 根因
+
+这是 planning artifact 写入错误；agent 把预期 patch 当普通正文输出。GSD plan checker 当时只审计划内容，没有识别 ROADMAP 末尾污染。
+
+### 已做处理
+
+使用 `apply_patch` 删除末尾字面量 patch，真实更新 Phase 64.3 为 5 plans 和 01–05 依赖列表；随后用 `rg` 确认无 patch marker，并由最终 plan checker 返回 `VERIFICATION PASSED`。
+
+### 剩余问题和下次继续排查入口
+
+本次已处理完成。后续 plan agent 修改 ROADMAP 后必须同时检查目标 phase 原位段落和 `rg '^@@|^[+-]\*\*Plans'`，不能只信 agent 的“updated”摘要。
+
+## 27. Phase 64.3 Claude review 首次提示词超过 CLI 长度限制
+
+日期：2026-08-10
+
+### 问题现象
+
+按 `$gsd-review 64.3 --claude` 组装 PROJECT、ROADMAP、CONTEXT、完整 RESEARCH 和五份完整 PLAN 后，prompt 为 156573 bytes。Claude CLI 立即返回 `Prompt is too long`，输出仅 19 bytes。
+
+### 如何检测 / 复现
+
+```bash
+wc -c /tmp/gsd-review-prompt-64.3.md
+claude -p < /tmp/gsd-review-prompt-64.3.md
+```
+
+### 关键证据或命令
+
+原始输出文件内容为 `Prompt is too long`。压缩时保留 ROADMAP、锁定决策、关键研究结论、全部 task action/verify/acceptance/threat，去除重复 context/read/file lists 与 source audit，最终 prompt 为 88106 bytes；Claude 正常返回 14396-byte 结构化评审。
+
+### 当前判断 / 根因
+
+这是外部 CLI prompt 长度限制，不是计划内容失败。五份 plan 与研究全文重复引用较多，直接拼接超出 Claude CLI 可接受长度。
+
+### 已做处理
+
+按 gsd-review 语义重组紧凑提示词，没有删除决策、任务、验收、威胁或跨计划风险；第二次调用成功并产出 `64.3-REVIEWS.md`。第一次失败结果未被当成审核结论。
+
+### 剩余问题和下次继续排查入口
+
+后续 Phase 64.3 material repair 重审继续使用同一压缩规则。通用 `$gsd-review` workflow 可考虑在拼接前做字节预算，并优先裁掉重复 read/context/source-coverage 块。
+
 ## 26. Phase 63 secure-phase SECURITY 文件探测使用 zsh 未匹配 glob 报错
 
 日期：2026-07-10
