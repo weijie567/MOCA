@@ -107,6 +107,12 @@ class ProjectionInspection:
     immutable_counts: dict[str, int]
 
 
+@dataclass(frozen=True)
+class RoundProgress:
+    state: str
+    has_attempt_reservation: bool
+
+
 def classify_attempt_projection(projection: AttemptProjection) -> ProjectionState:
     """Classify only commit states supported by production ingestion."""
 
@@ -212,6 +218,13 @@ class RagEvaluationRoundRepository:
         if allowed_states is not None and row.state not in allowed_states:
             raise EvaluationIsolationError("state_mismatch")
         return row
+
+    async def read_progress(self, owner: EvaluationRoundIdentity) -> RoundProgress:
+        row = await self.lock_owned(owner)
+        return RoundProgress(
+            state=row.state,
+            has_attempt_reservation=row.attempt_doc_key is not None,
+        )
 
     async def prove_compatible_pre_state(self, owner: EvaluationRoundIdentity) -> EvaluationRoundIdentity:
         row = await self.lock_owned(owner, allowed_states=frozenset({"claimed"}))
@@ -638,28 +651,27 @@ class RagEvaluationRoundRepository:
 
     @staticmethod
     def _assert_owned(row: RagEvaluationRound, owner: EvaluationRoundIdentity) -> None:
-        actual = (
+        actual_identity = (
             row.tenant_id,
             row.owner_marker,
             row.run_token,
             row.round_token,
             row.round_format,
-            tuple(row.doc_keys_json),
-            row.state_version,
-            row.next_document_index,
             row.expected_rollout_version,
         )
-        expected = (
+        expected_identity = (
             owner.tenant_id,
             owner.owner_marker,
             owner.run_token,
             owner.round_token,
             owner.round_format,
-            FORMAT_PARITY_DOC_KEYS,
-            owner.state_version,
-            owner.next_document_index,
             owner.expected_rollout_version,
         )
-        if actual != expected:
-            reason = "stale_progress" if row.next_document_index != owner.next_document_index else "stale_state"
-            raise EvaluationIsolationError(reason)
+        if actual_identity != expected_identity:
+            raise EvaluationIsolationError("identity_mismatch")
+        if tuple(row.doc_keys_json) != FORMAT_PARITY_DOC_KEYS:
+            raise EvaluationIsolationError("allowlist_mismatch")
+        if row.state_version != owner.state_version:
+            raise EvaluationIsolationError("stale_state")
+        if row.next_document_index != owner.next_document_index:
+            raise EvaluationIsolationError("stale_progress")

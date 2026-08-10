@@ -180,7 +180,7 @@ async def run_retrieval_parity(
 
     if owner.tenant_id != FORMAT_PARITY_TENANT_ID or owner.owner_marker != FORMAT_PARITY_OWNER_MARKER:
         raise EvaluationIsolationError("identity_mismatch")
-    if owner.round_format != ROUND_FORMATS[0] or owner.next_document_index != 0:
+    if owner.round_format != ROUND_FORMATS[0]:
         raise EvaluationIsolationError("initial_round_mismatch")
     ingestion_service = IngestionService(session, embedder, FORMAT_PARITY_TENANT_ID)
     recording_engine = RecordingPolicyRetrievalEngine(PolicyRetrievalEngine(session, embedder=embedder))
@@ -201,30 +201,57 @@ async def run_retrieval_parity(
         immutable_preserved = False
         try:
             async with session.begin():
-                current_owner = await round_repo.prove_compatible_pre_state(current_owner)
-            pre_state_proved = True
-            for policy in dataset.policies:
-                variant = next(item for item in policy.variants if item.format == round_format)
-                source_path = Path(variant.path)
+                progress = await round_repo.read_progress(current_owner)
+            if progress.state == "claimed":
+                if current_owner.next_document_index != 0 or progress.has_attempt_reservation:
+                    raise EvaluationIsolationError("claimed_progress_malformed")
                 async with session.begin():
-                    current_owner = await round_repo.reserve_document(
-                        current_owner,
-                        doc_key=policy.doc_key,
-                        source_checksum=variant.sha256,
-                        reserved_at=datetime.now(UTC),
+                    current_owner = await round_repo.prove_compatible_pre_state(current_owner)
+                progress_state = "ingesting"
+            elif progress.state in {"ingesting", "retrieving"}:
+                progress_state = progress.state
+            else:
+                raise EvaluationIsolationError("round_not_resumable")
+            pre_state_proved = True
+            for document_index, policy in enumerate(dataset.policies):
+                variant = next(item for item in policy.variants if item.format == round_format)
+                if document_index < current_owner.next_document_index:
+                    ingestions.append(
+                        IngestionObservationV1(
+                            doc_key=policy.doc_key,
+                            source_checksum=variant.sha256,
+                            status="success",
+                        )
                     )
-                report = await ingestion_service.ingest_document(
-                    source_path,
-                    {
-                        "doc_key": policy.doc_key,
-                        "title": policy.title,
-                        "doc_type": "evaluation_policy",
-                        "risk_level": "low",
-                        "effective_date": date.fromisoformat("2026-01-01"),
-                        "source_type": variant.source_type,
-                    },
-                    expected_rollout_version=current_owner.expected_rollout_version,
-                )
+                    continue
+                if progress_state == "retrieving":
+                    raise EvaluationIsolationError("retrieval_progress_mismatch")
+                source_path = Path(variant.path)
+                doc_meta = {
+                    "doc_key": policy.doc_key,
+                    "title": policy.title,
+                    "doc_type": "evaluation_policy",
+                    "risk_level": "low",
+                    "effective_date": date.fromisoformat("2026-01-01"),
+                    "source_type": variant.source_type,
+                }
+                async with session.begin():
+                    current_progress = await round_repo.read_progress(current_owner)
+                if current_progress.has_attempt_reservation:
+                    report = None
+                else:
+                    async with session.begin():
+                        current_owner = await round_repo.reserve_document(
+                            current_owner,
+                            doc_key=policy.doc_key,
+                            source_checksum=variant.sha256,
+                            reserved_at=datetime.now(UTC),
+                        )
+                    report = await ingestion_service.ingest_document(
+                        source_path,
+                        doc_meta,
+                        expected_rollout_version=current_owner.expected_rollout_version,
+                    )
                 current_owner, observation = await _resolve_ingestion_attempt(
                     session=session,
                     round_repo=round_repo,
@@ -232,14 +259,7 @@ async def run_retrieval_parity(
                     owner=current_owner,
                     source_path=source_path,
                     source_checksum=variant.sha256,
-                    doc_meta={
-                        "doc_key": policy.doc_key,
-                        "title": policy.title,
-                        "doc_type": "evaluation_policy",
-                        "risk_level": "low",
-                        "effective_date": date.fromisoformat("2026-01-01"),
-                        "source_type": variant.source_type,
-                    },
+                    doc_meta=doc_meta,
                     first_report=report,
                 )
                 ingestions.append(observation)
