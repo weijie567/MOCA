@@ -1,0 +1,453 @@
+{
+  "policies": [
+    {
+      "anchors": [
+        {
+          "anchor_id": "refund-heading-principles",
+          "kind": "heading",
+          "section": "1. 术语与处理原则",
+          "text": "术语与处理原则"
+        },
+        {
+          "anchor_id": "refund-fact-decision-order",
+          "kind": "fact",
+          "section": "1. 术语与处理原则",
+          "text": "先判断是否存在安全风险，其次判断是否属于质量问题，再判断是否满足无理由退货"
+        },
+        {
+          "anchor_id": "refund-heading-seven-day",
+          "kind": "heading",
+          "section": "2. 七天无理由退货",
+          "text": "七天无理由退货"
+        },
+        {
+          "anchor_id": "refund-fact-day-seven-cutoff",
+          "kind": "fact",
+          "section": "2.1 适用条件",
+          "text": "第七个自然日的 23:59 前提交申请视为在期"
+        },
+        {
+          "anchor_id": "refund-fact-seven-day-exclusions",
+          "kind": "fact",
+          "section": "2.2 不适用情形",
+          "text": "生鲜和短保食品、按用户要求定制的商品"
+        },
+        {
+          "anchor_id": "refund-fact-quality-thirty-days",
+          "kind": "fact",
+          "section": "3.1 质量问题范围",
+          "text": "普通实物的质量问题申请期限为签收后三十个自然日"
+        },
+        {
+          "anchor_id": "refund-fact-logistics-twenty-four-hours",
+          "kind": "fact",
+          "section": "4.1 物流状态核对",
+          "text": "揽收后连续二十四小时没有新轨迹"
+        },
+        {
+          "anchor_id": "refund-table-refund-header",
+          "kind": "table_header",
+          "section": "5. 部分退款、优惠与金额计算",
+          "text": "场景 默认处理 金额基准 需要补充的证据"
+        },
+        {
+          "anchor_id": "refund-table-missing-accessory-row",
+          "kind": "table_row",
+          "section": "5. 部分退款、优惠与金额计算",
+          "text": "缺少非关键配件 补寄或部分退款"
+        },
+        {
+          "anchor_id": "refund-fact-auto-refund-forty-eight-hours",
+          "kind": "fact",
+          "section": "6. 商家响应与自动退款",
+          "text": "超过四十八小时仍未处理"
+        },
+        {
+          "anchor_id": "refund-fact-high-risk-three-thousand",
+          "kind": "fact",
+          "section": "6. 商家响应与自动退款",
+          "text": "商品金额超过三千元"
+        }
+      ],
+      "cases": [
+        {
+          "case_id": "refund-case-decision-priority",
+          "category": "facts",
+          "evidence_anchor_ids": [
+            "refund-fact-decision-order"
+          ],
+          "expected_answer": "退款判断先看安全风险，再看质量问题，然后判断无理由退货，最后处理取消或价格争议。",
+          "expected_section": "1. 术语与处理原则",
+          "no_answer": false,
+          "question": "退款申请的政策判断顺序是什么？"
+        },
+        {
+          "case_id": "refund-case-seven-day-exception",
+          "category": "exceptions",
+          "evidence_anchor_ids": [
+            "refund-fact-seven-day-exclusions"
+          ],
+          "expected_answer": "生鲜、短保食品和按用户要求定制的商品原则上不适用七天无理由退货。",
+          "expected_section": "2.2 不适用情形",
+          "no_answer": false,
+          "question": "哪些商品原则上不适用七天无理由退货？"
+        },
+        {
+          "case_id": "refund-case-time-limits",
+          "category": "amounts_time_limits",
+          "evidence_anchor_ids": [
+            "refund-fact-day-seven-cutoff",
+            "refund-fact-quality-thirty-days"
+          ],
+          "expected_answer": "无理由退货在第七个自然日 23:59 前提交仍在期；普通实物质量问题期限为签收后三十个自然日。",
+          "expected_section": "2.1 适用条件 / 3.1 质量问题范围",
+          "locator_constraints": {
+            "ocr_whitespace_normalization": true,
+            "pdf_pages": [
+              1,
+              2
+            ]
+          },
+          "no_answer": false,
+          "question": "七天无理由和普通质量问题分别有什么申请时限？"
+        },
+        {
+          "case_id": "refund-case-missing-accessory-table",
+          "category": "tables",
+          "evidence_anchor_ids": [
+            "refund-table-refund-header",
+            "refund-table-missing-accessory-row"
+          ],
+          "expected_answer": "缺少非关键配件时默认补寄或部分退款，并结合配件价值及缺件证据处理。",
+          "expected_section": "5. 部分退款、优惠与金额计算",
+          "no_answer": false,
+          "question": "金额计算表对缺少非关键配件给出的默认处理是什么？"
+        },
+        {
+          "case_id": "refund-case-shipped-auto-review",
+          "category": "cross_section",
+          "evidence_anchor_ids": [
+            "refund-fact-logistics-twenty-four-hours",
+            "refund-fact-auto-refund-forty-eight-hours",
+            "refund-fact-high-risk-three-thousand"
+          ],
+          "expected_answer": "已揽收二十四小时无新轨迹可联系拦截；商家超过四十八小时未处理可进入自动同意，但商品金额超过三千元等高风险订单必须人工复核。",
+          "expected_section": "4.1 物流状态核对 / 6. 商家响应与自动退款",
+          "no_answer": false,
+          "question": "已发货订单长时间无轨迹且商家未响应时，什么时候能自动退款，什么情况要人工复核？"
+        },
+        {
+          "case_id": "refund-case-no-answer-installation",
+          "category": "no_answer",
+          "evidence_anchor_ids": [],
+          "expected_answer": null,
+          "expected_section": null,
+          "no_answer": true,
+          "question": "这份政策是否承诺全国免费上门安装？"
+        }
+      ],
+      "policy_id": "eval_refund_eligibility_and_return",
+      "title": "国内普通实物订单退款与退货政策"
+    },
+    {
+      "anchors": [
+        {
+          "anchor_id": "quality-heading-classification",
+          "kind": "heading",
+          "section": "1. 质量问题的定义与分级",
+          "text": "质量问题的定义与分级"
+        },
+        {
+          "anchor_id": "quality-fact-four-levels",
+          "kind": "fact",
+          "section": "1. 质量问题的定义与分级",
+          "text": "问题分为四级"
+        },
+        {
+          "anchor_id": "quality-table-level-header",
+          "kind": "table_header",
+          "section": "1. 质量问题的定义与分级",
+          "text": "等级 典型问题 默认处理 是否允许继续使用"
+        },
+        {
+          "anchor_id": "quality-table-safety-row",
+          "kind": "table_row",
+          "section": "1. 质量问题的定义与分级",
+          "text": "一级：安全风险 漏电、起火、食品胀包、召回批次"
+        },
+        {
+          "anchor_id": "quality-fact-thirty-day-limit",
+          "kind": "fact",
+          "section": "2. 申请期限与特殊商品",
+          "text": "普通实物的质量问题应在签收后三十日内提出"
+        },
+        {
+          "anchor_id": "quality-fact-food-forty-eight-hours",
+          "kind": "fact",
+          "section": "2. 申请期限与特殊商品",
+          "text": "食品、生鲜和冷链商品的腐坏、漏液、胀包应在签收后四十八小时内反馈"
+        },
+        {
+          "anchor_id": "quality-heading-evidence",
+          "kind": "heading",
+          "section": "3. 证据标准",
+          "text": "证据标准"
+        },
+        {
+          "anchor_id": "quality-fact-accessory-percentage",
+          "kind": "fact",
+          "section": "4. 退款、换新、维修与部分退款",
+          "text": "商品实付金额的 10% 至 30%"
+        },
+        {
+          "anchor_id": "quality-table-remedy-header",
+          "kind": "table_header",
+          "section": "4. 退款、换新、维修与部分退款",
+          "text": "处理方式 适用条件 时限要求 备注"
+        },
+        {
+          "anchor_id": "quality-table-accessory-row",
+          "kind": "table_row",
+          "section": "4. 退款、换新、维修与部分退款",
+          "text": "补寄配件 主体可用、配件可单独供应"
+        },
+        {
+          "anchor_id": "quality-heading-approval",
+          "kind": "heading",
+          "section": "5. 补偿额度与审批边界",
+          "text": "补偿额度与审批边界"
+        },
+        {
+          "anchor_id": "quality-fact-high-value-threshold",
+          "kind": "fact",
+          "section": "5. 补偿额度与审批边界",
+          "text": "高价值商品的“高价值”门槛是单商品实付金额两千元"
+        }
+      ],
+      "cases": [
+        {
+          "case_id": "quality-case-levels",
+          "category": "facts",
+          "evidence_anchor_ids": [
+            "quality-fact-four-levels",
+            "quality-table-safety-row"
+          ],
+          "expected_answer": "质量问题分为四级，一级是安全或合规风险，必须立即停用并优先退款或召回。",
+          "expected_section": "1. 质量问题的定义与分级",
+          "no_answer": false,
+          "question": "质量问题如何分级，一级问题默认如何处理？"
+        },
+        {
+          "case_id": "quality-case-custom-exception",
+          "category": "exceptions",
+          "evidence_anchor_ids": [
+            "quality-fact-thirty-day-limit"
+          ],
+          "expected_answer": "普通实物原则上在签收后三十日内提出；超过期限但存在安全风险等证据时仍应人工复核，不能直接拒绝。",
+          "expected_section": "2. 申请期限与特殊商品",
+          "no_answer": false,
+          "question": "质量问题超过普通申请期限后是否一定拒绝？"
+        },
+        {
+          "case_id": "quality-case-time-and-percentage",
+          "category": "amounts_time_limits",
+          "evidence_anchor_ids": [
+            "quality-fact-food-forty-eight-hours",
+            "quality-fact-accessory-percentage"
+          ],
+          "expected_answer": "食品、生鲜和冷链腐坏等问题应在四十八小时内反馈；普通配件无法补寄时，无价目表可按实付金额 10% 至 30% 建议部分退款。",
+          "expected_section": "2. 申请期限与特殊商品 / 4. 退款、换新、维修与部分退款",
+          "no_answer": false,
+          "question": "食品质量反馈时限和普通配件部分退款比例分别是多少？"
+        },
+        {
+          "case_id": "quality-case-remedy-table",
+          "category": "tables",
+          "evidence_anchor_ids": [
+            "quality-table-remedy-header",
+            "quality-table-accessory-row"
+          ],
+          "expected_answer": "主体可用且配件可单独供应时适用补寄配件，商家需在两个工作日内确认。",
+          "expected_section": "4. 退款、换新、维修与部分退款",
+          "no_answer": false,
+          "question": "处理方式表中补寄配件的适用条件是什么？"
+        },
+        {
+          "case_id": "quality-case-evidence-and-approval",
+          "category": "cross_section",
+          "evidence_anchor_ids": [
+            "quality-heading-evidence",
+            "quality-heading-approval",
+            "quality-fact-high-value-threshold"
+          ],
+          "expected_answer": "客服先按证据标准确认问题；单商品实付达到两千元的高价值门槛时，金额和证据摘要应进入相应高级审批。",
+          "expected_section": "3. 证据标准 / 5. 补偿额度与审批边界",
+          "no_answer": false,
+          "question": "高价值质量案件如何把证据判断与审批边界结合？"
+        },
+        {
+          "case_id": "quality-case-no-answer-warranty-phone",
+          "category": "no_answer",
+          "evidence_anchor_ids": [],
+          "expected_answer": null,
+          "expected_section": null,
+          "no_answer": true,
+          "question": "这份政策提供哪一个品牌的保修客服电话？"
+        }
+      ],
+      "policy_id": "eval_quality_compensation_and_approval",
+      "title": "质量问题与补偿审批政策"
+    },
+    {
+      "anchors": [
+        {
+          "anchor_id": "cross-heading-order-types",
+          "kind": "heading",
+          "section": "1. 订单分类与适用入口",
+          "text": "订单分类与适用入口"
+        },
+        {
+          "anchor_id": "cross-table-type-header",
+          "kind": "table_header",
+          "section": "1. 订单分类与适用入口",
+          "text": "类型 关键节点 默认适用政策 常见风险"
+        },
+        {
+          "anchor_id": "cross-table-digital-row",
+          "kind": "table_row",
+          "section": "1. 订单分类与适用入口",
+          "text": "数字权益 发码、激活、使用、到期 数字商品例外"
+        },
+        {
+          "anchor_id": "cross-fact-return-cycle",
+          "kind": "fact",
+          "section": "2. 跨境实物的时效与响应",
+          "text": "跨境退货的物流周期通常为十五至三十个自然日"
+        },
+        {
+          "anchor_id": "cross-fact-response-seventy-two-hours",
+          "kind": "fact",
+          "section": "2. 跨境实物的时效与响应",
+          "text": "商家首次响应时限为七十二小时"
+        },
+        {
+          "anchor_id": "cross-heading-fee-split",
+          "kind": "heading",
+          "section": "3. 税费、汇率与退款拆分",
+          "text": "税费、汇率与退款拆分"
+        },
+        {
+          "anchor_id": "cross-table-shipping-row",
+          "kind": "table_row",
+          "section": "3. 税费、汇率与退款拆分",
+          "text": "国际回寄运费 责任方承担 用户承担或按页面约定"
+        },
+        {
+          "anchor_id": "cross-heading-digital-state",
+          "kind": "heading",
+          "section": "6. 数字商品的状态机",
+          "text": "数字商品的状态机"
+        },
+        {
+          "anchor_id": "cross-table-digital-state-header",
+          "kind": "table_header",
+          "section": "6. 数字商品的状态机",
+          "text": "数字商品状态 默认结果 必查信息"
+        },
+        {
+          "anchor_id": "cross-table-unactivated-row",
+          "kind": "table_row",
+          "section": "6. 数字商品的状态机",
+          "text": "已发码未激活 撤销后退款"
+        },
+        {
+          "anchor_id": "cross-fact-specialist-threshold",
+          "kind": "fact",
+          "section": "8. 跨境专员与审批边界",
+          "text": "金额超过一千美元等值"
+        },
+        {
+          "anchor_id": "cross-heading-audit",
+          "kind": "heading",
+          "section": "10. 记录与审计要求",
+          "text": "记录与审计要求"
+        }
+      ],
+      "cases": [
+        {
+          "case_id": "cross-case-order-types",
+          "category": "facts",
+          "evidence_anchor_ids": [
+            "cross-heading-order-types",
+            "cross-table-digital-row"
+          ],
+          "expected_answer": "跨境实物按海外仓、国际直邮和保税仓等路线判断；数字权益按发码、激活、使用和到期节点判断。",
+          "expected_section": "1. 订单分类与适用入口",
+          "no_answer": false,
+          "question": "跨境实物和数字权益分别依据什么关键节点分类？"
+        },
+        {
+          "case_id": "cross-case-logistics-exception",
+          "category": "exceptions",
+          "evidence_anchor_ids": [
+            "cross-fact-return-cycle"
+          ],
+          "expected_answer": "跨境退货通常需要十五至三十日，但轨迹长期停滞或确认丢失时不能机械要求用户等满三十日。",
+          "expected_section": "2. 跨境实物的时效与响应",
+          "no_answer": false,
+          "question": "跨境退货是否一律要等满三十日才能处理？"
+        },
+        {
+          "case_id": "cross-case-response-and-approval",
+          "category": "amounts_time_limits",
+          "evidence_anchor_ids": [
+            "cross-fact-response-seventy-two-hours",
+            "cross-fact-specialist-threshold"
+          ],
+          "expected_answer": "商家首次响应时限为七十二小时；金额超过一千美元等值的案件应升级跨境专员。",
+          "expected_section": "2. 跨境实物的时效与响应 / 8. 跨境专员与审批边界",
+          "no_answer": false,
+          "question": "跨境订单的商家响应时限和专员金额门槛是什么？"
+        },
+        {
+          "case_id": "cross-case-digital-table",
+          "category": "tables",
+          "evidence_anchor_ids": [
+            "cross-table-digital-state-header",
+            "cross-table-unactivated-row"
+          ],
+          "expected_answer": "数字商品已发码但未激活时，应先撤销旧码，确认后退款。",
+          "expected_section": "6. 数字商品的状态机",
+          "no_answer": false,
+          "question": "数字商品状态表如何处理已发码未激活的权益？"
+        },
+        {
+          "case_id": "cross-case-fee-and-digital-state",
+          "category": "cross_section",
+          "evidence_anchor_ids": [
+            "cross-heading-fee-split",
+            "cross-table-shipping-row",
+            "cross-heading-digital-state",
+            "cross-heading-audit"
+          ],
+          "expected_answer": "混合订单要分别判断跨境实物费用责任和数字权益状态，并在审计记录中保留费用、物流、发码、激活和撤销结果。",
+          "expected_section": "3. 税费、汇率与退款拆分 / 6. 数字商品的状态机 / 10. 记录与审计要求",
+          "no_answer": false,
+          "question": "实物和数字权益混合订单应如何跨章节记录退款依据？"
+        },
+        {
+          "case_id": "cross-case-no-answer-country-tax-rate",
+          "category": "no_answer",
+          "evidence_anchor_ids": [],
+          "expected_answer": null,
+          "expected_section": null,
+          "no_answer": true,
+          "question": "这份政策列出了每个国家的具体进口税率吗？"
+        }
+      ],
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "title": "跨境订单与数字商品退款例外政策"
+    }
+  ],
+  "schema_version": "rag_format_parity_gold.v1"
+}

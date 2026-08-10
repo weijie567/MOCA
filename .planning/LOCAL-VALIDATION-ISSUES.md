@@ -22937,3 +22937,23 @@ Plan 64.3-01 首次按规定执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tes
 
 **剩余问题和下次继续排查入口**
 当前 worktree 已恢复，无产品侧剩余问题。后续新 worktree 若 `uv run which pytest` 指向仓库外路径，应先同步 dev extra，再把任何旧 Python collection 结果标为无效环境结论。
+
+## 2026-08-10 — Phase 64.3 PDF 确定性构建的 metadata 与扫描页等价性陷阱
+
+**问题现象**
+Task 3 首轮隔离双构建先在 Pillow 写扫描 PDF 时抛出 `ValueError: bytes must be in range(0, 256)`；修正后数字 PDF 仍随墙钟时间改变；进一步刷新 checked-in family 后，扫描页高度比数字页多 1 像素，且 72 DPI 灰度像素均差一度超过验证阈值。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_rag_format_parity_contract.py::test_fixture_builder_is_byte_deterministic_across_wall_clock_gap tests/eval/test_rag_format_parity_contract.py::test_changed_generator_identity_prevents_reuse -q --tb=short`；再运行完整 focused suite。对双构建 PDF 找首个不同 byte，可见差异落在 `CreationDate/ModDate`；用 PDFium 逐页 72 DPI 渲染可量出尺寸和像素均差。
+
+**关键证据或命令**
+Pillow 12.2.0 的 PDF writer 只把 `time.struct_time` 识别为 PDF date，普通 tuple 会走 `bytes(tuple)`，年份 2000 因而越界。ReportLab `BaseDocTemplate._makeCanvas(...)` 会用 document 自身的 `invariant/pageCompression` 关键字覆盖 `canvasmaker=partial(...)` 的默认值，因此只在 Canvas partial 上设 `invariant=1` 不生效。最终 focused suite 为 `28 passed, 1 warning`；间隔 1.1 秒的两个完整输出根目录中，3 Markdown、6 PDF 和 manifest SHA-256 全部一致。
+
+**当前判断/根因**
+这是 renderer API 的确定性配置层级和 PDF MediaBox 换算问题，不是 canonical Markdown 内容漂移。扫描件额外 autocontrast/低质量 JPEG 还会放大数字页与 raster-only 页的像素差异。
+
+**已做处理**
+固定 Pillow date 为 UTC `struct_time`；把 ReportLab invariant/page compression 配到 `SimpleDocTemplate` owner；按 A4 精确反算扫描 PDF x/y resolution，保留原始 RGB raster，并用固定 quality/subsampling/image metadata。自动检查覆盖 30 页尺寸与灰度像素均差；最新六份 PDF 又经 `pdftoppm 26.05.0` 150 DPI 全页渲染和 contact-sheet 目检，均无 clipping、重叠、乱码或 raster corruption。
+
+**剩余问题和下次继续排查入口**
+当前固定工具和字体 identity 下无剩余本机失败。跨机器重建必须使用 manifest 记录的同一 ReportLab/Pillow/PDFium/pdfplumber 版本和相同字体 bytes；identity 不一致时不得复用本 baseline，也不能把 fixture 字节可复现扩张为 live provider 指标逐位可复现。

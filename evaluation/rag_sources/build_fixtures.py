@@ -6,7 +6,7 @@ parity runs can use the same policy content without editing the demo corpus.
 
 Run from the repository root:
 
-    uv run --with reportlab python evaluation/rag_sources/build_fixtures.py
+    UV_CACHE_DIR=/tmp/uv-cache uv run python evaluation/rag_sources/build_fixtures.py
 """
 
 from __future__ import annotations
@@ -14,19 +14,45 @@ from __future__ import annotations
 import argparse
 import hashlib
 import html
+from importlib.metadata import version
 import json
 import os
 import re
+import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
+
 import pdfplumber
 import pypdfium2
-from PIL import Image, ImageOps
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_ROOT = ROOT / "evaluation" / "rag_sources" / "fixtures"
 MANIFEST_PATH = ROOT / "evaluation" / "rag_sources" / "format_parity_manifest.jsonl"
+GENERATOR_SCHEMA_VERSION = "rag_format_parity_fixture_generator.v1"
+GENERATOR_PROFILE = "moca-format-parity-a4-v1"
+DETERMINISTIC_METADATA_PROFILE = "moca-pdf-invariant-v1"
+RASTER_DPI = 200
+_FIXED_PDF_TIME = time.gmtime(946684800)
+
+
+class FixtureBuildError(RuntimeError):
+    """Stable generator failure that never exposes fixture contents."""
+
+    def __init__(self, reason_code: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(reason_code)
+
+
+@dataclass(frozen=True)
+class FixtureBuildResult:
+    manifest_path: Path
+    manifest_hash: str
+    fixture_paths: tuple[Path, ...]
+    generator_identity: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -55,7 +81,11 @@ TOPICS = (
 )
 
 
-def _font_path() -> Path:
+def _font_path(explicit: Path | None = None) -> Path:
+    if explicit is not None:
+        if explicit.is_file():
+            return explicit
+        raise FixtureBuildError("cjk_font_invalid")
     configured = os.environ.get("MOCA_CJK_FONT")
     candidates = [
         Path(configured) if configured else None,
@@ -147,13 +177,12 @@ def _parse_markdown(text: str) -> list[tuple[str, object]]:
     return story
 
 
-def _register_fonts():
+def _register_fonts(font_path: Path) -> None:
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
-    font = _font_path()
-    pdfmetrics.registerFont(TTFont("MOCA-CJK", str(font)))
-    pdfmetrics.registerFont(TTFont("MOCA-CJK-Mono", str(font)))
+    pdfmetrics.registerFont(TTFont("MOCA-CJK", str(font_path)))
+    pdfmetrics.registerFont(TTFont("MOCA-CJK-Mono", str(font_path)))
 
 
 def _styles():
@@ -277,13 +306,15 @@ def _table_story(rows: list[list[str]], styles: dict[str, object], page_width: f
     return table
 
 
-def _render_digital_pdf(source: Path, output: Path, title: str) -> None:
+def _render_digital_pdf(source: Path, output: Path, title: str, *, font_path: Path) -> None:
     from reportlab.lib.colors import HexColor
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
-    _register_fonts()
+    from reportlab.pdfgen.canvas import Canvas
+
+    _register_fonts(font_path)
     styles = _styles()
     page_width, _ = A4
     usable_width = page_width - 35 * mm
@@ -307,6 +338,10 @@ def _render_digital_pdf(source: Path, output: Path, title: str) -> None:
 
     def decorate_page(canvas, doc):
         canvas.saveState()
+        canvas.setAuthor("MOCA evaluation fixtures")
+        canvas.setCreator(GENERATOR_SCHEMA_VERSION)
+        canvas.setSubject(DETERMINISTIC_METADATA_PROFILE)
+        canvas.setTitle(title)
         canvas.setFillColor(HexColor("#536878"))
         canvas.setFont("MOCA-CJK", 7.5)
         canvas.drawString(doc.leftMargin, A4[1] - 13 * mm, f"MOCA RAG 评测 fixture | {title}")
@@ -322,22 +357,31 @@ def _render_digital_pdf(source: Path, output: Path, title: str) -> None:
         bottomMargin=18 * mm,
         title=title,
         author="MOCA evaluation fixtures",
+        invariant=1,
+        pageCompression=1,
     )
-    document.build(story, onFirstPage=decorate_page, onLaterPages=decorate_page)
+    document.build(
+        story,
+        onFirstPage=decorate_page,
+        onLaterPages=decorate_page,
+        canvasmaker=Canvas,
+    )
 
 
-def _render_scanned_pdf(digital_pdf: Path, output: Path) -> None:
+def _render_scanned_pdf(digital_pdf: Path, output: Path, *, title: str) -> None:
     """Rasterize the digital PDF into a grayscale, text-layer-free PDF."""
+
+    from reportlab.lib.pagesizes import A4
 
     document = pypdfium2.PdfDocument(str(digital_pdf))
     images: list[Image.Image] = []
     try:
         for page_index in range(len(document)):
             page = document[page_index]
-            bitmap = page.render(scale=200 / 72)
-            image = bitmap.to_pil().convert("L")
-            image = ImageOps.autocontrast(image)
-            images.append(image.convert("RGB"))
+            bitmap = page.render(scale=RASTER_DPI / 72)
+            rgb_image = bitmap.to_pil().convert("RGB")
+            rgb_image.info.clear()
+            images.append(rgb_image)
             close_page = getattr(page, "close", None)
             if callable(close_page):
                 close_page()
@@ -350,7 +394,25 @@ def _render_scanned_pdf(digital_pdf: Path, output: Path) -> None:
         raise RuntimeError(f"No pages rendered from {digital_pdf}")
     output.parent.mkdir(parents=True, exist_ok=True)
     first, *rest = images
-    first.save(output, "PDF", resolution=200.0, save_all=True, append_images=rest)
+    pdf_resolution = (first.width * 72 / A4[0], first.height * 72 / A4[1])
+    first.save(
+        output,
+        "PDF",
+        dpi=pdf_resolution,
+        save_all=True,
+        append_images=rest,
+        title=title,
+        author="MOCA evaluation fixtures",
+        subject=DETERMINISTIC_METADATA_PROFILE,
+        creator=GENERATOR_SCHEMA_VERSION,
+        producer=f"Pillow {version('Pillow')}",
+        creationDate=_FIXED_PDF_TIME,
+        modDate=_FIXED_PDF_TIME,
+        quality=95,
+        subsampling=0,
+        optimize=False,
+        progressive=False,
+    )
 
 
 def _pdf_pages(path: Path) -> int:
@@ -376,22 +438,39 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _build_topic(topic: Topic) -> dict[str, object]:
-    directory = FIXTURE_ROOT / topic.directory
-    markdown = directory / f"{topic.directory}.md"
-    digital = directory / f"{topic.directory}.digital.pdf"
-    scanned = directory / f"{topic.directory}.scanned.pdf"
-    if not markdown.is_file():
-        raise FileNotFoundError(markdown)
+def _build_topic(
+    topic: Topic,
+    *,
+    source_fixture_root: Path,
+    output_fixture_root: Path,
+    output_root: Path,
+    font_path: Path,
+    generator_identity: dict[str, object],
+    generator_identity_hash: str,
+) -> tuple[dict[str, object], tuple[Path, ...]]:
+    source_directory = source_fixture_root / topic.directory
+    output_directory = output_fixture_root / topic.directory
+    source_markdown = source_directory / f"{topic.directory}.md"
+    markdown = output_directory / f"{topic.directory}.md"
+    digital = output_directory / f"{topic.directory}.digital.pdf"
+    scanned = output_directory / f"{topic.directory}.scanned.pdf"
+    if not source_markdown.is_file():
+        raise FixtureBuildError("canonical_markdown_missing")
 
-    _render_digital_pdf(markdown, digital, topic.title)
-    _render_scanned_pdf(digital, scanned)
+    output_directory.mkdir(parents=True, exist_ok=True)
+    if source_markdown.resolve() != markdown.resolve():
+        shutil.copyfile(source_markdown, markdown)
+
+    _render_digital_pdf(markdown, digital, topic.title, font_path=font_path)
+    _render_scanned_pdf(digital, scanned, title=topic.title)
     digital_chars = _digital_text_chars(digital)
     scanned_chars = _digital_text_chars(scanned)
     if digital_chars < 1000:
-        raise RuntimeError(f"Digital PDF has too little extractable text: {digital} ({digital_chars} chars)")
-    if scanned_chars > 80:
-        raise RuntimeError(f"Scanned PDF unexpectedly contains a text layer: {scanned} ({scanned_chars} chars)")
+        raise FixtureBuildError("digital_text_layer_invalid")
+    if scanned_chars != 0:
+        raise FixtureBuildError("scanned_text_layer_invalid")
+    if _pdf_pages(digital) != 5 or _pdf_pages(scanned) != 5:
+        raise FixtureBuildError("pdf_page_count_invalid")
 
     variants = []
     for fmt, path, source_type in (
@@ -402,7 +481,7 @@ def _build_topic(topic: Topic) -> dict[str, object]:
         variants.append(
             {
                 "format": fmt,
-                "path": str(path.relative_to(ROOT)),
+                "path": path.relative_to(output_root).as_posix(),
                 "source_type": source_type,
                 "sha256": _sha256(path),
                 "pages": _pdf_pages(path) if path.suffix == ".pdf" else None,
@@ -417,32 +496,100 @@ def _build_topic(topic: Topic) -> dict[str, object]:
         "parity_group": topic.doc_key,
         "doc_key": topic.doc_key,
         "title": topic.title,
-        "source_of_truth": str(markdown.relative_to(ROOT)),
+        "source_of_truth": markdown.relative_to(output_root).as_posix(),
         "variants": variants,
+        "generator_identity": generator_identity,
+        "generator_identity_hash": generator_identity_hash,
+    }, (markdown, digital, scanned)
+
+
+def _generator_identity(*, font_path: Path, profile: str) -> dict[str, object]:
+    return {
+        "schema_version": GENERATOR_SCHEMA_VERSION,
+        "builder_sha256": _sha256(Path(__file__).resolve()),
+        "profile": profile,
+        "reportlab_version": version("reportlab"),
+        "pillow_version": version("Pillow"),
+        "pypdfium2_version": version("pypdfium2"),
+        "pdfplumber_version": version("pdfplumber"),
+        "cjk_font_sha256": _sha256(font_path),
+        "raster_dpi": RASTER_DPI,
+        "deterministic_metadata_profile": DETERMINISTIC_METADATA_PROFILE,
     }
+
+
+def _identity_hash(identity: Mapping[str, object]) -> str:
+    payload = json.dumps(dict(identity), ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def build_fixture_family(
+    *,
+    repository_root: Path,
+    output_root: Path,
+    font_path: Path | None = None,
+    generator_profile: str = GENERATOR_PROFILE,
+    expected_generator_identity: Mapping[str, object] | None = None,
+) -> FixtureBuildResult:
+    """Build the complete family under explicit source and output roots."""
+
+    source_root = repository_root.resolve()
+    destination_root = output_root.resolve()
+    source_fixture_root = source_root / "evaluation/rag_sources/fixtures"
+    output_fixture_root = destination_root / "evaluation/rag_sources/fixtures"
+    manifest_path = destination_root / "evaluation/rag_sources/format_parity_manifest.jsonl"
+    if not source_fixture_root.is_dir() or not generator_profile:
+        raise FixtureBuildError("generator_input_invalid")
+
+    resolved_font = _font_path(font_path).resolve()
+    identity = _generator_identity(font_path=resolved_font, profile=generator_profile)
+    if expected_generator_identity is not None and dict(expected_generator_identity) != identity:
+        raise FixtureBuildError("generator_identity_mismatch")
+    identity_hash = _identity_hash(identity)
+
+    records: list[dict[str, object]] = []
+    fixture_paths: list[Path] = []
+    for topic in TOPICS:
+        record, topic_paths = _build_topic(
+            topic,
+            source_fixture_root=source_fixture_root,
+            output_fixture_root=output_fixture_root,
+            output_root=destination_root,
+            font_path=resolved_font,
+            generator_identity=identity,
+            generator_identity_hash=identity_hash,
+        )
+        records.append(record)
+        fixture_paths.extend(topic_paths)
+
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        "".join(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n" for record in records),
+        encoding="utf-8",
+    )
+    return FixtureBuildResult(
+        manifest_path=manifest_path,
+        manifest_hash=_sha256(manifest_path),
+        fixture_paths=tuple(fixture_paths),
+        generator_identity=identity,
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build MOCA RAG format-parity fixtures")
-    parser.add_argument("--only", choices=[topic.directory for topic in TOPICS], action="append")
+    parser.add_argument("--output-root", type=Path, default=ROOT)
     return parser
 
 
 def main() -> int:
     args = _parser().parse_args()
-    selected = [topic for topic in TOPICS if not args.only or topic.directory in args.only]
-    records = [_build_topic(topic) for topic in selected]
-    MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    MANIFEST_PATH.write_text(
-        "".join(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n" for record in records),
-        encoding="utf-8",
+    result = build_fixture_family(
+        repository_root=ROOT,
+        output_root=args.output_root,
     )
-    print(f"Built {len(records)} parity groups and {len(records) * 3} fixtures")
-    for record in records:
-        pages = [variant["pages"] for variant in record["variants"] if variant["pages"]]
-        chars = [variant["extractable_text_chars"] for variant in record["variants"]]
-        print(f"{record['doc_key']}: pages={pages}, extractable_chars={chars}")
-    print(f"Manifest: {MANIFEST_PATH.relative_to(ROOT)}")
+    print(f"Built {len(TOPICS)} parity groups and {len(result.fixture_paths)} fixtures")
+    print(f"Generator identity: {_identity_hash(result.generator_identity)}")
+    print(f"Manifest: {result.manifest_path}")
     return 0
 
 

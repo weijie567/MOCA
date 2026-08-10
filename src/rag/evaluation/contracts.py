@@ -90,7 +90,8 @@ class FormatParityManifestRecord(BaseModel):
     title: str = Field(min_length=1, max_length=256)
     source_of_truth: str = Field(min_length=1, max_length=512)
     variants: tuple[FormatParityVariant, ...] = Field(min_length=3, max_length=3)
-    generator_identity: GeneratorIdentity | None = None
+    generator_identity: GeneratorIdentity
+    generator_identity_hash: str = Field(pattern=_SHA256_PATTERN)
 
 
 class SemanticAnchor(BaseModel):
@@ -167,7 +168,7 @@ class FormatParityPolicy(BaseModel):
     source_of_truth: str
     variants: tuple[FormatParityVariant, ...]
     gold: SemanticGoldPolicy
-    generator_identity: GeneratorIdentity | None = None
+    generator_identity: GeneratorIdentity
 
 
 class FormatParityDataset(BaseModel):
@@ -177,6 +178,7 @@ class FormatParityDataset(BaseModel):
     gold_hash: str = Field(pattern=_SHA256_PATTERN)
     fixture_hashes: dict[str, str]
     policies: tuple[FormatParityPolicy, ...]
+    baseline_identity: str = Field(pattern=_SHA256_PATTERN)
 
 
 def load_format_parity_contract(
@@ -191,6 +193,7 @@ def load_format_parity_contract(
     manifest_bytes = _read_contract_bytes(manifest_path, "manifest_file_invalid")
     manifest_records = _parse_manifest(manifest_bytes)
     records_by_key = _validate_manifest_groups(manifest_records)
+    generator_identity_hash = _validate_generator_identity(records_by_key)
     fixture_hashes = _validate_fixture_records(records_by_key, repository_root=root)
 
     gold_bytes = _read_contract_bytes(gold_path, "gold_file_invalid")
@@ -208,11 +211,20 @@ def load_format_parity_contract(
         )
         for doc_key in FORMAT_PARITY_DOC_KEYS
     )
+    manifest_hash = _sha256_bytes(manifest_bytes)
+    gold_hash = _sha256_bytes(gold_bytes)
+    baseline_identity = _baseline_identity(
+        manifest_hash=manifest_hash,
+        gold_hash=gold_hash,
+        fixture_hashes=fixture_hashes,
+        generator_identity_hash=generator_identity_hash,
+    )
     return FormatParityDataset(
-        manifest_hash=_sha256_bytes(manifest_bytes),
-        gold_hash=_sha256_bytes(gold_bytes),
+        manifest_hash=manifest_hash,
+        gold_hash=gold_hash,
         fixture_hashes=fixture_hashes,
         policies=policies,
+        baseline_identity=baseline_identity,
     )
 
 
@@ -265,6 +277,27 @@ def _validate_manifest_groups(
     return records_by_key
 
 
+def _validate_generator_identity(records_by_key: dict[str, FormatParityManifestRecord]) -> str:
+    recorded_hashes: set[str] = set()
+    identities: set[str] = set()
+    for doc_key in FORMAT_PARITY_DOC_KEYS:
+        record = records_by_key[doc_key]
+        serialized = json.dumps(
+            record.generator_identity.model_dump(mode="json"),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        actual_hash = _sha256_bytes(serialized.encode("utf-8"))
+        if record.generator_identity_hash != actual_hash:
+            raise FormatParityContractError("generator_identity_hash_mismatch", doc_key)
+        recorded_hashes.add(record.generator_identity_hash)
+        identities.add(serialized)
+    if len(recorded_hashes) != 1 or len(identities) != 1:
+        raise FormatParityContractError("generator_identity_mismatch")
+    return next(iter(recorded_hashes))
+
+
 def _validate_fixture_records(
     records_by_key: dict[str, FormatParityManifestRecord],
     *,
@@ -283,8 +316,18 @@ def _validate_fixture_records(
         if record.source_of_truth != markdown.path:
             raise FormatParityContractError("source_of_truth_mismatch", doc_key)
 
+        directory = doc_key.removeprefix("eval_")
+        base = f"evaluation/rag_sources/fixtures/{directory}/{directory}"
+        expected_paths = {
+            "markdown": f"{base}.md",
+            "digital_pdf": f"{base}.digital.pdf",
+            "scanned_pdf": f"{base}.scanned.pdf",
+        }
+
         for variant_name, _ in FORMAT_VARIANTS:
             variant = variants_by_format[variant_name]
+            if variant.path != expected_paths[variant_name]:
+                raise FormatParityContractError("fixture_path_invalid", f"{doc_key}:{variant_name}")
             _validate_variant_metadata(variant, doc_key=doc_key)
             resolved_path = _resolve_fixture_path(variant.path, repository_root=repository_root, doc_key=doc_key)
             actual_hash = _sha256_file(resolved_path)
@@ -388,3 +431,25 @@ def _sha256_file(path: Path) -> str:
 
 def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _baseline_identity(
+    *,
+    manifest_hash: str,
+    gold_hash: str,
+    fixture_hashes: dict[str, str],
+    generator_identity_hash: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "schema_version": "rag_format_parity_baseline_inputs.v1",
+            "manifest_hash": manifest_hash,
+            "gold_hash": gold_hash,
+            "fixture_hashes": fixture_hashes,
+            "generator_identity_hash": generator_identity_hash,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return _sha256_bytes(payload)
