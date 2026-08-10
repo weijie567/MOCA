@@ -22,6 +22,17 @@ from src.repositories.rag_evaluation_round_repo import (
     classify_attempt_projection,
 )
 from src.repositories.rag_ingestion_job_repo import RagIngestionJobRepository
+from src.knowledge.retrieval import PolicyRetrievalRun
+from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchRequest
+from src.knowledge.service import PolicyKnowledgeService
+from src.rag.evaluation.contracts import load_format_parity_contract
+from src.rag.evaluation.retrieval_rounds import (
+    RecordingPolicyRetrievalEngine,
+    RetrievalParityRunV1,
+    build_knowledge_query,
+    ordered_gold_questions,
+    run_retrieval_parity,
+)
 
 
 MIGRATION = Path("src/db/migrations/versions/029_phase64_3_rag_eval_rounds.py")
@@ -243,3 +254,98 @@ def test_repository_source_has_no_broad_or_immutable_delete_path() -> None:
     assert "delete(policychunkversion)" not in lowered
     assert "update(policydocumentversion)" not in lowered
     assert "update(policychunkversion)" not in lowered
+
+
+def _dataset():
+    return load_format_parity_contract(
+        Path("evaluation/rag_sources/format_parity_manifest.jsonl"),
+        Path("evaluation/golden/rag_format_parity_gold.json"),
+        repository_root=Path.cwd(),
+    )
+
+
+def test_gold_question_order_is_format_independent_and_complete() -> None:
+    questions = ordered_gold_questions(_dataset())
+    expected = tuple(
+        (policy.doc_key, case.case_id, case.question)
+        for policy in _dataset().policies
+        for case in policy.gold.cases
+    )
+    assert questions == expected
+    assert len(questions) == 18
+
+
+def test_real_request_and_context_are_bound_to_fixed_tenant() -> None:
+    request, context = build_knowledge_query(
+        question="退款资格是什么？",
+        generated_at="2026-08-10T00:00:00Z",
+    )
+    assert isinstance(request, KnowledgeSearchRequest)
+    assert isinstance(context, KnowledgeContext)
+    assert request.filters.tenant_id == str(FORMAT_PARITY_TENANT_ID)
+    assert context.tenant_id == str(FORMAT_PARITY_TENANT_ID)
+    assert request.query == "退款资格是什么？"
+
+
+class _RealEngineSpy:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def retrieve_run(self, **kwargs: object) -> PolicyRetrievalRun:
+        self.calls.append(kwargs)
+        return PolicyRetrievalRun(
+            status="no_evidence",
+            hits=[],
+            evidence_refs=[],
+            best_score=0.0,
+            original_query=str(kwargs["query"]),
+            fallback_reason="no_candidates",
+        )
+
+
+@pytest.mark.asyncio
+async def test_recording_delegate_forwards_the_single_service_triggered_retrieval() -> None:
+    engine = _RealEngineSpy()
+    delegate = RecordingPolicyRetrievalEngine(engine)  # type: ignore[arg-type]
+    service = PolicyKnowledgeService(delegate)
+    request, context = build_knowledge_query(
+        question="退款资格是什么？",
+        generated_at="2026-08-10T00:00:00Z",
+    )
+    result = await service.search(request, context)
+    recording = delegate.take_recording(expected_query=request.query)
+
+    assert result.status == "no_evidence"
+    assert len(engine.calls) == 1
+    assert recording.original_query == request.query
+    assert recording.fallback_reason == "no_candidates"
+    with pytest.raises(EvaluationIsolationError, match="evaluation isolation denied"):
+        delegate.take_recording(expected_query=request.query)
+
+
+def test_provider_runtime_owns_real_service_boundaries_and_contract_mode_is_ineligible() -> None:
+    source = inspect.getsource(run_retrieval_parity)
+    assert "IngestionService(" in source
+    assert "PolicyRetrievalEngine(" in source
+    assert "PolicyKnowledgeService(" in source
+    assert ".search(" in source
+    assert "retrieve_run(" not in source
+    contract = RetrievalParityRunV1(
+        mode="contract_test",
+        baseline_eligible=False,
+        outcome="completed_quality_fail",
+        generated_at="2026-08-10T00:00:00Z",
+        tenant_id=str(FORMAT_PARITY_TENANT_ID),
+        owner_marker=FORMAT_PARITY_OWNER_MARKER,
+        run_token=str(uuid4()),
+        manifest_hash="a" * 64,
+        gold_hash="b" * 64,
+        baseline_identity="c" * 64,
+        rounds=(),
+        prerequisites=(),
+    )
+    assert contract.baseline_eligible is False
+    with pytest.raises(ValueError):
+        contract.model_copy(update={"baseline_eligible": True}).model_validate(
+            contract.model_copy(update={"baseline_eligible": True}).model_dump()
+        )
