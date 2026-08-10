@@ -22917,3 +22917,23 @@ Phase closeout 只把 Ruff lint (`ruff check`) 作为仓库门禁，没有同时
 
 **剩余问题和下次继续排查入口**
 本地修复已完成，待 push 后确认 PR lint 重跑转绿。后续 phase closeout 必须同时执行 `ruff check .` 与 `ruff format --check .`，不能用前者替代后者。
+
+## 2026-08-10 — Phase 64.3 worktree 首次 `uv run pytest` 命中系统 Python 3.9
+
+**问题现象**
+Plan 64.3-01 首次按规定执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_rag_format_parity_contract.py -q --tb=short` 时，pytest 在加载 `tests/conftest.py` 阶段从系统 Python 3.9 导入 `datetime`，因缺少 `datetime.UTC` 失败；当时 `.venv/bin/python` 实际已指向 Python 3.12，但 worktree 环境尚未安装 dev 依赖，`uv run` 因而解析到了用户目录中的 Python 3.9 pytest 脚本。
+
+**如何检测/复现**
+失败 traceback 指向 `/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/`。随后运行 `UV_CACHE_DIR=/tmp/uv-cache uv run which pytest` 得到 `/Users/ming/Library/Python/3.9/bin/pytest`，而 `UV_CACHE_DIR=/tmp/uv-cache uv run python -VV` 为 Python 3.12.13，确认解释器与 pytest 入口发生错配。
+
+**关键证据或命令**
+`UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'import sys,pytest; ...'` 在修复前返回 `ModuleNotFoundError: No module named 'pytest'`；执行 `UV_CACHE_DIR=/tmp/uv-cache uv sync --extra dev` 后，仓库 `.venv` 安装 pytest/pytest-asyncio/Ruff，再运行同一规定 pytest 命令得到预期的 Task 1 RED（缺少 `src.rag.evaluation`），完成实现后为 `19 passed`。
+
+**当前判断/根因**
+根因是新 worktree 的 Python 3.12 `.venv` 尚未同步 dev optional dependencies，导致 `uv run pytest` 回退到 PATH 上的用户级 Python 3.9 pytest。首次 collection 结果属于环境入口错配，不能作为产品测试结论。
+
+**已做处理**
+仅在当前仓库 worktree 执行 `UV_CACHE_DIR=/tmp/uv-cache uv sync --extra dev`，没有使用裸 pytest、没有修改系统 Python。之后所有 pytest/Ruff 命令均通过仓库 `uv run` 入口执行并确认使用 Python 3.12 环境。
+
+**剩余问题和下次继续排查入口**
+当前 worktree 已恢复，无产品侧剩余问题。后续新 worktree 若 `uv run which pytest` 指向仓库外路径，应先同步 dev extra，再把任何旧 Python collection 结果标为无效环境结论。

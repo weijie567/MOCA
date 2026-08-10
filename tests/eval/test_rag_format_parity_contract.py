@@ -247,13 +247,13 @@ def test_duplicate_missing_and_extra_groups_fail_closed(tmp_path: Path) -> None:
             lambda records: records[0].update(source_of_truth=records[0]["variants"][1]["path"]),
             "source_of_truth_mismatch",
         ),
-        (lambda records: records[0]["variants"].pop(), "manifest_variant_set_invalid"),
+        (lambda records: records[0]["variants"].pop(), "manifest_schema_invalid"),
         (
             lambda records: records[0]["variants"][0].update(source_type="policy_pdf"),
             "manifest_variant_set_invalid",
         ),
         (lambda records: records[0]["variants"][0].update(pages=1), "variant_metadata_invalid"),
-        (lambda records: records[0]["variants"][1].update(pages=0), "manifest_schema_invalid"),
+        (lambda records: records[0]["variants"][1].update(pages=0), "variant_metadata_invalid"),
         (
             lambda records: records[0]["variants"][1].update(extractable_text_chars=0),
             "variant_metadata_invalid",
