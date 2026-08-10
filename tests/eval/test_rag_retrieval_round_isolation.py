@@ -73,7 +73,7 @@ def test_fixed_evaluation_identity_and_orm_constraints_are_exact() -> None:
         "post_state_proof_json",
         "head_mappings_json",
         "immutable_counts_json",
-    } <= set(table.columns)
+    } <= set(table.columns.keys())
     checks = "\n".join(str(constraint.sqltext) for constraint in table.constraints if hasattr(constraint, "sqltext"))
     assert str(FORMAT_PARITY_TENANT_ID) in checks
     assert FORMAT_PARITY_OWNER_MARKER in checks
@@ -113,9 +113,7 @@ def test_migration_is_chained_partial_unique_and_evaluation_only() -> None:
         ({"next_document_index": 4}, "stale_progress"),
     ],
 )
-def test_wrong_identity_denies_with_one_generic_external_error(
-    overrides: dict[str, object], reason_code: str
-) -> None:
+def test_wrong_identity_denies_with_one_generic_external_error(overrides: dict[str, object], reason_code: str) -> None:
     with pytest.raises(EvaluationIsolationError) as caught:
         _identity(**overrides)
     assert str(caught.value) == "evaluation isolation denied"
@@ -166,9 +164,7 @@ def test_wrong_identity_denies_with_one_generic_external_error(
         ),
     ],
 )
-def test_commit_aware_projection_taxonomy(
-    projection: AttemptProjection, expected: ProjectionState
-) -> None:
+def test_commit_aware_projection_taxonomy(projection: AttemptProjection, expected: ProjectionState) -> None:
     assert classify_attempt_projection(projection) is expected
 
 
