@@ -23223,3 +23223,14 @@ Post-review 验证出现三次只影响一次性检查命令的错误：旧 base
 
 **剩余问题和下次继续排查入口**
 无产品侧剩余问题。后续负向 schema proof 应断言稳定 error code/message 而不是依赖 `loc` 必非空；psql 查询使用精确 SQL literal；typed Pydantic 子模型通过字段或 `model_dump()` 检查，不直接假设支持 collection protocol。
+
+## 2026-08-11 — Phase 64.3 sealed run identity 只读 proof 使用不存在列与错误数据库入口
+
+**问题现象 / 如何检测**
+首次只读 identity proof 假定 `rag_evaluation_rounds` 存在 `run_identity_proved_at` 列，查询失败；改查真实 `run_identity_hash` 后，sealed provider DB 证明 run token `64f30400-0000-4000-8000-000000000008` 有 3 rows / 1 distinct / 64 chars。文档对齐复核时，`docker compose exec` 又因当前 shell 未注入 `DASHSCOPE_API_KEY` 而在 Compose 插值阶段停止；直接进入现存 `worktree-postgres-1` 后发现它不是已迁移的 provider-run DB，没有 `rag_evaluation_rounds` 表。
+
+**关键证据 / 当前判断**
+权威只读 proof 使用实际列 `run_identity_hash`，三轮值均为 `4a4e7557c0b6132cb8070e42e00cd4be7eeb1bca4569b34d06dd7e8487cb8b7a`。当前 machine gate 另从 allowlisted corpus/time/mode/provider/rollout 字段重新计算同一 64-char SHA-256 并通过。两次当前 worktree DB 入口失败属于环境/目标容器选择错误，不是 sealed identity 漂移。
+
+**已做处理 / 剩余入口**
+未启动、迁移或修改任何数据库，也未改变 provider、artifact 或文件状态；只保留成功 provider-run proof 与可离线重算的 identity field gate。后续若需重新查 durable rows，必须连接实际 provider-run 已迁移数据库，先用 schema introspection 确认表/列，再执行 exact tenant + run-token 的只读查询；不得用任意存活的同名 worktree 容器代替。
