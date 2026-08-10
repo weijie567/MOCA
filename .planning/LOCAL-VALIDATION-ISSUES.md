@@ -23234,3 +23234,14 @@ Post-review 验证出现三次只影响一次性检查命令的错误：旧 base
 
 **已做处理 / 剩余入口**
 未启动、迁移或修改任何数据库，也未改变 provider、artifact 或文件状态；只保留成功 provider-run proof 与可离线重算的 identity field gate。后续若需重新查 durable rows，必须连接实际 provider-run 已迁移数据库，先用 schema introspection 确认表/列，再执行 exact tenant + run-token 的只读查询；不得用任意存活的同名 worktree 容器代替。
+
+## 2026-08-11 — Phase 64.3 autopilot UAT 的一次性结果读取与 zsh 变量假设错误
+
+**问题现象 / 如何检测**
+自检测 UAT 中，direct parser target 正常写出真实红结果并按质量门禁 exit 1，但一次性读取脚本先后误用不存在的 `variants` / `format` 字段；provider prerequisite 负向检查又把 zsh 只读特殊变量 `status` 当普通变量；strict baseline 摘要先把 typed `ParserGateInputsV1` 当 collection 调用 `len()`，又误以为 canonical runtime config 直接暴露 durable `run_identity_hash`。这些 wrapper 分别得到 `KeyError`、只读变量错误、`TypeError` 和 `AttributeError`。
+
+**关键证据 / 当前判断**
+检查实际 schema 后，parser artifact 使用 `variant_results` / `variant`，结果为 `parser_direct`、9 variants、`completed_quality_fail`；shell 改用 `cmd_status` 后证明缺少 token 时 provider target exit 2；strict gate 改为 `len(report.parser_gate_inputs.model_dump()) == 6`，并把 durable identity proof 留给三轮数据库记录与 allowlisted-field 离线重算。最终 strict gate证明 54 cases、45 failures 和 JSON→Markdown 字节一致。
+
+**已做处理 / 剩余入口**
+所有失败命令均是一次性 UAT 展示/读取层错误，未改变 provider、数据库或 tracked artifact；修正后重跑通过，临时 parser report 和 prerequisite 输出已精确清理。后续 UAT 读取应先使用 typed model 或检查实际 schema keys，zsh 不复用 `status` / `path` 等特殊变量，并区分 canonical report 字段与仅存在于 durable evaluation owner 的 identity seal。无产品侧剩余问题。
