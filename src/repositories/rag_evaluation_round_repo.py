@@ -57,6 +57,7 @@ class EvaluationRoundIdentity:
     round_format: str
     state_version: int
     next_document_index: int
+    expected_rollout_version: int = 1
 
     def __post_init__(self) -> None:
         if (
@@ -67,7 +68,7 @@ class EvaluationRoundIdentity:
             or self.round_format not in ROUND_FORMATS
         ):
             raise EvaluationIsolationError("identity_mismatch")
-        if self.state_version <= 0:
+        if self.state_version <= 0 or self.expected_rollout_version <= 0:
             raise EvaluationIsolationError("stale_state")
         if not 0 <= self.next_document_index <= len(FORMAT_PARITY_DOC_KEYS):
             raise EvaluationIsolationError("stale_progress")
@@ -157,6 +158,7 @@ class RagEvaluationRoundRepository:
         round_token: UUID,
         round_format: str,
         lease_expires_at: datetime,
+        expected_rollout_version: int = 1,
     ) -> EvaluationRoundIdentity:
         identity = EvaluationRoundIdentity(
             round_id=uuid4(),
@@ -167,6 +169,7 @@ class RagEvaluationRoundRepository:
             round_format=round_format,
             state_version=1,
             next_document_index=0,
+            expected_rollout_version=expected_rollout_version,
         )
         row = RagEvaluationRound(
             id=identity.round_id,
@@ -178,6 +181,7 @@ class RagEvaluationRoundRepository:
             doc_keys_json=list(FORMAT_PARITY_DOC_KEYS),
             state="claimed",
             state_version=1,
+            expected_rollout_version=expected_rollout_version,
             next_document_index=0,
             next_step="preflight",
             lease_expires_at=lease_expires_at,
@@ -195,7 +199,12 @@ class RagEvaluationRoundRepository:
         *,
         allowed_states: frozenset[str] | None = None,
     ) -> RagEvaluationRound:
-        stmt = select(RagEvaluationRound).where(RagEvaluationRound.id == owner.round_id).with_for_update()
+        stmt = (
+            select(RagEvaluationRound)
+            .where(RagEvaluationRound.id == owner.round_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
         row = (await self.session.execute(stmt)).scalar_one_or_none()
         if row is None:
             raise EvaluationIsolationError("owner_unavailable")
@@ -608,6 +617,7 @@ class RagEvaluationRoundRepository:
                 RagEvaluationRound.round_token == owner.round_token,
                 RagEvaluationRound.round_format == owner.round_format,
                 RagEvaluationRound.state_version == owner.state_version,
+                RagEvaluationRound.expected_rollout_version == owner.expected_rollout_version,
                 RagEvaluationRound.next_document_index == owner.next_document_index,
             )
             .values(**values, state_version=next_version, updated_at=func.now())
@@ -623,6 +633,7 @@ class RagEvaluationRoundRepository:
             round_format=owner.round_format,
             state_version=next_version,
             next_document_index=int(values.get("next_document_index", owner.next_document_index)),
+            expected_rollout_version=owner.expected_rollout_version,
         )
 
     @staticmethod
@@ -636,6 +647,7 @@ class RagEvaluationRoundRepository:
             tuple(row.doc_keys_json),
             row.state_version,
             row.next_document_index,
+            row.expected_rollout_version,
         )
         expected = (
             owner.tenant_id,
@@ -646,6 +658,7 @@ class RagEvaluationRoundRepository:
             FORMAT_PARITY_DOC_KEYS,
             owner.state_version,
             owner.next_document_index,
+            owner.expected_rollout_version,
         )
         if actual != expected:
             reason = "stale_progress" if row.next_document_index != owner.next_document_index else "stale_state"

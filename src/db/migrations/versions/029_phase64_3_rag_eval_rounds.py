@@ -49,6 +49,7 @@ def upgrade() -> None:
         sa.Column("doc_keys_json", postgresql.JSONB(), nullable=False),
         sa.Column("state", sa.String(length=32), nullable=False, server_default="claimed"),
         sa.Column("state_version", sa.Integer(), nullable=False, server_default="1"),
+        sa.Column("expected_rollout_version", sa.Integer(), nullable=False),
         sa.Column("next_document_index", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("next_step", sa.String(length=32), nullable=False, server_default="preflight"),
         sa.Column("attempt_doc_key", sa.String(length=64)),
@@ -90,6 +91,10 @@ def upgrade() -> None:
             name="ck_rag_evaluation_rounds_next_step",
         ),
         sa.CheckConstraint("state_version > 0", name="ck_rag_evaluation_rounds_state_version_positive"),
+        sa.CheckConstraint(
+            "expected_rollout_version > 0",
+            name="ck_rag_evaluation_rounds_rollout_version_positive",
+        ),
         sa.CheckConstraint(
             "next_document_index BETWEEN 0 AND 3",
             name="ck_rag_evaluation_rounds_document_index",

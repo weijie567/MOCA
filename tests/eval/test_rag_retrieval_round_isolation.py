@@ -73,6 +73,7 @@ def test_fixed_evaluation_identity_and_orm_constraints_are_exact() -> None:
         "doc_keys_json",
         "state",
         "state_version",
+        "expected_rollout_version",
         "next_document_index",
         "next_step",
         "attempt_doc_key",
@@ -267,9 +268,7 @@ def _dataset():
 def test_gold_question_order_is_format_independent_and_complete() -> None:
     questions = ordered_gold_questions(_dataset())
     expected = tuple(
-        (policy.doc_key, case.case_id, case.question)
-        for policy in _dataset().policies
-        for case in policy.gold.cases
+        (policy.doc_key, case.case_id, case.question) for policy in _dataset().policies for case in policy.gold.cases
     )
     assert questions == expected
     assert len(questions) == 18

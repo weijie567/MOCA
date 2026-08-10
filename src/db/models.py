@@ -342,6 +342,10 @@ class RagEvaluationRound(TimestampMixin, Base):
         ),
         CheckConstraint("state_version > 0", name="ck_rag_evaluation_rounds_state_version_positive"),
         CheckConstraint(
+            "expected_rollout_version > 0",
+            name="ck_rag_evaluation_rounds_rollout_version_positive",
+        ),
+        CheckConstraint(
             "next_document_index >= 0 AND next_document_index <= 3",
             name="ck_rag_evaluation_rounds_document_index",
         ),
@@ -388,6 +392,7 @@ class RagEvaluationRound(TimestampMixin, Base):
     doc_keys_json: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="claimed", server_default="claimed")
     state_version: Mapped[int] = mapped_column(nullable=False, default=1, server_default=text("1"))
+    expected_rollout_version: Mapped[int] = mapped_column(nullable=False)
     next_document_index: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
     next_step: Mapped[str] = mapped_column(String(32), nullable=False, default="preflight", server_default="preflight")
     attempt_doc_key: Mapped[str | None] = mapped_column(String(64))
