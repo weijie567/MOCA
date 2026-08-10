@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -349,6 +350,117 @@ async def test_manifest_checksum_is_canonicalized_for_exact_lookup_classificatio
         )
 
 
+@pytest.mark.asyncio
+async def test_failed_scanned_quality_transition_deletes_proves_then_advances_cas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _identity(round_format="scanned_pdf", next_document_index=2)
+    job_id = uuid4()
+    checksum = "b" * 64
+    reserved_at = datetime(2026, 8, 10, tzinfo=UTC)
+    row = SimpleNamespace(
+        tenant_id=FORMAT_PARITY_TENANT_ID,
+        attempt_doc_key=FORMAT_PARITY_DOC_KEYS[2],
+        expected_source_checksum=checksum,
+        reservation_at=reserved_at,
+        claimed_job_id=job_id,
+    )
+    failure = SimpleNamespace(
+        state=ProjectionState.FAILURE,
+        job_id=job_id,
+        projection=AttemptProjection(job_count=1, failed_job_count=1),
+        immutable_counts={"document_versions": 3, "chunk_versions": 13},
+    )
+    empty = SimpleNamespace(
+        state=ProjectionState.RESERVATION_ONLY,
+        job_id=None,
+        projection=AttemptProjection(),
+        immutable_counts={"document_versions": 3, "chunk_versions": 13},
+    )
+    inspections = iter((failure, empty))
+    events: list[object] = []
+    cas_values: dict[str, object] = {}
+    repo = RagEvaluationRoundRepository(SimpleNamespace())  # type: ignore[arg-type]
+
+    async def lock_owned(*args: object, **kwargs: object) -> object:
+        events.append(("lock", kwargs["allowed_states"]))
+        return row
+
+    async def inspect_locked(*args: object) -> object:
+        inspection = next(inspections)
+        events.append(("inspect", inspection.state))
+        return inspection
+
+    async def delete_exact_evaluation_attempt(**kwargs: object) -> int:
+        events.append(("delete", kwargs))
+        return 1
+
+    async def cas(*args: object, **kwargs: object) -> EvaluationRoundIdentity:
+        del args
+        cas_values.update(kwargs)
+        events.append(("cas", kwargs["next_document_index"]))
+        return _identity(
+            round_id=owner.round_id,
+            run_token=owner.run_token,
+            round_token=owner.round_token,
+            round_format="scanned_pdf",
+            next_document_index=3,
+            state_version=2,
+        )
+
+    monkeypatch.setattr(repo, "lock_owned", lock_owned)
+    monkeypatch.setattr(repo, "_inspect_locked", inspect_locked)
+    monkeypatch.setattr(repo.job_repo, "delete_exact_evaluation_attempt", delete_exact_evaluation_attempt)
+    monkeypatch.setattr(repo, "_cas", cas)
+
+    advanced = await repo.advance_exact_failed_quality(owner, error_code="malformed_source")
+
+    assert advanced.next_document_index == 3
+    assert events == [
+        ("lock", frozenset({"ingesting"})),
+        ("inspect", ProjectionState.FAILURE),
+        (
+            "delete",
+            {
+                "job_id": job_id,
+                "tenant_id": FORMAT_PARITY_TENANT_ID,
+                "doc_key": FORMAT_PARITY_DOC_KEYS[2],
+                "source_checksum": checksum,
+            },
+        ),
+        ("inspect", ProjectionState.RESERVATION_ONLY),
+        ("cas", 3),
+    ]
+    assert cas_values == {
+        "state": "cleaning",
+        "next_step": "cleanup",
+        "next_document_index": 3,
+        "claimed_job_id": None,
+        "attempt_doc_key": None,
+        "expected_source_checksum": None,
+        "reservation_at": None,
+        "immutable_counts_json": {"document_versions": 3, "chunk_versions": 13},
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("round_format", "error_code"),
+    [("markdown", "malformed_source"), ("scanned_pdf", "embedding_failed")],
+)
+async def test_failed_quality_transition_rejects_uncontrolled_format_or_error(
+    round_format: str,
+    error_code: str,
+) -> None:
+    repo = RagEvaluationRoundRepository(SimpleNamespace())  # type: ignore[arg-type]
+    with pytest.raises(EvaluationIsolationError) as caught:
+        await repo.advance_exact_failed_quality(
+            _identity(round_format=round_format),
+            error_code=error_code,
+        )
+    assert caught.value.reason_code == "quality_failure_not_allowed"
+
+
 def test_repository_source_has_no_broad_or_immutable_delete_path() -> None:
     source = inspect.getsource(RagEvaluationRoundRepository)
     lowered = source.lower()
@@ -612,6 +724,164 @@ async def test_recording_failure_rolls_back_search_transaction_and_preserves_rea
     assert transaction_runtime.rollback_count == 1
     assert _TransactionalEngineSpy.calls == 1
     assert _TransactionRoundRepository.cleanup_calls == 1
+
+
+class _ScannedFailureIngestionService:
+    error_code = "malformed_source"
+    calls: list[str] = []
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        del args, kwargs
+
+    async def ingest_document(self, source_path: Path, doc_meta: dict[str, object], **kwargs: object) -> object:
+        del source_path, kwargs
+        doc_key = str(doc_meta["doc_key"])
+        type(self).calls.append(doc_key)
+        return SimpleNamespace(status="failed", error_code=type(self).error_code)
+
+
+class _ScannedFailureRoundRepository(_TransactionRoundRepository):
+    quality_advance_calls = 0
+    retry_calls = 0
+
+    async def read_progress(self, owner: EvaluationRoundIdentity) -> object:
+        if owner.round_format == "scanned_pdf" and owner.next_document_index < 3:
+            return SimpleNamespace(state="claimed", has_attempt_reservation=False)
+        return await super().read_progress(owner)
+
+    async def prove_compatible_pre_state(self, owner: EvaluationRoundIdentity) -> EvaluationRoundIdentity:
+        return owner
+
+    async def reserve_document(self, owner: EvaluationRoundIdentity, **kwargs: object) -> EvaluationRoundIdentity:
+        del kwargs
+        return owner
+
+    async def inspect_attempt(self, owner: EvaluationRoundIdentity) -> object:
+        del owner
+        return SimpleNamespace(state=ProjectionState.FAILURE)
+
+    async def claim_attempt_job(
+        self,
+        owner: EvaluationRoundIdentity,
+        *,
+        require_null_document: bool,
+    ) -> EvaluationRoundIdentity:
+        assert require_null_document is False
+        return owner
+
+    async def retry_attempt(self, owner: EvaluationRoundIdentity) -> EvaluationRoundIdentity:
+        type(self).retry_calls += 1
+        return owner
+
+    async def advance_exact_failed_quality(
+        self,
+        owner: EvaluationRoundIdentity,
+        *,
+        error_code: str,
+    ) -> EvaluationRoundIdentity:
+        assert owner.round_format == "scanned_pdf"
+        assert error_code == "malformed_source"
+        type(self).quality_advance_calls += 1
+        return _identity(
+            round_id=owner.round_id,
+            run_token=owner.run_token,
+            round_token=owner.round_token,
+            round_format=owner.round_format,
+            next_document_index=owner.next_document_index + 1,
+            state_version=owner.state_version + 1,
+        )
+
+    async def create_round(
+        self,
+        *,
+        run_token: UUID,
+        round_token: UUID,
+        round_format: str,
+        lease_expires_at: datetime,
+        expected_rollout_version: int,
+    ) -> EvaluationRoundIdentity:
+        del lease_expires_at
+        return EvaluationRoundIdentity(
+            round_id=uuid4(),
+            tenant_id=FORMAT_PARITY_TENANT_ID,
+            owner_marker=FORMAT_PARITY_OWNER_MARKER,
+            run_token=run_token,
+            round_token=round_token,
+            round_format=round_format,
+            state_version=1,
+            next_document_index=0 if round_format == "scanned_pdf" else 3,
+            expected_rollout_version=expected_rollout_version,
+        )
+
+
+async def _run_scanned_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    error_code: str,
+) -> tuple[RetrievalParityRunV1, _TransactionTrackingSession]:
+    _TransactionalEngineSpy.calls = 0
+    _TransactionalEngineSpy.mismatch_recording = False
+    _ScannedFailureIngestionService.error_code = error_code
+    _ScannedFailureIngestionService.calls = []
+    _ScannedFailureRoundRepository.cleanup_calls = 0
+    _ScannedFailureRoundRepository.quality_advance_calls = 0
+    _ScannedFailureRoundRepository.retry_calls = 0
+    session = _TransactionTrackingSession()
+    monkeypatch.setattr(retrieval_rounds_module, "PolicyRetrievalEngine", _TransactionalEngineSpy)
+    monkeypatch.setattr(retrieval_rounds_module, "RagEvaluationRoundRepository", _ScannedFailureRoundRepository)
+    monkeypatch.setattr(retrieval_rounds_module, "IngestionService", _ScannedFailureIngestionService)
+    result = await run_retrieval_parity(
+        _dataset(),
+        session=session,  # type: ignore[arg-type]
+        embedder=object(),  # type: ignore[arg-type]
+        owner=_identity(next_document_index=3),
+        generated_at="2026-08-10T00:00:00Z",
+    )
+    return result, session
+
+
+@pytest.mark.asyncio
+async def test_three_scanned_malformed_sources_are_quality_failure_without_retrieval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result, session = await _run_scanned_failure(monkeypatch, error_code="malformed_source")
+
+    assert result.outcome == "completed_quality_fail"
+    assert result.baseline_eligible is True
+    assert [item.round_format for item in result.rounds] == ["markdown", "digital_pdf", "scanned_pdf"]
+    scanned = result.rounds[2]
+    assert scanned.outcome == "completed_quality_fail"
+    assert scanned.cases == ()
+    assert scanned.exactly_three_current_proved is False
+    assert scanned.post_state_proved is True
+    assert scanned.immutable_history_preserved is True
+    assert [item.status for item in scanned.ingestions] == ["failed", "failed", "failed"]
+    assert [item.error_code for item in scanned.ingestions] == ["malformed_source"] * 3
+    assert Counter(_ScannedFailureIngestionService.calls) == Counter({doc_key: 2 for doc_key in FORMAT_PARITY_DOC_KEYS})
+    assert _ScannedFailureRoundRepository.quality_advance_calls == 3
+    assert _TransactionalEngineSpy.calls == 36
+    assert session.active is False
+
+
+@pytest.mark.asyncio
+async def test_other_second_ingestion_error_remains_execution_error_with_stable_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result, session = await _run_scanned_failure(monkeypatch, error_code="embedding_failed")
+
+    assert result.outcome == "execution_error"
+    assert result.baseline_eligible is False
+    assert len(result.rounds) == 3
+    scanned = result.rounds[2]
+    assert scanned.outcome == "execution_error"
+    assert scanned.reason_code == "ingestion_failed:embedding_failed"
+    assert scanned.cases == ()
+    assert scanned.post_state_proved is True
+    assert scanned.immutable_history_preserved is True
+    assert _ScannedFailureRoundRepository.quality_advance_calls == 0
+    assert _ScannedFailureIngestionService.calls == [FORMAT_PARITY_DOC_KEYS[0]] * 2
+    assert _TransactionalEngineSpy.calls == 36
+    assert session.active is False
 
 
 def _provider_argv(**overrides: str) -> list[str]:
