@@ -117,6 +117,12 @@ class FormatParityRuntimeConfigV1(_FrozenModel):
     no_evidence_threshold: float = Field(ge=0.0, le=1.0)
     parser_toolchain: tuple[str, ...] = Field(min_length=1, max_length=16)
     ocr_toolchain: tuple[str, ...] = Field(min_length=1, max_length=16)
+    ocr_temp_directory_mode: Literal["platform_default", "explicit_macos_private_tmp"]
+    parser_duration_ms: float = Field(ge=0.0)
+    retrieval_duration_ms: float = Field(ge=0.0)
+    total_duration_ms: float = Field(ge=0.0)
+    embedding_tokens: int | None = Field(default=None, ge=0)
+    embedding_tokens_status: Literal["provider_reported", "unavailable"]
 
 
 class FixtureIdentityV1(_FrozenModel):
@@ -138,6 +144,19 @@ class ReportPrerequisiteV1(_FrozenModel):
     status: Literal["available", "unavailable", "not_required"]
     reason_code: str = Field(min_length=1, max_length=128)
     version: str | None = Field(default=None, max_length=128)
+
+
+class RuntimeMeasurementsV1(_FrozenModel):
+    policy_count: int = Field(ge=0)
+    fixture_count: int = Field(ge=0)
+    parser_variant_count: int = Field(ge=0)
+    retrieval_round_count: int = Field(ge=0)
+    retrieval_case_count: int = Field(ge=0)
+    parser_duration_ms: float = Field(ge=0.0)
+    retrieval_duration_ms: float = Field(ge=0.0)
+    total_duration_ms: float = Field(ge=0.0)
+    embedding_tokens: int | None = Field(default=None, ge=0)
+    embedding_tokens_status: Literal["provider_reported", "unavailable"]
 
 
 class MetricValuesV1(_FrozenModel):
@@ -236,6 +255,7 @@ class FormatParityReportV1(_FrozenModel):
     ] = "Exact inputs/config/toolchain and attributable observations; live-provider scores may vary between executions."
     inputs: ReportInputsV1
     config: FormatParityRuntimeConfigV1
+    measurements: RuntimeMeasurementsV1
     prerequisites: tuple[ReportPrerequisiteV1, ...]
     targets: FormatParityTargetsV1
     gates: tuple[GateObservationV1, ...] = Field(min_length=8, max_length=8)
@@ -273,6 +293,12 @@ def build_format_parity_report(
 
     inputs = _build_inputs(dataset, runtime_config=runtime_config)
     prerequisites = _merge_prerequisites(parser_run, retrieval_run)
+    measurements = _build_measurements(
+        dataset,
+        parser_run=parser_run,
+        retrieval_run=retrieval_run,
+        runtime_config=runtime_config,
+    )
     terminal = _terminal_input_outcome(parser_run.outcome, retrieval_run.outcome)
     identity_error = _identity_reason(dataset, parser_run=parser_run, retrieval_run=retrieval_run)
     if identity_error is not None:
@@ -286,6 +312,7 @@ def build_format_parity_report(
                 generated_at=str(generated_at),
                 inputs=inputs,
                 config=runtime_config,
+                measurements=measurements,
                 prerequisites=prerequisites,
                 targets=FORMAT_PARITY_TARGETS,
                 gates=_unevaluated_gates(),
@@ -305,6 +332,7 @@ def build_format_parity_report(
                 generated_at=str(generated_at),
                 inputs=inputs,
                 config=runtime_config,
+                measurements=measurements,
                 prerequisites=prerequisites,
                 targets=FORMAT_PARITY_TARGETS,
                 gates=_unevaluated_gates(),
@@ -349,6 +377,7 @@ def build_format_parity_report(
             generated_at=str(generated_at),
             inputs=inputs,
             config=runtime_config,
+            measurements=measurements,
             prerequisites=prerequisites,
             targets=FORMAT_PARITY_TARGETS,
             gates=gates,
@@ -378,7 +407,18 @@ def _build_inputs(
     *,
     runtime_config: FormatParityRuntimeConfigV1,
 ) -> ReportInputsV1:
-    stable_config = runtime_config.model_dump(mode="json", exclude={"run_token"})
+    stable_config = runtime_config.model_dump(
+        mode="json",
+        exclude={
+            "command",
+            "run_token",
+            "parser_duration_ms",
+            "retrieval_duration_ms",
+            "total_duration_ms",
+            "embedding_tokens",
+            "embedding_tokens_status",
+        },
+    )
     configured_identity = _sha256_json(
         {
             "schema_version": "rag_format_parity_baseline_identity.v1",
@@ -401,6 +441,27 @@ def _build_inputs(
 def _sha256_json(value: Any) -> str:
     payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+def _build_measurements(
+    dataset: FormatParityDataset,
+    *,
+    parser_run: ParserParityRunV1,
+    retrieval_run: RetrievalParityRunV1,
+    runtime_config: FormatParityRuntimeConfigV1,
+) -> RuntimeMeasurementsV1:
+    return RuntimeMeasurementsV1(
+        policy_count=len(dataset.policies),
+        fixture_count=len(dataset.fixture_hashes),
+        parser_variant_count=len(parser_run.variant_results),
+        retrieval_round_count=len(retrieval_run.rounds),
+        retrieval_case_count=sum(len(round_result.cases) for round_result in retrieval_run.rounds),
+        parser_duration_ms=runtime_config.parser_duration_ms,
+        retrieval_duration_ms=runtime_config.retrieval_duration_ms,
+        total_duration_ms=runtime_config.total_duration_ms,
+        embedding_tokens=runtime_config.embedding_tokens,
+        embedding_tokens_status=runtime_config.embedding_tokens_status,
+    )
 
 
 def _identity_reason(
@@ -744,7 +805,11 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         f"- RRF: `{validated.config.rrf_config}`",
         f"- Rewrite: `{validated.config.rewrite_config}`",
         f"- Reranker: `{validated.config.reranker_config}`",
+        f"- OCR temp directory mode: `{validated.config.ocr_temp_directory_mode}`",
         f"- Rollout version: `{validated.config.expected_rollout_version}`",
+        f"- Counts: policies={validated.measurements.policy_count}; fixtures={validated.measurements.fixture_count}; parser_variants={validated.measurements.parser_variant_count}; retrieval_rounds={validated.measurements.retrieval_round_count}; retrieval_cases={validated.measurements.retrieval_case_count}",
+        f"- Timings (ms): parser={validated.measurements.parser_duration_ms:.3f}; retrieval={validated.measurements.retrieval_duration_ms:.3f}; total={validated.measurements.total_duration_ms:.3f}",
+        f"- Embedding tokens: `{validated.measurements.embedding_tokens if validated.measurements.embedding_tokens is not None else 'unavailable'}` ({validated.measurements.embedding_tokens_status})",
         "",
         "## Gates",
         "",

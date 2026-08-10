@@ -259,6 +259,12 @@ def _runtime_config(*, execution_kind: str = "full_provider"):
         no_evidence_threshold=0.35,
         parser_toolchain=("moca_parser_registry@21.01",),
         ocr_toolchain=("tesseract@5.5.2:chi_sim+eng",),
+        ocr_temp_directory_mode="explicit_macos_private_tmp",
+        parser_duration_ms=12.5,
+        retrieval_duration_ms=87.5,
+        total_duration_ms=100.0,
+        embedding_tokens=None,
+        embedding_tokens_status="unavailable",
     )
 
 
@@ -373,6 +379,7 @@ def test_markdown_is_projection_of_canonical_json_and_checked_snapshot(dataset) 
         "Provider reproducibility records exact inputs/config/toolchain and attributable observations; it does not promise bit-identical scores across live runs."
         in projected
     )
+    assert "OCR temp directory mode: `explicit_macos_private_tmp`" in projected
     assert (
         "| overall | 0.400000 | 0.600000 | 0.800000 | 0.550000 | 0.800000 | 1.000000 | 0.833333 | 0.800000 |"
         in projected
@@ -381,6 +388,62 @@ def test_markdown_is_projection_of_canonical_json_and_checked_snapshot(dataset) 
     renderer = reporting_source.split("def render_markdown", maxsplit=1)[1]
     assert "_aggregate" not in renderer
     assert "_build_gates" not in renderer
+
+
+def test_ocr_temp_directory_mode_is_safe_exact_runtime_identity(dataset, monkeypatch) -> None:
+    from scripts.eval_rag_format_parity import _ocr_temp_directory_mode
+
+    monkeypatch.setenv("TMPDIR", "/private/tmp")
+    assert _ocr_temp_directory_mode() == "explicit_macos_private_tmp"
+    monkeypatch.setenv("TMPDIR", "/tmp")
+    assert _ocr_temp_directory_mode() == "platform_default"
+
+    explicit = _build_report(dataset)
+    default = _build_report(
+        dataset,
+        runtime_config=_runtime_config().model_copy(update={"ocr_temp_directory_mode": "platform_default"}),
+    )
+    assert explicit.config.ocr_temp_directory_mode == "explicit_macos_private_tmp"
+    assert explicit.inputs.configured_baseline_identity != default.inputs.configured_baseline_identity
+
+
+def test_full_provider_runtime_command_excludes_persistence_paths_and_validates(dataset, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from scripts.eval_rag_format_parity import _runtime_config as build_runtime_config
+    from scripts.eval_rag_format_parity import parse_args
+
+    monkeypatch.setenv("TMPDIR", "/private/tmp")
+    args = parse_args(
+        [
+            "--mode",
+            "full-provider",
+            "--tenant-id",
+            TENANT_ID,
+            "--owner-marker",
+            OWNER_MARKER,
+            "--run-token",
+            RUN_TOKEN,
+            "--expected-rollout-version",
+            "2",
+            "--output-dir",
+            "evaluation/reports/rag_format_parity/v1",
+            "--diagnostic-output",
+            "evaluation/reports/rag_format_parity/v1/diagnostics/run.json",
+        ]
+    )
+    config = build_runtime_config(
+        args=args,
+        dataset=dataset,
+        parser_run=SimpleNamespace(runtime_versions=()),
+        parser_duration_ms=1.0,
+        retrieval_duration_ms=2.0,
+        total_duration_ms=3.0,
+    )
+    assert len(config.command) <= 512
+    assert config.command.startswith("TMPDIR_MODE=explicit_macos_private_tmp ")
+    assert "--output-dir" not in config.command
+    assert "--diagnostic-output" not in config.command
 
 
 def test_strict_loader_and_validated_json_dump_reproduce_markdown_byte_for_byte(dataset, tmp_path) -> None:
@@ -563,9 +626,7 @@ def test_only_completed_real_report_can_atomically_write_canonical_pair(dataset,
     loaded = load_report(tmp_path / "baseline.json")
     assert loaded.outcome is EvaluationOutcome.COMPLETED_QUALITY_FAIL
     assert loaded.baseline_eligible is True
-    assert (tmp_path / "baseline.md").read_text(encoding="utf-8") == render_markdown(
-        loaded.model_dump(mode="json")
-    )
+    assert (tmp_path / "baseline.md").read_text(encoding="utf-8") == render_markdown(loaded.model_dump(mode="json"))
     assert loaded.inputs.generator_identity_hash == _runtime_config().generator_identity_hash
 
     ineligible = _build_report(dataset, runtime_config=_runtime_config(execution_kind="contract_test"))
@@ -597,6 +658,108 @@ def test_projection_failure_leaves_existing_canonical_pair_untouched(dataset, tm
         )
     assert baseline_json.read_bytes() == b"old-json"
     assert baseline_md.read_bytes() == b"old-markdown"
+
+
+def test_post_run_report_build_failure_becomes_safe_diagnostic(dataset, monkeypatch) -> None:
+    from scripts.eval_rag_format_parity import _build_completed_report, parse_args
+
+    args = parse_args(
+        [
+            "--mode",
+            "full-provider",
+            "--tenant-id",
+            TENANT_ID,
+            "--owner-marker",
+            OWNER_MARKER,
+            "--run-token",
+            RUN_TOKEN,
+            "--expected-rollout-version",
+            "2",
+            "--output-dir",
+            "evaluation/reports/rag_format_parity/v1",
+            "--diagnostic-output",
+            "evaluation/reports/rag_format_parity/v1/diagnostics/run.json",
+        ]
+    )
+    monkeypatch.setattr(
+        "scripts.eval_rag_format_parity.build_format_parity_report",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("postgresql://secret/path")),
+    )
+    result = _build_completed_report(
+        args=args,
+        dataset=dataset,
+        parser_run=_parser_run(dataset),
+        retrieval_run=_retrieval_run(dataset),
+        parser_duration_ms=1.0,
+        retrieval_duration_ms=2.0,
+        total_duration_ms=3.0,
+    )
+    payload = result.model_dump(mode="json")
+    assert payload["reason_codes"] == ["report_build_failed"]
+    assert "secret" not in json.dumps(payload, sort_keys=True)
+
+
+def test_post_run_report_config_failure_becomes_safe_diagnostic(dataset, monkeypatch) -> None:
+    from scripts.eval_rag_format_parity import _build_completed_report, parse_args
+
+    args = parse_args(
+        [
+            "--mode",
+            "full-provider",
+            "--tenant-id",
+            TENANT_ID,
+            "--owner-marker",
+            OWNER_MARKER,
+            "--run-token",
+            RUN_TOKEN,
+            "--expected-rollout-version",
+            "2",
+            "--output-dir",
+            "evaluation/reports/rag_format_parity/v1",
+            "--diagnostic-output",
+            "evaluation/reports/rag_format_parity/v1/diagnostics/run.json",
+        ]
+    )
+    monkeypatch.setattr(
+        "scripts.eval_rag_format_parity._runtime_config",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("postgresql://secret/path")),
+    )
+    result = _build_completed_report(
+        args=args,
+        dataset=dataset,
+        parser_run=_parser_run(dataset),
+        retrieval_run=_retrieval_run(dataset),
+        parser_duration_ms=1.0,
+        retrieval_duration_ms=2.0,
+        total_duration_ms=3.0,
+    )
+    payload = result.model_dump(mode="json")
+    assert payload["reason_codes"] == ["report_config_failed"]
+    assert "secret" not in json.dumps(payload, sort_keys=True)
+
+
+def test_post_run_persist_failure_writes_safe_diagnostic(dataset, tmp_path, monkeypatch) -> None:
+    from scripts.eval_rag_format_parity import _persist_completed_outcome
+
+    calls = []
+
+    def fail_report_only(*, result, output_dir, diagnostic_output):
+        calls.append(result)
+        if result.schema_version == "rag_format_parity_report.v1":
+            raise OSError("postgresql://secret/path")
+        diagnostic_output.parent.mkdir(parents=True, exist_ok=True)
+        diagnostic_output.write_text(result.model_dump_json(), encoding="utf-8")
+        return (diagnostic_output,)
+
+    monkeypatch.setattr("scripts.eval_rag_format_parity.persist_full_provider_result", fail_report_only)
+    recovered = _persist_completed_outcome(
+        result=_build_report(dataset),
+        output_dir=tmp_path,
+        diagnostic_output=tmp_path / "diagnostics" / "run.json",
+    )
+    assert recovered.reason_codes == ("report_persist_failed",)
+    assert len(calls) == 2
+    assert "secret" not in (tmp_path / "diagnostics" / "run.json").read_text(encoding="utf-8")
 
 
 def test_legacy_twenty_two_case_gold_hash_is_unchanged() -> None:

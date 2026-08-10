@@ -1,0 +1,2379 @@
+{
+  "baseline_eligible": true,
+  "case_rows": [
+    {
+      "case_id": "cross-case-digital-table",
+      "category": "tables",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-fee-and-digital-state",
+      "category": "cross_section",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 3,
+      "semantic_anchor_total": 4,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-logistics-exception",
+      "category": "exceptions",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": true,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": null,
+      "reason_codes": [],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 1,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-no-answer-country-tax-rate",
+      "category": "no_answer",
+      "fallback_correct": false,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": true,
+      "parser_status": "not_applicable",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 0,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-order-types",
+      "category": "facts",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 1,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-response-and-approval",
+      "category": "amounts_time_limits",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": true,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": null,
+      "reason_codes": [],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 2,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-digital-table",
+      "category": "tables",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-fee-and-digital-state",
+      "category": "cross_section",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 4,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-logistics-exception",
+      "category": "exceptions",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-no-answer-country-tax-rate",
+      "category": "no_answer",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": false,
+      "hit_at_3": false,
+      "hit_at_5": false,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": true,
+      "no_answer_expected": true,
+      "parser_status": "not_applicable",
+      "passed": true,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": null,
+      "reason_codes": [],
+      "reciprocal_rank": 0.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 0,
+      "service_status": "no_evidence"
+    },
+    {
+      "case_id": "cross-case-order-types",
+      "category": "facts",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-response-and-approval",
+      "category": "amounts_time_limits",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-digital-table",
+      "category": "tables",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-fee-and-digital-state",
+      "category": "cross_section",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 4,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-logistics-exception",
+      "category": "exceptions",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-no-answer-country-tax-rate",
+      "category": "no_answer",
+      "fallback_correct": false,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": true,
+      "parser_status": "not_applicable",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 0,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-order-types",
+      "category": "facts",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "cross-case-response-and-approval",
+      "category": "amounts_time_limits",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-custom-exception",
+      "category": "exceptions",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": true,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": null,
+      "reason_codes": [],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 1,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-evidence-and-approval",
+      "category": "cross_section",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": true,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": null,
+      "reason_codes": [],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 3,
+      "semantic_anchor_total": 3,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-levels",
+      "category": "facts",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 1,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-no-answer-warranty-phone",
+      "category": "no_answer",
+      "fallback_correct": false,
+      "format": "markdown",
+      "hit_at_1": false,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": true,
+      "parser_status": "not_applicable",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ],
+      "reciprocal_rank": 0.3333333333333333,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 0,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-remedy-table",
+      "category": "tables",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-time-and-percentage",
+      "category": "amounts_time_limits",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": true,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": null,
+      "reason_codes": [],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 2,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-custom-exception",
+      "category": "exceptions",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-evidence-and-approval",
+      "category": "cross_section",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 3,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-levels",
+      "category": "facts",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-no-answer-warranty-phone",
+      "category": "no_answer",
+      "fallback_correct": false,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": true,
+      "parser_status": "not_applicable",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 0,
+      "service_status": "partial_evidence"
+    },
+    {
+      "case_id": "quality-case-remedy-table",
+      "category": "tables",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-time-and-percentage",
+      "category": "amounts_time_limits",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-custom-exception",
+      "category": "exceptions",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-evidence-and-approval",
+      "category": "cross_section",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 3,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-levels",
+      "category": "facts",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-no-answer-warranty-phone",
+      "category": "no_answer",
+      "fallback_correct": false,
+      "format": "scanned_pdf",
+      "hit_at_1": false,
+      "hit_at_3": false,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": true,
+      "parser_status": "not_applicable",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ],
+      "reciprocal_rank": 0.25,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 0,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-remedy-table",
+      "category": "tables",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "quality-case-time-and-percentage",
+      "category": "amounts_time_limits",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": false,
+      "hit_at_3": false,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 0.25,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-decision-priority",
+      "category": "facts",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": true,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": null,
+      "reason_codes": [],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 1,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-missing-accessory-table",
+      "category": "tables",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": false,
+      "hit_at_3": false,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 0.25,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-no-answer-installation",
+      "category": "no_answer",
+      "fallback_correct": false,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": true,
+      "parser_status": "not_applicable",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 0,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-seven-day-exception",
+      "category": "exceptions",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": true,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": null,
+      "reason_codes": [],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 1,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-shipped-auto-review",
+      "category": "cross_section",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 1,
+      "semantic_anchor_total": 3,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-time-limits",
+      "category": "amounts_time_limits",
+      "fallback_correct": true,
+      "format": "markdown",
+      "hit_at_1": false,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": true,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 0.5,
+      "semantic_anchor_hits": 1,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-decision-priority",
+      "category": "facts",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-missing-accessory-table",
+      "category": "tables",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": false,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 0.5,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-no-answer-installation",
+      "category": "no_answer",
+      "fallback_correct": false,
+      "format": "digital_pdf",
+      "hit_at_1": false,
+      "hit_at_3": false,
+      "hit_at_5": false,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": true,
+      "parser_status": "not_applicable",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ],
+      "reciprocal_rank": 0.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 0,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-seven-day-exception",
+      "category": "exceptions",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": false,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 0.5,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-shipped-auto-review",
+      "category": "cross_section",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 3,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-time-limits",
+      "category": "amounts_time_limits",
+      "fallback_correct": true,
+      "format": "digital_pdf",
+      "hit_at_1": false,
+      "hit_at_3": false,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": true,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 0.25,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-decision-priority",
+      "category": "facts",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-missing-accessory-table",
+      "category": "tables",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": false,
+      "hit_at_3": false,
+      "hit_at_5": false,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 0.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-no-answer-installation",
+      "category": "no_answer",
+      "fallback_correct": false,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": true,
+      "parser_status": "not_applicable",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 0,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-seven-day-exception",
+      "category": "exceptions",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "failed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 1,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-shipped-auto-review",
+      "category": "cross_section",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": false,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 3,
+      "service_status": "strong_evidence"
+    },
+    {
+      "case_id": "refund-case-time-limits",
+      "category": "amounts_time_limits",
+      "fallback_correct": true,
+      "format": "scanned_pdf",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "hit_at_5": true,
+      "locator_covered": true,
+      "locator_expected": true,
+      "no_answer_correct": false,
+      "no_answer_expected": false,
+      "parser_status": "passed",
+      "passed": false,
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ],
+      "reciprocal_rank": 1.0,
+      "semantic_anchor_hits": 0,
+      "semantic_anchor_total": 2,
+      "service_status": "strong_evidence"
+    }
+  ],
+  "config": {
+    "command": "TMPDIR_MODE=explicit_macos_private_tmp scripts/eval_rag_format_parity.py --mode full-provider --manifest evaluation/rag_sources/format_parity_manifest.jsonl --gold evaluation/golden/rag_format_parity_gold.json --tenant-id 64300000-0000-4000-8000-000000000001 --owner-marker moca.rag_format_parity.v1 --run-token 64f30400-0000-4000-8000-000000000006 --expected-rollout-version 1",
+    "embedding_dimensions": 1024,
+    "embedding_model": "text-embedding-v4",
+    "embedding_provider": "dashscope",
+    "embedding_tokens": null,
+    "embedding_tokens_status": "unavailable",
+    "execution_kind": "full_provider",
+    "expected_rollout_version": 1,
+    "generator_identity_hash": "0a9f3cead84eeae36244f386a71a770337cd70fe64e7a17603a3e7d4b7ae0f24",
+    "no_evidence_threshold": 0.55,
+    "ocr_temp_directory_mode": "explicit_macos_private_tmp",
+    "ocr_toolchain": [
+      "tesseract@5.5.2:unknown"
+    ],
+    "owner_marker": "moca.rag_format_parity.v1",
+    "parser_duration_ms": 47084.786,
+    "parser_toolchain": [
+      "moca_markdown@21.01",
+      "moca_pdf@21.03"
+    ],
+    "reranker_config": "rerank.v2:enabled",
+    "retrieval_config_version": "retrieval.v3",
+    "retrieval_duration_ms": 79779.512,
+    "rewrite_config": "query_rewrite.v1:enabled",
+    "rrf_config": "rrf_k=60;dense=25;sparse=50;fuzzy=20",
+    "run_token": "64f30400-0000-4000-8000-000000000006",
+    "schema_version": "rag_format_parity_runtime.v1",
+    "tenant_id": "64300000-0000-4000-8000-000000000001",
+    "total_duration_ms": 127056.46
+  },
+  "failures": [
+    {
+      "case_id": "cross-case-digital-table",
+      "format": "markdown",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-fee-and-digital-state",
+      "format": "markdown",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-no-answer-country-tax-rate",
+      "format": "markdown",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ]
+    },
+    {
+      "case_id": "cross-case-order-types",
+      "format": "markdown",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-digital-table",
+      "format": "digital_pdf",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-fee-and-digital-state",
+      "format": "digital_pdf",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-logistics-exception",
+      "format": "digital_pdf",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-order-types",
+      "format": "digital_pdf",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-response-and-approval",
+      "format": "digital_pdf",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-digital-table",
+      "format": "scanned_pdf",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-fee-and-digital-state",
+      "format": "scanned_pdf",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-logistics-exception",
+      "format": "scanned_pdf",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-no-answer-country-tax-rate",
+      "format": "scanned_pdf",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ]
+    },
+    {
+      "case_id": "cross-case-order-types",
+      "format": "scanned_pdf",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "cross-case-response-and-approval",
+      "format": "scanned_pdf",
+      "policy_id": "eval_cross_border_and_digital_goods",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-levels",
+      "format": "markdown",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-no-answer-warranty-phone",
+      "format": "markdown",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ]
+    },
+    {
+      "case_id": "quality-case-remedy-table",
+      "format": "markdown",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-custom-exception",
+      "format": "digital_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-evidence-and-approval",
+      "format": "digital_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-levels",
+      "format": "digital_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-no-answer-warranty-phone",
+      "format": "digital_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ]
+    },
+    {
+      "case_id": "quality-case-remedy-table",
+      "format": "digital_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-time-and-percentage",
+      "format": "digital_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-custom-exception",
+      "format": "scanned_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-evidence-and-approval",
+      "format": "scanned_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-levels",
+      "format": "scanned_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-no-answer-warranty-phone",
+      "format": "scanned_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ]
+    },
+    {
+      "case_id": "quality-case-remedy-table",
+      "format": "scanned_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "quality-case-time-and-percentage",
+      "format": "scanned_pdf",
+      "policy_id": "eval_quality_compensation_and_approval",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-missing-accessory-table",
+      "format": "markdown",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-no-answer-installation",
+      "format": "markdown",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ]
+    },
+    {
+      "case_id": "refund-case-shipped-auto-review",
+      "format": "markdown",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-time-limits",
+      "format": "markdown",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-decision-priority",
+      "format": "digital_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-missing-accessory-table",
+      "format": "digital_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-no-answer-installation",
+      "format": "digital_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ]
+    },
+    {
+      "case_id": "refund-case-seven-day-exception",
+      "format": "digital_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-shipped-auto-review",
+      "format": "digital_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-time-limits",
+      "format": "digital_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "parser",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-decision-priority",
+      "format": "scanned_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-missing-accessory-table",
+      "format": "scanned_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-no-answer-installation",
+      "format": "scanned_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "retrieval",
+      "reason_codes": [
+        "no_answer_fallback_incorrect"
+      ]
+    },
+    {
+      "case_id": "refund-case-seven-day-exception",
+      "format": "scanned_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "ocr",
+      "reason_codes": [
+        "semantic_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-shipped-auto-review",
+      "format": "scanned_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    },
+    {
+      "case_id": "refund-case-time-limits",
+      "format": "scanned_pdf",
+      "policy_id": "eval_refund_eligibility_and_return",
+      "primary_stage": "chunking",
+      "reason_codes": [
+        "retrieved_evidence_anchor_missing"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "metric": "parse_success_rate",
+      "observed": 0.666667,
+      "operator": ">=",
+      "passed": false,
+      "target": 1.0
+    },
+    {
+      "metric": "markdown_anchor_coverage",
+      "observed": 1.0,
+      "operator": ">=",
+      "passed": true,
+      "target": 1.0
+    },
+    {
+      "metric": "digital_pdf_anchor_coverage",
+      "observed": 0.314286,
+      "operator": ">=",
+      "passed": false,
+      "target": 1.0
+    },
+    {
+      "metric": "scanned_pdf_anchor_coverage",
+      "observed": 0.742857,
+      "operator": ">=",
+      "passed": false,
+      "target": 0.95
+    },
+    {
+      "metric": "critical_table_preservation",
+      "observed": 0.333333,
+      "operator": ">=",
+      "passed": false,
+      "target": 1.0
+    },
+    {
+      "metric": "pdf_locator_coverage",
+      "observed": 0.528571,
+      "operator": ">=",
+      "passed": false,
+      "target": 1.0
+    },
+    {
+      "metric": "retrieval_hit_at_5",
+      "observed": 0.977778,
+      "operator": ">=",
+      "passed": true,
+      "target": 0.9
+    },
+    {
+      "metric": "cross_format_hit_at_5_spread",
+      "observed": 0.066667,
+      "operator": "<=",
+      "passed": true,
+      "target": 0.1
+    }
+  ],
+  "generated_at": "2026-08-10T13:39:04.921186Z",
+  "inputs": {
+    "configured_baseline_identity": "f2e73bb9dcb339e58d3eb69d696406623b25b526ba66b164cda74666b23a011f",
+    "dataset_baseline_identity": "3b1ddd8c19f8fce0a37ad113f3d1161039c200e39e60ce0f2e4d0917d870e110",
+    "fixture_hashes": [
+      {
+        "path": "evaluation/rag_sources/fixtures/cross_border_and_digital_goods/cross_border_and_digital_goods.digital.pdf",
+        "sha256": "26a91d44ad99422f1a3b29048ea9ad7307a5d35ed706dbdfd800eaee40264f0c"
+      },
+      {
+        "path": "evaluation/rag_sources/fixtures/cross_border_and_digital_goods/cross_border_and_digital_goods.md",
+        "sha256": "8641827819922c734f3baebc913b009c70e41fe37ca551380e24cebcf19e5cb9"
+      },
+      {
+        "path": "evaluation/rag_sources/fixtures/cross_border_and_digital_goods/cross_border_and_digital_goods.scanned.pdf",
+        "sha256": "8336bcff786dc82280e0bce62bff78b53348a33b59f3df6bf81796f4f8676056"
+      },
+      {
+        "path": "evaluation/rag_sources/fixtures/quality_compensation_and_approval/quality_compensation_and_approval.digital.pdf",
+        "sha256": "9cc249c4d727b5ed426c0723646aba4f50f2d0695ae40514d5da3683bf34bb64"
+      },
+      {
+        "path": "evaluation/rag_sources/fixtures/quality_compensation_and_approval/quality_compensation_and_approval.md",
+        "sha256": "f7c115028dcd20da2c7e0b0033612b4bf5857c006408131b3a1bf63f5eb96cea"
+      },
+      {
+        "path": "evaluation/rag_sources/fixtures/quality_compensation_and_approval/quality_compensation_and_approval.scanned.pdf",
+        "sha256": "c0642555ad00ad6c16698a1846ef2f1265dcbfb594d8cd90118d8939a704fade"
+      },
+      {
+        "path": "evaluation/rag_sources/fixtures/refund_eligibility_and_return/refund_eligibility_and_return.digital.pdf",
+        "sha256": "366417dc4d90c626a99d8b9be69787d1bb224c2c0f35c0a8e7f77a9484b8ed47"
+      },
+      {
+        "path": "evaluation/rag_sources/fixtures/refund_eligibility_and_return/refund_eligibility_and_return.md",
+        "sha256": "81654bb2e4adbc7b95b41823c90d77754785c4243d60fed2b382ec7fae9ce8c7"
+      },
+      {
+        "path": "evaluation/rag_sources/fixtures/refund_eligibility_and_return/refund_eligibility_and_return.scanned.pdf",
+        "sha256": "2c1b935999c876a45963f55c5f7e64db27617092e68851c5caeabe31d42b442b"
+      }
+    ],
+    "generator_identity_hash": "0a9f3cead84eeae36244f386a71a770337cd70fe64e7a17603a3e7d4b7ae0f24",
+    "gold_hash": "c6dc12536270fa9b9532ec4595e0a91d2b4ebddf83754a0f1ec107caabb64b8e",
+    "manifest_hash": "e5544b20ecdf05c2eaf3325b4e5f89a4ef752c0b8c0d23b8bac224f006fdd53b"
+  },
+  "measurements": {
+    "embedding_tokens": null,
+    "embedding_tokens_status": "unavailable",
+    "fixture_count": 9,
+    "parser_duration_ms": 47084.786,
+    "parser_variant_count": 9,
+    "policy_count": 3,
+    "retrieval_case_count": 54,
+    "retrieval_duration_ms": 79779.512,
+    "retrieval_round_count": 3,
+    "total_duration_ms": 127056.46
+  },
+  "metrics": {
+    "by_case": [
+      {
+        "case_id": "cross-case-digital-table",
+        "category": "tables",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.0
+        },
+        "policy_id": "eval_cross_border_and_digital_goods"
+      },
+      {
+        "case_id": "cross-case-fee-and-digital-state",
+        "category": "cross_section",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.25
+        },
+        "policy_id": "eval_cross_border_and_digital_goods"
+      },
+      {
+        "case_id": "cross-case-logistics-exception",
+        "category": "exceptions",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.333333
+        },
+        "policy_id": "eval_cross_border_and_digital_goods"
+      },
+      {
+        "case_id": "cross-case-no-answer-country-tax-rate",
+        "category": "no_answer",
+        "metrics": {
+          "answerable_count": 0,
+          "case_count": 3,
+          "fallback_correctness": 0.333333,
+          "hit_at_1": 0.0,
+          "hit_at_3": 0.0,
+          "hit_at_5": 0.0,
+          "locator_coverage": 0.0,
+          "mrr": 0.0,
+          "no_answer_correctness": 0.333333,
+          "no_answer_count": 3,
+          "semantic_anchor_coverage": 0.0
+        },
+        "policy_id": "eval_cross_border_and_digital_goods"
+      },
+      {
+        "case_id": "cross-case-order-types",
+        "category": "facts",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.166667
+        },
+        "policy_id": "eval_cross_border_and_digital_goods"
+      },
+      {
+        "case_id": "cross-case-response-and-approval",
+        "category": "amounts_time_limits",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.333333
+        },
+        "policy_id": "eval_cross_border_and_digital_goods"
+      },
+      {
+        "case_id": "quality-case-custom-exception",
+        "category": "exceptions",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.333333
+        },
+        "policy_id": "eval_quality_compensation_and_approval"
+      },
+      {
+        "case_id": "quality-case-evidence-and-approval",
+        "category": "cross_section",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.333333
+        },
+        "policy_id": "eval_quality_compensation_and_approval"
+      },
+      {
+        "case_id": "quality-case-levels",
+        "category": "facts",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.166667
+        },
+        "policy_id": "eval_quality_compensation_and_approval"
+      },
+      {
+        "case_id": "quality-case-no-answer-warranty-phone",
+        "category": "no_answer",
+        "metrics": {
+          "answerable_count": 0,
+          "case_count": 3,
+          "fallback_correctness": 0.0,
+          "hit_at_1": 0.0,
+          "hit_at_3": 0.0,
+          "hit_at_5": 0.0,
+          "locator_coverage": 0.0,
+          "mrr": 0.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 3,
+          "semantic_anchor_coverage": 0.0
+        },
+        "policy_id": "eval_quality_compensation_and_approval"
+      },
+      {
+        "case_id": "quality-case-remedy-table",
+        "category": "tables",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.0
+        },
+        "policy_id": "eval_quality_compensation_and_approval"
+      },
+      {
+        "case_id": "quality-case-time-and-percentage",
+        "category": "amounts_time_limits",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 0.666667,
+          "hit_at_3": 0.666667,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 0.75,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.333333
+        },
+        "policy_id": "eval_quality_compensation_and_approval"
+      },
+      {
+        "case_id": "refund-case-decision-priority",
+        "category": "facts",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.333333
+        },
+        "policy_id": "eval_refund_eligibility_and_return"
+      },
+      {
+        "case_id": "refund-case-missing-accessory-table",
+        "category": "tables",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 0.0,
+          "hit_at_3": 0.333333,
+          "hit_at_5": 0.666667,
+          "locator_coverage": 0.0,
+          "mrr": 0.25,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.0
+        },
+        "policy_id": "eval_refund_eligibility_and_return"
+      },
+      {
+        "case_id": "refund-case-no-answer-installation",
+        "category": "no_answer",
+        "metrics": {
+          "answerable_count": 0,
+          "case_count": 3,
+          "fallback_correctness": 0.0,
+          "hit_at_1": 0.0,
+          "hit_at_3": 0.0,
+          "hit_at_5": 0.0,
+          "locator_coverage": 0.0,
+          "mrr": 0.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 3,
+          "semantic_anchor_coverage": 0.0
+        },
+        "policy_id": "eval_refund_eligibility_and_return"
+      },
+      {
+        "case_id": "refund-case-seven-day-exception",
+        "category": "exceptions",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 0.666667,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 0.833333,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.333333
+        },
+        "policy_id": "eval_refund_eligibility_and_return"
+      },
+      {
+        "case_id": "refund-case-shipped-auto-review",
+        "category": "cross_section",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.111111
+        },
+        "policy_id": "eval_refund_eligibility_and_return"
+      },
+      {
+        "case_id": "refund-case-time-limits",
+        "category": "amounts_time_limits",
+        "metrics": {
+          "answerable_count": 3,
+          "case_count": 3,
+          "fallback_correctness": 1.0,
+          "hit_at_1": 0.333333,
+          "hit_at_3": 0.666667,
+          "hit_at_5": 1.0,
+          "locator_coverage": 1.0,
+          "mrr": 0.583333,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 0,
+          "semantic_anchor_coverage": 0.166667
+        },
+        "policy_id": "eval_refund_eligibility_and_return"
+      }
+    ],
+    "by_format": [
+      {
+        "format": "markdown",
+        "metrics": {
+          "answerable_count": 15,
+          "case_count": 18,
+          "fallback_correctness": 0.833333,
+          "hit_at_1": 0.866667,
+          "hit_at_3": 0.933333,
+          "hit_at_5": 1.0,
+          "locator_coverage": 1.0,
+          "mrr": 0.916667,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 3,
+          "semantic_anchor_coverage": 0.6
+        }
+      },
+      {
+        "format": "digital_pdf",
+        "metrics": {
+          "answerable_count": 15,
+          "case_count": 18,
+          "fallback_correctness": 0.888889,
+          "hit_at_1": 0.8,
+          "hit_at_3": 0.933333,
+          "hit_at_5": 1.0,
+          "locator_coverage": 1.0,
+          "mrr": 0.883333,
+          "no_answer_correctness": 0.333333,
+          "no_answer_count": 3,
+          "semantic_anchor_coverage": 0.0
+        }
+      },
+      {
+        "format": "scanned_pdf",
+        "metrics": {
+          "answerable_count": 15,
+          "case_count": 18,
+          "fallback_correctness": 0.833333,
+          "hit_at_1": 0.866667,
+          "hit_at_3": 0.866667,
+          "hit_at_5": 0.933333,
+          "locator_coverage": 1.0,
+          "mrr": 0.883333,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 3,
+          "semantic_anchor_coverage": 0.0
+        }
+      }
+    ],
+    "by_policy": [
+      {
+        "metrics": {
+          "answerable_count": 15,
+          "case_count": 18,
+          "fallback_correctness": 0.888889,
+          "hit_at_1": 1.0,
+          "hit_at_3": 1.0,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 1.0,
+          "no_answer_correctness": 0.333333,
+          "no_answer_count": 3,
+          "semantic_anchor_coverage": 0.212121
+        },
+        "policy_id": "eval_cross_border_and_digital_goods"
+      },
+      {
+        "metrics": {
+          "answerable_count": 15,
+          "case_count": 18,
+          "fallback_correctness": 0.833333,
+          "hit_at_1": 0.933333,
+          "hit_at_3": 0.933333,
+          "hit_at_5": 1.0,
+          "locator_coverage": 0.0,
+          "mrr": 0.95,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 3,
+          "semantic_anchor_coverage": 0.233333
+        },
+        "policy_id": "eval_quality_compensation_and_approval"
+      },
+      {
+        "metrics": {
+          "answerable_count": 15,
+          "case_count": 18,
+          "fallback_correctness": 0.833333,
+          "hit_at_1": 0.6,
+          "hit_at_3": 0.8,
+          "hit_at_5": 0.933333,
+          "locator_coverage": 1.0,
+          "mrr": 0.733333,
+          "no_answer_correctness": 0.0,
+          "no_answer_count": 3,
+          "semantic_anchor_coverage": 0.148148
+        },
+        "policy_id": "eval_refund_eligibility_and_return"
+      }
+    ],
+    "cross_format_hit_at_5_spread": 0.066667,
+    "overall": {
+      "answerable_count": 45,
+      "case_count": 54,
+      "fallback_correctness": 0.851852,
+      "hit_at_1": 0.844444,
+      "hit_at_3": 0.911111,
+      "hit_at_5": 0.977778,
+      "locator_coverage": 1.0,
+      "mrr": 0.894444,
+      "no_answer_correctness": 0.111111,
+      "no_answer_count": 9,
+      "semantic_anchor_coverage": 0.2
+    }
+  },
+  "outcome": "completed_quality_fail",
+  "prerequisites": [
+    {
+      "name": "embedding_provider",
+      "reason_code": "prerequisite_available",
+      "status": "available",
+      "version": null
+    },
+    {
+      "name": "ocr_runtime",
+      "reason_code": "ocr_runtime_available",
+      "status": "available",
+      "version": "5.5.2"
+    },
+    {
+      "name": "persistence",
+      "reason_code": "parser_direct_has_no_persistence_dependency",
+      "status": "not_required",
+      "version": null
+    },
+    {
+      "name": "postgresql_pgvector",
+      "reason_code": "prerequisite_available",
+      "status": "available",
+      "version": null
+    },
+    {
+      "name": "retrieval_runtime",
+      "reason_code": "parser_direct_has_no_retrieval_dependency",
+      "status": "not_required",
+      "version": null
+    },
+    {
+      "name": "tesseract_chi_sim_eng",
+      "reason_code": "prerequisite_available",
+      "status": "available",
+      "version": null
+    }
+  ],
+  "reproducibility": "Exact inputs/config/toolchain and attributable observations; live-provider scores may vary between executions.",
+  "safe_reason_codes": [],
+  "schema_version": "rag_format_parity_report.v1",
+  "targets": {
+    "gates": [
+      {
+        "metric": "parse_success_rate",
+        "operator": ">=",
+        "target": 1.0
+      },
+      {
+        "metric": "markdown_anchor_coverage",
+        "operator": ">=",
+        "target": 1.0
+      },
+      {
+        "metric": "digital_pdf_anchor_coverage",
+        "operator": ">=",
+        "target": 1.0
+      },
+      {
+        "metric": "scanned_pdf_anchor_coverage",
+        "operator": ">=",
+        "target": 0.95
+      },
+      {
+        "metric": "critical_table_preservation",
+        "operator": ">=",
+        "target": 1.0
+      },
+      {
+        "metric": "pdf_locator_coverage",
+        "operator": ">=",
+        "target": 1.0
+      },
+      {
+        "metric": "retrieval_hit_at_5",
+        "operator": ">=",
+        "target": 0.9
+      },
+      {
+        "metric": "cross_format_hit_at_5_spread",
+        "operator": "<=",
+        "target": 0.1
+      }
+    ],
+    "profile": "rag_format_parity_targets.v1",
+    "rationale": "Initial targets accepted in docs/quality/rag-quality-plan.md section 5.",
+    "schema_version": "rag_format_parity_targets.v1"
+  }
+}

@@ -5,23 +5,49 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import UTC, datetime, timedelta
+import hashlib
 import json
+import os
 from pathlib import Path
 import sys
+import tempfile
+import time
+from typing import Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.db.models import EvidenceIdentityRollout, RagEvaluationRound, Tenant
 from src.db.session import SessionLocal
+from src.knowledge.config import (
+    MIN_SIMILARITY_THRESHOLD,
+    QUERY_REWRITE_CONFIG_VERSION,
+    RERANK_CONFIG_VERSION,
+    RETRIEVAL_CONFIG_VERSION,
+)
+from src.knowledge.retrieval import (
+    FUZZY_CANDIDATE_TOP_K,
+    ORIGINAL_QUERY_TOP_K,
+    RRF_K,
+    SPARSE_CANDIDATE_TOP_K,
+)
 from src.rag.embedder import EmbeddingService
 from src.rag.evaluation.contracts import (
     EvaluationOutcome,
     FormatParityContractError,
     FormatParityDataset,
     load_format_parity_contract,
+)
+from src.rag.evaluation.parser_parity import evaluate_parser_parity
+from src.rag.evaluation.reporting import (
+    FormatParityReportV1,
+    FormatParityRuntimeConfigV1,
+    build_format_parity_report,
+    load_format_parity_report,
+    render_markdown,
 )
 from src.rag.evaluation.retrieval_rounds import (
     PrerequisiteStatusV1,
@@ -42,20 +68,78 @@ EVALUATION_TENANT_NAME = "MOCA RAG Format Parity Evaluation"
 EVALUATION_TENANT_STATUS = "evaluation_only"
 DEFAULT_MANIFEST = "evaluation/rag_sources/format_parity_manifest.jsonl"
 DEFAULT_GOLD = "evaluation/golden/rag_format_parity_gold.json"
+CANONICAL_JSON_NAME = "baseline.json"
+CANONICAL_MARKDOWN_NAME = "baseline.md"
+
+
+class DiagnosticInputIdentityV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    manifest_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    gold_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    fixture_hashes: tuple[str, ...]
+    dataset_baseline_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    generator_identity_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class FormatParityDiagnosticV1(BaseModel):
+    """Baseline-ineligible unavailable/error output with no quality surface."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["rag_format_parity_diagnostic.v1"] = "rag_format_parity_diagnostic.v1"
+    outcome: Literal["unavailable_prerequisite", "execution_error"]
+    baseline_eligible: Literal[False] = False
+    execution_kind: Literal["full_provider"] = "full_provider"
+    generated_at: str
+    command: Literal["scripts/eval_rag_format_parity.py --mode full-provider"] = (
+        "scripts/eval_rag_format_parity.py --mode full-provider"
+    )
+    run_token: str = Field(min_length=1, max_length=64)
+    inputs: DiagnosticInputIdentityV1
+    prerequisites: tuple[str, ...]
+    reason_codes: tuple[str, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_safe_diagnostic(self) -> FormatParityDiagnosticV1:
+        allowed_prerequisites = {
+            "canonical_rollout",
+            "database_runtime",
+            "database_schema",
+            "embedding_provider",
+            "evaluation_contract",
+            "evaluation_tenant",
+            "ocr_traineddata",
+            "provider_runtime",
+        }
+        if any(item not in allowed_prerequisites for item in self.prerequisites):
+            raise ValueError("unsafe_diagnostic_prerequisite")
+        if any(not _safe_reason_code(item) == item for item in self.reason_codes):
+            raise ValueError("unsafe_diagnostic_reason")
+        return self
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run isolated provider-backed RAG format parity")
-    parser.add_argument("--mode", choices=("provider",), required=True)
+    parser.add_argument("--mode", choices=("provider", "full-provider"), required=True)
     parser.add_argument("--manifest", default=DEFAULT_MANIFEST)
     parser.add_argument("--gold", default=DEFAULT_GOLD)
     parser.add_argument("--tenant-id", required=True)
     parser.add_argument("--owner-marker", required=True)
     parser.add_argument("--run-token", required=True)
     parser.add_argument("--expected-rollout-version", type=int, required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--generated-at", required=True)
-    return parser.parse_args(argv)
+    parser.add_argument("--output")
+    parser.add_argument("--output-dir")
+    parser.add_argument("--diagnostic-output")
+    parser.add_argument("--generated-at", default=None)
+    args = parser.parse_args(argv)
+    if args.generated_at is None:
+        args.generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    if args.mode == "provider" and not args.output:
+        parser.error("--output is required for provider mode")
+    if args.mode == "full-provider" and (not args.output_dir or not args.diagnostic_output):
+        parser.error("--output-dir and --diagnostic-output are required for full-provider mode")
+    return args
 
 
 def validate_provider_arguments(args: argparse.Namespace) -> UUID:
@@ -66,7 +150,7 @@ def validate_provider_arguments(args: argparse.Namespace) -> UUID:
     except (TypeError, ValueError):
         raise EvaluationIsolationError("provider_arguments_invalid") from None
     if (
-        args.mode != "provider"
+        args.mode not in {"provider", "full-provider"}
         or tenant_id != FORMAT_PARITY_TENANT_ID
         or args.owner_marker != FORMAT_PARITY_OWNER_MARKER
         or run_token.int == 0
@@ -100,6 +184,54 @@ def build_unavailable_result(
             PrerequisiteStatusV1(name=name, available=False, reason_code="prerequisite_unavailable") for name in names
         ),
     )
+
+
+def build_diagnostic(
+    *,
+    dataset: FormatParityDataset,
+    outcome: EvaluationOutcome,
+    generated_at: str,
+    run_token: str | UUID,
+    prerequisites: tuple[str, ...],
+    reason_codes: tuple[str, ...],
+) -> FormatParityDiagnosticV1:
+    if outcome not in {
+        EvaluationOutcome.UNAVAILABLE_PREREQUISITE,
+        EvaluationOutcome.EXECUTION_ERROR,
+    }:
+        raise ValueError("diagnostic_outcome_invalid")
+    generator_hash = _generator_identity_hash(dataset)
+    return FormatParityDiagnosticV1(
+        outcome=outcome.value,
+        generated_at=str(generated_at),
+        run_token=str(run_token),
+        inputs=DiagnosticInputIdentityV1(
+            manifest_hash=dataset.manifest_hash,
+            gold_hash=dataset.gold_hash,
+            fixture_hashes=tuple(sorted(dataset.fixture_hashes.values())),
+            dataset_baseline_identity=dataset.baseline_identity,
+            generator_identity_hash=generator_hash,
+        ),
+        prerequisites=tuple(sorted({_safe_prerequisite_name(item) for item in prerequisites})),
+        reason_codes=tuple(sorted({_safe_reason_code(item) for item in reason_codes})),
+    )
+
+
+def _generator_identity_hash(dataset: FormatParityDataset) -> str:
+    if not dataset.policies:
+        return "0" * 64
+    identities = {
+        json.dumps(
+            policy.generator_identity.model_dump(mode="json"),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        for policy in dataset.policies
+    }
+    if len(identities) != 1:
+        raise EvaluationIsolationError("generator_identity_mismatch")
+    return hashlib.sha256(next(iter(identities)).encode("utf-8")).hexdigest()
 
 
 def _build_execution_error_result(
@@ -214,6 +346,287 @@ async def run_provider(args: argparse.Namespace) -> RetrievalParityRunV1:
         generated_at=args.generated_at,
         missing=tuple(missing),
     )
+
+
+async def run_full_provider(
+    args: argparse.Namespace,
+) -> FormatParityReportV1 | FormatParityDiagnosticV1:
+    """Run parser-direct plus real provider retrieval and build one result owner."""
+
+    started = time.monotonic()
+    run_token = validate_provider_arguments(args)
+    try:
+        dataset = load_format_parity_contract(
+            Path(args.manifest),
+            Path(args.gold),
+            repository_root=Path.cwd(),
+        )
+    except FormatParityContractError as exc:
+        outcome = (
+            EvaluationOutcome.UNAVAILABLE_PREREQUISITE
+            if exc.reason_code in {"manifest_file_invalid", "gold_file_invalid", "fixture_file_invalid"}
+            else EvaluationOutcome.EXECUTION_ERROR
+        )
+        return build_diagnostic(
+            dataset=_empty_dataset(),
+            outcome=outcome,
+            generated_at=args.generated_at,
+            run_token=run_token,
+            prerequisites=("evaluation_contract",),
+            reason_codes=(
+                "prerequisite_unavailable"
+                if outcome is EvaluationOutcome.UNAVAILABLE_PREREQUISITE
+                else "evaluation_contract_invalid",
+            ),
+        )
+
+    missing: list[str] = []
+    if not (settings.dashscope_api_key or "").strip():
+        missing.append("embedding_provider")
+    ocr = check_ocr_runtime(required_languages=("chi_sim", "eng"))
+    if not ocr.available:
+        missing.append("ocr_traineddata")
+
+    try:
+        async with SessionLocal() as session:
+            try:
+                database_missing = await asyncio.wait_for(
+                    _database_prerequisites(
+                        session,
+                        expected_rollout_version=args.expected_rollout_version,
+                    ),
+                    timeout=10,
+                )
+            except (TimeoutError, OSError):
+                database_missing = ("database_runtime",)
+            except Exception:
+                database_missing = ("database_runtime",)
+            missing.extend(database_missing)
+            if missing:
+                return build_diagnostic(
+                    dataset=dataset,
+                    outcome=EvaluationOutcome.UNAVAILABLE_PREREQUISITE,
+                    generated_at=args.generated_at,
+                    run_token=run_token,
+                    prerequisites=tuple(missing),
+                    reason_codes=("prerequisite_unavailable",),
+                )
+
+            parser_started = time.monotonic()
+            parser_run = evaluate_parser_parity(dataset, generated_at=args.generated_at)
+            parser_duration_ms = (time.monotonic() - parser_started) * 1000
+            if parser_run.outcome in {
+                EvaluationOutcome.UNAVAILABLE_PREREQUISITE,
+                EvaluationOutcome.EXECUTION_ERROR,
+            }:
+                return build_diagnostic(
+                    dataset=dataset,
+                    outcome=parser_run.outcome,
+                    generated_at=args.generated_at,
+                    run_token=run_token,
+                    prerequisites=tuple(item.name for item in parser_run.prerequisites if item.status == "unavailable"),
+                    reason_codes=tuple(
+                        item.reason_code for item in parser_run.prerequisites if item.status == "unavailable"
+                    )
+                    or ("parser_execution_failed",),
+                )
+
+            async with session.begin():
+                owner = await _claim_or_resume(
+                    session,
+                    run_token=run_token,
+                    expected_rollout_version=args.expected_rollout_version,
+                )
+            retrieval_started = time.monotonic()
+            retrieval_run = await run_retrieval_parity(
+                dataset,
+                session=session,
+                embedder=EmbeddingService(),
+                owner=owner,
+                generated_at=args.generated_at,
+            )
+            retrieval_duration_ms = (time.monotonic() - retrieval_started) * 1000
+    except EvaluationIsolationError as exc:
+        return build_diagnostic(
+            dataset=dataset,
+            outcome=EvaluationOutcome.EXECUTION_ERROR,
+            generated_at=args.generated_at,
+            run_token=run_token,
+            prerequisites=(),
+            reason_codes=(exc.reason_code,),
+        )
+    except Exception:
+        return build_diagnostic(
+            dataset=dataset,
+            outcome=EvaluationOutcome.EXECUTION_ERROR,
+            generated_at=args.generated_at,
+            run_token=run_token,
+            prerequisites=(),
+            reason_codes=("provider_execution_failed",),
+        )
+
+    if retrieval_run.outcome not in {
+        EvaluationOutcome.COMPLETED_PASS,
+        EvaluationOutcome.COMPLETED_QUALITY_FAIL,
+    }:
+        return build_diagnostic(
+            dataset=dataset,
+            outcome=retrieval_run.outcome,
+            generated_at=args.generated_at,
+            run_token=run_token,
+            prerequisites=tuple(item.name for item in retrieval_run.prerequisites if not item.available),
+            reason_codes=tuple(
+                round_result.reason_code for round_result in retrieval_run.rounds if round_result.reason_code
+            )
+            or ("provider_execution_failed",),
+        )
+
+    total_duration_ms = (time.monotonic() - started) * 1000
+    return _build_completed_report(
+        args=args,
+        dataset=dataset,
+        parser_run=parser_run,
+        retrieval_run=retrieval_run,
+        parser_duration_ms=parser_duration_ms,
+        retrieval_duration_ms=retrieval_duration_ms,
+        total_duration_ms=total_duration_ms,
+    )
+
+
+def _build_completed_report(
+    *,
+    args: argparse.Namespace,
+    dataset: FormatParityDataset,
+    parser_run: object,
+    retrieval_run: RetrievalParityRunV1,
+    parser_duration_ms: float,
+    retrieval_duration_ms: float,
+    total_duration_ms: float,
+) -> FormatParityReportV1 | FormatParityDiagnosticV1:
+    try:
+        runtime_config = _runtime_config(
+            args=args,
+            dataset=dataset,
+            parser_run=parser_run,
+            parser_duration_ms=parser_duration_ms,
+            retrieval_duration_ms=retrieval_duration_ms,
+            total_duration_ms=total_duration_ms,
+        )
+    except (OSError, ValueError):
+        return build_diagnostic(
+            dataset=dataset,
+            outcome=EvaluationOutcome.EXECUTION_ERROR,
+            generated_at=args.generated_at,
+            run_token=args.run_token,
+            prerequisites=(),
+            reason_codes=("report_config_failed",),
+        )
+    try:
+        report = build_format_parity_report(
+            dataset=dataset,
+            parser_run=parser_run,
+            retrieval_run=retrieval_run,
+            runtime_config=runtime_config,
+            generated_at=args.generated_at,
+        )
+    except (OSError, ValueError):
+        return build_diagnostic(
+            dataset=dataset,
+            outcome=EvaluationOutcome.EXECUTION_ERROR,
+            generated_at=args.generated_at,
+            run_token=args.run_token,
+            prerequisites=(),
+            reason_codes=("report_build_failed",),
+        )
+    if not report.baseline_eligible or report.outcome not in {
+        EvaluationOutcome.COMPLETED_PASS,
+        EvaluationOutcome.COMPLETED_QUALITY_FAIL,
+    }:
+        return build_diagnostic(
+            dataset=dataset,
+            outcome=(
+                report.outcome
+                if report.outcome
+                in {
+                    EvaluationOutcome.UNAVAILABLE_PREREQUISITE,
+                    EvaluationOutcome.EXECUTION_ERROR,
+                }
+                else EvaluationOutcome.EXECUTION_ERROR
+            ),
+            generated_at=args.generated_at,
+            run_token=args.run_token,
+            prerequisites=tuple(item.name for item in report.prerequisites if item.status == "unavailable"),
+            reason_codes=report.safe_reason_codes or ("canonical_baseline_ineligible",),
+        )
+    return report
+
+
+def _runtime_config(
+    *,
+    args: argparse.Namespace,
+    dataset: FormatParityDataset,
+    parser_run: object,
+    parser_duration_ms: float,
+    retrieval_duration_ms: float,
+    total_duration_ms: float,
+) -> FormatParityRuntimeConfigV1:
+    runtime_versions = tuple(getattr(parser_run, "runtime_versions", ()))
+    parser_toolchain = tuple(
+        sorted(f"{item.name}@{item.version}" for item in runtime_versions if getattr(item, "kind", None) == "parser")
+    ) or ("moca_parser_registry@unknown",)
+    ocr_toolchain = tuple(
+        sorted(
+            f"{item.name}@{item.version}:{item.language or 'unspecified'}"
+            for item in runtime_versions
+            if getattr(item, "kind", None) == "ocr"
+        )
+    ) or ("tesseract@unknown:chi_sim+eng",)
+    temp_directory_mode = _ocr_temp_directory_mode()
+    temp_directory_command = (
+        "TMPDIR_MODE=explicit_macos_private_tmp " if temp_directory_mode == "explicit_macos_private_tmp" else ""
+    )
+    command = (
+        f"{temp_directory_command}scripts/eval_rag_format_parity.py --mode full-provider "
+        f"--manifest {args.manifest} --gold {args.gold} "
+        f"--tenant-id {args.tenant_id} --owner-marker {args.owner_marker} "
+        f"--run-token {args.run_token} --expected-rollout-version {args.expected_rollout_version}"
+    )
+    return FormatParityRuntimeConfigV1(
+        command=command,
+        execution_kind="full_provider",
+        tenant_id=str(args.tenant_id),
+        owner_marker=str(args.owner_marker),
+        run_token=str(args.run_token),
+        expected_rollout_version=int(args.expected_rollout_version),
+        generator_identity_hash=_generator_identity_hash(dataset),
+        embedding_provider="dashscope",
+        embedding_model=settings.embedding_model,
+        embedding_dimensions=settings.embedding_dimensions,
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        rrf_config=(
+            f"rrf_k={RRF_K};dense={ORIGINAL_QUERY_TOP_K};sparse={SPARSE_CANDIDATE_TOP_K};fuzzy={FUZZY_CANDIDATE_TOP_K}"
+        ),
+        rewrite_config=f"{QUERY_REWRITE_CONFIG_VERSION}:enabled",
+        reranker_config=f"{RERANK_CONFIG_VERSION}:enabled",
+        no_evidence_threshold=MIN_SIMILARITY_THRESHOLD,
+        parser_toolchain=parser_toolchain,
+        ocr_toolchain=ocr_toolchain,
+        ocr_temp_directory_mode=temp_directory_mode,
+        parser_duration_ms=round(parser_duration_ms, 3),
+        retrieval_duration_ms=round(retrieval_duration_ms, 3),
+        total_duration_ms=round(total_duration_ms, 3),
+        embedding_tokens=None,
+        embedding_tokens_status="unavailable",
+    )
+
+
+def _ocr_temp_directory_mode() -> Literal["platform_default", "explicit_macos_private_tmp"]:
+    """Record the safe runtime identity, never the caller's arbitrary path."""
+
+    configured = os.environ.get("TMPDIR")
+    if configured == "/private/tmp":
+        return "explicit_macos_private_tmp"
+    return "platform_default"
 
 
 async def _database_prerequisites(session: AsyncSession, *, expected_rollout_version: int) -> tuple[str, ...]:
@@ -339,13 +752,194 @@ def _write_result(path: Path, result: RetrievalParityRunV1) -> None:
     )
 
 
+def persist_full_provider_result(
+    *,
+    result: FormatParityReportV1 | FormatParityDiagnosticV1,
+    output_dir: Path,
+    diagnostic_output: Path,
+) -> tuple[Path, ...]:
+    """Persist either one diagnostic or the canonical pair, never both."""
+
+    canonical_json = output_dir / CANONICAL_JSON_NAME
+    canonical_markdown = output_dir / CANONICAL_MARKDOWN_NAME
+    diagnostic_resolved = diagnostic_output.resolve(strict=False)
+    if diagnostic_resolved in {
+        canonical_json.resolve(strict=False),
+        canonical_markdown.resolve(strict=False),
+    }:
+        raise ValueError("diagnostic_path_aliases_canonical")
+
+    if isinstance(result, FormatParityDiagnosticV1):
+        payload = (
+            json.dumps(
+                result.model_dump(mode="json"),
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ).encode("utf-8")
+            + b"\n"
+        )
+        _atomic_write_bytes(diagnostic_output, payload)
+        persisted = FormatParityDiagnosticV1.model_validate_json(diagnostic_output.read_text(encoding="utf-8"))
+        if persisted != result:
+            raise ValueError("diagnostic_round_trip_mismatch")
+        return (diagnostic_output,)
+
+    if (
+        not result.baseline_eligible
+        or result.config.execution_kind != "full_provider"
+        or result.outcome
+        not in {
+            EvaluationOutcome.COMPLETED_PASS,
+            EvaluationOutcome.COMPLETED_QUALITY_FAIL,
+        }
+    ):
+        raise ValueError("canonical_baseline_ineligible")
+    canonical = result.model_dump(mode="json")
+    json_payload = (
+        json.dumps(
+            canonical,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ).encode("utf-8")
+        + b"\n"
+    )
+    markdown_payload = render_markdown(canonical).encode("utf-8")
+    _atomic_write_canonical_pair(
+        json_path=canonical_json,
+        markdown_path=canonical_markdown,
+        json_payload=json_payload,
+        markdown_payload=markdown_payload,
+    )
+    loaded = load_format_parity_report(canonical_json)
+    if canonical_markdown.read_text(encoding="utf-8") != render_markdown(loaded.model_dump(mode="json")):
+        raise ValueError("canonical_projection_round_trip_mismatch")
+    return canonical_json, canonical_markdown
+
+
+def _persist_completed_outcome(
+    *,
+    result: FormatParityReportV1 | FormatParityDiagnosticV1,
+    output_dir: Path,
+    diagnostic_output: Path,
+) -> FormatParityReportV1 | FormatParityDiagnosticV1:
+    try:
+        persist_full_provider_result(
+            result=result,
+            output_dir=output_dir,
+            diagnostic_output=diagnostic_output,
+        )
+        return result
+    except (OSError, ValueError):
+        if isinstance(result, FormatParityDiagnosticV1):
+            raise
+        diagnostic = FormatParityDiagnosticV1(
+            outcome="execution_error",
+            generated_at=result.generated_at,
+            run_token=result.config.run_token,
+            inputs=DiagnosticInputIdentityV1(
+                manifest_hash=result.inputs.manifest_hash,
+                gold_hash=result.inputs.gold_hash,
+                fixture_hashes=tuple(sorted(item.sha256 for item in result.inputs.fixture_hashes)),
+                dataset_baseline_identity=result.inputs.dataset_baseline_identity,
+                generator_identity_hash=result.inputs.generator_identity_hash,
+            ),
+            prerequisites=(),
+            reason_codes=("report_persist_failed",),
+        )
+        persist_full_provider_result(
+            result=diagnostic,
+            output_dir=output_dir,
+            diagnostic_output=diagnostic_output,
+        )
+        return diagnostic
+
+
+def _atomic_write_canonical_pair(
+    *,
+    json_path: Path,
+    markdown_path: Path,
+    json_payload: bytes,
+    markdown_payload: bytes,
+) -> None:
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    json_temp = _write_temp(json_path, json_payload)
+    markdown_temp = _write_temp(markdown_path, markdown_payload)
+    old_json = json_path.read_bytes() if json_path.exists() else None
+    old_markdown = markdown_path.read_bytes() if markdown_path.exists() else None
+    try:
+        staged = load_format_parity_report(json_temp)
+        if markdown_temp.read_text(encoding="utf-8") != render_markdown(staged.model_dump(mode="json")):
+            raise ValueError("canonical_projection_mismatch")
+        os.replace(json_temp, json_path)
+        os.replace(markdown_temp, markdown_path)
+    except Exception:
+        _restore_file(json_path, old_json)
+        _restore_file(markdown_path, old_markdown)
+        raise
+    finally:
+        for temporary in (json_temp, markdown_temp):
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _atomic_write_bytes(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = _write_temp(path, payload)
+    try:
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _write_temp(target: Path, payload: bytes) -> Path:
+    with tempfile.NamedTemporaryFile(
+        mode="wb",
+        dir=target.parent,
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+        return Path(stream.name)
+
+
+def _restore_file(path: Path, payload: bytes | None) -> None:
+    if payload is None:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return
+    path.write_bytes(payload)
+
+
 async def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        result = await run_provider(args)
+        if args.mode == "provider":
+            result = await run_provider(args)
+            _write_result(Path(args.output), result)
+        else:
+            result = await run_full_provider(args)
+            result = _persist_completed_outcome(
+                result=result,
+                output_dir=Path(args.output_dir),
+                diagnostic_output=Path(args.diagnostic_output),
+            )
     except EvaluationIsolationError:
         return 2
-    _write_result(Path(args.output), result)
+    except (OSError, ValueError):
+        return 2
     print(
         json.dumps(
             {
@@ -362,6 +956,8 @@ async def main(argv: list[str] | None = None) -> int:
         in {
             EvaluationOutcome.COMPLETED_PASS,
             EvaluationOutcome.COMPLETED_QUALITY_FAIL,
+            "completed_pass",
+            "completed_quality_fail",
         }
         else 2
     )
