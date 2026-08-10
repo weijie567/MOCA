@@ -18,7 +18,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from src.rag.evaluation.contracts import EvaluationOutcome, FormatParityDataset
-from src.rag.evaluation.parser_parity import ParserCaseResultV1, ParserParityRunV1
+from src.rag.evaluation.parser_parity import ParserCaseResultV1, ParserParityRunV1, ParserPrimaryStage
 from src.rag.evaluation.retrieval_rounds import RetrievalCaseObservationV1, RetrievalParityRunV1
 
 
@@ -198,12 +198,51 @@ class ReportMetricsV1(_FrozenModel):
     cross_format_hit_at_5_spread: float = Field(ge=0.0, le=1.0)
 
 
+def _derive_case_classification(
+    *,
+    parser_status: str,
+    parser_primary_stage: ParserPrimaryStage | None,
+    parser_reason_codes: Sequence[str],
+    no_answer_expected: bool,
+    no_answer_correct: bool,
+    hit_at_5: bool,
+    semantic_anchor_hits: int,
+    semantic_anchor_total: int,
+    fallback_correct: bool,
+    locator_expected: bool,
+    locator_covered: bool,
+) -> tuple[bool, PrimaryStage | None, tuple[str, ...]]:
+    primary_stage: PrimaryStage | None = None
+    reasons: list[str] = []
+    if not no_answer_expected and parser_status == "failed":
+        primary_stage = parser_primary_stage or "parser"
+        reasons.extend(parser_reason_codes or ("parser_case_failed",))
+    elif no_answer_expected and not no_answer_correct:
+        primary_stage = "retrieval"
+        reasons.append("no_answer_fallback_incorrect")
+    elif not no_answer_expected and not hit_at_5:
+        primary_stage = "retrieval"
+        reasons.append("expected_policy_missing_top_5")
+    elif not no_answer_expected and semantic_anchor_hits < semantic_anchor_total:
+        primary_stage = "chunking"
+        reasons.append("retrieved_evidence_anchor_missing")
+    elif locator_expected and not locator_covered:
+        primary_stage = "provenance"
+        reasons.append("retrieved_locator_missing")
+    elif not fallback_correct:
+        primary_stage = "retrieval"
+        reasons.append("fallback_incorrect")
+    return primary_stage is None, primary_stage, tuple(sorted(set(reasons)))
+
+
 class CaseResultRowV1(_FrozenModel):
     policy_id: str
     format: FormatName
     case_id: str
     category: str
     parser_status: Literal["passed", "failed", "not_applicable"]
+    parser_primary_stage: ParserPrimaryStage | None
+    parser_reason_codes: tuple[str, ...]
     service_status: str
     hit_at_1: bool
     hit_at_3: bool
@@ -222,10 +261,30 @@ class CaseResultRowV1(_FrozenModel):
 
     @model_validator(mode="after")
     def validate_primary_stage(self) -> CaseResultRowV1:
-        if self.passed and self.primary_stage is not None:
-            raise ValueError("passed case cannot have primary failure stage")
-        if not self.passed and self.primary_stage is None:
-            raise ValueError("completed miss requires one primary failure stage")
+        if self.no_answer_expected != (self.category == "no_answer"):
+            raise ValueError("case_result_no_answer_mismatch")
+        if self.semantic_anchor_hits > self.semantic_anchor_total:
+            raise ValueError("case_result_anchor_count_invalid")
+        expected_fallback = (
+            self.no_answer_correct if self.no_answer_expected else self.service_status != "no_evidence"
+        )
+        if self.fallback_correct != expected_fallback:
+            raise ValueError("case_result_fallback_mismatch")
+        expected = _derive_case_classification(
+            parser_status=self.parser_status,
+            parser_primary_stage=self.parser_primary_stage,
+            parser_reason_codes=self.parser_reason_codes,
+            no_answer_expected=self.no_answer_expected,
+            no_answer_correct=self.no_answer_correct,
+            hit_at_5=self.hit_at_5,
+            semantic_anchor_hits=self.semantic_anchor_hits,
+            semantic_anchor_total=self.semantic_anchor_total,
+            fallback_correct=self.fallback_correct,
+            locator_expected=self.locator_expected,
+            locator_covered=self.locator_covered,
+        )
+        if (self.passed, self.primary_stage, self.reason_codes) != expected:
+            raise ValueError("case_result_classification_mismatch")
         return self
 
 
@@ -648,33 +707,27 @@ def _case_row(
 ) -> CaseResultRowV1:
     no_answer = retrieval_case.category == "no_answer"
     fallback_correct = retrieval_case.no_answer_correct if no_answer else retrieval_case.service_status != "no_evidence"
-    primary_stage: PrimaryStage | None = None
-    reasons: list[str] = []
-    if not no_answer and parser_case.status == "failed":
-        primary_stage = parser_case.primary_stage or "parser"
-        reasons.extend(parser_case.reason_codes or ("parser_case_failed",))
-    elif no_answer and not retrieval_case.no_answer_correct:
-        primary_stage = "retrieval"
-        reasons.append("no_answer_fallback_incorrect")
-    elif not no_answer and not retrieval_case.hit_at_5:
-        primary_stage = "retrieval"
-        reasons.append("expected_policy_missing_top_5")
-    elif not no_answer and retrieval_case.semantic_anchor_hits < retrieval_case.semantic_anchor_total:
-        primary_stage = "chunking"
-        reasons.append("retrieved_evidence_anchor_missing")
-    elif retrieval_case.locator_expected and not retrieval_case.locator_covered:
-        primary_stage = "provenance"
-        reasons.append("retrieved_locator_missing")
-    elif not fallback_correct:
-        primary_stage = "retrieval"
-        reasons.append("fallback_incorrect")
-    passed = primary_stage is None
+    passed, primary_stage, reason_codes = _derive_case_classification(
+        parser_status=parser_case.status,
+        parser_primary_stage=parser_case.primary_stage,
+        parser_reason_codes=parser_case.reason_codes,
+        no_answer_expected=no_answer,
+        no_answer_correct=retrieval_case.no_answer_correct,
+        hit_at_5=retrieval_case.hit_at_5,
+        semantic_anchor_hits=retrieval_case.semantic_anchor_hits,
+        semantic_anchor_total=retrieval_case.semantic_anchor_total,
+        fallback_correct=fallback_correct,
+        locator_expected=retrieval_case.locator_expected,
+        locator_covered=retrieval_case.locator_covered,
+    )
     return CaseResultRowV1(
         policy_id=retrieval_case.policy_id,
         format=parser_case.variant,
         case_id=retrieval_case.case_id,
         category=retrieval_case.category,
         parser_status=parser_case.status,
+        parser_primary_stage=parser_case.primary_stage,
+        parser_reason_codes=parser_case.reason_codes,
         service_status=retrieval_case.service_status,
         hit_at_1=retrieval_case.hit_at_1,
         hit_at_3=retrieval_case.hit_at_3,
@@ -689,7 +742,7 @@ def _case_row(
         locator_covered=retrieval_case.locator_covered,
         passed=passed,
         primary_stage=primary_stage,
-        reason_codes=tuple(sorted(set(reasons))),
+        reason_codes=reason_codes,
     )
 
 

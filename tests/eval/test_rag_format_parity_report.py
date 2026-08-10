@@ -512,6 +512,26 @@ def test_strict_loader_rejects_target_gate_outcome_and_aggregate_tampering(datas
     failure_drift["failures"] = []
     tampered_payloads.append(failure_drift)
 
+    relabeled_anchor_miss = json.loads(json.dumps(canonical))
+    missed_row = next(
+        row
+        for row in relabeled_anchor_miss["case_rows"]
+        if row["semantic_anchor_hits"] < row["semantic_anchor_total"]
+    )
+    missed_row["passed"] = True
+    missed_row["primary_stage"] = None
+    missed_row["reason_codes"] = []
+    relabeled_anchor_miss["failures"] = [
+        failure
+        for failure in relabeled_anchor_miss["failures"]
+        if not (
+            failure["policy_id"] == missed_row["policy_id"]
+            and failure["format"] == missed_row["format"]
+            and failure["case_id"] == missed_row["case_id"]
+        )
+    ]
+    tampered_payloads.append(relabeled_anchor_miss)
+
     for payload in tampered_payloads:
         report_path.write_text(json.dumps(payload), encoding="utf-8")
         with pytest.raises((ValidationError, ValueError)):
