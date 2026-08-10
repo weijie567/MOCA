@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -209,6 +210,26 @@ class _CaptureSession:
         return _Rows(self.values)
 
 
+class _SequenceResult(_Rows):
+    def __init__(self, values: list[object] | None = None, *, scalar: int | None = None) -> None:
+        super().__init__(values or [])
+        self._scalar = scalar
+
+    def scalar_one(self) -> int:
+        assert self._scalar is not None
+        return self._scalar
+
+
+class _SequenceSession:
+    def __init__(self, results: list[_SequenceResult]) -> None:
+        self.results = results
+        self.statements: list[object] = []
+
+    async def execute(self, statement: object) -> _SequenceResult:
+        self.statements.append(statement)
+        return self.results.pop(0)
+
+
 def _sql(statement: object) -> str:
     return str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": False}))
 
@@ -247,6 +268,81 @@ async def test_null_doc_job_candidate_lock_and_delete_use_full_exact_predicates(
     for column in ("id", "tenant_id", "doc_key", "source_checksum"):
         assert f"rag_ingestion_jobs.{column} =" in delete_sql
     assert "doc_key LIKE" not in delete_sql
+
+
+@pytest.mark.asyncio
+async def test_manifest_checksum_is_canonicalized_for_exact_lookup_classification_and_cleanup() -> None:
+    owner_checksum = "a" * 64
+    production_checksum = f"sha256:{owner_checksum}"
+    reserved_at = datetime(2026, 8, 10, tzinfo=UTC)
+    document_id = uuid4()
+    job_id = uuid4()
+    chunk_id = "eval-chunk-1"
+    session = _SequenceSession(
+        [
+            _SequenceResult(
+                [
+                    SimpleNamespace(
+                        id=document_id,
+                        source_checksum=production_checksum,
+                        version=1,
+                    )
+                ]
+            ),
+            _SequenceResult(
+                [
+                    SimpleNamespace(
+                        id=job_id,
+                        doc_id=document_id,
+                        source_checksum=production_checksum,
+                        status="success",
+                    )
+                ]
+            ),
+            _SequenceResult([SimpleNamespace(id=uuid4())]),
+            _SequenceResult([SimpleNamespace(chunk_id=chunk_id)]),
+            _SequenceResult([SimpleNamespace(id=uuid4())]),
+            _SequenceResult([SimpleNamespace(chunk_id=chunk_id)]),
+            _SequenceResult(scalar=1),
+            _SequenceResult(scalar=1),
+        ]
+    )
+    repo = RagEvaluationRoundRepository(session)  # type: ignore[arg-type]
+    inspection = await repo._inspect_locked(  # noqa: SLF001 - exact durable projection contract
+        SimpleNamespace(
+            tenant_id=FORMAT_PARITY_TENANT_ID,
+            attempt_doc_key=FORMAT_PARITY_DOC_KEYS[0],
+            expected_source_checksum=owner_checksum,
+            reservation_at=reserved_at,
+        )
+    )
+
+    assert inspection.state is ProjectionState.EXACT_COMPLETE
+    assert inspection.projection.matching_head_count == 1
+    assert inspection.projection.job_count == 1
+    lookup_params = session.statements[1].compile(dialect=postgresql.dialect()).params
+    assert production_checksum in lookup_params.values()
+    assert owner_checksum not in lookup_params.values()
+
+    delete_session = _CaptureSession()
+    deleted = await RagIngestionJobRepository(delete_session).delete_exact_evaluation_attempt(  # type: ignore[arg-type]
+        job_id=job_id,
+        tenant_id=FORMAT_PARITY_TENANT_ID,
+        doc_key=FORMAT_PARITY_DOC_KEYS[0],
+        source_checksum=owner_checksum,
+    )
+    assert deleted == 1
+    delete_params = delete_session.statements[-1].compile(dialect=postgresql.dialect()).params
+    assert production_checksum in delete_params.values()
+    assert owner_checksum not in delete_params.values()
+
+    with pytest.raises(ValueError, match="evaluation_source_checksum_invalid"):
+        await RagIngestionJobRepository(_CaptureSession()).lock_evaluation_attempt_candidates(  # type: ignore[arg-type]
+            tenant_id=FORMAT_PARITY_TENANT_ID,
+            doc_key=FORMAT_PARITY_DOC_KEYS[0],
+            source_checksum=production_checksum,
+            reserved_at=reserved_at,
+        )
 
 
 def test_repository_source_has_no_broad_or_immutable_delete_path() -> None:
