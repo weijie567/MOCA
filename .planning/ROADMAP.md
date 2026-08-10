@@ -179,7 +179,7 @@ Plans:
 **Goal:** Use three canonical policies and their Markdown, digital-PDF, and scanned-PDF variants to establish a reproducible parser and retrieval format-parity baseline through the existing production parser, ingestion, and retrieval paths without changing production RAG behavior.
 **Requirements**: TBD during Phase 64.3 planning.
 **Depends on:** Phase 64.2
-**Plans:** 0 plans
+**Plans:** 5 plans
 
 **Confirmed gaps owned:** The existing RAG evaluator and golden cases do not measure equivalent content across formats; parser quality, retrieval quality, and evidence-location quality are not independently scored; repeated retrieval-parity rounds do not yet have an explicit reset contract; and there is no reproducible baseline report that attributes failures to parsing, chunking, retrieval, or provenance.
 
@@ -193,7 +193,11 @@ Plans:
 5. Existing production RAG contracts and behavior remain unchanged, evaluation cleanup cannot affect non-evaluation tenants or data, and focused plus existing RAG regression gates pass.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 64.3; expected slices: format-parity contract and Gold, parser-parity evaluator, isolated retrieval-parity evaluator, and baseline/report regression gates)
+- [ ] 64.3-01-PLAN.md — Contract And Semantic Gold (`depends_on: []`).
+- [ ] 64.3-02-PLAN.md — Direct Parser Parity Evaluator (`depends_on: [64.3-01]`).
+- [ ] 64.3-03-PLAN.md — Retrieval Round Isolation And Provider Runtime (`depends_on: [64.3-01]`).
+- [ ] 64.3-04-PLAN.md — Canonical Reporting And Provider Baseline (`depends_on: [64.3-02, 64.3-03]`).
+- [ ] 64.3-05-PLAN.md — Final Regression Documentation And Ledgers (`depends_on: [64.3-04]`).
 
 ### Phase 64.4: Token-Aware Policy Chunking And Reindex Validation (INSERTED)
 
