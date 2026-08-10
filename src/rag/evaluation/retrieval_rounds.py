@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.retrieval import PolicyRetrievalEngine, PolicyRetrievalRun
 from src.knowledge.provenance import EvidenceProvenance
+from src.knowledge.text_hash import evidence_text_hash
 from src.knowledge.schemas import (
     KnowledgeContext,
     KnowledgeSearchFilters,
@@ -26,9 +27,12 @@ from src.repositories.rag_evaluation_round_repo import (
     FORMAT_PARITY_OWNER_MARKER,
     FORMAT_PARITY_TENANT_ID,
     ROUND_FORMATS,
+    AnchorLocatorRequirement,
     EvaluationIsolationError,
     EvaluationRoundIdentity,
     ProjectionState,
+    RecordedChunkLocatorProof,
+    RecordedSourceLocatorProof,
     RagEvaluationRoundRepository,
     validate_run_sequence,
 )
@@ -307,7 +311,7 @@ async def run_retrieval_parity(
                 async with session.begin():
                     current_owner = await round_repo.prove_retrieval_ready(current_owner)
                 for policy in dataset.policies:
-                    anchors_by_id = {anchor.anchor_id: anchor.text for anchor in policy.gold.anchors}
+                    anchors_by_id = {anchor.anchor_id: anchor for anchor in policy.gold.anchors}
                     for case in policy.gold.cases:
                         request, context = build_knowledge_query(
                             question=case.question,
@@ -320,15 +324,34 @@ async def run_retrieval_parity(
                                 tenant_id=str(FORMAT_PARITY_TENANT_ID),
                                 evidence_refs=recorded.evidence_refs,
                             )
+                            locator_covered = case.locator_constraints is None or await _recorded_locator_satisfies(
+                                round_repo,
+                                recorded,
+                                provenance_by_evidence_id=provenance,
+                                doc_key=policy.doc_key,
+                                expected_anchors=[
+                                    AnchorLocatorRequirement(
+                                        text=anchors_by_id[anchor_id].text,
+                                        section=anchors_by_id[anchor_id].section,
+                                    )
+                                    for anchor_id in case.evidence_anchor_ids
+                                ],
+                                allowed_pdf_pages=(
+                                    case.locator_constraints.pdf_pages
+                                    if round_format in {"digital_pdf", "scanned_pdf"}
+                                    and case.locator_constraints is not None
+                                    else ()
+                                ),
+                            )
                         observations.append(
                             _case_observation(
                                 policy_id=policy.doc_key,
                                 round_format=round_format,
                                 case=case,
-                                anchors_by_id=anchors_by_id,
+                                anchors_by_id={key: anchor.text for key, anchor in anchors_by_id.items()},
                                 service_result=service_result,
                                 recorded=recorded,
-                                provenance_by_evidence_id=provenance,
+                                locator_covered=locator_covered,
                             )
                         )
                 if any(not _case_quality_pass(case) for case in observations):
@@ -522,7 +545,7 @@ def _case_observation(
     anchors_by_id: dict[str, str],
     service_result: object,
     recorded: PolicyRetrievalRun,
-    provenance_by_evidence_id: dict[str, EvidenceProvenance],
+    locator_covered: bool,
 ) -> RetrievalCaseObservationV1:
     ranked_doc_keys = tuple(hit.doc_key for hit in recorded.hits[:5])
     expected_rank = next(
@@ -533,15 +556,7 @@ def _case_observation(
     hit_text = "\n".join(hit.text for hit in recorded.hits if hit.doc_key == policy_id)
     anchor_hits = sum(anchor in hit_text for anchor in expected_anchors)
     no_answer_correct = bool(case.no_answer and getattr(service_result, "status", None) == "no_evidence")
-    locator_covered = case.locator_constraints is None or _recorded_locator_satisfies(
-        recorded,
-        provenance_by_evidence_id=provenance_by_evidence_id,
-        doc_key=policy_id,
-        expected_anchors=expected_anchors,
-        allowed_pdf_pages=(
-            case.locator_constraints.pdf_pages if round_format in {"digital_pdf", "scanned_pdf"} else ()
-        ),
-    )
+    locator_covered = case.locator_constraints is None or locator_covered
     return RetrievalCaseObservationV1(
         policy_id=policy_id,
         case_id=case.case_id,
@@ -564,47 +579,61 @@ def _case_observation(
     )
 
 
-def _recorded_locator_satisfies(
+async def _recorded_locator_satisfies(
+    round_repo: RagEvaluationRoundRepository,
     recorded: PolicyRetrievalRun,
     *,
     provenance_by_evidence_id: dict[str, EvidenceProvenance],
     doc_key: str,
-    expected_anchors: list[str],
+    expected_anchors: list[AnchorLocatorRequirement],
     allowed_pdf_pages: tuple[int, ...],
 ) -> bool:
-    """Fail closed unless each matched Gold anchor has recorded locator proof."""
+    """Fail closed unless exact recorded chunks and source blocks prove every anchor."""
 
     refs_by_chunk: dict[str, list[Any]] = {}
     for ref in recorded.evidence_refs:
         if ref.doc_key == doc_key:
             refs_by_chunk.setdefault(ref.chunk_id, []).append(ref)
-    allowed_pages = set(allowed_pdf_pages)
-    for anchor in expected_anchors:
-        matching_hits = [hit for hit in recorded.hits if hit.doc_key == doc_key and anchor in hit.text]
-        anchor_proved = False
-        for hit in matching_hits:
-            refs = refs_by_chunk.get(hit.chunk_id, [])
-            if len(refs) != 1:
-                continue
-            ref = refs[0]
-            provenance = provenance_by_evidence_id.get(ref.evidence_id)
-            if (
-                provenance is None
-                or provenance.doc_key != ref.doc_key
-                or provenance.chunk_id != ref.chunk_id
-                or provenance.evidence_id != ref.evidence_id
-            ):
-                continue
-            if any(
-                locator.source_block_id
-                and (not allowed_pages or locator.page_number in allowed_pages)
-                for locator in provenance.source_locators
-            ):
-                anchor_proved = True
-                break
-        if not anchor_proved:
-            return False
-    return bool(expected_anchors)
+    candidates: list[RecordedChunkLocatorProof] = []
+    for hit in recorded.hits:
+        if hit.doc_key != doc_key or not any(item.text in hit.text for item in expected_anchors):
+            continue
+        refs = refs_by_chunk.get(hit.chunk_id, [])
+        if len(refs) != 1:
+            continue
+        ref = refs[0]
+        if evidence_text_hash(hit.text) != ref.text_hash:
+            continue
+        provenance = provenance_by_evidence_id.get(ref.evidence_id)
+        if (
+            provenance is None
+            or provenance.doc_key != ref.doc_key
+            or provenance.chunk_id != ref.chunk_id
+            or provenance.evidence_id != ref.evidence_id
+        ):
+            continue
+        candidates.append(
+            RecordedChunkLocatorProof(
+                chunk_id=hit.chunk_id,
+                text_hash=ref.text_hash,
+                source_locators=tuple(
+                    RecordedSourceLocatorProof(
+                        source_block_id=locator.source_block_id,
+                        page_number=locator.page_number,
+                    )
+                    for locator in provenance.source_locators
+                    if locator.source_block_id
+                ),
+            )
+        )
+    if not candidates:
+        return False
+    return await round_repo.prove_recorded_anchor_locators(
+        doc_key=doc_key,
+        candidates=candidates,
+        requirements=expected_anchors,
+        allowed_pdf_pages=allowed_pdf_pages,
+    )
 
 
 def _case_quality_pass(case: RetrievalCaseObservationV1) -> bool:

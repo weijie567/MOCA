@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 import re
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +22,7 @@ from src.db.models import (
     RagEvaluationRound,
     RagIngestionJob,
 )
+from src.knowledge.text_hash import evidence_text_hash
 from src.repositories.document_block_repo import DocumentBlockRepository
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 from src.repositories.rag_ingestion_job_repo import (
@@ -75,6 +76,36 @@ class EvaluationRoundIdentity:
             raise EvaluationIsolationError("stale_state")
         if not 0 <= self.next_document_index <= len(FORMAT_PARITY_DOC_KEYS):
             raise EvaluationIsolationError("stale_progress")
+
+
+@dataclass(frozen=True)
+class AnchorLocatorRequirement:
+    """One Gold anchor that must be proved by an exact current source block."""
+
+    text: str
+    section: str
+
+
+@dataclass(frozen=True)
+class RecordedSourceLocatorProof:
+    source_block_id: str
+    page_number: int | None
+
+
+@dataclass(frozen=True)
+class RecordedChunkLocatorProof:
+    """Safe evidence identity captured from the one production retrieval."""
+
+    chunk_id: str
+    text_hash: str
+    source_locators: tuple[RecordedSourceLocatorProof, ...]
+
+
+@dataclass(frozen=True)
+class _ExactAnchorProof:
+    anchor_index: int
+    section: str
+    source_block_id: str
 
 
 class ProjectionState(StrEnum):
@@ -265,6 +296,86 @@ def classify_attempt_projection(projection: AttemptProjection) -> ProjectionStat
     return ProjectionState.EXACT_COMPLETE if exact_complete else ProjectionState.MALFORMED
 
 
+def _source_blocks_prove_recorded_anchors(
+    candidates: Sequence[RecordedChunkLocatorProof],
+    requirements: Sequence[AnchorLocatorRequirement],
+    *,
+    chunk_rows: Sequence[Any],
+    block_rows: Sequence[Any],
+    allowed_pdf_pages: Sequence[int],
+) -> bool:
+    """Validate hashes/locators and solve an exact per-anchor block assignment."""
+
+    chunks_by_id: dict[str, Any] = {}
+    for row in chunk_rows:
+        chunk_id = str(row.chunk_id)
+        if chunk_id in chunks_by_id:
+            return False
+        chunks_by_id[chunk_id] = row
+    blocks_by_key: dict[tuple[Any, str], Any] = {}
+    for block in block_rows:
+        key = (block.doc_id, str(block.source_block_id))
+        if key in blocks_by_key:
+            return False
+        blocks_by_key[key] = block
+
+    allowed_pages = set(allowed_pdf_pages)
+    exact_proofs: list[_ExactAnchorProof] = []
+    for candidate in candidates:
+        chunk = chunks_by_id.get(candidate.chunk_id)
+        if chunk is None or evidence_text_hash(str(chunk.content)) != candidate.text_hash:
+            return False
+        refs = chunk.source_block_refs_json
+        if not isinstance(refs, list):
+            return False
+        locators = {(item.source_block_id, item.page_number) for item in candidate.source_locators}
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            source_block_id = str(ref.get("source_block_id") or "")
+            ref_hash = str(ref.get("text_hash") or "")
+            block = blocks_by_key.get((chunk.doc_id, source_block_id))
+            if block is None or (source_block_id, block.page_number) not in locators:
+                continue
+            if allowed_pages and block.page_number not in allowed_pages:
+                continue
+            if ref.get("page_number", block.page_number) != block.page_number:
+                continue
+            if ref_hash != block.text_hash or ref_hash != evidence_text_hash(str(block.text)):
+                continue
+            for anchor_index, requirement in enumerate(requirements):
+                if requirement.text in str(block.text):
+                    exact_proofs.append(
+                        _ExactAnchorProof(
+                            anchor_index=anchor_index,
+                            section=requirement.section,
+                            source_block_id=source_block_id,
+                        )
+                    )
+
+    proofs_by_anchor = {
+        index: tuple(proof for proof in exact_proofs if proof.anchor_index == index)
+        for index in range(len(requirements))
+    }
+    if any(not proofs for proofs in proofs_by_anchor.values()):
+        return False
+
+    def assign(anchor_index: int, block_sections: dict[str, str]) -> bool:
+        if anchor_index == len(requirements):
+            return True
+        for proof in proofs_by_anchor[anchor_index]:
+            assigned_section = block_sections.get(proof.source_block_id)
+            if assigned_section is not None and assigned_section != proof.section:
+                continue
+            next_sections = dict(block_sections)
+            next_sections[proof.source_block_id] = proof.section
+            if assign(anchor_index + 1, next_sections):
+                return True
+        return False
+
+    return assign(0, {})
+
+
 class RagEvaluationRoundRepository:
     """Every public mutation locks, proves, and CAS-updates one owner row."""
 
@@ -379,6 +490,75 @@ class RagEvaluationRoundRepository:
         return RoundProgress(
             state=row.state,
             has_attempt_reservation=row.attempt_doc_key is not None,
+        )
+
+    async def prove_recorded_anchor_locators(
+        self,
+        *,
+        doc_key: str,
+        candidates: Sequence[RecordedChunkLocatorProof],
+        requirements: Sequence[AnchorLocatorRequirement],
+        allowed_pdf_pages: Sequence[int],
+    ) -> bool:
+        """Bind Gold anchors to exact source blocks without exposing block text."""
+
+        if not candidates or not requirements:
+            return False
+        chunk_ids = [candidate.chunk_id for candidate in candidates]
+        if len(chunk_ids) != len(set(chunk_ids)):
+            return False
+        chunk_rows = list(
+            (
+                await self.session.execute(
+                    select(
+                        PolicyChunk.doc_id,
+                        PolicyChunk.chunk_id,
+                        PolicyChunk.content,
+                        PolicyChunk.source_block_refs_json,
+                    )
+                    .join(
+                        PolicyDocument,
+                        and_(
+                            PolicyChunk.doc_id == PolicyDocument.id,
+                            PolicyDocument.tenant_id == FORMAT_PARITY_TENANT_ID,
+                        ),
+                    )
+                    .where(
+                        PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
+                        PolicyDocument.doc_key == doc_key,
+                        PolicyChunk.chunk_id.in_(chunk_ids),
+                    )
+                )
+            ).all()
+        )
+        document_ids = {row.doc_id for row in chunk_rows}
+        source_block_ids = {
+            str(ref.get("source_block_id"))
+            for row in chunk_rows
+            for ref in (row.source_block_refs_json if isinstance(row.source_block_refs_json, list) else [])
+            if isinstance(ref, dict) and str(ref.get("source_block_id") or "").strip()
+        }
+        if len(document_ids) != 1 or not source_block_ids:
+            return False
+        block_rows = list(
+            (
+                await self.session.execute(
+                    select(DocumentBlock).where(
+                        DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
+                        DocumentBlock.doc_id.in_(document_ids),
+                        DocumentBlock.source_block_id.in_(source_block_ids),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return _source_blocks_prove_recorded_anchors(
+            candidates,
+            requirements,
+            chunk_rows=chunk_rows,
+            block_rows=block_rows,
+            allowed_pdf_pages=allowed_pdf_pages,
         )
 
     async def prove_compatible_pre_state(self, owner: EvaluationRoundIdentity) -> EvaluationRoundIdentity:

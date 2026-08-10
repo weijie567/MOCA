@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 import src.rag.evaluation.retrieval_rounds as retrieval_rounds_module
+import src.repositories.rag_evaluation_round_repo as round_repo_module
 import scripts.eval_rag_format_parity as format_parity_cli
 from src.db.models import RagEvaluationRound
 from src.repositories.rag_evaluation_round_repo import (
@@ -31,6 +32,7 @@ from src.knowledge.provenance import EvidenceProvenance, SourceLocator
 from src.knowledge.retrieval import PolicyRetrievalHit, PolicyRetrievalRun
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchRequest
 from src.knowledge.service import PolicyKnowledgeService
+from src.knowledge.text_hash import evidence_text_hash
 from src.rag.evaluation.contracts import FormatParityContractError, load_format_parity_contract
 from src.rag.evaluation.retrieval_rounds import (
     RecordingPolicyRetrievalEngine,
@@ -831,7 +833,8 @@ async def test_recording_delegate_forwards_the_single_service_triggered_retrieva
         delegate.take_recording(expected_query=request.query)
 
 
-def test_retrieval_locator_coverage_requires_recorded_evidence_locator_proof() -> None:
+@pytest.mark.asyncio
+async def test_retrieval_locator_coverage_requires_recorded_evidence_locator_proof() -> None:
     policy = _dataset().policies[0]
     case = next(item for item in policy.gold.cases if item.locator_constraints is not None)
     anchors = {anchor.anchor_id: anchor.text for anchor in policy.gold.anchors}
@@ -862,7 +865,7 @@ def test_retrieval_locator_coverage_requires_recorded_evidence_locator_proof() -
         anchors_by_id=anchors,
         service_result=service_result,
         recorded=without_evidence,
-        provenance_by_evidence_id={},
+        locator_covered=False,
     )
     assert absent.hit_at_1 is True
     assert absent.semantic_anchor_hits == absent.semantic_anchor_total
@@ -904,26 +907,117 @@ def test_retrieval_locator_coverage_requires_recorded_evidence_locator_proof() -
             )
         }
 
-    wrong_page = retrieval_rounds_module._case_observation(
-        policy_id=policy.doc_key,
-        round_format="digital_pdf",
-        case=case,
-        anchors_by_id=anchors,
-        service_result=service_result,
-        recorded=recorded,
-        provenance_by_evidence_id=provenance(5),
+    document_id = uuid4()
+    first_anchor = anchors[case.evidence_anchor_ids[0]]
+    second_anchor = anchors[case.evidence_anchor_ids[1]]
+
+    class _ExactProofRepository:
+        def __init__(self, block_rows: list[SimpleNamespace]) -> None:
+            self.block_rows = block_rows
+            self.calls = 0
+
+        async def prove_recorded_anchor_locators(self, **kwargs: object) -> bool:
+            self.calls += 1
+            return round_repo_module._source_blocks_prove_recorded_anchors(  # noqa: SLF001
+                kwargs["candidates"],
+                kwargs["requirements"],
+                chunk_rows=[
+                    SimpleNamespace(
+                        doc_id=document_id,
+                        chunk_id=hit.chunk_id,
+                        content=hit.text,
+                        source_block_refs_json=[
+                            {
+                                "source_block_id": block.source_block_id,
+                                "page_number": block.page_number,
+                                "text_hash": block.text_hash,
+                            }
+                            for block in self.block_rows
+                        ],
+                    )
+                ],
+                block_rows=self.block_rows,
+                allowed_pdf_pages=kwargs["allowed_pdf_pages"],
+            )
+
+    page = case.locator_constraints.pdf_pages[0]
+    single_block = SimpleNamespace(
+        doc_id=document_id,
+        source_block_id="pdf:block:0001",
+        text=first_anchor,
+        text_hash=evidence_text_hash(first_anchor),
+        page_number=page,
     )
-    allowed_page = retrieval_rounds_module._case_observation(
-        policy_id=policy.doc_key,
-        round_format="digital_pdf",
-        case=case,
-        anchors_by_id=anchors,
-        service_result=service_result,
-        recorded=recorded,
-        provenance_by_evidence_id=provenance(case.locator_constraints.pdf_pages[0]),
+    requirements = [
+        round_repo_module.AnchorLocatorRequirement(
+            text=anchors[anchor_id],
+            section=next(anchor.section for anchor in policy.gold.anchors if anchor.anchor_id == anchor_id),
+        )
+        for anchor_id in case.evidence_anchor_ids
+    ]
+    one_locator_repo = _ExactProofRepository([single_block])
+    one_locator = await retrieval_rounds_module._recorded_locator_satisfies(  # noqa: SLF001
+        one_locator_repo,  # type: ignore[arg-type]
+        recorded,
+        provenance_by_evidence_id=provenance(page),
+        doc_key=policy.doc_key,
+        expected_anchors=requirements,
+        allowed_pdf_pages=case.locator_constraints.pdf_pages,
     )
-    assert wrong_page.locator_covered is False
-    assert allowed_page.locator_covered is True
+    assert one_locator is False
+
+    second_block = SimpleNamespace(
+        doc_id=document_id,
+        source_block_id="pdf:block:0002",
+        text=second_anchor,
+        text_hash=evidence_text_hash(second_anchor),
+        page_number=page,
+    )
+    two_locator_provenance = provenance(page)
+    two_locator_provenance[evidence_ref.evidence_id] = two_locator_provenance[
+        evidence_ref.evidence_id
+    ].model_copy(
+        update={
+            "source_locators": [
+                *two_locator_provenance[evidence_ref.evidence_id].source_locators,
+                SourceLocator(
+                    source_block_id=second_block.source_block_id,
+                    block_index=2,
+                    block_type="paragraph",
+                    page_number=page,
+                ),
+            ]
+        }
+    )
+    two_locator = await retrieval_rounds_module._recorded_locator_satisfies(  # noqa: SLF001
+        _ExactProofRepository([single_block, second_block]),  # type: ignore[arg-type]
+        recorded,
+        provenance_by_evidence_id=two_locator_provenance,
+        doc_key=policy.doc_key,
+        expected_anchors=requirements,
+        allowed_pdf_pages=case.locator_constraints.pdf_pages,
+    )
+    assert two_locator is True
+
+    hash_mismatch_ref = evidence_ref.model_copy(update={"text_hash": evidence_text_hash("tampered")})
+    hash_mismatch_recorded = PolicyRetrievalRun(
+        status=recorded.status,
+        hits=recorded.hits,
+        evidence_refs=[hash_mismatch_ref],
+        best_score=recorded.best_score,
+        original_query=recorded.original_query,
+    )
+    mismatch_repo = _ExactProofRepository([single_block, second_block])
+    hash_mismatch = await retrieval_rounds_module._recorded_locator_satisfies(  # noqa: SLF001
+        mismatch_repo,  # type: ignore[arg-type]
+        hash_mismatch_recorded,
+        provenance_by_evidence_id=two_locator_provenance,
+        doc_key=policy.doc_key,
+        expected_anchors=requirements,
+        allowed_pdf_pages=case.locator_constraints.pdf_pages,
+    )
+    assert hash_mismatch is False
+    assert mismatch_repo.calls == 0
 
 
 def test_provider_runtime_owns_real_service_boundaries_and_contract_mode_is_ineligible() -> None:
