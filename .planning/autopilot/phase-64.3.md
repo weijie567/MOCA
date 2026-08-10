@@ -1,39 +1,48 @@
 ---
 phase: "64.3"
-status: running
-current_step: execute
-plan_review_loop: 2
+status: complete
+current_step: closeout
+plan_review_loop: 3
 quota_waits: 0
-updated_at: "2026-08-10T19:59:42+08:00"
-next_command: "$gsd-execute-phase 64.3 --wave 3"
+updated_at: "2026-08-11T01:01:43+08:00"
+next_command: "$gsd-phase-autopilot 64.4"
 ---
 
 # Phase 64.3 Autopilot Checkpoint
 
 ## Completed
 
-- Preflight: isolated branch/worktree created from `main` at `2e49346`.
-- Imported only the existing Phase 64.3/64.4 ROADMAP and STATE registration changes; unrelated dirty main-worktree files remain untouched.
-- Discuss: autonomous single-pass context capture completed and committed (`719ae24`); state session record committed (`8f9105e`).
-- Plan: five plans / twelve tasks / four waves finalized (`1ba42d2`); project state recorded (`14c791f`).
-- GSD plan-checker: clean after three bounded repair iterations; final verdict `VERIFICATION PASSED`.
-- Claude loop-1 findings were adjudicated against repository evidence, repaired, and checked again.
-- Claude loop-2 closure review returned `PASS`; independent Codex adjudication accepted the plan set for execution.
-- Wave 1 / Plan 01 complete (`353b720`): deterministic 3-policy/9-variant fixtures, strict contract, semantic Gold, and pinned generator identity are implemented.
-- Parent wave gate passed: `28 passed, 1 warning`; scoped Ruff lint/format and `git diff --check` passed. Six PDFs / thirty rendered pages passed agent visual QA.
-- Wave 2 / Plan 02 complete (`dbcfc3f`): production-bound direct parser evaluator and persistence-free all-nine CLI are implemented.
-- Parent Plan 02 gate passed: Plan 01+02 tests `46 passed, 1 warning`; forbidden dependency, scoped Ruff lint/format, and diff checks passed. Real CLI truthfully reports `completed_quality_fail` for all nine variants, with the parser/OCR quality debt recorded for Phase 64.4/64.5 triage.
-- Wave 2 / Plan 03 complete (`6963134`): evaluation-only round ownership, migration 029, exact recovery/cleanup, real service-bound retrieval runtime, and provider preflight CLI are implemented.
-- Parent Wave 2 gate passed: Plans 01–03 + facade `81 passed, 5 warnings`; historical replay regression `1 passed`; scoped Ruff lint/format and diff checks passed. Isolated real PostgreSQL proved upgrade/downgrade/re-upgrade, one-active-round uniqueness, safe-abandon gating, and immutable history/trigger preservation.
+- Preflight: isolated branch/worktree created from `main` at `2e49346`; imported only the Phase 64.3/64.4 ROADMAP and STATE registration changes while leaving the original dirty main worktree untouched.
+- Discuss: autonomous context capture completed in `719ae24`; the state session record followed in `8f9105e`.
+- Plan: five plans / twelve tasks / four waves finalized in `1ba42d2`, with project state recorded in `14c791f`.
+- GSD plan-checker passed after three bounded repair iterations; Claude loop 1 findings were adjudicated and repaired, Claude loop 2 returned `PASS`, and Codex independently accepted the plan set.
+- Plan 01 completed in `353b720`: deterministic 3-policy/9-variant fixtures, strict contract, semantic Gold, and pinned generator identity. Six PDFs / thirty pages passed visual QA.
+- Plan 02 completed in `dbcfc3f`: production-bound direct parser evaluator and persistence-free all-nine CLI, with truthful `completed_quality_fail` output.
+- Plan 03 completed in `6963134`: evaluation-only round ownership, migration 029, exact recovery/cleanup, real service-bound retrieval runtime, and fail-closed provider preflight.
+- Stage 5: all five plans and 12 executable tasks completed with atomic commits and summaries.
+- Stage 6: three bounded deep-review passes completed; 11 accepted findings from the first two passes were fixed in eight atomic commits, and the third review is clean.
+- Stage 7: automated self-UAT completed with 5/5 checks passed and no pending or blocked items.
+- Stage 8: security audit closed 24/24 threat occurrences with `threats_open: 0`.
+- Stage 9: Nyquist audit covered 12/12 tasks with no partial, missing, manual-only, or escalated gaps.
+- Stage 10: ROADMAP, STATE, PROJECT, requirements traceability, ledgers, and this checkpoint were reconciled; Phase 64.4 is ready to plan and was not auto-started.
 
 ## Evidence
 
-- `gsd-sdk query init.phase-op "64.3"`: phase found, context/plans/verification absent.
-- Worktree: `/tmp/moca-phase-64-3.2KAz2C/worktree` on `codex/phase-64-3`.
+- Canonical baseline: `evaluation/reports/rag_format_parity/v1/baseline.json` plus its byte-projected Markdown report; 54 cases, 45 stage-attributed failures, and six parser gate inputs.
+- Canonical outcome: `completed_quality_fail`, intentionally preserved as truthful measured quality evidence; baseline remains eligible and uses `full_provider` execution.
+- Retrieval metrics: Hit@1 `0.844444`, Hit@3 `0.933333`, Hit@5 `0.977778`, MRR `0.9`, anchor coverage `0.211111`, no-answer fallback `0.111111`, fallback coverage `0.851852`, locator coverage `0.333333`, and format spread `0.066667`.
+- Provider isolation: fixed evaluation tenant, three isolated rows, one 64-character durable run identity hash, exact evaluation-owned cleanup, zero current blocks/chunks/jobs after completion, and immutable 9 documents/53 chunks preserved.
+- Test gates: focused `143 passed`; expanded RAG/eval/parser/knowledge `442 passed`; scoped Ruff and `git diff --check` passed.
+- Production drift guard: no changes from the stable audit base in production parser, chunker, embedder, retrieval/service, ContextBuilder, verifier, claim verifier, or legacy Gold paths.
+- Review artifacts: `64.3-REVIEW.md` clean; `64.3-REVIEW-FIX.md` records all 11 fixes; `64.3-UAT.md`, `64.3-SECURITY.md`, and `64.3-VALIDATION.md` are complete.
 - Context locks semantic Gold, layered parser scoring, fail-closed evaluation cleanup, provider-backed retrieval rounds, and truthful versioned baseline behavior.
-- Resolved fixture lineage from repository history: current Markdown is canonical; all six PDFs and the full manifest must be regenerated/reviewed atomically.
-- Resolved provider-round isolation around `IngestionService` internal commits using durable progress plus fresh-transaction CAS validation and explicit crash/stale recovery.
+- Provider-round isolation is built around durable progress plus fresh-transaction CAS validation and explicit crash/stale recovery around `IngestionService` internal commits.
+- Transition: `gsd-sdk query phase.complete 64.3` correctly marked 5/5 plans complete but skipped decimal Phase 64.4 and left stale STATE progress; the repository-backed correction is recorded in `.planning/LOCAL-VALIDATION-ISSUES.md`.
+
+## Outcome
+
+Phase 64.3 is complete. Phase 64.4 is the next dependency-ordered phase and consumes this baseline for token-aware chunking and reindex validation. Parser/OCR/ingestion and retrieval-quality defects remain separately owner-named and were not hidden inside Phase 64.3 or Phase 64.4.
 
 ## Last Failure
 
-Plan 03 provider preflight is now proven fail-closed. A migrated isolated PostgreSQL reduced the remaining prerequisite to the real embedding provider; without it the CLI returns `unavailable_prerequisite`, `baseline_eligible=false`, exit `2`. Wave 3 must load a configured local provider without exposing secrets and rerun the real baseline; if unavailable, phase closeout remains blocked. Current GSD `roadmap.update-plan-progress` / `verify.key-links` helpers do not parse this decimal-phase plan shape reliably; completion/wiring is being checked from summaries and repository evidence instead.
+None. The transition-tool decimal-phase mismatch was corrected and documented; it did not affect implementation or evaluation evidence.

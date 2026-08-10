@@ -23245,3 +23245,20 @@ Post-review 验证出现三次只影响一次性检查命令的错误：旧 base
 
 **已做处理 / 剩余入口**
 所有失败命令均是一次性 UAT 展示/读取层错误，未改变 provider、数据库或 tracked artifact；修正后重跑通过，临时 parser report 和 prerequisite 输出已精确清理。后续 UAT 读取应先使用 typed model 或检查实际 schema keys，zsh 不复用 `status` / `path` 等特殊变量，并区分 canonical report 字段与仅存在于 durable evaluation owner 的 identity seal。无产品侧剩余问题。
+
+## 2026-08-11 — Phase 64.3 transition 工具跳过插入阶段并留下旧进度
+
+**问题现象**
+`gsd-sdk query phase.complete 64.3` 正确勾选了 5/5 plans，却把下一阶段写成 Phase 65，跳过 ROADMAP 中明确位于其前且被 Phase 65 依赖的 Phase 64.4；同时没有把 `completed_plans` 从 38 更新到 43，Current focus/Next/可视进度仍保留 64.3 execution 旧值。
+
+**如何检测/复现与关键证据**
+在完成 64.3 后运行 `gsd-sdk query phase.complete 64.3`，JSON 返回 `next_phase: "65"`；随后 `git diff -- .planning/ROADMAP.md .planning/STATE.md` 显示 ROADMAP 只完成了 64.3 勾选，而 STATE 写入 `Phase: 65`、保留旧 Next 文本和 `completed_plans: 38`。ROADMAP 的 Phase 64.4 明确 `Depends on: Phase 64.3`，Phase 65 明确 `Depends on: Phase 64.4`。
+
+**当前判断/根因**
+这是 GSD transition 对小数插入阶段的 next-phase/进度同步缺口，不是 Phase 64.3 产品实现失败。`progress.bar` 仅按已登记 plans 返回 100%，也不适合作为仍有零-plan未来阶段的里程碑完成度。
+
+**已做处理**
+保留工具对 64.3 的 5/5 勾选，按 ROADMAP 依赖事实手工把 STATE/ROADMAP/PROJECT 修正为 Phase 64.4 ready-to-plan；`completed_plans` 修正为 43/43，里程碑阶段进度保留 7/15（47%），并同步 completed context 与 phase closeout。
+
+**剩余问题和下次继续排查入口**
+产品侧无剩余问题。GSD 工具后续应增加 decimal inserted-phase 的顺序测试，并区分“已规划 plans 完成率”和“里程碑 phases 完成率”；在修复前，插入阶段 transition 后必须用 ROADMAP `Depends on` 链核对下一阶段与 STATE 数值。

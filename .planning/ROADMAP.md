@@ -11,7 +11,7 @@
 ## Current Planning State
 
 **Active milestone:** v2.2 Product Experience Fixes
-**Status:** Phase 64.2 complete with 11/11 plans, clean review, UAT, security, and Nyquist gates; inserted Phase 64.3 is next, followed by Phase 64.4 and Phase 65
+**Status:** Phase 64.3 complete with 5/5 plans, clean review, UAT, security, and Nyquist gates; inserted Phase 64.4 is next, followed by Phase 65
 **Scope:** Complete the product-experience work and close source-audit gaps across runtime safety, evidence/replay/memory integrity, trace/SSE reliability, operation contracts, reproducible validation, lifecycle/data integrity, LLM runtime ownership, retrieval governance, and service boundaries without weakening accepted v2.1 contracts.
 
 ## Current Milestone: v2.2 Product Experience Fixes
@@ -47,7 +47,7 @@ Plans:
 
 ## Next
 
-Phase 64.2 is complete. Next: plan Phase 64.3 RAG Format Parity And Document Quality Evaluation with `$gsd-phase-autopilot 64.3` or `$gsd-plan-phase 64.3`; Phase 64.4 then applies and validates token-aware policy chunking before Phase 65.
+Phase 64.3 is complete. Next: plan Phase 64.4 Token-Aware Policy Chunking And Reindex Validation with `$gsd-phase-autopilot 64.4` or `$gsd-plan-phase 64.4`; Phase 65 follows Phase 64.4.
 
 ### Phase 62: Business Query And Drilldown Foundation
 
@@ -177,9 +177,9 @@ Plans:
 ### Phase 64.3: RAG Format Parity And Document Quality Evaluation (INSERTED)
 
 **Goal:** Use three canonical policies and their Markdown, digital-PDF, and scanned-PDF variants to establish a reproducible parser and retrieval format-parity baseline through the existing production parser, ingestion, and retrieval paths without changing production RAG behavior.
-**Requirements**: TBD during Phase 64.3 planning.
+**Requirements**: ROADMAP-SC-1, ROADMAP-SC-2, ROADMAP-SC-3, ROADMAP-SC-4, ROADMAP-SC-5
 **Depends on:** Phase 64.2
-**Plans:** 5 plans
+**Plans:** 5/5 plans complete
 
 **Confirmed gaps owned:** The existing RAG evaluator and golden cases do not measure equivalent content across formats; parser quality, retrieval quality, and evidence-location quality are not independently scored; repeated retrieval-parity rounds do not yet have an explicit reset contract; and there is no reproducible baseline report that attributes failures to parsing, chunking, retrieval, or provenance.
 
@@ -193,11 +193,13 @@ Plans:
 5. Existing production RAG contracts and behavior remain unchanged, evaluation cleanup cannot affect non-evaluation tenants or data, and focused plus existing RAG regression gates pass.
 
 Plans:
-- [ ] 64.3-01-PLAN.md — Contract And Semantic Gold (`depends_on: []`).
-- [ ] 64.3-02-PLAN.md — Direct Parser Parity Evaluator (`depends_on: [64.3-01]`).
-- [ ] 64.3-03-PLAN.md — Retrieval Round Isolation And Provider Runtime (`depends_on: [64.3-01]`).
-- [ ] 64.3-04-PLAN.md — Canonical Reporting And Provider Baseline (`depends_on: [64.3-02, 64.3-03]`).
-- [ ] 64.3-05-PLAN.md — Final Regression Documentation And Ledgers (`depends_on: [64.3-04]`).
+- [x] 64.3-01-PLAN.md — Contract And Semantic Gold (`depends_on: []`).
+- [x] 64.3-02-PLAN.md — Direct Parser Parity Evaluator (`depends_on: [64.3-01]`).
+- [x] 64.3-03-PLAN.md — Retrieval Round Isolation And Provider Runtime (`depends_on: [64.3-01]`).
+- [x] 64.3-04-PLAN.md — Canonical Reporting And Provider Baseline (`depends_on: [64.3-02, 64.3-03]`).
+- [x] 64.3-05-PLAN.md — Final Regression Documentation And Ledgers (`depends_on: [64.3-04]`).
+
+**Closeout:** 5/5 plans and 12/12 executable tasks complete; final deep code review clean after 11 accepted findings were fixed across two repair iterations; automated UAT 5/5 passed; `threats_open: 0`; `nyquist_compliant: true`; focused 143 tests and expanded 442 tests passed on 2026-08-10. The canonical provider baseline is intentionally `completed_quality_fail` and remains the truthful input to Phase 64.4 and owner-named parser/ingestion and retrieval follow-ups.
 
 ### Phase 64.4: Token-Aware Policy Chunking And Reindex Validation (INSERTED)
 

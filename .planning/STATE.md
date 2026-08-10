@@ -2,38 +2,38 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
-status: executing
-last_updated: "2026-08-10T10:12:47.168Z"
-last_activity: 2026-08-10 -- Phase 64.3 execution started
+status: ready_to_plan
+last_updated: "2026-08-10T17:01:43Z"
+last_activity: 2026-08-10 -- Phase 64.3 completed with review, UAT, security, and Nyquist gates clean
 progress:
   total_phases: 15
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 43
-  completed_plans: 38
-  percent: 88
+  completed_plans: 43
+  percent: 47
 ---
 
 # Project State: MOCA
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-08-06)
+See: `.planning/PROJECT.md` (updated 2026-08-10)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 64.3 — rag-format-parity-and-document-quality-evaluation
+**Current focus:** Phase 64.4 — token-aware-policy-chunking-and-reindex-validation
 
 ## Current Position
 
-Phase: 64.3 (rag-format-parity-and-document-quality-evaluation) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 64.3
-Last activity: 2026-08-10 -- Phase 64.3 execution started
-Next: Plan Phase 64.3 with `$gsd-phase-autopilot 64.3` or `$gsd-plan-phase 64.3`.
-After: Plan Phase 64.4 with `$gsd-plan-phase 64.4`; Phase 65 now follows Phase 64.4.
+Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-10 -- Phase 64.3 completed
+Next: Plan Phase 64.4 with `$gsd-phase-autopilot 64.4` or `$gsd-plan-phase 64.4`.
+After: Phase 65 follows Phase 64.4.
 
 Resume file: --resume-file
 
-Progress: [████░░░░░░] 40%
+Progress: [█████░░░░░] 47%
 
 ## Last Completed Milestone
 
@@ -92,7 +92,7 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 **Completed Phase:** 64 (RAG Risk Label Unification) — 4/4 plans complete, review/UAT/security/validation clean
 **Completed Phase:** 64.1 (Runtime Safety And Approval Contract Repair) — 6/6 plans complete, review/UAT/security/validation clean
 **Completed Phase:** 64.2 (Evidence Identity Immutable Replay And Memory Provenance) — 11/11 plans and 26/26 tasks complete; final review/UAT/security/validation clean
-**Registered Phase:** 64.3 (RAG Format Parity And Document Quality Evaluation) — urgent, depends on 64.2, pending `$gsd-plan-phase 64.3`
+**Completed Phase:** 64.3 (RAG Format Parity And Document Quality Evaluation) — 5/5 plans and 12/12 tasks complete; final review/UAT/security/validation clean; canonical baseline truthfully quality-red
 **Registered Phase:** 64.4 (Token-Aware Policy Chunking And Reindex Validation) — urgent, depends on 64.3, pending `$gsd-plan-phase 64.4`
 **Registered Phase:** 65 (Trace Event And Console Label Consistency) — depends on 64.4, pending `$gsd-plan-phase 65`
 **Registered Phase:** 66 (Unified Operation Contract And Tool Gateway) — pending `$gsd-plan-phase 66`
