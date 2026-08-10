@@ -1,0 +1,249 @@
+from __future__ import annotations
+
+import inspect
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import UUID, uuid4
+
+import pytest
+from sqlalchemy.dialects import postgresql
+
+from src.db.models import RagEvaluationRound
+from src.repositories.rag_evaluation_round_repo import (
+    FORMAT_PARITY_DOC_KEYS,
+    FORMAT_PARITY_OWNER_MARKER,
+    FORMAT_PARITY_TENANT_ID,
+    ROUND_FORMATS,
+    AttemptProjection,
+    EvaluationIsolationError,
+    EvaluationRoundIdentity,
+    ProjectionState,
+    RagEvaluationRoundRepository,
+    classify_attempt_projection,
+)
+from src.repositories.rag_ingestion_job_repo import RagIngestionJobRepository
+
+
+MIGRATION = Path("src/db/migrations/versions/029_phase64_3_rag_eval_rounds.py")
+
+
+def _identity(**overrides: object) -> EvaluationRoundIdentity:
+    values: dict[str, object] = {
+        "round_id": uuid4(),
+        "tenant_id": FORMAT_PARITY_TENANT_ID,
+        "owner_marker": FORMAT_PARITY_OWNER_MARKER,
+        "run_token": uuid4(),
+        "round_token": uuid4(),
+        "round_format": "markdown",
+        "state_version": 1,
+        "next_document_index": 0,
+    }
+    values.update(overrides)
+    return EvaluationRoundIdentity(**values)
+
+
+def test_fixed_evaluation_identity_and_orm_constraints_are_exact() -> None:
+    assert FORMAT_PARITY_TENANT_ID == UUID("64300000-0000-4000-8000-000000000001")
+    assert FORMAT_PARITY_OWNER_MARKER == "moca.rag_format_parity.v1"
+    assert FORMAT_PARITY_DOC_KEYS == (
+        "eval_refund_eligibility_and_return",
+        "eval_quality_compensation_and_approval",
+        "eval_cross_border_and_digital_goods",
+    )
+    assert ROUND_FORMATS == ("markdown", "digital_pdf", "scanned_pdf")
+
+    table = RagEvaluationRound.__table__
+    assert {
+        "tenant_id",
+        "owner_marker",
+        "run_token",
+        "round_token",
+        "round_format",
+        "doc_keys_json",
+        "state",
+        "state_version",
+        "next_document_index",
+        "next_step",
+        "attempt_doc_key",
+        "expected_source_checksum",
+        "reservation_at",
+        "claimed_job_id",
+        "lease_expires_at",
+        "pre_state_proof_json",
+        "post_state_proof_json",
+        "head_mappings_json",
+        "immutable_counts_json",
+    } <= set(table.columns)
+    checks = "\n".join(str(constraint.sqltext) for constraint in table.constraints if hasattr(constraint, "sqltext"))
+    assert str(FORMAT_PARITY_TENANT_ID) in checks
+    assert FORMAT_PARITY_OWNER_MARKER in checks
+    assert all(value in checks for value in (*ROUND_FORMATS, *FORMAT_PARITY_DOC_KEYS))
+    assert "state_version > 0" in checks
+    assert "next_document_index >= 0" in checks
+    active_index = next(index for index in table.indexes if index.name == "uq_rag_evaluation_rounds_one_active_tenant")
+    assert active_index.unique is True
+    assert "completed" in str(active_index.dialect_options["postgresql"]["where"])
+    assert "abandoned" in str(active_index.dialect_options["postgresql"]["where"])
+
+
+def test_migration_is_chained_partial_unique_and_evaluation_only() -> None:
+    source = MIGRATION.read_text(encoding="utf-8")
+    assert 'down_revision: str | None = "028_phase64_2_memory_lifecycle"' in source
+    assert 'op.create_table(\n        "rag_evaluation_rounds"' in source
+    assert '"uq_rag_evaluation_rounds_one_active_tenant"' in source
+    assert "postgresql_where" in source
+    assert "_assert_downgrade_safe()" in source
+    assert "refusing downgrade" in source
+    assert 'op.drop_table("rag_evaluation_rounds")' in source
+    assert "policy_document_versions" not in source
+    assert "policy_chunk_versions" not in source
+    assert "DROP TRIGGER" not in source
+    assert "DROP FUNCTION" not in source
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason_code"),
+    [
+        ({"tenant_id": uuid4()}, "identity_mismatch"),
+        ({"owner_marker": "other"}, "identity_mismatch"),
+        ({"run_token": UUID(int=0)}, "identity_mismatch"),
+        ({"round_token": UUID(int=0)}, "identity_mismatch"),
+        ({"round_format": "docx"}, "identity_mismatch"),
+        ({"state_version": 0}, "stale_state"),
+        ({"next_document_index": 4}, "stale_progress"),
+    ],
+)
+def test_wrong_identity_denies_with_one_generic_external_error(
+    overrides: dict[str, object], reason_code: str
+) -> None:
+    with pytest.raises(EvaluationIsolationError) as caught:
+        _identity(**overrides)
+    assert str(caught.value) == "evaluation isolation denied"
+    assert caught.value.reason_code == reason_code
+
+
+@pytest.mark.parametrize(
+    ("projection", "expected"),
+    [
+        (AttemptProjection(), ProjectionState.RESERVATION_ONLY),
+        (
+            AttemptProjection(job_count=1, null_doc_job_count=1),
+            ProjectionState.JOB_ONLY,
+        ),
+        (
+            AttemptProjection(job_count=1, null_doc_job_count=1, failed_job_count=1),
+            ProjectionState.FAILURE,
+        ),
+        (
+            AttemptProjection(
+                head_count=1,
+                matching_head_count=1,
+                block_count=2,
+                chunk_count=3,
+                immutable_document_count=1,
+                immutable_chunk_count=3,
+                canonical_binding_count=3,
+                job_count=1,
+                success_job_count=1,
+            ),
+            ProjectionState.EXACT_COMPLETE,
+        ),
+        (AttemptProjection(job_count=2, null_doc_job_count=2), ProjectionState.MALFORMED),
+        (
+            AttemptProjection(head_count=1, matching_head_count=0, job_count=1, success_job_count=1),
+            ProjectionState.MALFORMED,
+        ),
+        (
+            AttemptProjection(
+                head_count=1,
+                matching_head_count=1,
+                block_count=1,
+                chunk_count=0,
+                job_count=1,
+                success_job_count=1,
+            ),
+            ProjectionState.MALFORMED,
+        ),
+    ],
+)
+def test_commit_aware_projection_taxonomy(
+    projection: AttemptProjection, expected: ProjectionState
+) -> None:
+    assert classify_attempt_projection(projection) is expected
+
+
+class _Rows:
+    def __init__(self, values: list[object]) -> None:
+        self._values = values
+
+    def scalars(self) -> _Rows:
+        return self
+
+    def all(self) -> list[object]:
+        return self._values
+
+
+class _CaptureSession:
+    def __init__(self, values: list[object] | None = None, rowcount: int = 1) -> None:
+        self.values = values or []
+        self.rowcount = rowcount
+        self.statements: list[object] = []
+
+    async def execute(self, statement: object) -> object:
+        self.statements.append(statement)
+        if statement.__class__.__name__ == "Delete":
+            return type("DeleteResult", (), {"rowcount": self.rowcount})()
+        return _Rows(self.values)
+
+
+def _sql(statement: object) -> str:
+    return str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": False}))
+
+
+@pytest.mark.asyncio
+async def test_null_doc_job_candidate_lock_and_delete_use_full_exact_predicates() -> None:
+    session = _CaptureSession()
+    repo = RagIngestionJobRepository(session)  # type: ignore[arg-type]
+    reserved_at = datetime(2026, 8, 10, tzinfo=UTC)
+    checksum = "a" * 64
+    candidates = await repo.lock_evaluation_attempt_candidates(
+        tenant_id=FORMAT_PARITY_TENANT_ID,
+        doc_key=FORMAT_PARITY_DOC_KEYS[0],
+        source_checksum=checksum,
+        reserved_at=reserved_at,
+    )
+    assert candidates == []
+    select_sql = _sql(session.statements[-1])
+    assert "rag_ingestion_jobs.tenant_id =" in select_sql
+    assert "rag_ingestion_jobs.doc_key =" in select_sql
+    assert "rag_ingestion_jobs.source_checksum =" in select_sql
+    assert "rag_ingestion_jobs.created_at >=" in select_sql
+    assert "rag_ingestion_jobs.doc_id IS NULL" in select_sql
+    assert "FOR UPDATE" in select_sql
+    assert "LIMIT" in select_sql
+
+    job_id = uuid4()
+    deleted = await repo.delete_exact_evaluation_attempt(
+        job_id=job_id,
+        tenant_id=FORMAT_PARITY_TENANT_ID,
+        doc_key=FORMAT_PARITY_DOC_KEYS[0],
+        source_checksum=checksum,
+    )
+    assert deleted == 1
+    delete_sql = _sql(session.statements[-1])
+    for column in ("id", "tenant_id", "doc_key", "source_checksum"):
+        assert f"rag_ingestion_jobs.{column} =" in delete_sql
+    assert "doc_key LIKE" not in delete_sql
+
+
+def test_repository_source_has_no_broad_or_immutable_delete_path() -> None:
+    source = inspect.getsource(RagEvaluationRoundRepository)
+    lowered = source.lower()
+    assert "truncate" not in lowered
+    assert "startswith" not in lowered
+    assert "like(" not in lowered
+    assert "delete(policydocument)" not in lowered
+    assert "delete(policydocumentversion)" not in lowered
+    assert "delete(policychunkversion)" not in lowered
+    assert "update(policydocumentversion)" not in lowered
+    assert "update(policychunkversion)" not in lowered
