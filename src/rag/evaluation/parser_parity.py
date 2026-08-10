@@ -370,12 +370,38 @@ def score_parser_result(
         failure_reason="critical_table_anchor_missing",
     )
 
-    locator_matches = {
+    generic_locator_matches = {
         anchor.anchor_id: tuple(
             block for block in anchor_matches[anchor.anchor_id] if _has_required_locator(block, variant=variant)
         )
         for anchor in policy.gold.anchors
     }
+    case_locator_matches = {
+        (case.case_id, anchor_id): tuple(
+            block
+            for block in anchor_matches[anchor_id]
+            if _has_required_locator(
+                block,
+                variant=variant,
+                allowed_pdf_pages=(
+                    case.locator_constraints.pdf_pages if case.locator_constraints is not None else ()
+                ),
+            )
+        )
+        for case in policy.gold.cases
+        if not case.no_answer
+        for anchor_id in case.evidence_anchor_ids
+    }
+    locator_matches: dict[str, tuple[ParsedBlock, ...]] = {}
+    for anchor in policy.gold.anchors:
+        case_matches = [
+            matches for (case_id, anchor_id), matches in case_locator_matches.items() if anchor_id == anchor.anchor_id
+        ]
+        locator_matches[anchor.anchor_id] = (
+            tuple(block for matches in case_matches for block in matches)
+            if case_matches and all(case_matches)
+            else (() if case_matches else generic_locator_matches[anchor.anchor_id])
+        )
     provenance_locators = _ratio_dimension(
         "provenance_locators",
         matched=sum(bool(matches) for matches in locator_matches.values()),
@@ -395,12 +421,13 @@ def score_parser_result(
         variant=variant,
         anchor_matches=anchor_matches,
         locator_matches=locator_matches,
+        case_locator_matches=case_locator_matches,
     )
     case_results = _build_case_results(
         policy=policy,
         variant=variant,
         anchor_matches=anchor_matches,
-        locator_matches=locator_matches,
+        case_locator_matches=case_locator_matches,
     )
     safe_diagnostics = _safe_diagnostics(parse_result)
     outcome = _variant_outcome(
@@ -503,7 +530,7 @@ def _build_case_results(
     policy: FormatParityPolicy,
     variant: FormatParityVariant,
     anchor_matches: Mapping[str, tuple[ParsedBlock, ...]],
-    locator_matches: Mapping[str, tuple[ParsedBlock, ...]],
+    case_locator_matches: Mapping[tuple[str, str], tuple[ParsedBlock, ...]],
 ) -> tuple[ParserCaseResultV1, ...]:
     results: list[ParserCaseResultV1] = []
     for case in sorted(policy.gold.cases, key=lambda item: item.case_id):
@@ -522,7 +549,11 @@ def _build_case_results(
             )
             continue
         matched = sum(bool(anchor_matches[anchor_id]) for anchor_id in case.evidence_anchor_ids)
-        locator_misses = [anchor_id for anchor_id in case.evidence_anchor_ids if not locator_matches[anchor_id]]
+        locator_misses = [
+            anchor_id
+            for anchor_id in case.evidence_anchor_ids
+            if not case_locator_matches[(case.case_id, anchor_id)]
+        ]
         reasons: list[str] = []
         primary_stage: ParserPrimaryStage | None = None
         if matched != expected:
@@ -602,12 +633,22 @@ def _table_comparison_fragments(metadata: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(fragments)
 
 
-def _has_required_locator(block: ParsedBlock, *, variant: FormatParityVariant) -> bool:
+def _has_required_locator(
+    block: ParsedBlock,
+    *,
+    variant: FormatParityVariant,
+    allowed_pdf_pages: tuple[int, ...] = (),
+) -> bool:
     if not block.source_block_id:
         return False
     if variant.format == "markdown":
         return True
-    return block.page_number is not None and block.page_number > 0 and block.box is not None
+    return (
+        block.page_number is not None
+        and block.page_number > 0
+        and block.box is not None
+        and (not allowed_pdf_pages or block.page_number in allowed_pdf_pages)
+    )
 
 
 def _parse_status_dimension(parse_result: ParseResult) -> ParserDimensionV1:
@@ -726,6 +767,7 @@ def _build_observations(
     variant: FormatParityVariant,
     anchor_matches: Mapping[str, tuple[ParsedBlock, ...]],
     locator_matches: Mapping[str, tuple[ParsedBlock, ...]],
+    case_locator_matches: Mapping[tuple[str, str], tuple[ParsedBlock, ...]],
 ) -> tuple[ParserObservationV1, ...]:
     case_ids_by_anchor: dict[str, list[str]] = {anchor.anchor_id: [] for anchor in policy.gold.anchors}
     for case in policy.gold.cases:
@@ -736,8 +778,12 @@ def _build_observations(
     for anchor in policy.gold.anchors:
         case_ids = tuple(sorted(case_ids_by_anchor[anchor.anchor_id])) or ("_policy_anchor_inventory",)
         text_matched = bool(anchor_matches[anchor.anchor_id])
-        locator_matched = bool(locator_matches[anchor.anchor_id])
         for case_id in case_ids:
+            locator_matched = bool(
+                locator_matches[anchor.anchor_id]
+                if case_id == "_policy_anchor_inventory"
+                else case_locator_matches[(case_id, anchor.anchor_id)]
+            )
             observations.append(
                 ParserObservationV1(
                     policy_id=policy.doc_key,

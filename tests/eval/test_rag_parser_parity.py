@@ -97,7 +97,23 @@ def _complete_result(policy: FormatParityPolicy, variant: FormatParityVariant) -
             "table_header": "table",
             "table_row": "table",
         }.get(anchor.kind, "paragraph")
-        page_number = None if variant.format == "markdown" else (index % int(variant.pages or 1)) + 1
+        constrained_pages = next(
+            (
+                case.locator_constraints.pdf_pages
+                for case in policy.gold.cases
+                if anchor.anchor_id in case.evidence_anchor_ids
+                and case.locator_constraints is not None
+                and case.locator_constraints.pdf_pages
+            ),
+            (),
+        )
+        page_number = (
+            None
+            if variant.format == "markdown"
+            else constrained_pages[0]
+            if constrained_pages
+            else (index % int(variant.pages or 1)) + 1
+        )
         table_metadata: dict[str, object] = {}
         if anchor.kind == "table_header":
             table_metadata = {"headers": anchor.text.split()}
@@ -168,6 +184,54 @@ def test_scores_every_parser_dimension_independently_with_real_dtos(
     assert result.critical_tables.expected == sum(
         anchor.kind in {"table_header", "table_row"} for anchor in policy.gold.anchors
     )
+
+
+def test_pdf_case_locator_rejects_matching_anchors_on_pages_outside_gold_constraint(
+    parity_dataset: FormatParityDataset,
+) -> None:
+    policy, variant = _policy_and_variant(parity_dataset, variant_name="digital_pdf")
+    constrained_case = next(case for case in policy.gold.cases if case.locator_constraints is not None)
+    constrained_anchor_ids = set(constrained_case.evidence_anchor_ids)
+    complete = _complete_result(policy, variant)
+    anchor_ids = [anchor.anchor_id for anchor in policy.gold.anchors]
+    blocks = [
+        replace(block, page_number=5, box=_source_box(5))
+        if anchor_ids[block.block_index] in constrained_anchor_ids
+        else block
+        for block in complete.blocks
+        if block.block_index < len(anchor_ids)
+    ]
+    covered_pages = {block.page_number for block in blocks}
+    for page_number in range(1, int(variant.pages or 0) + 1):
+        if page_number not in covered_pages:
+            blocks.append(
+                _block(
+                    block_index=len(blocks),
+                    block_type="paragraph",
+                    text=f"page {page_number} visible text",
+                    page_number=page_number,
+                )
+            )
+
+    result = score_parser_result(
+        policy=policy,
+        variant=variant,
+        parse_result=replace(complete, blocks=tuple(blocks)),
+    )
+    case_result = next(item for item in result.case_results if item.case_id == constrained_case.case_id)
+    locator_observations = [
+        item
+        for item in result.observations
+        if item.case_id == constrained_case.case_id and item.primary_stage == "provenance"
+    ]
+
+    assert result.semantic_anchors.status == "passed"
+    assert result.pdf_page_coverage.status == "passed"
+    assert result.provenance_locators.status == "failed"
+    assert case_result.status == "failed"
+    assert case_result.primary_stage == "provenance"
+    assert case_result.reason_codes == ("provenance_locator_missing",)
+    assert {item.anchor_id for item in locator_observations} == constrained_anchor_ids
 
 
 @pytest.mark.parametrize(
