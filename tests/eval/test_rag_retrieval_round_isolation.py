@@ -33,6 +33,11 @@ from src.rag.evaluation.retrieval_rounds import (
     ordered_gold_questions,
     run_retrieval_parity,
 )
+from scripts.eval_rag_format_parity import (
+    build_unavailable_result,
+    parse_args,
+    validate_provider_arguments,
+)
 
 
 MIGRATION = Path("src/db/migrations/versions/029_phase64_3_rag_eval_rounds.py")
@@ -348,3 +353,93 @@ def test_provider_runtime_owns_real_service_boundaries_and_contract_mode_is_inel
         contract.model_copy(update={"baseline_eligible": True}).model_validate(
             contract.model_copy(update={"baseline_eligible": True}).model_dump()
         )
+
+
+def _provider_argv(**overrides: str) -> list[str]:
+    values = {
+        "mode": "provider",
+        "manifest": "evaluation/rag_sources/format_parity_manifest.jsonl",
+        "gold": "evaluation/golden/rag_format_parity_gold.json",
+        "tenant_id": str(FORMAT_PARITY_TENANT_ID),
+        "owner_marker": FORMAT_PARITY_OWNER_MARKER,
+        "run_token": str(uuid4()),
+        "expected_rollout_version": "1",
+        "output": "/tmp/rag-format-parity.json",
+        "generated_at": "2026-08-10T00:00:00Z",
+    }
+    values.update(overrides)
+    return [
+        "--mode",
+        values["mode"],
+        "--manifest",
+        values["manifest"],
+        "--gold",
+        values["gold"],
+        "--tenant-id",
+        values["tenant_id"],
+        "--owner-marker",
+        values["owner_marker"],
+        "--run-token",
+        values["run_token"],
+        "--expected-rollout-version",
+        values["expected_rollout_version"],
+        "--output",
+        values["output"],
+        "--generated-at",
+        values["generated_at"],
+    ]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"tenant_id": str(uuid4())},
+        {"owner_marker": "wrong-owner"},
+        {"run_token": "not-a-uuid"},
+        {"run_token": str(UUID(int=0))},
+        {"expected_rollout_version": "0"},
+    ],
+)
+def test_cli_rejects_wrong_provider_identity_before_mutation(overrides: dict[str, str]) -> None:
+    args = parse_args(_provider_argv(**overrides))
+    with pytest.raises(EvaluationIsolationError):
+        validate_provider_arguments(args)
+
+
+def test_cli_is_provider_only_and_has_no_fake_or_reset_switch() -> None:
+    args = parse_args(_provider_argv())
+    validate_provider_arguments(args)
+    assert args.mode == "provider"
+    with pytest.raises(SystemExit):
+        parse_args([*_provider_argv(), "--fake"])
+    source = Path("scripts/eval_rag_format_parity.py").read_text(encoding="utf-8").lower()
+    for forbidden in ("first active", "truncate", "delete.*prefix", "--fake", "reset-all"):
+        assert forbidden not in source
+
+
+def test_missing_prerequisites_are_safe_unavailable_not_zero_quality() -> None:
+    dataset = _dataset()
+    result = build_unavailable_result(
+        dataset=dataset,
+        run_token=uuid4(),
+        generated_at="2026-08-10T00:00:00Z",
+        missing=("database_schema", "embedding_provider", "ocr_traineddata"),
+    )
+    payload = result.model_dump(mode="json")
+    serialized = result.model_dump_json()
+    assert payload["outcome"] == "unavailable_prerequisite"
+    assert payload["baseline_eligible"] is False
+    assert payload["rounds"] == []
+    assert "metrics" not in payload
+    assert "score" not in payload
+    assert "pass" not in payload
+    for forbidden in (
+        "postgresql+asyncpg://",
+        "dashscope_api_key",
+        "api_key",
+        "traceback",
+        "/users/",
+        "/private/",
+        "raw_payload",
+    ):
+        assert forbidden not in serialized.lower()
