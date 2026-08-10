@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import hashlib
 
 import pytest
 from pydantic import ValidationError
@@ -446,3 +447,159 @@ def test_fake_and_contract_test_runs_are_never_baseline_eligible(dataset) -> Non
     assert report.baseline_eligible is False
     with pytest.raises(ValidationError):
         _retrieval_run(dataset, mode="contract_test", baseline_eligible=True)
+
+
+def _cli_api():
+    from scripts.eval_rag_format_parity import (
+        FormatParityDiagnosticV1,
+        build_diagnostic,
+        parse_args,
+        persist_full_provider_result,
+    )
+
+    return FormatParityDiagnosticV1, build_diagnostic, parse_args, persist_full_provider_result
+
+
+def test_full_provider_cli_contract_and_no_fake_flag() -> None:
+    _diagnostic, _build_diagnostic, parse_args, _persist = _cli_api()
+    args = parse_args(
+        [
+            "--mode",
+            "full-provider",
+            "--manifest",
+            str(MANIFEST),
+            "--gold",
+            str(GOLD),
+            "--tenant-id",
+            TENANT_ID,
+            "--owner-marker",
+            OWNER_MARKER,
+            "--run-token",
+            RUN_TOKEN,
+            "--expected-rollout-version",
+            "2",
+            "--output-dir",
+            "evaluation/reports/rag_format_parity/v1",
+            "--diagnostic-output",
+            "evaluation/reports/rag_format_parity/v1/diagnostics/run.json",
+        ]
+    )
+    assert args.mode == "full-provider"
+    assert not hasattr(args, "fake")
+
+
+def test_diagnostic_schema_is_baseline_ineligible_and_has_no_quality_surface(dataset) -> None:
+    Diagnostic, build_diagnostic, _parse, _persist = _cli_api()
+    diagnostic = build_diagnostic(
+        dataset=dataset,
+        outcome=EvaluationOutcome.UNAVAILABLE_PREREQUISITE,
+        generated_at=GENERATED_AT,
+        run_token=RUN_TOKEN,
+        prerequisites=("embedding_provider",),
+        reason_codes=("prerequisite_unavailable",),
+    )
+    assert isinstance(diagnostic, Diagnostic)
+    payload = diagnostic.model_dump(mode="json")
+    assert payload["schema_version"] == "rag_format_parity_diagnostic.v1"
+    assert payload["baseline_eligible"] is False
+    assert payload["execution_kind"] == "full_provider"
+    assert payload["outcome"] == "unavailable_prerequisite"
+    assert "metrics" not in payload
+    assert "gates" not in payload
+    assert "quality" not in json.dumps(payload, sort_keys=True).lower()
+    with pytest.raises(ValidationError):
+        Diagnostic.model_validate({**payload, "outcome": "completed_quality_fail"})
+
+
+def test_diagnostic_path_must_not_alias_canonical_paths(dataset, tmp_path) -> None:
+    _Diagnostic, build_diagnostic, _parse, persist = _cli_api()
+    diagnostic = build_diagnostic(
+        dataset=dataset,
+        outcome=EvaluationOutcome.EXECUTION_ERROR,
+        generated_at=GENERATED_AT,
+        run_token=RUN_TOKEN,
+        prerequisites=(),
+        reason_codes=("provider_execution_failed",),
+    )
+    for alias in (tmp_path / "baseline.json", tmp_path / "baseline.md"):
+        with pytest.raises(ValueError, match="diagnostic_path_aliases_canonical"):
+            persist(result=diagnostic, output_dir=tmp_path, diagnostic_output=alias)
+    assert not (tmp_path / "baseline.json").exists()
+    assert not (tmp_path / "baseline.md").exists()
+
+
+def test_unavailable_diagnostic_never_creates_or_replaces_baseline(dataset, tmp_path) -> None:
+    _Diagnostic, build_diagnostic, _parse, persist = _cli_api()
+    baseline_json = tmp_path / "baseline.json"
+    baseline_md = tmp_path / "baseline.md"
+    baseline_json.write_bytes(b"old-json")
+    baseline_md.write_bytes(b"old-markdown")
+    diagnostic_path = tmp_path / "diagnostics" / "run.json"
+    diagnostic = build_diagnostic(
+        dataset=dataset,
+        outcome=EvaluationOutcome.UNAVAILABLE_PREREQUISITE,
+        generated_at=GENERATED_AT,
+        run_token=RUN_TOKEN,
+        prerequisites=("database_runtime",),
+        reason_codes=("prerequisite_unavailable",),
+    )
+    written = persist(result=diagnostic, output_dir=tmp_path, diagnostic_output=diagnostic_path)
+    assert written == (diagnostic_path,)
+    assert baseline_json.read_bytes() == b"old-json"
+    assert baseline_md.read_bytes() == b"old-markdown"
+    assert json.loads(diagnostic_path.read_text(encoding="utf-8"))["baseline_eligible"] is False
+
+
+def test_only_completed_real_report_can_atomically_write_canonical_pair(dataset, tmp_path) -> None:
+    _Diagnostic, _build_diagnostic, _parse, persist = _cli_api()
+    report = _build_report(dataset)
+    written = persist(
+        result=report,
+        output_dir=tmp_path,
+        diagnostic_output=tmp_path / "diagnostics" / "unused.json",
+    )
+    assert written == (tmp_path / "baseline.json", tmp_path / "baseline.md")
+    _targets, _model, _runtime, _build, load_report, render_markdown = _reporting_api()
+    loaded = load_report(tmp_path / "baseline.json")
+    assert loaded.outcome is EvaluationOutcome.COMPLETED_QUALITY_FAIL
+    assert loaded.baseline_eligible is True
+    assert (tmp_path / "baseline.md").read_text(encoding="utf-8") == render_markdown(
+        loaded.model_dump(mode="json")
+    )
+    assert loaded.inputs.generator_identity_hash == _runtime_config().generator_identity_hash
+
+    ineligible = _build_report(dataset, runtime_config=_runtime_config(execution_kind="contract_test"))
+    with pytest.raises(ValueError, match="canonical_baseline_ineligible"):
+        persist(
+            result=ineligible,
+            output_dir=tmp_path / "rejected",
+            diagnostic_output=tmp_path / "rejected" / "diagnostics" / "run.json",
+        )
+    assert not (tmp_path / "rejected" / "baseline.json").exists()
+
+
+def test_projection_failure_leaves_existing_canonical_pair_untouched(dataset, tmp_path, monkeypatch) -> None:
+    _Diagnostic, _build_diagnostic, _parse, persist = _cli_api()
+    baseline_json = tmp_path / "baseline.json"
+    baseline_md = tmp_path / "baseline.md"
+    baseline_json.write_bytes(b"old-json")
+    baseline_md.write_bytes(b"old-markdown")
+
+    def fail_projection(_report):
+        raise ValueError("projection_failed")
+
+    monkeypatch.setattr("scripts.eval_rag_format_parity.render_markdown", fail_projection)
+    with pytest.raises(ValueError, match="projection_failed"):
+        persist(
+            result=_build_report(dataset),
+            output_dir=tmp_path,
+            diagnostic_output=tmp_path / "diagnostics" / "unused.json",
+        )
+    assert baseline_json.read_bytes() == b"old-json"
+    assert baseline_md.read_bytes() == b"old-markdown"
+
+
+def test_legacy_twenty_two_case_gold_hash_is_unchanged() -> None:
+    assert hashlib.sha256((ROOT / "evaluation/golden/rag_cases.jsonl").read_bytes()).hexdigest() == (
+        "b902695607997913d154e836ed17356df3968290e7c5e2f7fd0eb5f862be3e1b"
+    )
