@@ -3,7 +3,7 @@
 Canonical schema: `rag_format_parity_report.v1`
 Outcome: `completed_quality_fail`
 Baseline eligible: `true`
-Generated at: `2026-08-10T13:39:04.921186Z`
+Generated at: `2026-08-10T15:02:01.490004Z`
 Target profile: `rag_format_parity_targets.v1`
 
 Provider reproducibility records exact inputs/config/toolchain and attributable observations; it does not promise bit-identical scores across live runs.
@@ -15,7 +15,7 @@ Provider reproducibility records exact inputs/config/toolchain and attributable 
 - Dataset baseline identity: `3b1ddd8c19f8fce0a37ad113f3d1161039c200e39e60ce0f2e4d0917d870e110`
 - Configured baseline identity: `f2e73bb9dcb339e58d3eb69d696406623b25b526ba66b164cda74666b23a011f`
 - Execution kind: `full_provider`
-- Command: `TMPDIR_MODE=explicit_macos_private_tmp scripts/eval_rag_format_parity.py --mode full-provider --manifest evaluation/rag_sources/format_parity_manifest.jsonl --gold evaluation/golden/rag_format_parity_gold.json --tenant-id 64300000-0000-4000-8000-000000000001 --owner-marker moca.rag_format_parity.v1 --run-token 64f30400-0000-4000-8000-000000000006 --expected-rollout-version 1`
+- Command: `TMPDIR_MODE=explicit_macos_private_tmp scripts/eval_rag_format_parity.py --mode full-provider --manifest evaluation/rag_sources/format_parity_manifest.jsonl --gold evaluation/golden/rag_format_parity_gold.json --tenant-id 64300000-0000-4000-8000-000000000001 --owner-marker moca.rag_format_parity.v1 --run-token 64f30400-0000-4000-8000-000000000007 --expected-rollout-version 1`
 - Embedding: `dashscope/text-embedding-v4` (1024)
 - Retrieval: `retrieval.v3`
 - RRF: `rrf_k=60;dense=25;sparse=50;fuzzy=20`
@@ -24,7 +24,7 @@ Provider reproducibility records exact inputs/config/toolchain and attributable 
 - OCR temp directory mode: `explicit_macos_private_tmp`
 - Rollout version: `1`
 - Counts: policies=3; fixtures=9; parser_variants=9; retrieval_rounds=3; retrieval_cases=54
-- Timings (ms): parser=47084.786; retrieval=79779.512; total=127056.460
+- Timings (ms): parser=46389.282; retrieval=86218.166; total=132822.390
 - Embedding tokens: `unavailable` (unavailable)
 
 ## Gates
@@ -44,13 +44,13 @@ Provider reproducibility records exact inputs/config/toolchain and attributable 
 
 | Slice | Hit@1 | Hit@3 | Hit@5 | MRR | Anchor | No-answer | Fallback | Locator |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| overall | 0.844444 | 0.911111 | 0.977778 | 0.894444 | 0.200000 | 0.111111 | 0.851852 | 1.000000 |
-| format:markdown | 0.866667 | 0.933333 | 1.000000 | 0.916667 | 0.600000 | 0.000000 | 0.833333 | 1.000000 |
-| format:digital_pdf | 0.800000 | 0.933333 | 1.000000 | 0.883333 | 0.000000 | 0.333333 | 0.888889 | 1.000000 |
-| format:scanned_pdf | 0.866667 | 0.866667 | 0.933333 | 0.883333 | 0.000000 | 0.000000 | 0.833333 | 1.000000 |
+| overall | 0.844444 | 0.933333 | 0.977778 | 0.900000 | 0.211111 | 0.111111 | 0.851852 | 0.333333 |
+| format:markdown | 0.933333 | 1.000000 | 1.000000 | 0.966667 | 0.633333 | 0.000000 | 0.833333 | 1.000000 |
+| format:digital_pdf | 0.733333 | 0.933333 | 1.000000 | 0.850000 | 0.000000 | 0.333333 | 0.888889 | 0.000000 |
+| format:scanned_pdf | 0.866667 | 0.866667 | 0.933333 | 0.883333 | 0.000000 | 0.000000 | 0.833333 | 0.000000 |
 | policy:eval_cross_border_and_digital_goods | 1.000000 | 1.000000 | 1.000000 | 1.000000 | 0.212121 | 0.333333 | 0.888889 | 0.000000 |
 | policy:eval_quality_compensation_and_approval | 0.933333 | 0.933333 | 1.000000 | 0.950000 | 0.233333 | 0.000000 | 0.833333 | 0.000000 |
-| policy:eval_refund_eligibility_and_return | 0.600000 | 0.800000 | 0.933333 | 0.733333 | 0.148148 | 0.000000 | 0.833333 | 1.000000 |
+| policy:eval_refund_eligibility_and_return | 0.600000 | 0.866667 | 0.933333 | 0.750000 | 0.185185 | 0.000000 | 0.833333 | 0.333333 |
 | case:cross-case-digital-table | 1.000000 | 1.000000 | 1.000000 | 1.000000 | 0.000000 | 0.000000 | 1.000000 | 0.000000 |
 | case:cross-case-fee-and-digital-state | 1.000000 | 1.000000 | 1.000000 | 1.000000 | 0.250000 | 0.000000 | 1.000000 | 0.000000 |
 | case:cross-case-logistics-exception | 1.000000 | 1.000000 | 1.000000 | 1.000000 | 0.333333 | 0.000000 | 1.000000 | 0.000000 |
@@ -63,12 +63,12 @@ Provider reproducibility records exact inputs/config/toolchain and attributable 
 | case:quality-case-no-answer-warranty-phone | 0.000000 | 0.000000 | 0.000000 | 0.000000 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
 | case:quality-case-remedy-table | 1.000000 | 1.000000 | 1.000000 | 1.000000 | 0.000000 | 0.000000 | 1.000000 | 0.000000 |
 | case:quality-case-time-and-percentage | 0.666667 | 0.666667 | 1.000000 | 0.750000 | 0.333333 | 0.000000 | 1.000000 | 0.000000 |
-| case:refund-case-decision-priority | 1.000000 | 1.000000 | 1.000000 | 1.000000 | 0.333333 | 0.000000 | 1.000000 | 0.000000 |
-| case:refund-case-missing-accessory-table | 0.000000 | 0.333333 | 0.666667 | 0.250000 | 0.000000 | 0.000000 | 1.000000 | 0.000000 |
+| case:refund-case-decision-priority | 0.666667 | 1.000000 | 1.000000 | 0.833333 | 0.333333 | 0.000000 | 1.000000 | 0.000000 |
+| case:refund-case-missing-accessory-table | 0.000000 | 0.666667 | 0.666667 | 0.333333 | 0.000000 | 0.000000 | 1.000000 | 0.000000 |
 | case:refund-case-no-answer-installation | 0.000000 | 0.000000 | 0.000000 | 0.000000 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
 | case:refund-case-seven-day-exception | 0.666667 | 1.000000 | 1.000000 | 0.833333 | 0.333333 | 0.000000 | 1.000000 | 0.000000 |
 | case:refund-case-shipped-auto-review | 1.000000 | 1.000000 | 1.000000 | 1.000000 | 0.111111 | 0.000000 | 1.000000 | 0.000000 |
-| case:refund-case-time-limits | 0.333333 | 0.666667 | 1.000000 | 0.583333 | 0.166667 | 0.000000 | 1.000000 | 1.000000 |
+| case:refund-case-time-limits | 0.666667 | 0.666667 | 1.000000 | 0.750000 | 0.333333 | 0.000000 | 1.000000 | 0.333333 |
 
 ## Failure attribution
 
@@ -107,7 +107,6 @@ Provider reproducibility records exact inputs/config/toolchain and attributable 
 | eval_refund_eligibility_and_return | markdown | refund-case-missing-accessory-table | chunking | retrieved_evidence_anchor_missing |
 | eval_refund_eligibility_and_return | markdown | refund-case-no-answer-installation | retrieval | no_answer_fallback_incorrect |
 | eval_refund_eligibility_and_return | markdown | refund-case-shipped-auto-review | chunking | retrieved_evidence_anchor_missing |
-| eval_refund_eligibility_and_return | markdown | refund-case-time-limits | chunking | retrieved_evidence_anchor_missing |
 | eval_refund_eligibility_and_return | digital_pdf | refund-case-decision-priority | parser | semantic_anchor_missing |
 | eval_refund_eligibility_and_return | digital_pdf | refund-case-missing-accessory-table | chunking | retrieved_evidence_anchor_missing |
 | eval_refund_eligibility_and_return | digital_pdf | refund-case-no-answer-installation | retrieval | no_answer_fallback_incorrect |
