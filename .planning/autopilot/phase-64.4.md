@@ -4,8 +4,8 @@ status: running
 current_step: execute
 plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-08-11T16:13:09+08:00"
-next_command: "$gsd-execute-phase 64.4 (resume at 64.4-07)"
+updated_at: "2026-08-11T16:45:32+08:00"
+next_command: "$gsd-execute-phase 64.4 (resume at 64.4-08)"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -31,6 +31,7 @@ next_command: "$gsd-execute-phase 64.4 (resume at 64.4-07)"
 - Stage 5 execution Plan 04 complete: default-off typed ingestion, dry-run/golden/Phase64.3 seam convergence and static single-assembler guards committed in three atomic commits; `make lint`, 151 combined tests, golden validation and summary self-check passed. A minimal Rule2 typed retrieval-round injection seam closed a hidden character-default path without entering Plan09 scope.
 - Stage 5 execution Plan 05 complete: migration030 corpus projections/bootstrap, canonical ordered-block document identity, config-aware chunk compatibility and post-schema DTO audit persistence committed in three atomic commits; `make lint`, real PostgreSQL/pgvector migration, replay/source-identity and ingestion audit gates passed.
 - Stage 5 execution Plan 06 complete: repository-internal active current scope, exact evaluation/reindex scope, active-config ordinary writes and exhaustive current-path guards committed in three atomic commits; `make lint`, 65 task tests, 41 scope regression tests and summary self-check passed.
+- Stage 5 execution Plan 07 complete: fixed candidate claim/lease/CAS resume, authoritative database-only source snapshots, inactive token-corpus build and deterministic completion proofs committed in four atomic commits; `make lint` and 89 PostgreSQL/pgvector-focused regressions passed. Candidate immutable append explicitly suppresses shared current-head projection while ordinary ingestion retains the compatible default.
 
 ## Evidence
 
