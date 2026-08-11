@@ -221,7 +221,7 @@ Plans:
 6. A versioned A/B report compares character- and token-aware candidates on Phase 64.3 Hit@1/3/5, MRR, anchor/locator coverage, format parity, duplicate rate, chunk count, latency, and embedding token cost; the selected configuration satisfies explicit non-regression gates and existing RAG tests pass.
 
 Plans:
-- [ ] 64.4-01-PLAN.md — Pinned Tokenizer Contract And Assets (`depends_on: []`).
+- [x] 64.4-01-PLAN.md — Pinned Tokenizer Contract And Assets (`depends_on: []`).
 - [ ] 64.4-02-PLAN.md — Exact Final Input Token Chunker (`depends_on: [64.4-01]`).
 - [ ] 64.4-03-PLAN.md — Provider Usage And Immutable Parity Protocol (`depends_on: [64.4-02]`).
 - [ ] 64.4-04-PLAN.md — Production Dry Run Golden And A-B Convergence (`depends_on: [64.4-03]`).
