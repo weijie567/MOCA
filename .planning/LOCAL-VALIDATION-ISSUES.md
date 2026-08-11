@@ -23674,3 +23674,14 @@ Task1/Task2 首轮 scoped GREEN 已分别达到 `66 passed` 与 `156 passed`，�
 
 **已做处理 / 剩余入口**
 补齐 staging/output/commit parent 与 manifest rename 后 source/destination parent fsync，并把每个目录边界加入 fault injection；manifest rename 前故障保持 bundle 不可读，rename 后故障按已提交 bundle 读取。typed runtime 参数化扩展到两种 role × role setup/format ingestion/retrieval resource/post-rollback baseline，并让 invalid candidate state 实际生成 shared-preflight committed diagnostic。重新执行 `make format`、完整 `make lint` 与 prescribed 三文件 gate，结果 `166 passed, 1 warning`。当前无剩余本地验证缺口；Plan12 首次 live exercise 仍必须复核真实 filesystem/rollback evidence，不能把 deterministic fault test 当成 provider 成功证据。
+
+## 2026-08-12 — Phase 64.4 Plan 11 self-check 的 zsh 特殊变量覆盖 PATH
+
+**问题现象 / 如何检测**
+SUMMARY 初次 self-check 在文件存在性检查全部通过后，同一命令块随即报告 `git` 与 `rg` 均为 `command not found`，因此四个 commit 检查显示为 `MISSING`，后续 `git diff --check` 也未实际执行。
+
+**关键证据 / 当前判断 / 根因**
+临时 zsh 循环使用了变量名 `path`；zsh 的 `path` 是与 `PATH` 绑定的特殊数组，循环赋值把当前命令环境的可执行搜索路径覆盖成最后一个文件名。这是 self-check 辅助命令的局部变量命名错误，不是 commit、仓库、虚拟环境或产品代码缺失，也未影响此前 `make lint` 和项目入口 pytest 结果。
+
+**已做处理 / 剩余入口**
+废弃该次 commit 检查结论，改用普通变量名 `item` 从全新 shell 重跑全部文件、commit、`git diff --check` 与 worktree 状态检查。后续 zsh 临时脚本禁止把 `path`、`PATH` 用作循环变量；没有剩余产品验证问题。
