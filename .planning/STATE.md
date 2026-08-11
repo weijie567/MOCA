@@ -4,13 +4,13 @@ milestone: v2.2
 milestone_name: Product Experience Fixes
 status: planning
 last_updated: "2026-08-11T03:19:21.669Z"
-last_activity: 2026-08-10 -- Phase 64.3 completed
+last_activity: 2026-08-11 -- Phase 64.4 context gathered; planning in progress
 progress:
   total_phases: 15
   completed_phases: 7
   total_plans: 43
   completed_plans: 43
-  percent: 100
+  percent: 47
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation)
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-08-10 -- Phase 64.3 completed
+Last activity: 2026-08-11 -- Phase 64.4 context gathered; planning in progress
 Next: Plan Phase 64.4 with `$gsd-phase-autopilot 64.4` or `$gsd-plan-phase 64.4`.
 After: Phase 65 follows Phase 64.4.
 
-Resume file: --resume-file
+Resume file: `.planning/phases/64.4-token-aware-policy-chunking-and-reindex-validation/64.4-CONTEXT.md`
 
 Progress: [█████░░░░░] 47%
 

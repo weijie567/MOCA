@@ -23306,3 +23306,20 @@ PR #5 在 Ruff 修复后的 GitHub Actions run `31449869596` 中，lint 已通�
 首次安装 `fonts-noto-cjk` 后，GitHub Actions run `31451212566` 已通过字体安装 preflight，但测试仍在同一 fixture builder 用例失败；ReportLab 5.0.0 明确报 `NotoSansCJK-Regular.ttc: postscript outlines are not supported`，汇总仍为 `1 failed, 2911 passed, 1 skipped`。这说明缺失字体问题已解决，但所选字体的轮廓格式不满足 PDF 生成器依赖契约。
 
 已在隔离的 `python:3.12-slim` Linux 容器中安装 `fonts-wqy-zenhei` 和项目锁定的 `reportlab==5.0.0`，验证 `/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc` 可由 `TTFont` 成功注册。CI 因此改用该 TrueType 轮廓 CJK 字体，并继续保留精确文件名检查、`MOCA_CJK_FONT` 显式注入和 SHA-256 日志。最终结论仍以 PR #5 的完整 Linux test job 为准。
+
+## 2026-08-11 — Phase 64.4 `state.record-session` 再次错算小数阶段进度
+
+**问题现象**
+Phase 64.4 auto discuss 提交 context 后调用 `gsd-sdk query state.record-session --stopped-at ... --resume-file ...`，handler 把 `.planning/STATE.md` frontmatter 的里程碑进度从 47% 改成 100%，把较完整的 Phase 64.3 last activity 回退，并把正文 `Resume file` 写成字面量 `--resume-file`。
+
+**如何检测/复现与关键证据**
+命令返回 `recorded:true` 后立即执行 `git diff -- .planning/STATE.md`。diff 显示 `percent: 47 -> 100`、`Resume file: --resume-file`；SDK 源码的 `state.record-session` query handler 实际按位置读取 `args[0..2]`，没有消费 workflow 文档给出的 `--stopped-at` / `--resume-file` flag，同时 frontmatter sync 继续把 64.4 这种零-plan小数阶段按已登记 plans 误算为 100%。这与 2026-07-10 Phase 63 及 2026-08-11 Phase 64.3 transition 台账记录一致。
+
+**当前判断/根因**
+这是 GSD SDK query 参数契约与 workflow 示例不一致、以及 frontmatter 同步不适配 decimal inserted phase/里程碑 phase 完成率的工具缺陷，不是 Phase 64.4 产品实现或计划内容问题。
+
+**已做处理**
+按 ROADMAP 的 7/15 completed phases 恢复 47%，把 last activity 更新为 Phase 64.4 context 已收集且 planning 进行中，并写入精确 context resume path；保留工具调用及修正提交作为证据。后续每次 `state.*` / `phase.*` handler 后继续立即检查 STATE diff。
+
+**剩余问题和下次继续排查入口**
+产品侧无剩余问题。GSD SDK 需统一 query handler 的 positional/flag 参数契约，并让进度同步区分“已规划 plan 完成率”和“当前里程碑 phase 完成率”；修复前不直接信任 handler 生成的 decimal phase transition/progress metadata。
