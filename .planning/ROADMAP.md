@@ -223,7 +223,7 @@ Plans:
 Plans:
 - [x] 64.4-01-PLAN.md — Pinned Tokenizer Contract And Assets (`depends_on: []`).
 - [x] 64.4-02-PLAN.md — Exact Final Input Token Chunker (`depends_on: [64.4-01]`).
-- [ ] 64.4-03-PLAN.md — Provider Usage And Immutable Parity Protocol (`depends_on: [64.4-02]`).
+- [x] 64.4-03-PLAN.md — Provider Usage And Immutable Parity Protocol (`depends_on: [64.4-02]`).
 - [ ] 64.4-04-PLAN.md — Production Dry Run Golden And A-B Convergence (`depends_on: [64.4-03]`).
 - [ ] 64.4-05-PLAN.md — Corpus Schema Bootstrap And Source Identity (`depends_on: [64.4-04]`).
 - [ ] 64.4-06-PLAN.md — Active Corpus Paths And Immutable Bindings (`depends_on: [64.4-05]`).

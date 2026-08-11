@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: executing
-last_updated: "2026-08-11T06:08:14Z"
-last_activity: 2026-08-11 -- Phase 64.4 Plan 02 complete; exact final-input token assembler gates passed
+last_updated: "2026-08-11T06:34:44Z"
+last_activity: 2026-08-11 -- Phase 64.4 Plan 03 complete; truthful usage and immutable parity gates passed
 progress:
   total_phases: 15
   completed_phases: 7
   total_plans: 54
-  completed_plans: 45
+  completed_plans: 46
   percent: 47
 ---
 
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 ## Current Position
 
 Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — EXECUTING
-Plan: 3 of 11 — Plan 64.4-03 provider usage and immutable parity protocol
-Status: Plans 01-02 complete; executing the approved strict 01→11 dependency chain.
-Last activity: 2026-08-11 -- Phase 64.4 Plan 02 complete; exact final-input token assembler gates passed
-Next: Execute `64.4-03-PLAN.md`, then continue dependency-ordered plans.
+Plan: 4 of 11 — Plan 64.4-04 production/dry-run/golden/A-B convergence
+Status: Plans 01-03 complete; executing the approved strict 01→11 dependency chain.
+Last activity: 2026-08-11 -- Phase 64.4 Plan 03 complete; truthful usage and immutable parity gates passed
+Next: Execute `64.4-04-PLAN.md`, then continue dependency-ordered plans.
 After: Phase 65 follows Phase 64.4.
 
 Resume file: `.planning/autopilot/phase-64.4.md`
