@@ -4,8 +4,8 @@ status: running
 current_step: execute
 plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-08-11T18:31:25+08:00"
-next_command: "$gsd-execute-phase 64.4 (resume at 64.4-09)"
+updated_at: "2026-08-11T19:23:56+08:00"
+next_command: "$gsd-execute-phase 64.4 (resume at 64.4-10)"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -33,6 +33,7 @@ next_command: "$gsd-execute-phase 64.4 (resume at 64.4-09)"
 - Stage 5 execution Plan 06 complete: repository-internal active current scope, exact evaluation/reindex scope, active-config ordinary writes and exhaustive current-path guards committed in three atomic commits; `make lint`, 65 task tests, 41 scope regression tests and summary self-check passed.
 - Stage 5 execution Plan 07 complete: fixed candidate claim/lease/CAS resume, authoritative database-only source snapshots, inactive token-corpus build and deterministic completion proofs committed in four atomic commits; `make lint` and 89 PostgreSQL/pgvector-focused regressions passed. Candidate immutable append explicitly suppresses shared current-head projection while ordinary ingestion retains the compatible default.
 - Stage 5 execution Plan 08 complete: reversible fixture-authorized pointer CAS, append-only activation history, source-stale refusal and ordinary-ingestion same-config COW committed in five atomic commits; `make lint` and a 94-test PostgreSQL/pgvector combined gate passed. A user-approved Rule 4 migration 031 removed the incompatible block-source uniqueness constraint and added prior epoch/actor audit fields without entering Plan 09/10 selection or receipt scope.
+- Stage 5 execution Plan 09 complete: exact raw Fraction/Decimal A/B gates, create-only all-outcome run artifacts, passing-only immutable selection and a production-capable rollback-only full-provider CLI committed in five atomic commits; `make lint` and 118 focused tests passed. Connection-owned outer transactions now prove production ingestion commits cannot leak evaluation pointer/history changes; no live selected pass was fabricated.
 
 ## Evidence
 

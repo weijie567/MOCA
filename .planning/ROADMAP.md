@@ -229,7 +229,7 @@ Plans:
 - [x] 64.4-06-PLAN.md — Active Corpus Paths And Immutable Bindings (`depends_on: [64.4-05]`).
 - [x] 64.4-07-PLAN.md — Authoritative Snapshot Reindex Build And Resume (`depends_on: [64.4-06]`).
 - [x] 64.4-08-PLAN.md — Atomic Pointer Activation And Ingestion Continuity (`depends_on: [64.4-07]`).
-- [ ] 64.4-09-PLAN.md — Exact A-B Runtime And Immutable Selection (`depends_on: [64.4-08]`).
+- [x] 64.4-09-PLAN.md — Exact A-B Runtime And Immutable Selection (`depends_on: [64.4-08]`).
 - [ ] 64.4-10-PLAN.md — Real Activation Drill And Hash Chained Receipts (`depends_on: [64.4-09]`).
 - [ ] 64.4-11-PLAN.md — Final Documentation Ledgers And Regression Closeout (`depends_on: [64.4-10]`).
 

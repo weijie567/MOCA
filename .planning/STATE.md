@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: executing
-last_updated: "2026-08-11T10:31:25Z"
-last_activity: 2026-08-11 -- Phase 64.4 Plan 08 complete; pointer CAS and ingestion COW gates passed
+last_updated: "2026-08-11T11:23:56Z"
+last_activity: 2026-08-11 -- Phase 64.4 Plan 09 complete; exact A/B and immutable selection gates passed
 progress:
   total_phases: 15
   completed_phases: 7
   total_plans: 54
-  completed_plans: 51
+  completed_plans: 52
   percent: 47
 ---
 
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 ## Current Position
 
 Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — EXECUTING
-Plan: 9 of 11 — Plan 64.4-09 exact A/B runtime and immutable selection
-Status: Plans 01-08 complete; executing the approved strict 01→11 dependency chain.
-Last activity: 2026-08-11 -- Phase 64.4 Plan 08 complete; pointer CAS and ingestion COW gates passed
-Next: Execute `64.4-09-PLAN.md`, then continue dependency-ordered plans.
+Plan: 10 of 11 — Plan 64.4-10 real activation drill and hash-chained receipts
+Status: Plans 01-09 complete; executing the approved strict 01→11 dependency chain.
+Last activity: 2026-08-11 -- Phase 64.4 Plan 09 complete; exact A/B and immutable selection gates passed
+Next: Execute `64.4-10-PLAN.md`, then continue dependency-ordered plans.
 After: Phase 65 follows Phase 64.4.
 
 Resume file: `.planning/autopilot/phase-64.4.md`
