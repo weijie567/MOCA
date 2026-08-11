@@ -2494,3 +2494,12 @@
 - **处理状态**：🔴 已在 Phase 64.4 plan 修订中锁定：canonical document citation content 必须从有序 `ParsedBlock`/authoritative block snapshot 产生并与 chunk boundary/overlap 解耦；rollout corpus 只控制可见性，不能进入 `evidence_identity.v1`；chunk compatibility 另行绑定 config fingerprint。代码尚未实现，不能标记已修复。
 - **证据**：Phase 64.4 GSD plan-checker `64.4-PC-01` 与 Codex 独立源码核对；`src/rag/ingestion.py:213-227,305-325,705-716`；`src/repositories/evidence_version_repo.py:390-445,474-515`；`src/repositories/policy_chunk_repo.py:35-145`。
 - **剩余风险**：实现必须覆盖 legacy fingerprint 兼容/迁移、相同 source 跨 corpus 的 immutable reuse、不同 config 的 chunk-version 分流、active current lookup 与历史 immutable replay；在 PostgreSQL、focused tests、完整回归和 provider-backed A/B 均通过前保持本条为待修复。
+
+## 2026-08-11 — Phase 64.4 Plan 01 — DashScope offline tokenizer 映射缺少厂商保证 🟡有意妥协
+
+- **子系统**：RAG embedding tokenizer / offline token counting / provider parity。
+- **问题现象 / 根因**：Alibaba Cloud 官方文档确认 `text-embedding-v4` 的 1024 默认维度、单条 8192 token、每请求最多 10 条和 request-level `prompt_tokens`，但没有发布或保证可离线使用的精确 tokenizer revision。Phase 64.4 research 的 10 组安全合成 probe 证明 Qwen 官方 `Qwen3-Embedding-0.6B` tokenizer 在固定 revision、包含 EOS 时与当前 provider usage 10/10 精确一致；该结论是实证映射，不是厂商兼容承诺。
+- **影响**：provider 或 tokenizer 资产漂移时，若仅依赖模型名猜测或 ambient library 行为，new ingestion/reindex 可能低估 final input、错误复用配置身份或把不可验证状态当成通过。
+- **处理状态**：🟡 有意妥协。Plan 01 已 vendor revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` 的 11,423,705-byte asset（SHA-256 `def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a`），精确锁定 `tokenizers==0.23.1`、EOS、8192/10、512/384/48 和 canonical fingerprint；missing/hash/runtime/count/nondeterminism 只返回 allowlisted typed failure，没有下载、字符回退或 provider/persistence side effect。contract 与 SOURCE 明示 `empirically_provider_parity_approved_not_vendor_guaranteed`。
+- **证据**：Phase 64.4 Plan 01 commits `c2bf8ccc`、`2bde39bd`；`src/rag/assets/embedding_tokenizer.v1.json:1`、`src/rag/embedding_tokenizer.py:18`、`src/rag/embedding_tokenizer.py:119`、`src/rag/embedding_tokenizer.py:155`、`tests/rag/test_embedding_tokenizer.py`；最终 Plan 01 gate 为 `make lint` 通过、tokenizer tests `21 passed`、`uv lock --check` 通过。
+- **剩余风险 / 继续入口**：Plan 03 必须用同一 authoritative final-input seam 产生新的 create-only provider parity artifact；`unavailable` / `quarantined` 均不得授权 new token-aware writes 或 cutover。Plan 09/10 的 selection/activation 还必须绑定 fresh parity hash；在这些 gate 完成前不能把本条升级为“厂商保证”或“端到端已修复”。
