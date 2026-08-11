@@ -1,4 +1,4 @@
-.PHONY: up down migrate seed test lint format dev eval eval-rag eval-agent eval-live eval-baseline eval-rag-format-parity-contract eval-rag-format-parity-parser eval-rag-format-parity-provider
+.PHONY: up down migrate seed test lint format hooks verify-fast dev eval eval-rag eval-agent eval-live eval-baseline eval-rag-format-parity-contract eval-rag-format-parity-parser eval-rag-format-parity-provider
 
 up:
 	docker compose up --build
@@ -16,10 +16,17 @@ test:
 	uv run pytest
 
 lint:
-	uv run ruff check src/ tests/
+	uv run ruff check .
+	uv run ruff format --check .
 
 format:
-	uv run ruff format src/ tests/
+	uv run ruff check --fix .
+	uv run ruff format .
+
+hooks:
+	uv run --extra dev pre-commit install --install-hooks
+
+verify-fast: lint
 
 dev:
 	uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload

@@ -383,9 +383,7 @@ def score_parser_result(
             if _has_required_locator(
                 block,
                 variant=variant,
-                allowed_pdf_pages=(
-                    case.locator_constraints.pdf_pages if case.locator_constraints is not None else ()
-                ),
+                allowed_pdf_pages=(case.locator_constraints.pdf_pages if case.locator_constraints is not None else ()),
             )
         )
         for case in policy.gold.cases
@@ -550,9 +548,7 @@ def _build_case_results(
             continue
         matched = sum(bool(anchor_matches[anchor_id]) for anchor_id in case.evidence_anchor_ids)
         locator_misses = [
-            anchor_id
-            for anchor_id in case.evidence_anchor_ids
-            if not case_locator_matches[(case.case_id, anchor_id)]
+            anchor_id for anchor_id in case.evidence_anchor_ids if not case_locator_matches[(case.case_id, anchor_id)]
         ]
         reasons: list[str] = []
         primary_stage: ParserPrimaryStage | None = None

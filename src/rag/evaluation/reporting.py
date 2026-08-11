@@ -265,9 +265,7 @@ class CaseResultRowV1(_FrozenModel):
             raise ValueError("case_result_no_answer_mismatch")
         if self.semantic_anchor_hits > self.semantic_anchor_total:
             raise ValueError("case_result_anchor_count_invalid")
-        expected_fallback = (
-            self.no_answer_correct if self.no_answer_expected else self.service_status != "no_evidence"
-        )
+        expected_fallback = self.no_answer_correct if self.no_answer_expected else self.service_status != "no_evidence"
         if self.fallback_correct != expected_fallback:
             raise ValueError("case_result_fallback_mismatch")
         expected = _derive_case_classification(
@@ -388,9 +386,7 @@ class FormatParityReportV1(_FrozenModel):
                 raise ValueError("each completed miss must have exactly one primary failure")
             quality_failed = bool(expected_failures) or any(gate.passed is False for gate in recomputed_gates)
             expected_outcome = (
-                EvaluationOutcome.COMPLETED_QUALITY_FAIL
-                if quality_failed
-                else EvaluationOutcome.COMPLETED_PASS
+                EvaluationOutcome.COMPLETED_QUALITY_FAIL if quality_failed else EvaluationOutcome.COMPLETED_PASS
             )
             if self.outcome is not expected_outcome:
                 raise ValueError("completed_outcome_mismatch")

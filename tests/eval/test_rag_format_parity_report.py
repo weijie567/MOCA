@@ -514,9 +514,7 @@ def test_strict_loader_rejects_target_gate_outcome_and_aggregate_tampering(datas
 
     relabeled_anchor_miss = json.loads(json.dumps(canonical))
     missed_row = next(
-        row
-        for row in relabeled_anchor_miss["case_rows"]
-        if row["semantic_anchor_hits"] < row["semantic_anchor_total"]
+        row for row in relabeled_anchor_miss["case_rows"] if row["semantic_anchor_hits"] < row["semantic_anchor_total"]
     )
     missed_row["passed"] = True
     missed_row["primary_stage"] = None

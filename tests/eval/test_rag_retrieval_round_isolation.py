@@ -1135,9 +1135,7 @@ async def test_retrieval_locator_coverage_requires_recorded_evidence_locator_pro
         page_number=page,
     )
     two_locator_provenance = provenance(page)
-    two_locator_provenance[evidence_ref.evidence_id] = two_locator_provenance[
-        evidence_ref.evidence_id
-    ].model_copy(
+    two_locator_provenance[evidence_ref.evidence_id] = two_locator_provenance[evidence_ref.evidence_id].model_copy(
         update={
             "source_locators": [
                 *two_locator_provenance[evidence_ref.evidence_id].source_locators,

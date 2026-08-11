@@ -147,9 +147,7 @@ class RecordingPolicyRetrievalEngine:
 
         return await self._delegate.get_contents_by_evidence_keys(**kwargs)
 
-    async def get_provenance_by_evidence_keys(
-        self, **kwargs: Any
-    ) -> dict[tuple[str, str], EvidenceProvenance]:
+    async def get_provenance_by_evidence_keys(self, **kwargs: Any) -> dict[tuple[str, str], EvidenceProvenance]:
         """Forward locator resolution for evidence refs recorded by the one search."""
 
         return await self._delegate.get_provenance_by_evidence_keys(**kwargs)
@@ -474,7 +472,10 @@ def rebuild_completed_retrieval_parity(
     if (
         tuple(item.round_format for item in rounds) != ROUND_FORMATS
         or tuple(item.round_token for item in rounds) != expected_tokens
-        or any(item.outcome not in {EvaluationOutcome.COMPLETED_PASS, EvaluationOutcome.COMPLETED_QUALITY_FAIL} for item in rounds)
+        or any(
+            item.outcome not in {EvaluationOutcome.COMPLETED_PASS, EvaluationOutcome.COMPLETED_QUALITY_FAIL}
+            for item in rounds
+        )
     ):
         raise EvaluationIsolationError("terminal_round_result_invalid")
     overall = _overall_outcome(list(rounds))

@@ -23262,3 +23262,24 @@ Post-review 验证出现三次只影响一次性检查命令的错误：旧 base
 
 **剩余问题和下次继续排查入口**
 产品侧无剩余问题。GSD 工具后续应增加 decimal inserted-phase 的顺序测试，并区分“已规划 plans 完成率”和“里程碑 phases 完成率”；在修复前，插入阶段 transition 后必须用 ROADMAP `Depends on` 链核对下一阶段与 STATE 数值。
+
+## 2026-08-11 — Phase 64.3 PR 再次因本地与 CI 的 Ruff 格式入口漂移失败
+
+**问题现象**
+PR #5 的 GitHub Actions `lint` job 中，`uv run ruff check .` 通过，但随后 `uv run ruff format --check .` 报告 6 个 Phase 64.3 文件需要格式化并退出 1。Phase 64.2 的首次 PR 检查曾以同样原因失败，当时有 26 个文件需要格式化。
+
+**如何检测/复现与关键证据**
+GitHub Actions run `31448121999` 的 lint 日志列出 `parser_parity.py`、`reporting.py`、`retrieval_rounds.py`、`rag_evaluation_round_repo.py` 及两个 eval test 文件。仓库核对发现 `make lint` 只运行 `ruff check src/ tests/`，`make format` 只运行 `ruff format src/ tests/`，而 CI 独立运行全仓 `ruff check .` 与 `ruff format --check .`；仓库此前没有 pre-commit 配置，phase closeout 也允许 scoped `ruff check` 绿色替代完整 formatter gate。
+
+**当前判断/根因**
+这是验证入口多源、扫描范围不一致且缺少提交前 hook 导致的通用流程缺陷，不是六个文件各自的业务逻辑问题。`ruff check` 与 `ruff format --check` 是两个独立 gate，前者通过不能证明 formatter 合规。
+
+**已做处理**
+把 `make lint` 设为本地与 CI 的唯一完整 Ruff 入口，统一执行全仓 check 与 format-check；`make format` 统一执行 safe fixes 与全仓格式化；新增使用项目 `uv.lock` 的 pre-commit 自动修复/格式化和 pre-push 全仓 gate，并在 `AGENTS.md` 规定所有 phase closeout 必须运行 `make lint`、scoped Ruff 不得替代。执行一次全仓格式化后，6 个文件均已规范化。
+
+**剩余问题和下次继续排查入口**
+本条只解决 Ruff 通用失败。PR #5 的 test job 另有 CI 缺少 CJK 字体导致 fixture deterministic test 失败，属于独立环境契约问题，不能用格式修复掩盖；后续从 `tests/eval/test_rag_format_parity_contract.py::test_fixture_builder_is_byte_deterministic_across_wall_clock_gap` 与 `MOCA_CJK_FONT` preflight 入口处理。
+
+### Hook 验证补充：新 worktree 未同步 dev extra
+
+首次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pre-commit validate-config` 与 `pre-commit run --all-files` 时，uv 报 `Failed to spawn: pre-commit`。根因是新 worktree 只完成 lock 更新和默认环境创建，尚未把 dev extra 同步进 `.venv`；该失败不能作为 hook 配置结论。已把 `make hooks` 以及 hook 内的 Ruff entry 显式改为 `uv run --extra dev ...`，使首次克隆/新 worktree 不依赖预先手工 `uv sync --extra dev`。后续以带 `--extra dev` 的重跑结果为准。

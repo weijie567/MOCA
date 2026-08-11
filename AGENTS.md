@@ -21,6 +21,13 @@
 - 任何 review、verification、clean re-review、GSD agent、外部 AI 提示词里的测试命令都必须显式写项目入口。凡是由裸 `pytest` / 裸 `python -m pytest` 得到的结果，在 MOCA 中视为无效验证，必须标记为环境入口错误，并用 `uv run pytest ...` 或 `.venv/bin/pytest ...` 重跑后才能作为结论。
 - Ruff、临时 Python 脚本和其他开发工具也优先使用 `uv run ...` 或 `.venv/bin/...`，避免同类 PATH 污染。
 
+## Ruff 格式验证硬规则
+
+- `make lint` 是本仓库 Ruff 的唯一完整验证入口，必须同时执行全仓 `uv run ruff check .` 与 `uv run ruff format --check .`；CI 也只能调用该入口，避免本地与 CI 命令漂移。
+- 任何 Python 改动在提交前先运行 `make format`，再运行 `make lint`。第一次克隆仓库后运行 `make hooks`，安装由项目 `uv.lock` 提供版本的 pre-commit 与 pre-push hooks。
+- phase execution、review、verification、clean re-review 和最终 closeout 可以额外运行 scoped Ruff 加速定位，但 scoped 结果不能替代最终全仓 `make lint`。由 `ruff check` 单独得到的绿色结论不包含 formatter 合规性。
+- 禁止用 `--no-verify` 绕过 hooks 作为正常工作流；紧急绕过必须记录原因，并在 push/PR 前补跑 `make lint`。
+
 ## 双 AI 协作工作流（Codex ↔ Codex）
 
 MOCA 采用 Codex 与 Codex 的「双 AI 交叉评审」模式：**Codex 是 plan 的设计者和决策把关人，Codex 是独立第二意见、大改执行手，以及代码实现/审核的主力。** 每一道审核优先调用 GSD 原生工具，Codex 在其后做独立交叉验证。

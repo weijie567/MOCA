@@ -17,8 +17,7 @@ jobs:
         with:
           version: "latest"
       - run: uv sync --extra dev
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
+      - run: make lint
 
   test:
     runs-on: ubuntu-latest

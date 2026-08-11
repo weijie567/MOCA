@@ -529,9 +529,8 @@ class RagEvaluationRoundRepository:
             raise EvaluationIsolationError("advanced_document_mismatch")
         raw_proof = row.head_mappings_json
         expected = raw_proof.get(doc_key) if isinstance(raw_proof, dict) else None
-        if (
-            not isinstance(expected, dict)
-            or expected.get("source_checksum") != canonical_ingestion_source_checksum(source_checksum)
+        if not isinstance(expected, dict) or expected.get("source_checksum") != canonical_ingestion_source_checksum(
+            source_checksum
         ):
             raise EvaluationIsolationError("advanced_document_checksum_mismatch")
         heads = await self._lock_tenant_heads()
