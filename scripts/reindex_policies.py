@@ -15,6 +15,8 @@ from sqlalchemy import select
 from src.db.models import EvidenceIdentityRollout
 from src.db.session import SessionLocal
 from src.rag.embedding_tokenizer import load_embedding_tokenizer_config
+from src.rag.embedder import EmbeddingService
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.rag.policy_reindex import (
     FreshProviderParityClaimV1,
     PolicyReindexClaimRequest,
@@ -42,6 +44,12 @@ def _parse_args() -> argparse.Namespace:
     resume = subcommands.add_parser("resume")
     resume.add_argument("--state-path", type=Path, required=True)
     resume.add_argument("--output-state-path", type=Path, required=True)
+    build = subcommands.add_parser("build-next")
+    build.add_argument("--state-path", type=Path, required=True)
+    build.add_argument("--output-state-path", type=Path, required=True)
+    validate = subcommands.add_parser("validate")
+    validate.add_argument("--state-path", type=Path, required=True)
+    validate.add_argument("--output-state-path", type=Path, required=True)
     return parser.parse_args()
 
 
@@ -100,6 +108,27 @@ async def _resume(args: argparse.Namespace) -> PolicyReindexRunIdentity:
             return await PolicyReindexService(session).resume(owner)
 
 
+async def _build_next(args: argparse.Namespace) -> PolicyReindexRunIdentity:
+    owner = _load_identity(args.state_path)
+    async with SessionLocal() as session:
+        async with session.begin():
+            return await PolicyReindexService(session).build_next_document(
+                owner,
+                assembler=PolicyEmbeddingInputAssembler(),
+                embedder=EmbeddingService(),
+            )
+
+
+async def _validate(args: argparse.Namespace) -> PolicyReindexRunIdentity:
+    owner = _load_identity(args.state_path)
+    async with SessionLocal() as session:
+        async with session.begin():
+            return await PolicyReindexService(session).validate_candidate(
+                owner,
+                assembler=PolicyEmbeddingInputAssembler(),
+            )
+
+
 def _identity_payload(owner: PolicyReindexRunIdentity) -> dict[str, Any]:
     payload = asdict(owner)
     for key, value in tuple(payload.items()):
@@ -149,8 +178,14 @@ async def _main() -> int:
     if args.command == "claim":
         owner = await _claim(args)
         _write_identity_create_only(args.state_path, owner)
-    else:
+    elif args.command == "resume":
         owner = await _resume(args)
+        _write_identity_create_only(args.output_state_path, owner)
+    elif args.command == "build-next":
+        owner = await _build_next(args)
+        _write_identity_create_only(args.output_state_path, owner)
+    else:
+        owner = await _validate(args)
         _write_identity_create_only(args.output_state_path, owner)
     print(json.dumps({"state": owner.state, "state_version": owner.state_version}, sort_keys=True))
     return 0

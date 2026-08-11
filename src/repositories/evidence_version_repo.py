@@ -607,6 +607,7 @@ class EvidenceVersionRepository:
         canonical_source: CanonicalDocumentContentV2 | None = None,
         correction_of_document_version_id: str | UUID | None = None,
         retention_until: datetime | None = None,
+        project_current_head: bool = True,
     ) -> tuple[PolicyDocumentVersion, list[PolicyChunkVersion]]:
         """Append one document version and one row per produced chunk."""
 
@@ -732,7 +733,8 @@ class EvidenceVersionRepository:
             chunk_rows.append(row)
         self.session.add_all([row for row in chunk_rows if row not in prior_chunk_rows])
         await self.session.flush()
-        await self.project_write_sequence(document=document, chunks=chunks, write_sequence=write_sequence)
+        if project_current_head:
+            await self.project_write_sequence(document=document, chunks=chunks, write_sequence=write_sequence)
         return document_row, chunk_rows
 
     async def project_write_sequence(

@@ -42,6 +42,7 @@ from src.rag.evaluation.retrieval_rounds import (
     ordered_gold_questions,
     run_retrieval_parity,
 )
+from src.rag.policy_reindex import PolicyReindexService
 from scripts.eval_rag_format_parity import (
     build_unavailable_result,
     parse_args,
@@ -165,6 +166,16 @@ def test_fixed_evaluation_identity_and_orm_constraints_are_exact() -> None:
     assert active_index.unique is True
     assert "completed" in str(active_index.dialect_options["postgresql"]["where"])
     assert "abandoned" in str(active_index.dialect_options["postgresql"]["where"])
+
+
+def test_candidate_reindex_does_not_share_evaluation_cleanup_or_activation_paths() -> None:
+    source = inspect.getsource(PolicyReindexService)
+
+    assert "RagEvaluationRound" not in source
+    assert "RagIngestionJob" not in source
+    assert "delete(" not in source
+    assert "cas_rollout" not in source
+    assert "activate" not in source.lower()
 
 
 @pytest.mark.asyncio

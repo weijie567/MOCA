@@ -23487,3 +23487,14 @@ fixture 将 manifest、source corpus、rollout 三个没有 ORM relationship 的
 
 **已做处理 / 剩余入口**
 fixture 改为 tenant 后依次 flush manifest、source corpus、rollout，保留真实 PostgreSQL/pgvector schema 与复合外键，不绕过约束。相同项目入口重跑为 `5 passed, 1 warning`；随后 `make format`、完整 `make lint` 与精确 gate 继续通过。当前无产品侧剩余问题；后续构造 inactive candidate projection fixture 时仍须显式按 tenant → manifest → corpus → current/immutable row → binding 顺序 flush。
+
+## 2026-08-11 — Phase 64.4 Plan 07 Task 2 DB snapshot candidate 的预期 RED
+
+**问题现象 / 如何检测**
+Wave-0 先补 source file 不可用、inactive candidate 可见性、per-document snapshot 重检、事务中断回滚重试、complete coverage/deterministic replay 与 cross-tenant/run 隔离测试。使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_policy_reindex.py`，结果为 `5 failed, 5 passed, 1 warning`；五个新用例均在调用 `PolicyReindexService.build_next_document` 时得到 `AttributeError`。
+
+**当前判断 / 根因**
+这是严格 TDD 的预期 RED，证明测试命中了 Plan 07 Task 2 尚不存在的 candidate build 边界，不是 PostgreSQL/pgvector、Python 入口或既有 Task 1 回归。实现核对同时确认 `EvidenceVersionRepository.append_immutable_version()` 原先必然投影 shared document/chunk `evidence_write_sequence`；候选若直接复用会违反“不修改 shared current head”的硬约束。
+
+**已做处理 / 剩余入口**
+新增显式 source-corpus 的数据库快照 DTO、重检、candidate bindings、唯一 assembler/provider input、immutable compatibility、count/vector/coverage/deterministic proof 与 cursor 同事务 CAS；immutable owner 仅增加默认 `True` 的 `project_current_head` 参数，candidate 显式传 `False`，ordinary append 回归证明默认仍更新 current head。最终先执行 `make format`、完整 `make lint`，再运行 Plan 07 三文件 gate 为 `89 passed, 3 warnings`。当前无已知本地验证缺口；Plan 08 才能验证 pointer activation 与 ordinary-ingestion continuity。

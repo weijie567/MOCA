@@ -288,6 +288,16 @@ async def test_postgresql_reuses_document_version_and_versions_incompatible_chun
                 write_sequence=3,
                 canonical_source=canonical,
             )
+            assert document.evidence_write_sequence == 3
+            assert chunk.evidence_write_sequence == 3
+            await repository.append_immutable_version(
+                tenant_id=tenant_id,
+                document=document,
+                chunks=[chunk],
+                write_sequence=99,
+                canonical_source=canonical,
+                project_current_head=False,
+            )
 
             assert first_document.id == second_document.id == third_document.id
             assert first_chunk.id != second_chunk.id
@@ -299,6 +309,8 @@ async def test_postgresql_reuses_document_version_and_versions_incompatible_chun
             assert second_chunk.embedding_token_count == chunk.embedding_token_count
             assert second_document.canonical_content_schema_version == canonical.schema_version
             assert second_document.canonical_blocks_hash == canonical.blocks_hash
+            assert document.evidence_write_sequence == 3
+            assert chunk.evidence_write_sequence == 3
             assert await session.scalar(select(func.count()).select_from(PolicyDocumentVersion)) == 1
             assert await session.scalar(select(func.count()).select_from(PolicyChunkVersion)) == 2
     finally:

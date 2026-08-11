@@ -7,16 +7,40 @@ pointer and never reparses source files.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+import math
 import re
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from uuid import UUID, uuid4
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import PolicyCorpusManifestRevision, PolicyCorpusVersion
+from src.db.models import (
+    CorpusBlockBinding,
+    CorpusChunkBinding,
+    CorpusDocumentBinding,
+    PolicyChunk,
+    PolicyChunkVersion,
+    PolicyCorpusManifestRevision,
+    PolicyCorpusVersion,
+    PolicyDocument,
+)
+from src.rag.ingestion import _policy_chunks_from_embedding_inputs
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler, PolicyEmbeddingInputV1
+from src.repositories.document_block_repo import (
+    AuthoritativePolicyDocumentSnapshotV1,
+    AuthoritativeSourceSnapshotError,
+    DocumentBlockRepository,
+)
+from src.repositories.evidence_version_repo import (
+    EvidenceVersionRepository,
+    canonical_chunk_version_matches_projection,
+)
 from src.repositories.policy_corpus_repo import PolicyCorpusRepository, PolicyCorpusUnavailable
 
 
@@ -42,6 +66,9 @@ class PolicyReindexFailureCode(StrEnum):
     STATE_MISMATCH = "state_mismatch"
     CAS_CONFLICT = "cas_conflict"
     DOCUMENT_ORDER_MISMATCH = "document_order_mismatch"
+    SOURCE_SNAPSHOT_DRIFT = "source_snapshot_drift"
+    CANDIDATE_PROJECTION_MISMATCH = "candidate_projection_mismatch"
+    EMBEDDING_PROOF_FAILED = "embedding_proof_failed"
 
 
 class PolicyReindexError(RuntimeError):
@@ -104,12 +131,18 @@ class PolicyReindexRunIdentity:
     parity_expires_at: datetime
 
 
+class PolicyCandidateEmbedder(Protocol):
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]: ...
+
+
 class PolicyReindexService:
     """Claim and advance exactly one inactive candidate under tenant locks."""
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.corpora = PolicyCorpusRepository(session)
+        self.blocks = DocumentBlockRepository(session)
+        self.evidence = EvidenceVersionRepository(session)
 
     async def claim(
         self,
@@ -222,6 +255,7 @@ class PolicyReindexService:
         *,
         doc_key: str,
         now: datetime | None = None,
+        bootstrap_counts: dict[str, int] | None = None,
     ) -> PolicyReindexRunIdentity:
         """Advance only after the caller's document projection writes are flushed.
 
@@ -242,19 +276,355 @@ class PolicyReindexService:
             _fail(PolicyReindexFailureCode.DOCUMENT_ORDER_MISMATCH)
         next_index = owner.next_document_index + 1
         state = "built" if next_index == len(owner.ordered_doc_keys) else "building"
+        values: dict[str, Any] = {
+            "state": state,
+            "next_document_index": next_index,
+            "safe_message": "candidate document checkpoint committed",
+        }
+        if bootstrap_counts is not None:
+            values["bootstrap_counts_json"] = dict(bootstrap_counts)
         updated = await self.corpora.cas_candidate(
             row,
             expected_state_version=owner.state_version,
             expected_next_document_index=owner.next_document_index,
+            values=values,
+        )
+        if updated is None:
+            _fail(PolicyReindexFailureCode.CAS_CONFLICT)
+        return self._identity_from_row(updated, manifest=manifest)
+
+    async def build_next_document(
+        self,
+        owner: PolicyReindexRunIdentity,
+        *,
+        assembler: PolicyEmbeddingInputAssembler,
+        embedder: PolicyCandidateEmbedder,
+        now: datetime | None = None,
+    ) -> PolicyReindexRunIdentity:
+        """Build and checkpoint one document without committing or changing current authority."""
+
+        checked_at = _as_utc(now or datetime.now(UTC))
+        row, manifest = await self._lock_validated(owner, now=checked_at)
+        if row.state != "building" or owner.next_document_index >= len(owner.ordered_doc_keys):
+            _fail(PolicyReindexFailureCode.STATE_MISMATCH)
+        if assembler.config.config_fingerprint != owner.config_fingerprint:
+            _fail(PolicyReindexFailureCode.CONFIG_DRIFT)
+        doc_key = owner.ordered_doc_keys[owner.next_document_index]
+        manifest_document = _manifest_document(manifest, doc_key=doc_key)
+        snapshot = await self._load_snapshot(owner, manifest_document=manifest_document)
+        await self._assert_candidate_document_absent(owner, snapshot=snapshot)
+        assembled = assembler.assemble(
+            blocks=snapshot.blocks,
+            doc_key=snapshot.doc_key,
+            title=snapshot.title,
+            doc_type=snapshot.doc_type,
+            risk_level=snapshot.risk_level,
+        )
+        if not assembled:
+            _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+        self._verify_assembled_inputs(owner, assembler=assembler, assembled=assembled)
+        embeddings = await embedder.embed_documents([item.embedding_input for item in assembled])
+        self._verify_embeddings(
+            embeddings, expected_count=len(assembled), expected_dimensions=assembler.config.dimensions
+        )
+
+        document = await self.session.get(PolicyDocument, snapshot.policy_document_id)
+        if document is None or document.tenant_id != owner.tenant_id:
+            _fail(PolicyReindexFailureCode.SOURCE_SNAPSHOT_DRIFT)
+        chunks = _policy_chunks_from_embedding_inputs(
+            tenant_id=owner.tenant_id,
+            doc_id=document.id,
+            title=snapshot.title,
+            doc_type=snapshot.doc_type,
+            risk_level=snapshot.risk_level,
+            effective_date=snapshot.effective_date,
+            assembled_inputs=assembled,
+            embeddings=embeddings,
+        )
+        self.session.add_all(chunks)
+        await self.session.flush()
+        immutable_document, immutable_chunks = await self.evidence.append_immutable_version(
+            tenant_id=owner.tenant_id,
+            document=document,
+            chunks=chunks,
+            write_sequence=0,
+            canonical_source=snapshot.canonical_source,
+            project_current_head=False,
+        )
+        if immutable_document.id != snapshot.policy_document_version_id:
+            _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+        self.session.add(
+            CorpusDocumentBinding(
+                tenant_id=owner.tenant_id,
+                corpus_version_id=owner.corpus_version_id,
+                policy_document_id=document.id,
+                policy_document_version_id=immutable_document.id,
+            )
+        )
+        self.session.add_all(
+            [
+                CorpusBlockBinding(
+                    tenant_id=owner.tenant_id,
+                    corpus_version_id=owner.corpus_version_id,
+                    document_block_id=block_id,
+                    policy_document_version_id=immutable_document.id,
+                )
+                for block_id in snapshot.block_ids
+            ]
+        )
+        self.session.add_all(
+            [
+                CorpusChunkBinding(
+                    tenant_id=owner.tenant_id,
+                    corpus_version_id=owner.corpus_version_id,
+                    policy_chunk_id=chunk.id,
+                    policy_chunk_version_id=immutable.id,
+                )
+                for chunk, immutable in zip(chunks, immutable_chunks, strict=True)
+            ]
+        )
+        await self.session.flush()
+        try:
+            await self.blocks.recheck_authoritative_snapshot(snapshot, manifest_document=manifest_document)
+        except AuthoritativeSourceSnapshotError:
+            _fail(PolicyReindexFailureCode.SOURCE_SNAPSHOT_DRIFT)
+        self._verify_persisted_projection(
+            owner,
+            snapshot=snapshot,
+            assembled=assembled,
+            chunks=chunks,
+            immutable_chunks=immutable_chunks,
+        )
+        counts = await self._candidate_counts(owner)
+        return await self.checkpoint_document(
+            owner,
+            doc_key=doc_key,
+            now=checked_at,
+            bootstrap_counts=counts,
+        )
+
+    async def validate_candidate(
+        self,
+        owner: PolicyReindexRunIdentity,
+        *,
+        assembler: PolicyEmbeddingInputAssembler,
+        now: datetime | None = None,
+    ) -> PolicyReindexRunIdentity:
+        """Rebuild audit material from source snapshots and seal completion proofs."""
+
+        checked_at = _as_utc(now or datetime.now(UTC))
+        if assembler.config.config_fingerprint != owner.config_fingerprint:
+            _fail(PolicyReindexFailureCode.CONFIG_DRIFT)
+        validating = await self.transition(owner, state="validating", now=checked_at)
+        row, manifest = await self._lock_validated(validating, now=checked_at)
+        replay_payload: list[dict[str, Any]] = []
+        expected_block_count = 0
+        expected_chunk_count = 0
+        for doc_key in validating.ordered_doc_keys:
+            manifest_document = _manifest_document(manifest, doc_key=doc_key)
+            snapshot = await self._load_snapshot(validating, manifest_document=manifest_document)
+            expected_block_count += len(snapshot.blocks)
+            assembled = assembler.assemble(
+                blocks=snapshot.blocks,
+                doc_key=snapshot.doc_key,
+                title=snapshot.title,
+                doc_type=snapshot.doc_type,
+                risk_level=snapshot.risk_level,
+            )
+            self._verify_assembled_inputs(validating, assembler=assembler, assembled=assembled)
+            expected_chunk_count += len(assembled)
+            projection_rows = list(
+                (
+                    await self.session.execute(
+                        select(PolicyChunk, PolicyChunkVersion)
+                        .join(
+                            CorpusChunkBinding,
+                            (CorpusChunkBinding.tenant_id == validating.tenant_id)
+                            & (CorpusChunkBinding.corpus_version_id == validating.corpus_version_id)
+                            & (CorpusChunkBinding.policy_chunk_id == PolicyChunk.id),
+                        )
+                        .join(
+                            PolicyChunkVersion,
+                            (PolicyChunkVersion.tenant_id == validating.tenant_id)
+                            & (PolicyChunkVersion.id == CorpusChunkBinding.policy_chunk_version_id),
+                        )
+                        .where(
+                            PolicyChunk.tenant_id == validating.tenant_id,
+                            PolicyChunk.doc_id == snapshot.policy_document_id,
+                        )
+                        .order_by(PolicyChunk.chunk_id)
+                    )
+                ).all()
+            )
+            if len(projection_rows) != len(assembled):
+                _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+            for dto, (chunk, immutable_chunk) in zip(assembled, projection_rows, strict=True):
+                if not _projection_matches_dto(chunk, dto) or not canonical_chunk_version_matches_projection(
+                    immutable_chunk, chunk
+                ):
+                    _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+                replay_payload.append(
+                    {
+                        "snapshot_hash": snapshot.snapshot_hash,
+                        "chunk_id": chunk.chunk_id,
+                        "embedding_input_hash": chunk.embedding_input_hash,
+                        "embedding_token_count": chunk.embedding_token_count,
+                    }
+                )
+        counts = await self._candidate_counts(validating)
+        expected_counts = {
+            "bound_document_count": len(validating.ordered_doc_keys),
+            "bound_block_count": expected_block_count,
+            "bound_chunk_count": expected_chunk_count,
+        }
+        if counts != expected_counts:
+            _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+        rebuild_hash = _sha256_json({"schema_version": "policy_candidate_rebuild.v1", "documents": replay_payload})
+        proof = {
+            "complete_document_coverage": True,
+            "complete_block_coverage": True,
+            "immutable_binding_replay": True,
+            "all_embedding_inputs_within_512_tokens": True,
+            "deterministic_rebuild_hash": rebuild_hash,
+            "config_fingerprint": validating.config_fingerprint,
+            "provider_parity_report_hash": validating.provider_parity_report_hash,
+            "source_manifest_hash": validating.source_manifest_hash,
+            "source_active_corpus_version_id": str(validating.source_active_corpus_version_id),
+            "source_rollout_epoch": validating.source_rollout_epoch,
+            "no_mixed_source": True,
+        }
+        merged_proof = dict(row.validation_proof_json or {})
+        merged_proof["candidate_validation"] = proof
+        updated = await self.corpora.cas_candidate(
+            row,
+            expected_state_version=validating.state_version,
+            expected_next_document_index=validating.next_document_index,
             values={
-                "state": state,
-                "next_document_index": next_index,
-                "safe_message": "candidate document checkpoint committed",
+                "state": "complete",
+                "bootstrap_counts_json": counts,
+                "validation_proof_json": merged_proof,
+                "deterministic_rebuild_hash": rebuild_hash,
+                "safe_message": "candidate validation complete",
+                "terminal_at": checked_at,
             },
         )
         if updated is None:
             _fail(PolicyReindexFailureCode.CAS_CONFLICT)
         return self._identity_from_row(updated, manifest=manifest)
+
+    async def _load_snapshot(
+        self,
+        owner: PolicyReindexRunIdentity,
+        *,
+        manifest_document: dict[str, Any],
+    ) -> AuthoritativePolicyDocumentSnapshotV1:
+        try:
+            return await self.blocks.load_authoritative_snapshot(
+                tenant_id=owner.tenant_id,
+                source_corpus_version_id=owner.source_active_corpus_version_id,
+                manifest_document=manifest_document,
+            )
+        except AuthoritativeSourceSnapshotError:
+            _fail(PolicyReindexFailureCode.SOURCE_SNAPSHOT_DRIFT)
+
+    async def _assert_candidate_document_absent(
+        self,
+        owner: PolicyReindexRunIdentity,
+        *,
+        snapshot: AuthoritativePolicyDocumentSnapshotV1,
+    ) -> None:
+        count = await self.session.scalar(
+            select(func.count())
+            .select_from(CorpusDocumentBinding)
+            .where(
+                CorpusDocumentBinding.tenant_id == owner.tenant_id,
+                CorpusDocumentBinding.corpus_version_id == owner.corpus_version_id,
+                CorpusDocumentBinding.policy_document_id == snapshot.policy_document_id,
+            )
+        )
+        if count:
+            _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+
+    @staticmethod
+    def _verify_assembled_inputs(
+        owner: PolicyReindexRunIdentity,
+        *,
+        assembler: PolicyEmbeddingInputAssembler,
+        assembled: tuple[PolicyEmbeddingInputV1, ...],
+    ) -> None:
+        for item in assembled:
+            if (
+                item.chunking_config_fingerprint != owner.config_fingerprint
+                or item.embedding_input_hash != _sha256_text(item.embedding_input)
+                or item.embedding_token_count != assembler.counter.count(item.embedding_input)
+                or item.embedding_token_count > assembler.config.max_embedding_tokens
+            ):
+                _fail(PolicyReindexFailureCode.EMBEDDING_PROOF_FAILED)
+
+    @staticmethod
+    def _verify_embeddings(
+        embeddings: list[list[float]],
+        *,
+        expected_count: int,
+        expected_dimensions: int,
+    ) -> None:
+        if len(embeddings) != expected_count or any(
+            len(vector) != expected_dimensions
+            or any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in vector)
+            for vector in embeddings
+        ):
+            _fail(PolicyReindexFailureCode.EMBEDDING_PROOF_FAILED)
+
+    @staticmethod
+    def _verify_persisted_projection(
+        owner: PolicyReindexRunIdentity,
+        *,
+        snapshot: AuthoritativePolicyDocumentSnapshotV1,
+        assembled: tuple[PolicyEmbeddingInputV1, ...],
+        chunks: list[PolicyChunk],
+        immutable_chunks: list[PolicyChunkVersion],
+    ) -> None:
+        if len(chunks) != len(assembled) or len(immutable_chunks) != len(assembled):
+            _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+        for dto, chunk, immutable in zip(assembled, chunks, immutable_chunks, strict=True):
+            if (
+                chunk.tenant_id != owner.tenant_id
+                or chunk.doc_id != snapshot.policy_document_id
+                or not _projection_matches_dto(chunk, dto)
+                or not canonical_chunk_version_matches_projection(immutable, chunk)
+            ):
+                _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+
+    async def _candidate_counts(self, owner: PolicyReindexRunIdentity) -> dict[str, int]:
+        document_count = await self.session.scalar(
+            select(func.count())
+            .select_from(CorpusDocumentBinding)
+            .where(
+                CorpusDocumentBinding.tenant_id == owner.tenant_id,
+                CorpusDocumentBinding.corpus_version_id == owner.corpus_version_id,
+            )
+        )
+        block_count = await self.session.scalar(
+            select(func.count())
+            .select_from(CorpusBlockBinding)
+            .where(
+                CorpusBlockBinding.tenant_id == owner.tenant_id,
+                CorpusBlockBinding.corpus_version_id == owner.corpus_version_id,
+            )
+        )
+        chunk_count = await self.session.scalar(
+            select(func.count())
+            .select_from(CorpusChunkBinding)
+            .where(
+                CorpusChunkBinding.tenant_id == owner.tenant_id,
+                CorpusChunkBinding.corpus_version_id == owner.corpus_version_id,
+            )
+        )
+        return {
+            "bound_document_count": int(document_count or 0),
+            "bound_block_count": int(block_count or 0),
+            "bound_chunk_count": int(chunk_count or 0),
+        }
 
     async def transition(
         self,
@@ -538,6 +908,38 @@ def _ordered_doc_keys(manifest: PolicyCorpusManifestRevision) -> tuple[str, ...]
     if len(doc_keys) != len(set(doc_keys)):
         _fail(PolicyReindexFailureCode.SOURCE_MANIFEST_DRIFT)
     return tuple(doc_keys)
+
+
+def _manifest_document(manifest: PolicyCorpusManifestRevision, *, doc_key: str) -> dict[str, Any]:
+    documents = manifest.manifest_json.get("documents") if isinstance(manifest.manifest_json, dict) else None
+    if not isinstance(documents, list):
+        _fail(PolicyReindexFailureCode.SOURCE_MANIFEST_DRIFT)
+    matches = [document for document in documents if isinstance(document, dict) and document.get("doc_key") == doc_key]
+    if len(matches) != 1:
+        _fail(PolicyReindexFailureCode.SOURCE_MANIFEST_DRIFT)
+    return dict(matches[0])
+
+
+def _projection_matches_dto(chunk: PolicyChunk, dto: PolicyEmbeddingInputV1) -> bool:
+    return bool(
+        chunk.chunk_id == dto.chunk_id
+        and chunk.section == dto.section
+        and chunk.content == dto.citation_content
+        and chunk.search_text == dto.search_text
+        and list(chunk.source_block_refs_json or []) == [dict(ref) for ref in dto.source_block_refs]
+        and chunk.chunking_config_fingerprint == dto.chunking_config_fingerprint
+        and chunk.embedding_input_hash == dto.embedding_input_hash
+        and chunk.embedding_token_count == dto.embedding_token_count
+    )
+
+
+def _sha256_text(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_json(value: object) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def _as_utc(value: datetime) -> datetime:

@@ -837,10 +837,11 @@ async def test_complete_candidate_proves_coverage_deterministic_rebuild_and_immu
         "bound_chunk_count": 2,
     }
     assert candidate.deterministic_rebuild_hash is not None
-    assert candidate.validation_proof_json["complete_document_coverage"] is True
-    assert candidate.validation_proof_json["complete_block_coverage"] is True
-    assert candidate.validation_proof_json["immutable_binding_replay"] is True
-    assert candidate.validation_proof_json["all_embedding_inputs_within_512_tokens"] is True
+    proof = candidate.validation_proof_json["candidate_validation"]
+    assert proof["complete_document_coverage"] is True
+    assert proof["complete_block_coverage"] is True
+    assert proof["immutable_binding_replay"] is True
+    assert proof["all_embedding_inputs_within_512_tokens"] is True
     await session.refresh(rollout)
     assert rollout.active_corpus_version_id == source.id
 
