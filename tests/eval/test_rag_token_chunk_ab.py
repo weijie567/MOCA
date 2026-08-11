@@ -583,3 +583,20 @@ async def test_cli_early_execution_error_still_writes_one_create_only_terminal_p
     assert not (output_root / "selections").exists()
     assert await ab_cli.main(argv) == 2
     assert before == (json_path.read_bytes(), markdown_path.read_bytes())
+
+
+@pytest.mark.asyncio
+async def test_phase64_4_head_satisfies_ab_database_prerequisite(monkeypatch: pytest.MonkeyPatch) -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+
+    async def phase64_3_prerequisites(_session, *, expected_rollout_version: int):
+        assert expected_rollout_version == 1
+        return ("database_schema",)
+
+    async def phase64_4_schema_available(_session) -> bool:
+        return True
+
+    monkeypatch.setattr(ab_cli, "_database_prerequisites", phase64_3_prerequisites)
+    monkeypatch.setattr(ab_cli, "_phase64_4_schema_available", phase64_4_schema_available)
+
+    assert await ab_cli._ab_database_prerequisites(object(), expected_rollout_version=1) == ()
