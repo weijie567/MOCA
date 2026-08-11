@@ -4,8 +4,8 @@ status: running
 current_step: execute
 plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-08-11T14:34:44+08:00"
-next_command: "$gsd-execute-phase 64.4 (resume at 64.4-04)"
+updated_at: "2026-08-11T14:59:05+08:00"
+next_command: "$gsd-execute-phase 64.4 (resume at 64.4-05)"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -28,6 +28,7 @@ next_command: "$gsd-execute-phase 64.4 (resume at 64.4-04)"
 - Stage 5 execution Plan 01 complete: exact official tokenizer asset/runtime/config and fail-closed offline counter committed in three atomic commits; `make lint`, 21 focused tests, lock check, asset size/SHA and summary self-check passed.
 - Stage 5 execution Plan 02 complete: sole exact-final-input assembler, structural/table/token-window splitting, overlap/Unicode/rebuild invariants and fail-closed bounds committed in three atomic commits; `make lint`, 38 focused tests and summary self-check passed.
 - Stage 5 execution Plan 03 complete: request-level provider usage and immutable fresh parity protocol/assembler-only CLI committed in three atomic commits; `make lint`, 14 focused tests, truthful no-credential unavailable smoke and summary self-check passed without fabricating live success.
+- Stage 5 execution Plan 04 complete: default-off typed ingestion, dry-run/golden/Phase64.3 seam convergence and static single-assembler guards committed in three atomic commits; `make lint`, 151 combined tests, golden validation and summary self-check passed. A minimal Rule2 typed retrieval-round injection seam closed a hidden character-default path without entering Plan09 scope.
 
 ## Evidence
 

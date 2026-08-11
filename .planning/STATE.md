@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: executing
-last_updated: "2026-08-11T06:34:44Z"
-last_activity: 2026-08-11 -- Phase 64.4 Plan 03 complete; truthful usage and immutable parity gates passed
+last_updated: "2026-08-11T06:59:05Z"
+last_activity: 2026-08-11 -- Phase 64.4 Plan 04 complete; assembly-path convergence gates passed
 progress:
   total_phases: 15
   completed_phases: 7
   total_plans: 54
-  completed_plans: 46
+  completed_plans: 47
   percent: 47
 ---
 
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 ## Current Position
 
 Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — EXECUTING
-Plan: 4 of 11 — Plan 64.4-04 production/dry-run/golden/A-B convergence
-Status: Plans 01-03 complete; executing the approved strict 01→11 dependency chain.
-Last activity: 2026-08-11 -- Phase 64.4 Plan 03 complete; truthful usage and immutable parity gates passed
-Next: Execute `64.4-04-PLAN.md`, then continue dependency-ordered plans.
+Plan: 5 of 11 — Plan 64.4-05 corpus schema/bootstrap/source identity
+Status: Plans 01-04 complete; executing the approved strict 01→11 dependency chain.
+Last activity: 2026-08-11 -- Phase 64.4 Plan 04 complete; assembly-path convergence gates passed
+Next: Execute `64.4-05-PLAN.md`, then continue dependency-ordered plans.
 After: Phase 65 follows Phase 64.4.
 
 Resume file: `.planning/autopilot/phase-64.4.md`
