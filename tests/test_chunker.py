@@ -1,4 +1,7 @@
 from src.rag.chunker import chunk_markdown
+from src.rag.embedding_tokenizer import EmbeddingTokenCounter, load_embedding_tokenizer_config
+from src.rag.parsers.base import ParsedBlock
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 
 
 def test_basic_heading_split():
@@ -125,3 +128,25 @@ def test_long_no_punctuation():
 
     assert len(chunks) > 1
     assert all(len(chunk.content) <= 1200 for chunk in chunks)
+
+
+def test_token_aware_chunk_ids_are_stable_for_identical_source_and_config():
+    block = ParsedBlock(
+        source_block_id="refund_policy:paragraph:0000",
+        block_index=0,
+        block_type="paragraph",
+        text="用户申请退款时客服应核实订单状态。" * 300,
+        normalized_text="用户申请退款时客服应核实订单状态。" * 300,
+        source_type="policy_markdown",
+        parser_name="markdown",
+        parser_version="21.01",
+        page_number=None,
+        box=None,
+    )
+    assembler = PolicyEmbeddingInputAssembler(counter=EmbeddingTokenCounter(load_embedding_tokenizer_config()))
+
+    first = assembler.assemble(blocks=(block,), doc_key="refund_policy", title="退款政策")
+    second = assembler.assemble(blocks=(block,), doc_key="refund_policy", title="退款政策")
+
+    assert first == second
+    assert [item.chunk_id for item in first] == [item.chunk_id for item in second]

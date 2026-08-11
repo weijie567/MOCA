@@ -248,6 +248,11 @@ def _source_block_ref(block: ParsedBlock) -> dict[str, Any]:
     return ref
 
 
+def source_block_ref(block: ParsedBlock) -> dict[str, Any]:
+    """Return the canonical parser provenance projection for an assembled chunk."""
+    return _source_block_ref(block)
+
+
 def _table_ref_metadata(table_metadata: dict[str, Any]) -> dict[str, Any]:
     table = dict(table_metadata)
     merged_cells: list[Any] = list(table.get("merged_cells", [])) if isinstance(table.get("merged_cells"), list) else []
@@ -273,6 +278,11 @@ def _chunk_metadata(source_refs: tuple[dict[str, Any], ...]) -> dict[str, Any]:
     if ocr_refs:
         metadata["ocr"] = {"blocks": ocr_refs}
     return metadata
+
+
+def chunk_metadata(source_refs: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    """Return canonical chunk metadata without changing citation text."""
+    return _chunk_metadata(source_refs)
 
 
 def _merge_table_metadata(table_refs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -392,6 +402,11 @@ def _format_table_row(headers: list[str], row: Any) -> str:
         else:
             parts.append(value)
     return " | ".join(parts)
+
+
+def format_table_row(headers: list[str], row: Any) -> str:
+    """Render one parser table row with the established citation convention."""
+    return _format_table_row(headers, row)
 
 
 def _split_oversized(text: str, max_chars: int, target_chars: int, overlap_chars: int) -> list[str]:
