@@ -27,6 +27,8 @@ def _api():
         SEALED_MANIFEST_HASH,
         ABCandidateObservationV1,
         ABEmbeddingCostV1,
+        ABExecutionBundleManifestV1,
+        ABExecutionDiagnosticV1,
         ABFormatMetricsV1,
         ABHardProofsV1,
         ABInputIdentityV1,
@@ -40,11 +42,13 @@ def _api():
         TerminalABRunV1,
         build_terminal_ab_run,
         evaluate_exact_gates,
+        load_execution_error_bundle,
         load_selection_decision,
         load_terminal_ab_run,
         render_selection_markdown,
         render_terminal_markdown,
         write_selection_create_only,
+        write_execution_error_bundle_create_only,
         write_terminal_run_create_only,
     )
 
@@ -54,6 +58,8 @@ def _api():
         "SEALED_MANIFEST_HASH": SEALED_MANIFEST_HASH,
         "ABCandidateObservationV1": ABCandidateObservationV1,
         "ABEmbeddingCostV1": ABEmbeddingCostV1,
+        "ABExecutionBundleManifestV1": ABExecutionBundleManifestV1,
+        "ABExecutionDiagnosticV1": ABExecutionDiagnosticV1,
         "ABFormatMetricsV1": ABFormatMetricsV1,
         "ABHardProofsV1": ABHardProofsV1,
         "ABInputIdentityV1": ABInputIdentityV1,
@@ -67,11 +73,13 @@ def _api():
         "TerminalABRunV1": TerminalABRunV1,
         "build_terminal_ab_run": build_terminal_ab_run,
         "evaluate_exact_gates": evaluate_exact_gates,
+        "load_execution_error_bundle": load_execution_error_bundle,
         "load_selection_decision": load_selection_decision,
         "load_terminal_ab_run": load_terminal_ab_run,
         "render_selection_markdown": render_selection_markdown,
         "render_terminal_markdown": render_terminal_markdown,
         "write_selection_create_only": write_selection_create_only,
+        "write_execution_error_bundle_create_only": write_execution_error_bundle_create_only,
         "write_terminal_run_create_only": write_terminal_run_create_only,
     }
 
@@ -600,3 +608,205 @@ async def test_phase64_4_head_satisfies_ab_database_prerequisite(monkeypatch: py
     monkeypatch.setattr(ab_cli, "_phase64_4_schema_available", phase64_4_schema_available)
 
     assert await ab_cli._ab_database_prerequisites(object(), expected_rollout_version=1) == ()
+
+
+def _execution_error_run():
+    return _api()["TerminalABRunV1"](
+        run_id=RUN_ID,
+        generated_at=GENERATED_AT,
+        outcome="execution_error",
+        failure_class=None,
+        terminal_stage="execution",
+        safe_reason_codes=("provider_execution_failed",),
+        inputs=_inputs(),
+        runtime=_runtime(),
+        parity=_parity(),
+        incumbent=None,
+        candidate=None,
+        hard_proofs=None,
+        gates=(),
+    )
+
+
+def _execution_diagnostic(**updates):
+    values = {
+        "run_id": RUN_ID,
+        "terminal_run_sha256": "sha256:" + "a" * 64,
+        "occurred_at": GENERATED_AT,
+        "failing_role": "character_incumbent",
+        "round_format": "digital_pdf",
+        "stage": "retrieval_resource_proof",
+        "reason_code": "resource_proof_failed",
+        "provider_availability": "available",
+        "provider_request_classification": "request_completed",
+        "outer_rollback_attempted": True,
+        "outer_rollback_proved": True,
+        "completed_round_count": 1,
+        "provider_request_count": 18,
+        "safe_context_sha256": "sha256:" + "b" * 64,
+    }
+    values.update(updates)
+    return _api()["ABExecutionDiagnosticV1"](**values)
+
+
+def test_execution_diagnostic_is_frozen_typed_allowlisted_and_redacted() -> None:
+    diagnostic = _execution_diagnostic()
+    assert diagnostic.schema_version == "rag_token_chunk_execution_diagnostic.v1"
+    assert diagnostic.failing_role == "character_incumbent"
+    assert diagnostic.round_format == "digital_pdf"
+    assert diagnostic.outer_rollback_proved is True
+    with pytest.raises(ValidationError):
+        _api()["ABExecutionDiagnosticV1"].model_validate(
+            {**diagnostic.model_dump(mode="json"), "reason_code": "RuntimeError: secret"}
+        )
+    with pytest.raises(ValidationError):
+        _api()["ABExecutionDiagnosticV1"].model_validate(
+            {**diagnostic.model_dump(mode="json"), "raw_exception": "Traceback (most recent call last)"}
+        )
+    with pytest.raises((ValidationError, ValueError)):
+        _execution_diagnostic(safe_context_sha256="/private/tmp/provider-payload.json")
+    with pytest.raises((ValidationError, ValueError)):
+        _execution_diagnostic(outer_rollback_attempted=False, outer_rollback_proved=True)
+
+    serialized = diagnostic.model_dump_json().lower()
+    for forbidden in (
+        "traceback",
+        "provider_payload",
+        "prompt",
+        "credential",
+        "database_url",
+        "selection",
+        "activation",
+        "pointer",
+        "/users/",
+        "/private/",
+    ):
+        assert forbidden not in serialized
+
+
+def test_execution_error_bundle_has_one_manifest_visibility_point_and_preserves_run_bytes(tmp_path: Path) -> None:
+    api = _api()
+    from src.rag.evaluation.reporting import canonical_report_json_bytes
+
+    report = _execution_error_run()
+    expected_run_json = canonical_report_json_bytes(report.model_dump(mode="json"))
+    expected_run_markdown = api["render_terminal_markdown"](report.model_dump(mode="json")).encode()
+    diagnostic = _execution_diagnostic(terminal_run_sha256="sha256:" + __import__("hashlib").sha256(expected_run_json).hexdigest())
+
+    bundle = api["write_execution_error_bundle_create_only"](report, diagnostic=diagnostic, root=tmp_path)
+    manifest_path = tmp_path / "commits" / str(RUN_ID) / "manifest.json"
+    assert bundle.manifest_path == manifest_path
+    assert manifest_path.exists()
+    assert (tmp_path / "runs" / f"{RUN_ID}.json").read_bytes() == expected_run_json
+    assert (tmp_path / "runs" / f"{RUN_ID}.md").read_bytes() == expected_run_markdown
+    loaded = api["load_execution_error_bundle"](root=tmp_path, run_id=RUN_ID)
+    assert loaded.report == report
+    assert loaded.diagnostic == diagnostic
+    assert loaded.manifest == api["ABExecutionBundleManifestV1"].model_validate_json(manifest_path.read_bytes())
+    assert loaded.manifest.terminal_run_sha256 == bundle.run.json_sha256
+    assert loaded.manifest.diagnostic_json_sha256 == bundle.diagnostic.json_sha256
+    assert not (tmp_path / "selections").exists()
+
+    before = {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file() and ".staging" not in path.parts
+    }
+    recovered = api["write_execution_error_bundle_create_only"](report, diagnostic=diagnostic, root=tmp_path)
+    assert recovered.manifest == bundle.manifest
+    assert before == {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file() and ".staging" not in path.parts
+    }
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        *(f"stage_write:{name}" for name in ("run_json", "run_markdown", "diagnostic_json", "diagnostic_markdown")),
+        *(f"stage_fsync:{name}" for name in ("run_json", "run_markdown", "diagnostic_json", "diagnostic_markdown")),
+        *(f"publish_link:{name}" for name in ("run_json", "run_markdown", "diagnostic_json", "diagnostic_markdown")),
+        "stage_dir_fsync",
+        "manifest_stage_write",
+        "manifest_stage_fsync",
+        "manifest_dir_fsync",
+        "manifest_rename",
+    ],
+)
+def test_execution_bundle_fault_boundaries_are_invisible_then_byte_identically_resumable(
+    tmp_path: Path,
+    boundary: str,
+) -> None:
+    api = _api()
+    report = _execution_error_run()
+    from src.rag.evaluation.reporting import canonical_report_json_bytes
+
+    run_sha = "sha256:" + __import__("hashlib").sha256(
+        canonical_report_json_bytes(report.model_dump(mode="json"))
+    ).hexdigest()
+    diagnostic = _execution_diagnostic(terminal_run_sha256=run_sha)
+
+    def crash(observed: str) -> None:
+        if observed == boundary:
+            raise RuntimeError("simulated crash")
+
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        api["write_execution_error_bundle_create_only"](
+            report,
+            diagnostic=diagnostic,
+            root=tmp_path,
+            fault_injector=crash,
+        )
+    with pytest.raises(ValueError, match="bundle_uncommitted"):
+        api["load_execution_error_bundle"](root=tmp_path, run_id=RUN_ID)
+
+    bundle = api["write_execution_error_bundle_create_only"](report, diagnostic=diagnostic, root=tmp_path)
+    loaded = api["load_execution_error_bundle"](root=tmp_path, run_id=RUN_ID)
+    assert loaded.manifest == bundle.manifest
+    assert loaded.report == report
+    assert loaded.diagnostic == diagnostic
+
+
+def test_execution_bundle_partial_conflict_fails_closed_without_manifest(tmp_path: Path) -> None:
+    api = _api()
+    from src.rag.evaluation.reporting import canonical_report_json_bytes
+
+    report = _execution_error_run()
+    run_sha = "sha256:" + __import__("hashlib").sha256(
+        canonical_report_json_bytes(report.model_dump(mode="json"))
+    ).hexdigest()
+    diagnostic = _execution_diagnostic(terminal_run_sha256=run_sha)
+
+    def crash(observed: str) -> None:
+        if observed == "publish_link:run_json":
+            raise RuntimeError("simulated crash")
+
+    with pytest.raises(RuntimeError):
+        api["write_execution_error_bundle_create_only"](
+            report,
+            diagnostic=diagnostic,
+            root=tmp_path,
+            fault_injector=crash,
+        )
+    (tmp_path / "runs" / f"{RUN_ID}.json").write_bytes(b"{}\n")
+    with pytest.raises(ValueError, match="bundle_conflict"):
+        api["write_execution_error_bundle_create_only"](report, diagnostic=diagnostic, root=tmp_path)
+    assert not (tmp_path / "commits" / str(RUN_ID)).exists()
+    with pytest.raises(ValueError, match="bundle_uncommitted"):
+        api["load_execution_error_bundle"](root=tmp_path, run_id=RUN_ID)
+
+
+def test_non_execution_outcomes_keep_legacy_pair_path_and_never_create_diagnostics(tmp_path: Path) -> None:
+    api = _api()
+    selected = _selected_run()
+    legacy = api["write_terminal_run_create_only"](selected, root=tmp_path)
+    assert legacy.json_path.exists() and legacy.markdown_path.exists()
+    with pytest.raises(ValueError, match="execution_error_required"):
+        api["write_execution_error_bundle_create_only"](
+            selected,
+            diagnostic=_execution_diagnostic(),
+            root=tmp_path,
+        )
+    assert not (tmp_path / "diagnostics").exists()
+    assert not (tmp_path / "commits").exists()
