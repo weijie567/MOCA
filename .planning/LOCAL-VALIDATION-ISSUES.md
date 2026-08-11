@@ -23371,3 +23371,14 @@ Phase 64.4 auto discuss 提交 context 后调用 `gsd-sdk query state.record-ses
 Phase 64.4 第二轮 Claude plan review 首次用 Ruby 从现有 planning artifacts 组装标准输入时，Ruby 2.6 在解析 prompt 中的中文/长破折号前即报 `invalid multibyte char (US-ASCII)`；因此没有调用到 Claude，也没有生成或覆盖 review artifact。单独检查 `ruby -v` 与 `locale` 证明系统 locale 虽为 `C.UTF-8`，该 Ruby 仍要求源码级编码声明；仅加 `-EUTF-8:UTF-8` 不足以改变源码解析编码。已在临时 stdin 脚本第一行加入 `# encoding: UTF-8` 后完整重跑。这个问题只影响一次性复审 prompt 组装入口，不是计划或产品代码失败；后续 Ruby 临时脚本只要包含非 ASCII 字面量，就必须同时保留源码编码声明。
 
 修正编码后的完整串流已到达 Claude CLI，但 11 个 plan、RESEARCH、CONTEXT、VALIDATION、ROADMAP、REQUIREMENTS 和裁决记录合并后超过 CLI 单次 prompt 上限，CLI 明确返回 `Prompt is too long`，仍未产生 review 结论或改写 artifact。当前处理改为给独立 Claude Code 会话一份短的文件清单与审查契约，由其在同一隔离 worktree 内逐文件读取完整内容和必要源码，避免截断任一 plan；最终只采纳该完整仓库读取会话的输出。后续 plan 数量较多时，`$gsd-review` 应优先让代码型 reviewer 按路径读取，或由工具实现分块/context-file 输入，而不是把所有正文拼成单条 prompt。
+
+## 2026-08-11 — Phase 64.4 Plan 01 tokenizer 资产与新 worktree 验证入口问题
+
+**问题现象 / 如何检测**
+固定 Qwen tokenizer 资产时，直接访问 pinned Hugging Face `resolve` URL 在 15 秒 connect timeout 后返回 curl code 28，未产生文件；随后首次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_embedding_tokenizer.py` 时，worktree `.venv` 尚未同步 dev extra，`uv run` 从外部 PATH 找到 `/Users/ming/Library/Python/3.9/bin/pytest`，collection 因 Python 3.9 缺少 `datetime.UTC` 失败。一次性 cache 检查命令还复用了 zsh 特殊数组名 `path`，导致该 subshell 后续 `head` 无法通过 `PATH` 查找。
+
+**关键证据 / 当前判断**
+本机官方 Hugging Face cache 的 revision ref 精确指向 `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`；对应 blob 为 11,423,705 bytes，SHA-256 为 `def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a`，与 Phase 64.4 research 和官方模型文件页一致。`.venv/pyvenv.cfg` 与 `uv run python -V` 均为 Python 3.12.13，错误只来自缺少本地 pytest executable 后的 PATH 回退；zsh 错误只影响一次性显示命令。三项都不是 tokenizer bytes、MOCA 依赖或产品代码失败，首轮无效 pytest 结果未用作结论。
+
+**已做处理 / 剩余入口**
+从已核验的官方 cache blob vendor 固定 bytes，并保留 pinned source URL、revision、size、SHA、Apache-2.0 许可证据；执行 `UV_CACHE_DIR=/tmp/uv-cache uv sync --extra dev` 后确认 `uv run which pytest` 指向当前 worktree `.venv/bin/pytest`，再重跑得到预期 Wave-0 RED，随后 Task 1 的 `make lint` 与 scoped pytest 为 5 passed。后续新 worktree 在测试前先同步 dev extra，资产获取优先核验 pinned cache、网络可用时再按同一 SHA 复核；zsh 临时变量继续避开 `path` / `status`。当前无产品侧 blocker。

@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,6 +21,7 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-v4"
     embedding_dimensions: int = 1024
     embedding_batch_size: int = 10
+    embedding_tokenizer_contract_version: Literal["embedding_tokenizer.v1"] = "embedding_tokenizer.v1"
 
     # LLM (GLM-5.1 via DashScope, per D-01)
     dashscope_api_key: str = Field(default="")

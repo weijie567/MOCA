@@ -1,0 +1,15 @@
+{
+  "schema_version": "embedding_tokenizer_source.v1",
+  "source_repository": "Qwen/Qwen3-Embedding-0.6B",
+  "source_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+  "tokenizer_asset_url": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B/resolve/97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3/tokenizer.json",
+  "tokenizer_asset_sha256": "def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a",
+  "tokenizer_asset_size_bytes": 11423705,
+  "license": "Apache-2.0",
+  "license_evidence_url": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B",
+  "license_text_source": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+  "provider_model": "text-embedding-v4",
+  "provider_mapping": "empirical_not_vendor_guaranteed",
+  "provider_mapping_note": "The pinned official Qwen tokenizer matched safe synthetic DashScope probes in Phase 64.4 research; Alibaba Cloud does not guarantee this offline mapping.",
+  "live_parity_evidence_owner": "Phase 64.4 Plan 03"
+}
