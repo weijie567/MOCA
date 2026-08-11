@@ -4,8 +4,8 @@ status: running
 current_step: execute
 plan_review_loop: 4
 quota_waits: 0
-updated_at: "2026-08-12T07:29:54+08:00"
-next_command: "execute Phase 64.4 Plan 11 dependency-first"
+updated_at: "2026-08-12T08:05:00+08:00"
+next_command: "execute Phase 64.4 Plan 12; Task1 machine budget gates before any live attempt"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -38,6 +38,7 @@ next_command: "execute Phase 64.4 Plan 11 dependency-first"
 - Fresh recovery review found five real blockers: crash-partial diagnostic publication, ambiguous unavailable retry evidence, unbounded unknown-defect repair, missing immediate ledgers and a forbidden Plan10 summary rewrite. Claude additionally identified procedural attempt caps and false-closeout risk.
 - The repaired recovery expands the phase from 11 plans/22 tasks to 14 plans/28 tasks: Plan11 uses a single commit manifest as the diagnostic bundle visibility point without provider calls; Plan12 machine-enforces a two-slot selection budget and never repairs unknown defects; Plan13 owns the reversible activation drill plus live closeout guard; Plan14 owns final docs/regression closeout. Plan10 failure evidence remains untouched.
 - Clean recovery re-review passed: fresh GSD checker closed all five blockers/two warnings with no new finding; external Claude returned PASS with no actionable blocker or warning; Codex final coverage/order/scope adjudication is clean.
+- Stage 5 recovery Plan 11 complete: crash-consistent manifest-committed execution diagnostics, strict redaction, typed role/round/stage/rollback provenance and fault-injection coverage committed in five atomic commits; format/lint and 166 focused tests passed with no live provider, selection or pointer mutation.
 
 ## Evidence
 
@@ -55,4 +56,4 @@ next_command: "execute Phase 64.4 Plan 11 dependency-first"
 
 ## Last Failure
 
-Plan10 exhausted its initial three-attempt provider budget without selected_pass. Attempt3 retained only `provider_execution_failed`; the clean-reviewed recovery now starts with Plan11 safe role/round/stage provenance before any separately machine-bounded live retry.
+Plan10 exhausted its initial three-attempt provider budget without selected_pass. Plan11 closed the safe provenance gap; Plan12 must now prove its create-only two-slot ledger and retry matrix before reserving any live provider attempt.

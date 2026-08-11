@@ -231,7 +231,7 @@ Plans:
 - [x] 64.4-08-PLAN.md — Atomic Pointer Activation And Ingestion Continuity (`depends_on: [64.4-07]`).
 - [x] 64.4-09-PLAN.md — Exact A-B Runtime And Immutable Selection (`depends_on: [64.4-08]`).
 - [x] 64.4-10-PLAN.md — Activation Receipts And Bounded Initial Live Evidence (`depends_on: [64.4-09]`).
-- [ ] 64.4-11-PLAN.md — Role Failure Provenance And Safe Diagnostic Artifacts (`depends_on: [64.4-10]`).
+- [x] 64.4-11-PLAN.md — Role Failure Provenance And Safe Diagnostic Artifacts (`depends_on: [64.4-10]`).
 - [ ] 64.4-12-PLAN.md — Guarded Live Selection Recovery (`depends_on: [64.4-11]`).
 - [ ] 64.4-13-PLAN.md — Reversible Activation Drill And Closeout Guard (`depends_on: [64.4-12]`).
 - [ ] 64.4-14-PLAN.md — Final Documentation Ledgers And Regression Closeout (`depends_on: [64.4-13]`).
