@@ -23300,3 +23300,9 @@ PR #5 在 Ruff 修复后的 GitHub Actions run `31449869596` 中，lint 已通�
 
 **剩余问题和下次继续排查入口**
 以 PR #5 新一轮 GitHub Actions 为最终 Linux 证明；本地继续使用仓库已支持的 macOS CJK 字体路径。若未来 Ubuntu 包路径变化，CI 的 exact-name preflight 会在测试前明确失败，入口为该 workflow 安装步骤，而不是让 PDF fixture 生成产生模糊错误。
+
+### CI 字体轮廓兼容性补充：Noto CJK 的 CFF/PostScript 轮廓不被 ReportLab TTFont 支持
+
+首次安装 `fonts-noto-cjk` 后，GitHub Actions run `31451212566` 已通过字体安装 preflight，但测试仍在同一 fixture builder 用例失败；ReportLab 5.0.0 明确报 `NotoSansCJK-Regular.ttc: postscript outlines are not supported`，汇总仍为 `1 failed, 2911 passed, 1 skipped`。这说明缺失字体问题已解决，但所选字体的轮廓格式不满足 PDF 生成器依赖契约。
+
+已在隔离的 `python:3.12-slim` Linux 容器中安装 `fonts-wqy-zenhei` 和项目锁定的 `reportlab==5.0.0`，验证 `/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc` 可由 `TTFont` 成功注册。CI 因此改用该 TrueType 轮廓 CJK 字体，并继续保留精确文件名检查、`MOCA_CJK_FONT` 显式注入和 SHA-256 日志。最终结论仍以 PR #5 的完整 Linux test job 为准。
