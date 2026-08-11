@@ -13,7 +13,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 ## Current State
 
 **Last shipped milestone:** v2.1 Core Subsystem Hardening (shipped 2026-07-08)
-**Current focus:** v2.2 follow-up architecture hardening is active. Phase 64.2 Evidence Identity Immutable Replay And Memory Provenance is complete; Phase 65 Trace Event And Console Label Consistency is next.
+**Current focus:** v2.2 follow-up architecture hardening is active. Phase 64.3 RAG Format Parity And Document Quality Evaluation is complete; Phase 64.4 Token-Aware Policy Chunking And Reindex Validation is next, followed by Phase 65.
 
 MOCA now has hardened core subsystem boundaries across ToolPlatform, intent recognition, memory, RAG/claim routing, approval, canonical Agent Graph runtime, and the Phase 62 business-query/drilldown path. v2.1 closed all 24 tracked requirements and passed the milestone audit with no integration blockers.
 
@@ -257,6 +257,14 @@ _No active v2.2 requirements remain after Phase 61 completion._
 - [x] Low-risk demo draft creation requires a durable server-minted, fully bound capability and cannot widen general permissions or execute an external effect.
 - [x] Shared terminal projection prevents authorization, draft, audit, claim, or evidence failures from becoming completed API/SSE/final/memory state.
 
+### Validated In Phase 64.3
+
+- [x] Exactly three canonical policy groups and nine Markdown, digital-PDF, and scanned-PDF variants have one deterministic manifest/Gold contract with format-independent facts and evidence anchors.
+- [x] Direct parser parity evaluates all nine fixtures without tenant, database, embedding, or retrieval dependencies and reports fidelity, structure, locator, and OCR diagnostics separately.
+- [x] Provider-backed retrieval parity uses a fixed evaluation tenant, logical document keys, exact evaluation-owned cleanup, immutable-history preservation, identical questions, isolated rounds, resumable terminal state, and a durable run-identity seal.
+- [x] One strict canonical JSON owner and byte-projected Markdown report record hashes/configuration, 54 cases, parser gate inputs, stage-attributed failures, and the truthful `completed_quality_fail` outcome.
+- [x] Focused and expanded RAG regressions, production-drift guards, UAT, security, and Nyquist gates pass; Phase 64.4 owns token-aware chunking while parser/ingestion and retrieval debts retain explicit follow-up owners.
+
 ### Out of Scope
 
 - Real external action execution, outbox, reconciliation, and compensation — future External Action Execution milestone.
@@ -338,6 +346,7 @@ _No active v2.2 requirements remain after Phase 61 completion._
 - v1.9 Agent Platform Foundation is shipped and archived on 2026-06-30. It completes Phases 26-35.1: architecture contract baseline, TrustedContextFactory/projections, decision events, tool platform, merchant scope alignment, BusinessFactService, memory platform, intent graph migration, deterministic RAG context build, claim verification, approval/action draft hardening, replay/eval hardening, and audit readiness closure. Full milestone history lives in `.planning/milestones/v1.9-ROADMAP.md`, `.planning/milestones/v1.9-REQUIREMENTS.md`, and `.planning/milestones/v1.9-MILESTONE-AUDIT.md`.
 - v2.1 Core Subsystem Hardening is shipped and archived on 2026-07-08. It completes Phases 37-60 plus inserted Phase 48.1: ToolPlatform contract hardening, intent decoupling, memory layering, bounded investigate ReAct migration, canonical Agent Graph cutover, approval-resume memory finalization, and archive evidence closure. Full milestone history lives in `.planning/milestones/v2.1-ROADMAP.md`, `.planning/milestones/v2.1-REQUIREMENTS.md`, and `.planning/milestones/v2.1-MILESTONE-AUDIT.md`.
 - v2.2 Product Experience Fixes starts on 2026-07-09. Its scope is not another broad subsystem rewrite; it is a user-facing correction milestone focused on concrete bad experiences found during local demo and Agent Console validation.
+- Phase 64.3 RAG Format Parity And Document Quality Evaluation completed on 2026-08-10 with a sealed, reproducible provider baseline across nine format variants; the quality-red result is preserved as measured product evidence rather than rewritten as a passing quality claim.
 
 ## Next Milestone Setup
 
@@ -386,6 +395,9 @@ _No active v2.2 requirements remain after Phase 61 completion._
 | Scope v2.2 to concrete Product Experience Fixes | v2.1 hardened internals but local demo validation exposed user-facing confusion: misleading direct responses, unsupported capability wording, missing metric answers, and timeline clarity gaps | Adopted 2026-07-09 |
 | Repair runtime safety as one cross-layer contract in Phase 64.1 | Canonical action, deterministic risk, exact approval context, bounded capability, and terminal integrity fail together when owned as isolated patches | Adopted and verified 2026-08-04 |
 | Keep Phase 64.1 draft-only and name downstream owners | Evidence/replay/memory identity, the general operation gateway, the LLM gateway, and production external effects require separate trust boundaries and threat models | Deferred explicitly to Phase 64.2, Phase 66, Phase 69, and a separately authorized external-effects phase |
+| Keep canonical JSON as the sole Phase 64.3 result owner | Report truth and hashes must not drift between machine and human projections; a reproducible quality-red baseline is a valid evaluation-foundation result | Adopted and verified in Phase 64.3; Markdown is a byte-checked projection and the canonical outcome remains `completed_quality_fail` |
+| Isolate parity rounds with a fixed evaluation tenant and durable identity seal | Equivalent-format comparisons require exact cleanup, immutable-history preservation, safe resume, and proof that all rounds belong to one allowlisted run configuration | Adopted and verified in Phase 64.3 |
+| Keep Phase 64.4 limited to token-aware chunking and reindex validation | Parser/OCR/ingestion defects and retrieval-quality defects need separate source-backed owners and must not be hidden inside a chunk-boundary change | Phase 64.4 consumes the baseline; parser/ingestion hardening and retrieval quality remain owner-named follow-ups before Phase 65 where required |
 
 ## Evolution
 
@@ -405,4 +417,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-04 — completed Phase 64.1 Runtime Safety And Approval Contract Repair*
+*Last updated: 2026-08-10 — completed Phase 64.3 RAG Format Parity And Document Quality Evaluation*

@@ -11,7 +11,7 @@
 ## Current Planning State
 
 **Active milestone:** v2.2 Product Experience Fixes
-**Status:** Phase 64.2 complete with 11/11 plans, clean review, UAT, security, and Nyquist gates; Phase 65 is next
+**Status:** Phase 64.3 complete with 5/5 plans, clean review, UAT, security, and Nyquist gates; inserted Phase 64.4 is next, followed by Phase 65
 **Scope:** Complete the product-experience work and close source-audit gaps across runtime safety, evidence/replay/memory integrity, trace/SSE reliability, operation contracts, reproducible validation, lifecycle/data integrity, LLM runtime ownership, retrieval governance, and service boundaries without weakening accepted v2.1 contracts.
 
 ## Current Milestone: v2.2 Product Experience Fixes
@@ -47,7 +47,7 @@ Plans:
 
 ## Next
 
-Phase 64.2 is complete. Next: plan Phase 65 Trace Event And Console Label Consistency with `$gsd-phase-autopilot 65` or `$gsd-plan-phase 65`.
+Phase 64.3 is complete. Next: plan Phase 64.4 Token-Aware Policy Chunking And Reindex Validation with `$gsd-phase-autopilot 64.4` or `$gsd-plan-phase 64.4`; Phase 65 follows Phase 64.4.
 
 ### Phase 62: Business Query And Drilldown Foundation
 
@@ -174,11 +174,60 @@ Plans:
 
 **Closeout:** 11/11 plans and 26/26 executable tasks complete; final 82-file code review clean after four accepted warnings were fixed; automated backend UAT has 0 issues/0 blocked; `4462 passed, 4 skipped`; `threats_open: 0`; `nyquist_compliant: true` on 2026-08-06.
 
+### Phase 64.3: RAG Format Parity And Document Quality Evaluation (INSERTED)
+
+**Goal:** Use three canonical policies and their Markdown, digital-PDF, and scanned-PDF variants to establish a reproducible parser and retrieval format-parity baseline through the existing production parser, ingestion, and retrieval paths without changing production RAG behavior.
+**Requirements**: ROADMAP-SC-1, ROADMAP-SC-2, ROADMAP-SC-3, ROADMAP-SC-4, ROADMAP-SC-5
+**Depends on:** Phase 64.2
+**Plans:** 5/5 plans complete
+
+**Confirmed gaps owned:** The existing RAG evaluator and golden cases do not measure equivalent content across formats; parser quality, retrieval quality, and evidence-location quality are not independently scored; repeated retrieval-parity rounds do not yet have an explicit reset contract; and there is no reproducible baseline report that attributes failures to parsing, chunking, retrieval, or provenance.
+
+**Scope boundaries:** This phase owns format-parity manifests and Gold evidence anchors, direct parser evaluation, isolated round-based retrieval evaluation, evaluation-only reset safety, and reproducible baseline/report gates. It does not redesign or tune the production parser, chunker, embeddings, hybrid retrieval, reranker, `ContextBuilder`, or claim verifier; add parent-child chunking or complex-table enhancements; build a 20-30-document mixed corpus; add DOCX/XLSX/PPTX parity; or introduce domain-specific terminology.
+
+**Success criteria:**
+1. One validated manifest/Gold contract describes exactly three canonical policy groups and nine Markdown/digital-PDF/scanned-PDF variants, with format-independent fact and evidence anchors rather than generated chunk IDs.
+2. A direct parser-parity evaluator runs all nine fixtures without tenant, database, embedding, or retrieval dependencies and reports content fidelity, structural preservation, provenance/location coverage, OCR diagnostics, and actionable per-case failures.
+3. A provider-backed retrieval-parity evaluator uses a fixed evaluation tenant and logical `doc_key`, ingests one equivalent format per round, fully resets evaluation-owned state between rounds, reuses identical questions, and reports Hit@1/3/5, MRR, anchor coverage, fallback coverage, and locator coverage.
+4. A versioned baseline report records manifest/Gold hashes plus parser, OCR, embedding, retrieval, and reranker configuration; reports results by format and case; and separates parser failures from chunking, retrieval, and provenance failures. A truthful reproducible failing baseline is an acceptable phase result and drives later targeted work.
+5. Existing production RAG contracts and behavior remain unchanged, evaluation cleanup cannot affect non-evaluation tenants or data, and focused plus existing RAG regression gates pass.
+
+Plans:
+- [x] 64.3-01-PLAN.md — Contract And Semantic Gold (`depends_on: []`).
+- [x] 64.3-02-PLAN.md — Direct Parser Parity Evaluator (`depends_on: [64.3-01]`).
+- [x] 64.3-03-PLAN.md — Retrieval Round Isolation And Provider Runtime (`depends_on: [64.3-01]`).
+- [x] 64.3-04-PLAN.md — Canonical Reporting And Provider Baseline (`depends_on: [64.3-02, 64.3-03]`).
+- [x] 64.3-05-PLAN.md — Final Regression Documentation And Ledgers (`depends_on: [64.3-04]`).
+
+**Closeout:** 5/5 plans and 12/12 executable tasks complete; final deep code review clean after 11 accepted findings were fixed across two repair iterations; automated UAT 5/5 passed; `threats_open: 0`; `nyquist_compliant: true`; focused 143 tests and expanded 442 tests passed on 2026-08-10. The canonical provider baseline is intentionally `completed_quality_fail` and remains the truthful input to Phase 64.4 and owner-named parser/ingestion and retrieval follow-ups.
+
+### Phase 64.4: Token-Aware Policy Chunking And Reindex Validation (INSERTED)
+
+**Goal:** Replace character-count policy chunk sizing with a versioned tokenizer-aware assembly path that measures the final `text-embedding-v4` input while preserving parser structure, provenance, evidence identity, deterministic rebuilds, and safe rollback, then prove the change against the Phase 64.3 format-parity baseline.
+**Requirements**: TBD during Phase 64.4 planning.
+**Depends on:** Phase 64.3
+**Plans:** 0 plans
+
+**Confirmed gaps owned:** Production `chunk_blocks` and legacy `chunk_markdown` enforce character budgets rather than embedding-model token budgets; final embedding text adds title, section, and source context only after chunking; dry-run/golden validation and production ingestion do not share one authoritative chunk path; chunker/tokenizer configuration and per-chunk token counts are not persisted; and a rechunk/re-embedding rollout must preserve the immutable evidence/replay contract established by Phase 64.2.
+
+**Scope boundaries:** This phase owns the embedding-tokenizer/counting contract and parity check, token-aware block/table/oversized/overlap assembly over the final embedding input, convergence of production/dry-run/golden chunk behavior, chunker/tokenizer configuration provenance, evidence/version compatibility, isolated reindex/cutover/rollback, and A/B evaluation against Phase 64.3. It does not add an LLM policy-clause classifier or parent-child chunking; redesign production parsers, hybrid retrieval, RRF, reranking, `ContextBuilder`, or claim verification; replace the embedding model; or migrate Agent prompt budgets to the generation-model tokenizer owned by Phase 69.
+
+**Success criteria:**
+1. One versioned model-to-tokenizer contract provides deterministic offline counts for the configured embedding model and has a provider-backed parity check against reported usage without exposing credentials or production text.
+2. Every final embedding input, including title, section, table headers, overlap, and allowed source context, stays within the configured token maximum; existing structural/provenance boundaries remain intact and identical source plus configuration produces identical chunks.
+3. Production ingestion, dry-run, and golden validation consume one authoritative chunk assembly contract, with regression coverage for Chinese, English, mixed text, long unpunctuated text, tables, OCR content, URLs, numbers, and tokenizer failure behavior.
+4. Chunker/tokenizer/model versions and actual token counts are auditable, and rechunking cannot silently reuse incompatible policy/chunk/evidence identity or break historical replay semantics established by Phase 64.2.
+5. Reindexing is isolated, resumable, and rollback-safe so failures preserve the prior usable index and no tenant observes a partially mixed old/new corpus.
+6. A versioned A/B report compares character- and token-aware candidates on Phase 64.3 Hit@1/3/5, MRR, anchor/locator coverage, format parity, duplicate rate, chunk count, latency, and embedding token cost; the selected configuration satisfies explicit non-regression gates and existing RAG tests pass.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 64.4; expected slices: tokenizer contract/parity, token-aware chunk assembly, identity/reindex compatibility, and A/B rollout gates)
+
 ### Phase 65: Trace Event And Console Label Consistency
 
 **Goal:** Make runtime observability trustworthy end to end: canonical trace/event vocabulary must match what production nodes actually emit, persist, replay, project through SSE/API, and render in the Console, while failures are redacted and database/event lifecycles remain bounded.
 **Requirements**: TBD during Phase 65 planning.
-**Depends on:** Phase 64.2
+**Depends on:** Phase 64.4
 **Plans:** 0 plans
 
 **Audit findings owned:** LLM event types are registered but production calls do not emit them; two SSE paths expose raw exceptions; long streams retain request-scoped DB sessions; audit/event persistence failures can be silently discarded; backend/replay/DB/frontend labels remain separate facts.

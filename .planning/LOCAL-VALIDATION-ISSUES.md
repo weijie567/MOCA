@@ -1,5 +1,309 @@
 # 本地验证问题记录
 
+## 36. Phase 64.3 Alembic offline SQL 被历史 migration 016 的在线查询阻断
+
+日期：2026-08-10
+
+### 问题现象
+
+尝试以 Alembic offline SQL 作 migration 029 的可逆性门禁时，链上历史 migration 016 仍读取实时数据库状态，导致 offline 模式不能作为该仓库的有效全链验证。转用隔离真实 PostgreSQL 后，首次 025→029 upgrade 又被 migration 026 预期的 staged-cutover 健康证明拒绝。
+
+### 如何检测 / 复现
+
+对当前 Alembic chain 运行 offline SQL，然后在新建的无 volume `pgvector/pgvector:0.8.2-pg16` 容器中运行真实 upgrade。在没有 Phase 64.2 `dual_write_enabled_at` 健康 proof 时，026 正确 fail closed。
+
+### 关键证据或命令
+
+隔离库中安装精确 Phase 64.2 健康 proof 后，025→029 upgrade 通过；029 partial unique index 拒绝第二个 non-terminal round；active round downgrade 被拒绝；`expire -> exact zero-current proof -> abandoned` 后 downgrade 成功。production sentinel 的 head / immutable document / immutable chunk / 两条 trigger 保留为 `t|1|1|1|t|t`，再 upgrade 回 029 仍成功。
+
+### 当前判断 / 根因
+
+offline 失败是历史 migration 016 的实时 DB 依赖；026 初次拒绝是已接受 staged-cutover 安全门，不是 029 回归。
+
+### 已做处理
+
+改用一次性无 volume 隔离库，仅在该库内安装所需 Phase 64.2 proof，完成真实 upgrade/downgrade/re-upgrade、并发约束与 history/trigger 保真门禁。临时容器已 stop+rm，没有触碰现有容器或共享数据。
+
+### 剩余问题和下次继续排查入口
+
+无 Phase 64.3 migration 剩余阻塞。后续不得把 offline SQL 失败当成 029 失败，也不得绕过 026 健康 proof；继续入口为 migrations 016/026/029 与 Plan 03 Summary 的 PostgreSQL gate。
+
+## 35. Phase 64.3 provider CLI 在真实 embedding provider 缺失时 fail closed
+
+日期：2026-08-10
+
+### 问题现象
+
+普通 host 运行 provider CLI 时同时缺少可用数据库和 embedding provider；切到已迁移的隔离 PostgreSQL 后，数据库/schema/pgvector/fixed tenant/rollout/OCR 检查通过，剩余阻塞精确收敛为 embedding provider 不可用。
+
+### 如何检测 / 复现
+
+使用 `scripts/eval_rag_format_parity.py` 的 provider-only 入口先在普通 host 运行，再将 DSN 指向已完成 029 migration 的隔离库；两次都不启用 fake。
+
+### 关键证据或命令
+
+隔离库运行输出 `outcome=unavailable_prerequisite`、`baseline_eligible=false`、exit code `2`；没有 score、quality pass/fail、credential、DSN、raw provider/parser payload、绝对路径或 cross-tenant fact。OCR `chi_sim+eng` 已可用。
+
+### 当前判断 / 根因
+
+Plan 03 的 provider preflight 和 taxonomy 正确；当前是运行时凭据/配置缺失，不是质量失败或可被 fake 替代的情形。
+
+### 已做处理
+
+保留 fail-closed exit 2 和 baseline-ineligible 语义，没有降级 gate。Plan 04 必须使用真实 provider 才能写 canonical baseline。
+
+### 剩余问题和下次继续排查入口
+
+当前还不能完成 provider baseline。继续入口：仅检查本地 gitignored `.env`/运行环境是否已配置 provider（不输出 secret），在隔离 DB 中运行 Plan 04；如仍不可用，autopilot 必须保持阻塞而不伪造 baseline。
+
+## 34. Phase 64.3 Plans 02/03 shell wrapper 误用 zsh 特殊变量 `path` / `status`
+
+日期：2026-08-10
+
+### 问题现象
+
+Plan 02 首次 summary self-check 使用 `for path in ...`，随后同一 zsh 中的 `git` / `rg` 报 `command not found`。Plan 03 首次 CLI exit-code wrapper 又使用 `status=$?`，被 zsh 的只读特殊参数拒绝；CLI 本身已正确输出 safe unavailable payload。
+
+### 如何检测 / 复现
+
+在 zsh 中对特殊 array `path` 赋值后调用依赖 PATH 查找的命令；`path` 与 `PATH` 联动，循环变量会临时破坏命令查找。
+
+### 关键证据或命令
+
+首轮只在 self-check wrapper 出现 `git: command not found` / `rg: command not found`；Plan 03 wrapper 只出现 `read-only variable: status`。产品 pytest、CLI 和 repo diff 都没有同类失败。将变量改为 `artifact_file` / `commit_id` / `exit_code` 后同一检查通过。
+
+### 当前判断 / 根因
+
+这是 zsh 特殊变量命名冲突，不是依赖缺失或 MOCA 代码失败。
+
+### 已做处理
+
+改用非特殊变量重跑 self-check 和 provider CLI，Plan 02 Summary/五个 commits 及 Plan 03 safe exit `2` 均可验证；错误脚本未造成仓库修改。
+
+### 剩余问题和下次继续排查入口
+
+无产品剩余问题。后续 zsh 临时脚本避免把 `path` 作普通标量名。
+
+## 33. Phase 64.3 真实 parser-direct 运行暴露三种格式的文档质量缺口
+
+日期：2026-08-10
+
+### 问题现象
+
+对已验证的 3-policy/9-variant corpus 运行真实 `ParserRegistry` 后，整体结果为 `completed_quality_fail`。三份 Markdown 都缺 critical-table anchor；三份 digital PDF 都为 degraded，并有 `hidden_text_ignored`、heading/semantic/page/provenance 缺口；三份 scanned PDF 在 OCR runtime 可用时仍返回 empty output / zero anchor recall / `malformed_source`。
+
+### 如何检测 / 复现
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_rag_parser_parity.py \
+  --output /tmp/moca-parser-parity.json \
+  --generated-at 2026-08-10T10:55:00Z
+```
+
+### 关键证据或命令
+
+输出为 `schema_version=parser_parity_run.v1`、`mode=parser_direct`、`variants=9`、`outcome=completed_quality_fail`。prerequisite 记录 Tesseract `5.5.2` 且 `chi_sim+eng` 可用，因此 scanned 结果不属于 `unavailable_prerequisite`。九个 variant 的 stable reason-code 聚合为：Markdown `critical_table_anchor_missing` x3；digital PDF `hidden_text_ignored` x3 并伴随 parse/structure/semantic/page/provenance misses；scanned PDF `ocr_output_empty` / `ocr_anchor_recall_zero` 各 x3 并伴随 malformed/structure/semantic/page/provenance misses。
+
+### 当前判断 / 根因
+
+已确认 parser/OCR 质量不达 Phase 64.3 semantic Gold；但各具体根因（PDF hidden-text 策略、OCR raster/input 适配、table/locator 投影）尚未在本 evaluation phase 内分别定位。这是真实质量 baseline，不能改写为 unavailable 或用 fake 代替。
+
+### 已做处理
+
+Plan 02 修正 evaluator taxonomy：OCR 可用但 empty/garbled/zero-anchor 统一归为 `completed_quality_fail` 且 `primary_stage=ocr`；稳定、有界的 diagnostics 已写入 parser run。没有在评估 phase 内越界修改生产 parser。
+
+### 剩余问题和下次继续排查入口
+
+Phase 64.4 planning 必须将此 baseline 作为输入并明确裁决：如果 parser/OCR 修复不属于 64.4 token-aware chunking 范围，则在 Phase 65 前插入并命名 Phase 64.5 RAG parser/OCR quality remediation，不得把红色 baseline 静默延后。继续入口：`/tmp/moca-parser-parity*.json`、`src/rag/parsers/`、`src/rag/evaluation/parser_parity.py`。
+
+## 32. Phase 64.3 post-wave GSD tracking / key-link helper 不能解析当前 plan 形状
+
+日期：2026-08-10
+
+### 问题现象
+
+Wave 1 完成后，`roadmap.update-plan-progress 64.3 01 complete` 返回 `no matching checkbox found`；随后对 Plans 02/03 执行 `verify.key-links` 时，虽然 plan frontmatter 存在完整的 inline `from/to/via/pattern`，helper 仍返回空字段和 `Source file not found`。
+
+### 如何检测 / 复现
+
+- `gsd-sdk query roadmap.update-plan-progress 64.3 01 complete`
+- `gsd-sdk query verify.key-links .planning/phases/64.3-rag-format-parity-and-document-quality-evaluation/64.3-02-PLAN.md`
+- `gsd-sdk query verify.key-links .planning/phases/64.3-rag-format-parity-and-document-quality-evaluation/64.3-03-PLAN.md`
+
+### 关键证据或命令
+
+`phase-plan-index 64.3` 正确把 `64.3-01` 识别为 `has_summary: true`，而 Plans 02/03 的 YAML frontmatter 可直接读到完整 `key_links`。`verify.key-links` 返回的所有 `from/to/via` 却为空字符串，证明失败在 helper 解析层，不是已实现链接缺失。ROADMAP 的 Phase 64.3 plan 列表使用编号 bullet，不是 helper 期待的 checkbox。
+
+### 当前判断 / 根因
+
+这是当前 GSD SDK helper 对 decimal phase / numbered plan bullet / inline YAML mapping 的元数据兼容问题，不是 MOCA 产品回归。不能把该 helper 结果当成真实 cross-plan wiring 失败。
+
+### 已做处理
+
+保持 ROADMAP 不变，使用 `phase-plan-index` 的 summary 检测作为 plan 完成事实；手工检查下一 wave 的 prior-wave 连线，确认 `src/rag/evaluation/contracts.py` 与 `FormatParityDataset` 已存在。下一 wave 内尚未创建的 source 文件按 workflow 规则跳过预检。
+
+### 剩余问题和下次继续排查入口
+
+执行后继续用真实文件、导入、测试和 phase verifier 验证 wiring；不修改已审核 plan 的语义仅为迁就 helper。GSD SDK 升级后可重跑上述两类 query。
+
+## 31. Phase 64.3 `state.begin-phase` 长选项被本机 GSD SDK 当成位置参数
+
+日期：2026-08-10
+
+### 问题现象
+
+执行 workflow 文档中的 `gsd-sdk query state.begin-phase --phase 64.3 --name rag-format-parity-and-document-quality-evaluation --plans 5` 后，返回值显示 `phase="--phase"` / `name="64.3"` / `plan_count="--name"`，并把 `.planning/STATE.md` 错写为 `Phase --phase`。
+
+### 如何检测 / 复现
+
+运行上述长选项命令后立即检查 `git diff -- .planning/STATE.md`；本机 SDK 会按位置解析 query handler 参数。
+
+### 关键证据或命令
+
+- 错误返回：`{"phase":"--phase","name":"64.3","plan_count":"--name"}`。
+- 差异证据：`last_activity` 和 `Current focus` 被改成 `Phase --phase`。
+- 正确入口：`gsd-sdk query state.begin-phase 64.3 rag-format-parity-and-document-quality-evaluation 5`。
+
+### 当前判断 / 根因
+
+当前安装的 GSD SDK `state.begin-phase` handler 仍使用位置参数，与 execute-phase workflow 中的长选项示例不一致。这是 GSD 工具接口差异，不是 MOCA 产品代码错误。
+
+### 已做处理
+
+立即使用位置参数重跑，并再次 diff-check；`STATE.md` 已正确显示 Phase 64.3、Plan 1 of 5、`EXECUTING`。错误状态未提交。
+
+### 剩余问题和下次继续排查入口
+
+后续所有 GSD state/phase writer 命令都必须检查返回值和实际 diff，不能仅信 workflow 示例；入口为 `.planning/STATE.md` 与 `gsd-sdk query state.begin-phase` 的实际返回。
+
+## 30. Phase 64.3 material plan re-review 首次长时间无结果
+
+日期：2026-08-10
+
+### 问题现象
+
+Phase 64.3 接受首轮 Claude findings 并大幅修订计划后，复用 `phase_64_3_plan_check` 执行全量 GSD re-review，连续多次 30 秒等待仍无结果；发送收敛消息后仍未返回。
+
+### 如何检测 / 复现
+
+通过 agent status 持续观察到 `phase_64_3_plan_check: running`，但没有 checkpoint/final payload。该过程只读 planning artifacts，没有代码写入。
+
+### 关键证据或命令
+
+- 多次 `wait_agent(timeout_ms=30000)` 超时。
+- `interrupt_agent` 返回 previous status `running`。
+- 随后对同一 agent 发起只读、仅检查当前 planning diff 的 bounded follow-up。
+
+### 当前判断 / 根因
+
+未确认是长上下文读取、agent 工具等待还是输出收敛问题；没有证据表明是计划本身错误。不能把无返回当作 checker 通过。
+
+### 已做处理
+
+中断无结果的全量 turn，改为限定文件和检查维度的 bounded re-review。第二次正常返回 2 blockers / 2 warnings，均按仓库证据采纳并修订；后续仍需 clean re-review 才能进入执行。
+
+### 剩余问题和下次继续排查入口
+
+本 phase 后续 checker 优先使用 bounded diff review；若再次超过多个 30 秒窗口无 checkpoint，先读 agent status，再中断并缩小输入，禁止直接跳过 checker gate。
+
+## 29. Phase 64.3 fixture builder 重跑会生成不同 PDF 与 manifest 哈希
+
+日期：2026-08-10
+
+### 问题现象
+
+Claude plan review 质疑 `evaluation/rag_sources/build_fixtures.py` 的 PDF 字节可复现性。把完整 `evaluation/rag_sources` 复制到隔离临时根目录后，用同一代码、Markdown、字体和工具环境连续构建两次，三份 Markdown 哈希保持不变，但六份 PDF 和完整 manifest 的 SHA-256 全部变化。
+
+### 如何检测 / 复现
+
+在隔离临时根目录执行两次：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run --with reportlab python <temp-root>/evaluation/rag_sources/build_fixtures.py
+```
+
+两次执行之间保留 wall-clock 间隔，然后分别对九份 fixture 与 `format_parity_manifest.jsonl` 执行 `shasum -a 256` 并 `diff -u`。
+
+### 关键证据或命令
+
+- 两轮日志都报告 3 groups / 9 fixtures、每个 PDF 5 页，文本层统计完全一致。
+- `diff -u hashes1.txt hashes2.txt` 显示六个 PDF 和 manifest 哈希全部变化，三个 Markdown 哈希完全相同。
+- 当前 builder 使用 ReportLab/Pillow/PDFium，但没有固定 PDF metadata、document/trailer ID、时间字段，也没有把工具/字体 identity 写进 manifest。
+
+### 当前判断 / 根因
+
+这是已确认的 RAG 评测 fixture 生成契约缺陷，不是语义内容漂移。PDF 容器中的非确定性 metadata/ID 使“fixture byte hash 作为可复现 baseline identity”目前不成立。
+
+### 已做处理
+
+Phase 64.3 plan review 已采纳 C-01：Plan 01 现在要求固定数字/扫描 PDF 的 metadata、ID、时间与图像参数，记录 builder/tool/font/raster identity，并增加有 wall-clock 间隔的双构建 byte-equivalence 测试；同时要求自动语义检查与 agent visual QA。
+
+### 剩余问题和下次继续排查入口
+
+当前仅完成计划修订，生成器尚未修复。执行 `64.3-01-PLAN.md` Task 3 时从 ReportLab invariant/document ID、Pillow PDF creation/modification metadata、字体 SHA 与 PDFium/Pillow 版本入手；只有双构建六 PDF + manifest 全部同哈希后才能关闭本条。
+
+## 28. Phase 64.3 ROADMAP 更新被写成字面量 patch 片段
+
+日期：2026-08-10
+
+### 问题现象
+
+首版 plan agent 声称已更新 Phase 64.3 plan 数量与列表，但 `git diff` 显示它把 `@@`、`-**Plans:**`、`+**Plans:**` 等补丁文本追加到了 `.planning/ROADMAP.md` 文件末尾，真实 Phase 64.3 章节仍是 `0 plans` / `TBD`。
+
+### 如何检测 / 复现
+
+```bash
+rg -n '^@@|^[+-]\*\*Plans|^[+-]- \[' .planning/ROADMAP.md
+sed -n '175,205p' .planning/ROADMAP.md
+```
+
+### 关键证据或命令
+
+`git diff -- .planning/ROADMAP.md` 明确显示末尾新增的是字面量 patch 内容，而不是对 Phase 64.3 段落的真实修改。
+
+### 当前判断 / 根因
+
+这是 planning artifact 写入错误；agent 把预期 patch 当普通正文输出。GSD plan checker 当时只审计划内容，没有识别 ROADMAP 末尾污染。
+
+### 已做处理
+
+使用 `apply_patch` 删除末尾字面量 patch，真实更新 Phase 64.3 为 5 plans 和 01–05 依赖列表；随后用 `rg` 确认无 patch marker，并由最终 plan checker 返回 `VERIFICATION PASSED`。
+
+### 剩余问题和下次继续排查入口
+
+本次已处理完成。后续 plan agent 修改 ROADMAP 后必须同时检查目标 phase 原位段落和 `rg '^@@|^[+-]\*\*Plans'`，不能只信 agent 的“updated”摘要。
+
+## 27. Phase 64.3 Claude review 首次提示词超过 CLI 长度限制
+
+日期：2026-08-10
+
+### 问题现象
+
+按 `$gsd-review 64.3 --claude` 组装 PROJECT、ROADMAP、CONTEXT、完整 RESEARCH 和五份完整 PLAN 后，prompt 为 156573 bytes。Claude CLI 立即返回 `Prompt is too long`，输出仅 19 bytes。
+
+### 如何检测 / 复现
+
+```bash
+wc -c /tmp/gsd-review-prompt-64.3.md
+claude -p < /tmp/gsd-review-prompt-64.3.md
+```
+
+### 关键证据或命令
+
+原始输出文件内容为 `Prompt is too long`。压缩时保留 ROADMAP、锁定决策、关键研究结论、全部 task action/verify/acceptance/threat，去除重复 context/read/file lists 与 source audit，最终 prompt 为 88106 bytes；Claude 正常返回 14396-byte 结构化评审。
+
+### 当前判断 / 根因
+
+这是外部 CLI prompt 长度限制，不是计划内容失败。五份 plan 与研究全文重复引用较多，直接拼接超出 Claude CLI 可接受长度。
+
+### 已做处理
+
+按 gsd-review 语义重组紧凑提示词，没有删除决策、任务、验收、威胁或跨计划风险；第二次调用成功并产出 `64.3-REVIEWS.md`。第一次失败结果未被当成审核结论。
+
+### 剩余问题和下次继续排查入口
+
+后续 Phase 64.3 material repair 重审继续使用同一压缩规则。通用 `$gsd-review` workflow 可考虑在拼接前做字节预算，并优先裁掉重复 read/context/source-coverage 块。
+
 ## 26. Phase 63 secure-phase SECURITY 文件探测使用 zsh 未匹配 glob 报错
 
 日期：2026-07-10
@@ -22759,3 +23063,246 @@ Phase closeout 只把 Ruff lint (`ruff check`) 作为仓库门禁，没有同时
 
 **剩余问题和下次继续排查入口**
 本地修复已完成，待 push 后确认 PR lint 重跑转绿。后续 phase closeout 必须同时执行 `ruff check .` 与 `ruff format --check .`，不能用前者替代后者。
+
+## 2026-08-10 — Phase 64.3 worktree 首次 `uv run pytest` 命中系统 Python 3.9
+
+**问题现象**
+Plan 64.3-01 首次按规定执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_rag_format_parity_contract.py -q --tb=short` 时，pytest 在加载 `tests/conftest.py` 阶段从系统 Python 3.9 导入 `datetime`，因缺少 `datetime.UTC` 失败；当时 `.venv/bin/python` 实际已指向 Python 3.12，但 worktree 环境尚未安装 dev 依赖，`uv run` 因而解析到了用户目录中的 Python 3.9 pytest 脚本。
+
+**如何检测/复现**
+失败 traceback 指向 `/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/`。随后运行 `UV_CACHE_DIR=/tmp/uv-cache uv run which pytest` 得到 `/Users/ming/Library/Python/3.9/bin/pytest`，而 `UV_CACHE_DIR=/tmp/uv-cache uv run python -VV` 为 Python 3.12.13，确认解释器与 pytest 入口发生错配。
+
+**关键证据或命令**
+`UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'import sys,pytest; ...'` 在修复前返回 `ModuleNotFoundError: No module named 'pytest'`；执行 `UV_CACHE_DIR=/tmp/uv-cache uv sync --extra dev` 后，仓库 `.venv` 安装 pytest/pytest-asyncio/Ruff，再运行同一规定 pytest 命令得到预期的 Task 1 RED（缺少 `src.rag.evaluation`），完成实现后为 `19 passed`。
+
+**当前判断/根因**
+根因是新 worktree 的 Python 3.12 `.venv` 尚未同步 dev optional dependencies，导致 `uv run pytest` 回退到 PATH 上的用户级 Python 3.9 pytest。首次 collection 结果属于环境入口错配，不能作为产品测试结论。
+
+**已做处理**
+仅在当前仓库 worktree 执行 `UV_CACHE_DIR=/tmp/uv-cache uv sync --extra dev`，没有使用裸 pytest、没有修改系统 Python。之后所有 pytest/Ruff 命令均通过仓库 `uv run` 入口执行并确认使用 Python 3.12 环境。
+
+**剩余问题和下次继续排查入口**
+当前 worktree 已恢复，无产品侧剩余问题。后续新 worktree 若 `uv run which pytest` 指向仓库外路径，应先同步 dev extra，再把任何旧 Python collection 结果标为无效环境结论。
+
+## 2026-08-10 — Phase 64.3 PDF 确定性构建的 metadata 与扫描页等价性陷阱
+
+**问题现象**
+Task 3 首轮隔离双构建先在 Pillow 写扫描 PDF 时抛出 `ValueError: bytes must be in range(0, 256)`；修正后数字 PDF 仍随墙钟时间改变；进一步刷新 checked-in family 后，扫描页高度比数字页多 1 像素，且 72 DPI 灰度像素均差一度超过验证阈值。
+
+**如何检测/复现**
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_rag_format_parity_contract.py::test_fixture_builder_is_byte_deterministic_across_wall_clock_gap tests/eval/test_rag_format_parity_contract.py::test_changed_generator_identity_prevents_reuse -q --tb=short`；再运行完整 focused suite。对双构建 PDF 找首个不同 byte，可见差异落在 `CreationDate/ModDate`；用 PDFium 逐页 72 DPI 渲染可量出尺寸和像素均差。
+
+**关键证据或命令**
+Pillow 12.2.0 的 PDF writer 只把 `time.struct_time` 识别为 PDF date，普通 tuple 会走 `bytes(tuple)`，年份 2000 因而越界。ReportLab `BaseDocTemplate._makeCanvas(...)` 会用 document 自身的 `invariant/pageCompression` 关键字覆盖 `canvasmaker=partial(...)` 的默认值，因此只在 Canvas partial 上设 `invariant=1` 不生效。最终 focused suite 为 `28 passed, 1 warning`；间隔 1.1 秒的两个完整输出根目录中，3 Markdown、6 PDF 和 manifest SHA-256 全部一致。
+
+**当前判断/根因**
+这是 renderer API 的确定性配置层级和 PDF MediaBox 换算问题，不是 canonical Markdown 内容漂移。扫描件额外 autocontrast/低质量 JPEG 还会放大数字页与 raster-only 页的像素差异。
+
+**已做处理**
+固定 Pillow date 为 UTC `struct_time`；把 ReportLab invariant/page compression 配到 `SimpleDocTemplate` owner；按 A4 精确反算扫描 PDF x/y resolution，保留原始 RGB raster，并用固定 quality/subsampling/image metadata。自动检查覆盖 30 页尺寸与灰度像素均差；最新六份 PDF 又经 `pdftoppm 26.05.0` 150 DPI 全页渲染和 contact-sheet 目检，均无 clipping、重叠、乱码或 raster corruption。
+
+**剩余问题和下次继续排查入口**
+当前固定工具和字体 identity 下无剩余本机失败。跨机器重建必须使用 manifest 记录的同一 ReportLab/Pillow/PDFium/pdfplumber 版本和相同字体 bytes；identity 不一致时不得复用本 baseline，也不能把 fixture 字节可复现扩张为 live provider 指标逐位可复现。
+
+## 2026-08-10 — Phase 64.3 real-provider 前三轮尝试暴露 checksum、事务与 scanned progression 阻断
+
+**问题现象**
+Provider baseline 的连续尝试依次在 exact ingestion-attempt 证明、retrieval 后 cleanup、scanned-PDF ingestion 分类处停止：evaluation owner 使用裸 SHA-256，而生产 job 保存带算法前缀的 checksum；KnowledgeService search 留下 implicit transaction；可用 OCR 下第二次真实持久化的 scanned `malformed_source` 被当成 evaluator error，而不是受控质量失败。
+
+**如何检测/复现**
+使用固定 evaluation tenant/marker、显式 UUID run token 和 rollout version 运行 full-provider，逐轮检查 durable owner state、exact job/head/block/chunk projection、transaction 状态与 zero-residual cleanup。对应 RED 测试分别固定了 checksum lookup/delete、search 后 transaction boundary、以及只允许 scanned `malformed_source` 在两次真实失败与精确清理证明后推进的行为。
+
+**关键证据或命令**
+Checksum RED/GREEN commits 为 `4c00863` / `c4b71c3`；retrieval transaction RED/GREEN 为 `7ea1b99` / `be32691`；controlled scanned progression RED/GREEN 为 `bb88d1d` / `9186cb9`。最终 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_rag_retrieval_round_isolation.py tests/eval/test_rag_format_parity_report.py -q --tb=short` 纳入 Phase 64.3 final focused gate，完整 focused 结果为 111 passed。
+
+**当前判断/根因**
+三项均属于 evaluation runtime 与生产 ingestion/retrieval seam 的精确契约不一致：checksum 表示不统一、read transaction 生命周期未在 cleanup 前关闭、以及完成质量失败与执行错误的 taxonomy 缺少受控 scanned 分支。它们不是 provider 质量分数本身。
+
+**已做处理**
+增加严格单向 checksum canonicalization；每次 production search 与 observation capture 使用短事务并在 cleanup 前关闭/rollback；仅对精确证明的第二次 persisted scanned `malformed_source` 做 zero-residual cleanup 后继续，其他错误保持 fail closed。最终三轮 real-provider run 完成且 canonical outcome 保持 `completed_quality_fail`。
+
+**剩余问题和下次继续排查入口**
+这三项阻断已修复并纳入回归。后续从 `tests/eval/test_rag_retrieval_round_isolation.py` 的 checksum、transaction 和 scanned quality taxonomy cases 继续；不得放宽 fixed tenant、exact token/key/checksum、immutable non-regression 或其他 error 的 fail-closed 语义。
+
+## 2026-08-10 — Phase 64.3 provider attempt 005 完成三轮后因 report command 超长静默无 artifact
+
+**问题现象**
+Attempt 005 已完成三种格式的真实 ingestion/retrieval 与清理，但 runtime config 的 `command` 超过 schema 512 字符限制；当时 post-run `OSError/ValueError` 只让 CLI exit 2，没有 canonical pair，也没有 diagnostic，外观上像 provider 运行后 artifact 静默缺失。
+
+**如何检测/复现**
+先用与 CLI 相同 argparse 值构造 report config，再经 strict Pydantic validation；纠正 preflight 后稳定得到 `command:string_too_long`。一轮临时 preflight 曾漏传 `repository_root`，修正后才得到上述决定性错误，前一次输出不作为结论。
+
+**关键证据或命令**
+Task 2 RED commit `78db1cb` 覆盖 config/build/persist failure；GREEN commit `518b26b` 将 persistence destination 从 command descriptor 移除，最终 command 长度 377，并新增 `report_config_failed`、`report_build_failed`、`report_persist_failed` 三段安全 diagnostic。Canonical strict loader 与 12,045-byte Markdown projection 在 final gate 字节级一致。
+
+**当前判断/根因**
+根因是 reproducibility descriptor 混入不参与 configured identity 的 output/diagnostic 路径，并且 post-run exception boundary 没有持久安全 reason code。One-off preflight 的 `repository_root` 漏项是验证命令错误，不是产品根因。
+
+**已做处理**
+完成 exact RED/GREEN，分段捕获 report config/build/persist 失败并只输出稳定 reason code；canonical pair 仍只允许 completed/full-provider/eligible result 原子写入。命令 preflight 改用完整 repository context，不再把 output destinations 纳入 identity descriptor。
+
+**剩余问题和下次继续排查入口**
+已修复并由 final report tests 覆盖。后续如扩展 CLI flags，先运行同一 config preflight 并保持 command 小于 schema 上限；任何 unavailable/error 只读 diagnostic，不能把旧 canonical pair重新标成新运行结果。
+
+## 2026-08-10 — Phase 64.3 provider 诊断 shell 与 macOS OCR temp 环境陷阱
+
+**问题现象**
+诊断 artifact 哈希循环一度使用 zsh 特殊变量 `path`，覆盖命令搜索路径，导致 `shasum`/`jq` 看似不存在；修正变量名后 `shasum` 又打印本机 locale fallback warning。另一个独立问题是 macOS temp symlink 形式的临时图片路径让 pytesseract/Tesseract 的 Leptonica 读取失败，OCR runtime/traineddata 明明可用却返回 `malformed_source`。
+
+**如何检测/复现**
+Shell 事故通过变量赋值前后比较命令解析并改名复跑；hash 再由项目 Python `hashlib` 交叉验证。OCR 事故对同一三份 scanned fixture 的 15 页分别在 platform-default 与 realpath-normalized temp mode 下只读运行：默认模式失败，归一化后 15/15 OCR 成功。
+
+**关键证据或命令**
+Provider final run 以安全枚举 `ocr_temp_directory_mode=explicit_macos_private_tmp` 记录环境差异；report/runtime 测试在 `tests/eval/test_rag_format_parity_report.py`。最终 canonical run token 为 `64f30400-0000-4000-8000-000000000006`，strict JSON 显示 completed real-provider pair。Locale warning 未改变 canonical JSON/Markdown SHA-256，最终 hash 由项目 Python 环境复核。
+
+**当前判断/根因**
+`path` 是 zsh 特殊数组变量，不能作为普通 loop variable。Locale warning 是本机 Perl locale fallback，不是 hash 失败。OCR 根因位于 production `OcrEngine` 调用 pytesseract 时对 macOS symlink temp path 的兼容与异常分类；command-level normalization 只证明可运行，不是 production parser 修复。
+
+**已做处理**
+Shell 循环改用非保留变量；最终完整性判断改由 strict loader、Python hash 与 byte compare 拥有。Provider command 在该主机使用 realpath-normalized temp 环境，并仅把安全 mode enum 写入 configured identity；未记录 credential、DSN、任意用户路径或原始 provider payload。
+
+**剩余问题和下次继续排查入口**
+Shell 与 baseline 执行环境已收口；production `OcrEngine` 仍需 post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening`（若未作为明确前置配套，则 Phase 64.5、Phase 65 前）修复路径传递和错误 taxonomy。Phase 64.4 只负责 token/chunk-boundary，不承接该 parser/OCR 债务。
+
+## 2026-08-10 — Phase 64.3 exact cleanup 后 `reused_binding` 无法重建 current projection
+
+**问题现象**
+旧 provider 尝试在一轮 exact cleanup 清空 current blocks/chunks、保留 immutable history 与 document head 后，以相同 fingerprint 再摄取；production ingestion 命中 `reused_binding`，但复用分支只对 cleanup 后已为空的 locked chunks 投影 write sequence，无法重建 current blocks/chunks，round 因 projection 不完整停止。
+
+**如何检测/复现**
+在 evaluation-only tenant 上完成一次 exact cleanup，然后对同一 doc key、相同 fingerprint/内容重摄取并检查 current projection。代码核对入口为 `src/rag/ingestion.py` 的 `reused_binding` 分支与 `src/repositories/rag_evaluation_round_repo.py::cleanup_current_projection()`：前者复用 `locked_chunks`，后者依法删除 current blocks/chunks但保留 head/immutable versions。
+
+**关键证据或命令**
+旧尝试的 transient diagnostic 已按成功 canonical run 的安全清理约定删除，不作为当前 artifact；仓库代码仍可直接证明该组合边界。Final stable-base 审计确认本 phase 未修改 production ingestion 来掩盖问题；410 个 existing RAG/eval/parser/knowledge tests 通过只证明现有合同，不证明这个重建场景已修复。
+
+**当前判断/根因**
+这是 production ingestion 的 unchanged/reused-binding 语义与 evaluation exact current-projection cleanup 组合后的真实架构缺口。它不同于 Phase 64.4 的 token/chunk-boundary 优化，也不应通过 broad cleanup 或删除 immutable history规避。
+
+**已做处理**
+Phase 64.3 没有越界修改 production ingestion；最终 canonical run 使用新的可证明轮次完成，问题写入长期架构债务并指定 owner。
+
+**剩余问题和下次继续排查入口**
+由 post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening` 处理；若不作为 64.4 的显式前置配套，则在 Phase 65 前建立 Phase 64.5。入口是为“head/immutable binding 存在、current blocks/chunks 已精确清空、相同 fingerprint 重摄取”新增 production integration RED，再决定安全重建 current projection 的契约；不得把该债务误归 Phase 64.4。
+
+## 2026-08-10 — Phase 64.3 Plan 05 acceptance 自检的 shell 引号与历史台账扫描范围错误
+
+**问题现象**
+首次 acceptance 聚合脚本把含 Markdown 反引号的 Python 断言放进 zsh 双引号，shell 先执行了其中两个标识，随后断言失败；同一脚本还把裸测试入口扫描扩到完整历史 `LOCAL-VALIDATION-ISSUES.md`，命中旧事故原文中的裸命令，造成与本次 Plan 05 artifact 无关的假失败。
+
+**如何检测/复现**
+错误输出包含两个 `command not found`，且 `rg` 命中行号全部位于本次 Phase 64.3 追加区段之前。检查 `git diff` 可确认 Plan 05 新增命令都使用 `UV_CACHE_DIR=/tmp/uv-cache uv run ...` 或 Make target。
+
+**关键证据或命令**
+修正后使用 shell 单引号保护 `UV_CACHE_DIR=/tmp/uv-cache uv run python -c '...'`，并只对 Makefile、evaluation 文档、64.3 validation 与本次 diff 新增行执行裸入口扫描；strict loader、12-row validation、ledger/owner 断言与 diff/static gates 全部重跑。
+
+**当前判断/根因**
+这是 validation wrapper 的 shell quoting 与 scope 选择错误，不是代码、canonical report 或 pytest 失败。历史台账按规则保留过去事故原文，不能把旧裸命令记录误算成本 plan 新增命令。
+
+**已做处理**
+改用不会触发 command substitution 的引用方式；裸入口 gate 改为扫描 Plan 05 当前 artifact 的新增命令行，不修改历史事故正文。
+
+**剩余问题和下次继续排查入口**
+无产品侧剩余问题。后续 shell 内嵌 Python 若包含 Markdown 反引号必须使用安全外层引用；artifact command scan 应以当前 diff/授权文件为边界。
+
+## 2026-08-10 — Phase 64.3 post-review 验证 wrapper 的 Pydantic 定位、psql 引号与 typed summary 误用
+
+**问题现象**
+Post-review 验证出现三次只影响一次性检查命令的错误：旧 baseline 拒绝测试在读取 Pydantic validation error 时假设 `loc` 非空并触发 `IndexError`；首次只读数据库 proof 把 SQL UUID 写成 `\x27` 转义，psql 无法解析；Plan 05 文档对齐的 machine gate 断言已全部通过，但摘要输出对 typed `ParserGateInputsV1` 调用 `len()`，触发 `TypeError`。
+
+**如何检测/复现**
+第一项在构造缺少 parser gate inputs 的旧报告并读取 `exc.errors()[0]["loc"][0]` 时复现；第二项在 evaluation PostgreSQL 上运行带 `\x27` 的只读 UUID 查询时复现；第三项在 strict loader 成功后运行 `len(report.parser_gate_inputs)` 时复现。三者都发生在 validation wrapper 的展示/断言层，不在 provider、evaluation runtime 或 canonical persist 路径内。
+
+**关键证据或命令**
+修正第一项后按 error type/message 断言，稳定证明 strict loader 返回 `parser_gate_inputs_missing`；修正第二项为 SQL 中的精确 UUID literal 后，只读 proof 通过，当前 blocks/chunks/jobs 为 0/0/0、immutable documents/chunks 为 9/53；修正第三项为 typed fields / `model_dump()` 后，machine gate 打印 6 个 parser inputs，并核验 54 cases、45 failures、72,139-byte JSON、11,922-byte Markdown 与字节级 projection equality。
+
+**当前判断/根因**
+根因分别是 wrapper 对 Pydantic error location 的过强假设、shell/psql 引号层级错误，以及把 Pydantic model 误当作 collection。它们不是产品 bug，也没有使失败命令产生可信的质量结论。
+
+**已做处理**
+三条检查均改为契约直接拥有的字段或精确 literal 后重跑通过；严格 baseline、聚焦 138 tests、existing 437 tests、Ruff、生产漂移与危险清理扫描全部绿色。错误与修正过程均未改变数据库状态、provider 状态或 canonical artifact bytes。
+
+**剩余问题和下次继续排查入口**
+无产品侧剩余问题。后续负向 schema proof 应断言稳定 error code/message 而不是依赖 `loc` 必非空；psql 查询使用精确 SQL literal；typed Pydantic 子模型通过字段或 `model_dump()` 检查，不直接假设支持 collection protocol。
+
+## 2026-08-11 — Phase 64.3 sealed run identity 只读 proof 使用不存在列与错误数据库入口
+
+**问题现象 / 如何检测**
+首次只读 identity proof 假定 `rag_evaluation_rounds` 存在 `run_identity_proved_at` 列，查询失败；改查真实 `run_identity_hash` 后，sealed provider DB 证明 run token `64f30400-0000-4000-8000-000000000008` 有 3 rows / 1 distinct / 64 chars。文档对齐复核时，`docker compose exec` 又因当前 shell 未注入 `DASHSCOPE_API_KEY` 而在 Compose 插值阶段停止；直接进入现存 `worktree-postgres-1` 后发现它不是已迁移的 provider-run DB，没有 `rag_evaluation_rounds` 表。
+
+**关键证据 / 当前判断**
+权威只读 proof 使用实际列 `run_identity_hash`，三轮值均为 `4a4e7557c0b6132cb8070e42e00cd4be7eeb1bca4569b34d06dd7e8487cb8b7a`。当前 machine gate 另从 allowlisted corpus/time/mode/provider/rollout 字段重新计算同一 64-char SHA-256 并通过。两次当前 worktree DB 入口失败属于环境/目标容器选择错误，不是 sealed identity 漂移。
+
+**已做处理 / 剩余入口**
+未启动、迁移或修改任何数据库，也未改变 provider、artifact 或文件状态；只保留成功 provider-run proof 与可离线重算的 identity field gate。后续若需重新查 durable rows，必须连接实际 provider-run 已迁移数据库，先用 schema introspection 确认表/列，再执行 exact tenant + run-token 的只读查询；不得用任意存活的同名 worktree 容器代替。
+
+## 2026-08-11 — Phase 64.3 autopilot UAT 的一次性结果读取与 zsh 变量假设错误
+
+**问题现象 / 如何检测**
+自检测 UAT 中，direct parser target 正常写出真实红结果并按质量门禁 exit 1，但一次性读取脚本先后误用不存在的 `variants` / `format` 字段；provider prerequisite 负向检查又把 zsh 只读特殊变量 `status` 当普通变量；strict baseline 摘要先把 typed `ParserGateInputsV1` 当 collection 调用 `len()`，又误以为 canonical runtime config 直接暴露 durable `run_identity_hash`。安全审计的首个 provisional strict-loader wrapper 也使用了旧 top-level 字段访问。上述 wrapper 分别得到 schema key/type/attribute 或 shell 只读变量错误。
+
+**关键证据 / 当前判断**
+检查实际 schema 后，parser artifact 使用 `variant_results` / `variant`，结果为 `parser_direct`、9 variants、`completed_quality_fail`；shell 改用 `cmd_status` 后证明缺少 token 时 provider target exit 2；strict gate 改为 `config.execution_kind`、`case_rows` 和 `len(report.parser_gate_inputs.model_dump()) == 6`，并把 durable identity proof 留给三轮数据库记录与 allowlisted-field 离线重算。最终 UAT 与安全审计 strict gate 均证明 54 cases、45 failures 和 JSON→Markdown 字节一致。
+
+**已做处理 / 剩余入口**
+所有失败命令均是一次性 UAT 展示/读取层错误，未改变 provider、数据库或 tracked artifact；修正后重跑通过，临时 parser report 和 prerequisite 输出已精确清理。后续 UAT 读取应先使用 typed model 或检查实际 schema keys，zsh 不复用 `status` / `path` 等特殊变量，并区分 canonical report 字段与仅存在于 durable evaluation owner 的 identity seal。无产品侧剩余问题。
+
+## 2026-08-11 — Phase 64.3 transition 工具跳过插入阶段并留下旧进度
+
+**问题现象**
+`gsd-sdk query phase.complete 64.3` 正确勾选了 5/5 plans，却把下一阶段写成 Phase 65，跳过 ROADMAP 中明确位于其前且被 Phase 65 依赖的 Phase 64.4；同时没有把 `completed_plans` 从 38 更新到 43，Current focus/Next/可视进度仍保留 64.3 execution 旧值。
+
+**如何检测/复现与关键证据**
+在完成 64.3 后运行 `gsd-sdk query phase.complete 64.3`，JSON 返回 `next_phase: "65"`；随后 `git diff -- .planning/ROADMAP.md .planning/STATE.md` 显示 ROADMAP 只完成了 64.3 勾选，而 STATE 写入 `Phase: 65`、保留旧 Next 文本和 `completed_plans: 38`。ROADMAP 的 Phase 64.4 明确 `Depends on: Phase 64.3`，Phase 65 明确 `Depends on: Phase 64.4`。
+
+**当前判断/根因**
+这是 GSD transition 对小数插入阶段的 next-phase/进度同步缺口，不是 Phase 64.3 产品实现失败。`progress.bar` 仅按已登记 plans 返回 100%，也不适合作为仍有零-plan未来阶段的里程碑完成度。
+
+**已做处理**
+保留工具对 64.3 的 5/5 勾选，按 ROADMAP 依赖事实手工把 STATE/ROADMAP/PROJECT 修正为 Phase 64.4 ready-to-plan；`completed_plans` 修正为 43/43，里程碑阶段进度保留 7/15（47%），并同步 completed context 与 phase closeout。
+
+**剩余问题和下次继续排查入口**
+产品侧无剩余问题。GSD 工具后续应增加 decimal inserted-phase 的顺序测试，并区分“已规划 plans 完成率”和“里程碑 phases 完成率”；在修复前，插入阶段 transition 后必须用 ROADMAP `Depends on` 链核对下一阶段与 STATE 数值。
+
+## 2026-08-11 — Phase 64.3 PR 再次因本地与 CI 的 Ruff 格式入口漂移失败
+
+**问题现象**
+PR #5 的 GitHub Actions `lint` job 中，`uv run ruff check .` 通过，但随后 `uv run ruff format --check .` 报告 6 个 Phase 64.3 文件需要格式化并退出 1。Phase 64.2 的首次 PR 检查曾以同样原因失败，当时有 26 个文件需要格式化。
+
+**如何检测/复现与关键证据**
+GitHub Actions run `31448121999` 的 lint 日志列出 `parser_parity.py`、`reporting.py`、`retrieval_rounds.py`、`rag_evaluation_round_repo.py` 及两个 eval test 文件。仓库核对发现 `make lint` 只运行 `ruff check src/ tests/`，`make format` 只运行 `ruff format src/ tests/`，而 CI 独立运行全仓 `ruff check .` 与 `ruff format --check .`；仓库此前没有 pre-commit 配置，phase closeout 也允许 scoped `ruff check` 绿色替代完整 formatter gate。
+
+**当前判断/根因**
+这是验证入口多源、扫描范围不一致且缺少提交前 hook 导致的通用流程缺陷，不是六个文件各自的业务逻辑问题。`ruff check` 与 `ruff format --check` 是两个独立 gate，前者通过不能证明 formatter 合规。
+
+**已做处理**
+把 `make lint` 设为本地与 CI 的唯一完整 Ruff 入口，统一执行全仓 check 与 format-check；`make format` 统一执行 safe fixes 与全仓格式化；新增使用项目 `uv.lock` 的 pre-commit 自动修复/格式化和 pre-push 全仓 gate，并在 `AGENTS.md` 规定所有 phase closeout 必须运行 `make lint`、scoped Ruff 不得替代。执行一次全仓格式化后，6 个文件均已规范化。
+
+**剩余问题和下次继续排查入口**
+本条只解决 Ruff 通用失败。PR #5 的 test job 另有 CI 缺少 CJK 字体导致 fixture deterministic test 失败，属于独立环境契约问题，不能用格式修复掩盖；后续从 `tests/eval/test_rag_format_parity_contract.py::test_fixture_builder_is_byte_deterministic_across_wall_clock_gap` 与 `MOCA_CJK_FONT` preflight 入口处理。
+
+### Hook 验证补充：新 worktree 未同步 dev extra
+
+首次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pre-commit validate-config` 与 `pre-commit run --all-files` 时，uv 报 `Failed to spawn: pre-commit`。根因是新 worktree 只完成 lock 更新和默认环境创建，尚未把 dev extra 同步进 `.venv`；该失败不能作为 hook 配置结论。已把 `make hooks` 以及 hook 内的 Ruff entry 显式改为 `uv run --extra dev ...`，使首次克隆/新 worktree 不依赖预先手工 `uv sync --extra dev`。后续以带 `--extra dev` 的重跑结果为准。
+
+## 2026-08-11 — Phase 64.3 PR 的 Linux CI 缺少 CJK fixture 字体
+
+**问题现象**
+PR #5 在 Ruff 修复后的 GitHub Actions run `31449869596` 中，lint 已通过，但 test job 在 63% 处停止：`test_fixture_builder_is_byte_deterministic_across_wall_clock_gap` 报 `No CJK font found`。失败汇总为 `1 failed, 2911 passed, 1 skipped`。
+
+**如何检测/复现与关键证据**
+失败调用链是 `tests/eval/test_rag_format_parity_contract.py` 调用 `build_fixture_family()`，再由 `evaluation/rag_sources/build_fixtures.py::_font_path()` 检查 `MOCA_CJK_FONT`、macOS 系统字体和 Linux Noto CJK 标准路径。GitHub `ubuntu-latest` runner 未预装候选字体，原 CI 也没有字体安装/preflight 步骤，因此在生成中文 PDF fixture 前按契约 fail closed。
+
+**当前判断/根因**
+这是 Phase 64.3 中文 PDF 评测工具的 CI 环境依赖缺口，不是生产 API、parser 逻辑或 2911 个已通过测试的失败。字体会影响字形、换行、分页和 PDF bytes；静默换成无 CJK 字体会污染确定性和 parser/OCR 基线，因此测试主动失败是正确行为。
+
+**已做处理**
+在 CI test job 中显式安装 Ubuntu `fonts-noto-cjk`，从安装目录解析 `NotoSansCJK-Regular.ttc`，在文件存在后写入 `MOCA_CJK_FONT`，并输出 SHA-256 供日志审计。fixture generator 已把 `cjk_font_sha256` 纳入 generator identity，因此 CI 字体身份不会被静默忽略。
+
+**剩余问题和下次继续排查入口**
+以 PR #5 新一轮 GitHub Actions 为最终 Linux 证明；本地继续使用仓库已支持的 macOS CJK 字体路径。若未来 Ubuntu 包路径变化，CI 的 exact-name preflight 会在测试前明确失败，入口为该 workflow 安装步骤，而不是让 PDF fixture 生成产生模糊错误。
+
+### CI 字体轮廓兼容性补充：Noto CJK 的 CFF/PostScript 轮廓不被 ReportLab TTFont 支持
+
+首次安装 `fonts-noto-cjk` 后，GitHub Actions run `31451212566` 已通过字体安装 preflight，但测试仍在同一 fixture builder 用例失败；ReportLab 5.0.0 明确报 `NotoSansCJK-Regular.ttc: postscript outlines are not supported`，汇总仍为 `1 failed, 2911 passed, 1 skipped`。这说明缺失字体问题已解决，但所选字体的轮廓格式不满足 PDF 生成器依赖契约。
+
+已在隔离的 `python:3.12-slim` Linux 容器中安装 `fonts-wqy-zenhei` 和项目锁定的 `reportlab==5.0.0`，验证 `/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc` 可由 `TTFont` 成功注册。CI 因此改用该 TrueType 轮廓 CJK 字体，并继续保留精确文件名检查、`MOCA_CJK_FONT` 显式注入和 SHA-256 日志。最终结论仍以 PR #5 的完整 Linux test job 为准。

@@ -5,7 +5,7 @@
 | --- | --- |
 | 文档类型 | CURRENT |
 | 描述范围 | 当前评测资产、指标阈值、执行入口与质量门禁证据 |
-| 最后核验 | 2026-08-04（当前工作区） |
+| 最后核验 | 2026-08-10（当前工作区） |
 | 权威来源 | 当前评测脚本、golden 数据、manifest schema、测试和 Makefile |
 | 更新触发 | golden 数据、指标/阈值、评测脚本、报告 schema 或 gate policy 变化 |
 
@@ -13,7 +13,7 @@
 
 本文区分三种事实：golden/manifest 定义的**评测契约**、脚本定义的**通过阈值**、一次实际运行产生的**实测结果**。阈值不是成绩，manifest 能被 schema 测试读取也不等于生产门禁已经运行。
 
-截至核验日，[`evaluation/reports/`](../../evaluation/reports/.gitkeep) 只有占位文件 `.gitkeep`，不存在 `latest.json`、`latest.md`、专项报告或 `baseline.json`。因此当前仓库**没有可引用的最新实测指标或 baseline 比较**；下文所有数值均为数据规模或代码中的门槛。
+截至核验日，通用 `eval_all.py` 仍没有可引用的 `latest.json` 或通用 `baseline.json`；但 Phase 64.3 已在 [`evaluation/reports/rag_format_parity/v1/baseline.json`](../../evaluation/reports/rag_format_parity/v1/baseline.json) 保存一份格式等价专项 real-provider baseline，并由同目录 `baseline.md` 做确定性投影。专项结果不能冒充通用 RAG/Agent 最新成绩；下文只有“RAG format parity”小节中的数值来自这份已通过 strict loader 的实测报告。
 
 ## 评测资产总览
 
@@ -26,6 +26,7 @@
 | [`phase22_hallucination_cases.jsonl`](../../evaluation/golden/phase22_hallucination_cases.jsonl) | 24 | claim/citation 支持、拒答、泄漏与 fail-closed | [`eval_phase22_hallucination.py`](../../scripts/eval_phase22_hallucination.py) |
 | [`phase61_ux_cases.jsonl`](../../evaluation/golden/phase61_ux_cases.jsonl) | 15 | UX fixture 覆盖、角色、no-leak 与 caveat 约束 | [`eval_phase61_ux.py`](../../scripts/eval_phase61_ux.py) |
 | [`phase62_business_query_cases.jsonl`](../../evaluation/golden/phase62_business_query_cases.jsonl) | 9 | business-query fixture、drilldown、projection/no-leak | [`eval_phase62_business_query.py`](../../scripts/eval_phase62_business_query.py) |
+| [`rag_format_parity_gold.json`](../../evaluation/golden/rag_format_parity_gold.json) | 18 个共享语义 case / 54 个格式观测 | 3 个 canonical policy 的 Markdown、digital PDF、scanned PDF 解析与检索等价性 | `make eval-rag-format-parity-parser` / `make eval-rag-format-parity-provider` |
 | [`intent-golden.v1.json`](../../eval/intent/intent-golden.v1.json) | 91 | 58 个 positive、33 个 hard-negative 的 intent contract | [`intent_manifest.py`](../../src/agent/intent_manifest.py) |
 | [`release-smoke-cases.v1.json`](../../eval/replay/release-smoke-cases.v1.json) | 3 | intent、RAG claim、approval/action 的有限 smoke 引用 | manifest schema 测试；不是统计样本 |
 
@@ -38,6 +39,8 @@ Agent golden 的中文 substring、ID 和 FakeLLM 映射规则见 [`MATCHING_RUL
 | `eval_agent.py --mode ci` | deterministic | 35 个 case 由 expected 字段构造 deterministic state；另对 4 类代表 case 编译 LangGraph，并 patch LLM/tool/knowledge 依赖 | 不调用外部模型；使用 `MemorySaver` 与内存 fake services |
 | `eval_agent.py --mode live` | live graph | 每个 case 运行真实 graph、PostgreSQL checkpointer 与 DB session，记录 latency/token | PostgreSQL、seed 数据、`DASHSCOPE_API_KEY`、provider/network |
 | `eval_rag.py` | DB/provider-backed | 固定 `top_k=5` 检索，按 expected chunk 或 fallback 状态评分 | 活动 tenant、policy chunks、PostgreSQL/pgvector、DashScope embedding |
+| `eval_rag_parser_parity.py` | parser-direct | 对 checked-in 3-policy/9-variant corpus 直接调用生产 `ParserRegistry`，独立评分 anchor、结构、表格、locator 与 OCR | 无 tenant、数据库、embedding 或 retrieval 依赖；扫描 PDF 仍需要本机 OCR runtime |
+| `eval_rag_format_parity.py --mode full-provider` | isolated real-provider | 先跑 parser-direct，再按 Markdown、digital PDF、scanned PDF 三轮调用生产 ingestion 与 KnowledgeService/retrieval，生成一对 canonical report | 显式 evaluation-only tenant、已迁移 PostgreSQL/pgvector、canonical rollout、DashScope embedding、Tesseract `chi_sim+eng` |
 | `eval_all.py` | mixed | 先跑 RAG，再跑 Agent；默认 Agent 为 `ci`，两者都 pass 才整体 pass | 默认仍因 RAG 需要 DB 与 embedding provider |
 | hallucination 脚本 | local deterministic | 19 个 local fixture + 5 个 `production_verifier` fixture 路径；后者使用真实 ContextBuilder/verifier，但 canonical rows 来自 golden adapter | 不调用 live LLM/provider，不需要生产 DB |
 | UX / business-query 脚本 | fixture validation | 校验类别、字段、角色、drilldown、no-leak 和禁止 raw payload；错误即非零退出 | 不执行 Agent graph、数据库或模型 |
@@ -139,7 +142,98 @@ npm run e2e:live
 
 `npm run e2e` 运行 mocked desktop/mobile；`e2e:live` 启动或连接真实后端。完整 provider prompt matrix 还要求 `MOCA_E2E_FULL_LIVE=1`（[开关读取](../../frontend/e2e/agent-console.spec.ts#L391-L392) · [`frontend/package.json`](../../frontend/package.json) · [`playwright.config.ts`](../../frontend/playwright.config.ts)）。
 
-## 报告、baseline 与当前门禁状态
+## RAG format parity：入口、解释与当前 baseline
+
+### 四个彼此独立的入口
+
+这些入口证明的层级不同，不能互相替代：
+
+```bash
+# 1. CI-safe contract/scoring/isolation/report tests；fake 只证明契约
+make eval-rag-format-parity-contract
+
+# 2. 直接生产 ParserRegistry；不使用 DB/embedder/retrieval
+make eval-rag-format-parity-parser
+
+# 3. 真实 provider/OCR、固定 evaluation tenant、三轮 production ingestion/retrieval
+export RAG_FORMAT_PARITY_RUN_TOKEN="$(UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from uuid import uuid4; print(uuid4())')"
+export EVIDENCE_ROLLOUT_VERSION="1"
+TMPDIR=/private/tmp make eval-rag-format-parity-provider
+
+# 4. 原有 22-case chunk-ID/fallback 历史回归；映射保持不变
+make eval-rag
+```
+
+第三个入口中的 `TMPDIR=/private/tmp` 是当前 macOS 主机对 `/tmp -> /private/tmp` 的 OCR 输入路径归一化；Linux 或其他不存在该问题的主机应使用平台默认 temp 目录。运行身份会记录 `platform_default` 或 `explicit_macos_private_tmp`，不能把任意原始路径写进报告。每次 provider run 必须使用新的非零 UUID token；不得复用已完成 run 的 token。
+
+### Provider 前提与隔离边界
+
+`eval-rag-format-parity-provider` 在任何 provider mutation 前要求：
+
+- Python/依赖通过仓库 `uv` 环境；已配置 `DASHSCOPE_API_KEY`，但报告和台账不得记录其值。
+- PostgreSQL 带 `vector` 扩展，Alembic head 为 `029_phase64_3_rag_eval_rounds`。
+- Tesseract 可用且安装 `chi_sim`、`eng` traineddata；当前 canonical run 记录 Tesseract 5.5.2。
+- `EvidenceIdentityRollout(id=1)` 的 canonical reads/dual write 已启用，且 `EVIDENCE_ROLLOUT_VERSION` 与数据库正数版本精确匹配。
+- tenant UUID 固定为 `64300000-0000-4000-8000-000000000001`，name 固定为 `MOCA RAG Format Parity Evaluation`，status 固定为 `evaluation_only`，owner marker 固定为 `moca.rag_format_parity.v1`。
+- 该 UUID 只保留给显式 provision 的隔离评测基础设施，**绝不能分配给生产 tenant**。runner 不发现或回退到“第一个 active tenant”，也不做 truncate、全局清理或 broad-prefix 删除。
+
+输出固定为：
+
+- Canonical JSON：`evaluation/reports/rag_format_parity/v1/baseline.json`。
+- JSON 的确定性 Markdown 投影：`evaluation/reports/rag_format_parity/v1/baseline.md`。
+- unavailable/error diagnostic：`evaluation/reports/rag_format_parity/v1/diagnostics/<run-token>.json`。
+
+JSON 是 outcome、metrics、gates、identity 和 failure attribution 的唯一 owner。Markdown 只能由 strict loader 校验后的 JSON 通过 `render_markdown(...)` 生成并做字节级比较，不独立计分。Diagnostic 只有安全的 prerequisites/reason codes 和 input identity，没有 metrics/gates/质量结论，也不能覆盖 canonical pair。
+
+### 四种 outcome
+
+| Outcome | 含义 | Closeout 处理 |
+| --- | --- | --- |
+| `completed_pass` | parser-direct 与三轮 real-provider 均完整，隔离证明齐全，且所有 target gate 通过 | 可作为绿色质量 baseline |
+| `completed_quality_fail` | 完整真实运行已完成，但至少一个 case/target 未达标 | 保留真实红线、按 stage 指派 owner；可以完成 evaluation foundation，不能写成质量通过 |
+| `unavailable_prerequisite` | provider、OCR、DB/schema、tenant 或 rollout 前提缺失 | 只读 diagnostic；没有质量结论，阻断 phase closeout |
+| `execution_error` | evaluator、isolation、report build/persist 等执行错误 | 只读 diagnostic；没有质量结论，阻断 phase closeout |
+
+`report_config_failed`、`report_build_failed`、`report_persist_failed` 等 reason code 用来区分完成后报告链路的安全失败；diagnostic 不包含 exception text、DSN、credential、raw provider/parser payload 或本机 raw path。
+
+### 指标、target 与 stage taxonomy
+
+Canonical report 按 overall、format、policy、case 报告 Hit@1/3/5、MRR、semantic-anchor coverage、no-answer correctness、fallback correctness 与 locator coverage。八个 `rag_format_parity_targets.v1` 门槛保持初始值不变：
+
+| Gate | Target | 当前 observed | 当前状态 |
+| --- | ---: | ---: | --- |
+| parse success | `>= 1.00` | 0.666667 | FAIL |
+| Markdown anchor | `>= 1.00` | 1.000000 | PASS |
+| digital-PDF anchor | `>= 1.00` | 0.314286 | FAIL |
+| scanned-PDF anchor | `>= 0.95` | 0.742857 | FAIL |
+| critical table preservation | `>= 1.00` | 0.333333 | FAIL |
+| PDF locator coverage | `>= 1.00` | 0.528571 | FAIL |
+| retrieval Hit@5 | `>= 0.90` | 0.977778 | PASS |
+| cross-format Hit@5 spread | `<= 0.10` | 0.066667 | PASS |
+
+每个 completed miss 恰有一个 primary stage：`parser` 表示解析/结构/表格或 parser locator 已丢失；`ocr` 表示扫描输入在可用 OCR runtime 下仍产生质量缺口；`chunking` 表示解析已有对应事实、但 retrieved chunk 未完整包含语义 anchor；`retrieval` 表示 top-k/no-answer/fallback 行为失败；`provenance` 表示命中证据但 locator 未覆盖。当前 45 个失败按 canonical JSON 归因为 parser 12、OCR 9、chunking 16、retrieval 8、provenance 0；“0”表示本次没有该 primary miss，不等于生产 provenance 能力被普遍证明。
+
+Owner 必须按层分开：16 个 chunking miss 由 Phase 64.4 的 token/chunk-boundary 与 reindex/A-B 工作消费；parser/OCR/table/ingestion projection 缺陷属于 post-Phase 64.3 `RAG Parser/OCR And Ingestion Hardening`，不归 Phase 64.4，若未作为 64.4 的显式前置配套则在 Phase 65 前以 Phase 64.5 立项；8 个 retrieval miss 进入命名的 `RAG Retrieval Quality Optimization` follow-up；20–30 文档 mixed corpus 另由 `RAG Mixed Retrieval Corpus And Evaluation` follow-up 负责。本 phase 不为转绿而修改阈值、production parser/chunker/embedder/retrieval/reranker、ContextBuilder 或 claim verifier。
+
+### 当前 canonical real-provider baseline
+
+Strict loader 于 2026-08-10 核验的状态如下：
+
+- Outcome：`completed_quality_fail`；`baseline_eligible=true`；`execution_kind=full_provider`。
+- Run token：`64f30400-0000-4000-8000-000000000008`；generated at `2026-08-10T16:00:00Z`；OCR temp mode：`explicit_macos_private_tmp`；sealed canonical commit `dbaef79`。
+- 54 case observations（45 answerable、9 no-answer），45 个 stage-attributed failures。
+- Overall：Hit@1 0.844444、Hit@3 0.933333、Hit@5 0.977778、MRR 0.900000、semantic-anchor coverage 0.211111、no-answer correctness 0.111111、fallback correctness 0.851852、locator coverage 0.333333。
+- Parser gate inputs 共 6 项：parse 6/9、Markdown anchor 35/35、digital-PDF anchor 11/35、scanned-PDF anchor 26/35、critical table 11/33、PDF locator 37/70。这里的 PDF locator gate observed 为 0.528571，与 overall retrieval locator coverage 0.333333 是不同分母、不同层级的指标。
+- Input provenance：manifest SHA-256 `e5544b20ecdf05c2eaf3325b4e5f89a4ef752c0b8c0d23b8bac224f006fdd53b`；Gold SHA-256 `c6dc12536270fa9b9532ec4595e0a91d2b4ebddf83754a0f1ec107caabb64b8e`；generator identity `0a9f3cead84eeae36244f386a71a770337cd70fe64e7a17603a3e7d4b7ae0f24`；dataset identity `3b1ddd8c19f8fce0a37ad113f3d1161039c200e39e60ce0f2e4d0917d870e110`；configured identity `f2e73bb9dcb339e58d3eb69d696406623b25b526ba66b164cda74666b23a011f`。
+- Durable run identity seal：`4a4e7557c0b6132cb8070e42e00cd4be7eeb1bca4569b34d06dd7e8487cb8b7a`。三轮 durable rows 均为同一 64-char SHA-256（3 rows / 1 distinct）；本地 machine gate 从 allowlisted input/time/mode/provider/rollout 字段重新计算后精确一致。
+- Runtime config：DashScope `text-embedding-v4` / 1024 dimensions；`retrieval.v3`；RRF `k=60,dense=25,sparse=50,fuzzy=20`；`query_rewrite.v1`；`rerank.v2`；no-evidence threshold 0.55；`moca_markdown@21.01`、`moca_pdf@21.03`、Tesseract 5.5.2。
+- Artifact SHA-256：76,751-byte JSON `c4dc6f8ee7a154a416b4474691b0bff98c4d608a7d160f76583db9030f7c1bae`；11,915-byte Markdown `8b882a9ad7d6de3b5c44d4bb2b0690a1a588a3fd13df169374857d386fb7652e`。Strict loader 后重新投影与 Markdown 逐字节相等。
+- 隔离 closeout proof：当前 projection 的 blocks/chunks/jobs 为 0/0/0，immutable documents/chunks 为 9/53；evaluation container、process 与 diagnostic 均清理完成。该证明只覆盖固定 evaluation owner，不授权 broad cleanup。
+- Sealed review hardening 后的 deterministic gates：focused 143 passed，expanded RAG/eval/parser/knowledge 442 passed，scoped Ruff 与 stable-base production diff 全部绿色。
+
+这里的“可复现”是：记录并校验相同 input/toolchain/config/command identity，且每个观测都可归因；live provider 的独立两次运行可能因服务行为而产生不同指标，不承诺 bit-identical scores。Deterministic fake 只能证明 contract/scoring/isolation/report 规则，不能成为 parser 或 provider baseline。
+
+## 其他报告、baseline 与当前门禁状态
 
 单项默认写入 `agent_eval.json`、`rag_eval.json`、UX/business-query JSON；hallucination 只有传 `--output` 才落盘。统一入口生成 `latest.json` 与 `latest.md`，`--timestamp` 额外写时间戳版本，`--save-baseline` 把本次 JSON 复制为 `baseline.json`（[`eval_all.py`](../../scripts/eval_all.py#L184-L224)）。
 
@@ -162,4 +256,4 @@ CI 事实源是 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)；�
 - 修改阈值时同步脚本常量、report schema、本文表格以及门禁测试；不要用历史 report 值替换 threshold。
 - 评测结果必须附 mode、dataset/hash、命令、环境前提和生成时间；deterministic 与 live 结果不可混称。
 - 新增专项 evaluator 时显式决定是否纳入 `eval_all.py`、Makefile、CI、release 或 monitoring，而不是仅新增脚本。
-- `evaluation/reports/` 没有新产物时，文档必须继续声明“无当前实测报告”，不得从旧文档推断成绩。
+- `evaluation/reports/` 没有对应 evaluator 的新产物时，文档必须继续声明该 evaluator “无当前实测报告”，不得把 format-parity 专项结果推断为通用 Agent/RAG 成绩。

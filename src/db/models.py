@@ -304,6 +304,124 @@ class RagIngestionJob(TimestampMixin, Base):
     document: Mapped["PolicyDocument"] = relationship(back_populates="ingestion_jobs")
 
 
+class RagEvaluationRound(TimestampMixin, Base):
+    """Evaluation-only durable owner for one format-parity round.
+
+    This row is deliberately independent of the mutable document projection. It
+    is the authority that must be locked and CAS-validated before the evaluator
+    may inspect or remove any current child rows.
+    """
+
+    __tablename__ = "rag_evaluation_rounds"
+    __table_args__ = (
+        CheckConstraint(
+            "tenant_id = '64300000-0000-4000-8000-000000000001'::uuid",
+            name="ck_rag_evaluation_rounds_fixed_tenant",
+        ),
+        CheckConstraint(
+            "owner_marker = 'moca.rag_format_parity.v1'",
+            name="ck_rag_evaluation_rounds_owner_marker",
+        ),
+        CheckConstraint(
+            "round_format IN ('markdown', 'digital_pdf', 'scanned_pdf')",
+            name="ck_rag_evaluation_rounds_format",
+        ),
+        CheckConstraint(
+            'doc_keys_json = \'["eval_refund_eligibility_and_return",'
+            '"eval_quality_compensation_and_approval",'
+            '"eval_cross_border_and_digital_goods"]\'::jsonb',
+            name="ck_rag_evaluation_rounds_doc_keys",
+        ),
+        CheckConstraint(
+            "state IN ('claimed', 'ingesting', 'retrieving', 'cleaning', 'expired', 'completed', 'abandoned')",
+            name="ck_rag_evaluation_rounds_state",
+        ),
+        CheckConstraint(
+            "next_step IN ('preflight', 'ingest', 'retrieve', 'cleanup', 'done')",
+            name="ck_rag_evaluation_rounds_next_step",
+        ),
+        CheckConstraint("state_version > 0", name="ck_rag_evaluation_rounds_state_version_positive"),
+        CheckConstraint(
+            "expected_rollout_version > 0",
+            name="ck_rag_evaluation_rounds_rollout_version_positive",
+        ),
+        CheckConstraint(
+            "run_identity_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_rag_evaluation_rounds_run_identity_hash",
+        ),
+        CheckConstraint(
+            "next_document_index >= 0 AND next_document_index <= 3",
+            name="ck_rag_evaluation_rounds_document_index",
+        ),
+        CheckConstraint(
+            "attempt_doc_key IS NULL OR attempt_doc_key IN "
+            "('eval_refund_eligibility_and_return', 'eval_quality_compensation_and_approval', "
+            "'eval_cross_border_and_digital_goods')",
+            name="ck_rag_evaluation_rounds_attempt_doc_key",
+        ),
+        CheckConstraint(
+            "expected_source_checksum IS NULL OR expected_source_checksum ~ '^[0-9a-f]{64}$'",
+            name="ck_rag_evaluation_rounds_source_checksum",
+        ),
+        CheckConstraint(
+            "((attempt_doc_key IS NULL AND expected_source_checksum IS NULL "
+            "AND reservation_at IS NULL AND claimed_job_id IS NULL) OR "
+            "(attempt_doc_key IS NOT NULL AND expected_source_checksum IS NOT NULL "
+            "AND reservation_at IS NOT NULL))",
+            name="ck_rag_evaluation_rounds_attempt_reservation",
+        ),
+        CheckConstraint(
+            "((state IN ('completed', 'abandoned') AND terminal_at IS NOT NULL) OR "
+            "(state NOT IN ('completed', 'abandoned') AND terminal_at IS NULL))",
+            name="ck_rag_evaluation_rounds_terminal",
+        ),
+        Index("ix_rag_evaluation_rounds_tenant_run", "tenant_id", "run_token"),
+        Index("ix_rag_evaluation_rounds_lease", "lease_expires_at"),
+        Index(
+            "uq_rag_evaluation_rounds_one_active_tenant",
+            "tenant_id",
+            unique=True,
+            postgresql_where=text("state NOT IN ('completed', 'abandoned')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False
+    )
+    owner_marker: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_token: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    round_token: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, unique=True)
+    round_format: Mapped[str] = mapped_column(String(32), nullable=False)
+    doc_keys_json: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False, default="claimed", server_default="claimed")
+    state_version: Mapped[int] = mapped_column(nullable=False, default=1, server_default=text("1"))
+    expected_rollout_version: Mapped[int] = mapped_column(nullable=False)
+    run_identity_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    next_document_index: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
+    next_step: Mapped[str] = mapped_column(String(32), nullable=False, default="preflight", server_default="preflight")
+    attempt_doc_key: Mapped[str | None] = mapped_column(String(64))
+    expected_source_checksum: Mapped[str | None] = mapped_column(String(64))
+    reservation_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claimed_job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    pre_state_proof_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    post_state_proof_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    head_mappings_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    immutable_counts_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+    safe_message: Mapped[str | None] = mapped_column(String(200))
+    terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class PolicyChunk(TimestampMixin, Base):
     __tablename__ = "policy_chunks"
 

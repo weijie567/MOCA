@@ -17,8 +17,7 @@ jobs:
         with:
           version: "latest"
       - run: uv sync --extra dev
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
+      - run: make lint
 
   test:
     runs-on: ubuntu-latest
@@ -44,4 +43,12 @@ jobs:
         with:
           version: "latest"
       - run: uv sync --extra dev
+      - name: Install CJK font for deterministic PDF fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends fonts-wqy-zenhei
+          cjk_font_path=$(find /usr/share/fonts -type f -name 'wqy-zenhei.ttc' -print -quit)
+          test -n "$cjk_font_path"
+          echo "MOCA_CJK_FONT=$cjk_font_path" >> "$GITHUB_ENV"
+          sha256sum "$cjk_font_path"
       - run: uv run pytest tests/ -x --ignore=tests/integration -q --tb=short
