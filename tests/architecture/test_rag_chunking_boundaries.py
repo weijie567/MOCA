@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+RAG_ROOT = ROOT / "src" / "rag"
+SCRIPTS_ROOT = ROOT / "scripts"
+
+
+class _CallCollector(ast.NodeVisitor):
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.scopes: list[str] = []
+        self.calls: list[tuple[str, str, str]] = []
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.scopes.append(node.name)
+        self.generic_visit(node)
+        self.scopes.pop()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.scopes.append(node.name)
+        self.generic_visit(node)
+        self.scopes.pop()
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.visit_FunctionDef(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        name = _call_name(node.func)
+        if name:
+            self.calls.append((self.path.relative_to(ROOT).as_posix(), ".".join(self.scopes), name))
+        self.generic_visit(node)
+
+
+def _call_name(node: ast.expr) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _call_name(node.value)
+        return f"{prefix}.{node.attr}" if prefix else node.attr
+    return ""
+
+
+def _production_trees() -> list[tuple[Path, ast.Module]]:
+    files = sorted(RAG_ROOT.rglob("*.py")) + sorted(SCRIPTS_ROOT.glob("*.py"))
+    return [(path, ast.parse(path.read_text(encoding="utf-8"))) for path in files]
+
+
+def test_only_named_compatibility_owner_may_call_legacy_block_chunking() -> None:
+    calls: list[tuple[str, str, str]] = []
+    for path, tree in _production_trees():
+        collector = _CallCollector(path)
+        collector.visit(tree)
+        calls.extend(collector.calls)
+
+    markdown_callers = [call for call in calls if call[2].rsplit(".", 1)[-1] == "chunk_markdown"]
+    block_callers = [call for call in calls if call[2].rsplit(".", 1)[-1] == "chunk_blocks"]
+    compatibility_constructors = {
+        (path, scope) for path, scope, name in calls if name.rsplit(".", 1)[-1] == "CharacterCompatibilityAssembler"
+    }
+
+    assert markdown_callers == []
+    assert block_callers == [("src/rag/ingestion.py", "CharacterCompatibilityAssembler.assemble", "chunk_blocks")]
+    assert compatibility_constructors == {
+        ("src/rag/ingestion.py", "_assembler_for_mode"),
+        ("scripts/eval_rag_format_parity.py", "_character_baseline"),
+    }
+
+
+def test_no_second_token_or_character_split_loop_exists_outside_approved_owners() -> None:
+    approved = {
+        "src/rag/chunker.py",
+        "src/rag/policy_embedding_input.py",
+    }
+    budget_names = {
+        "max_chars",
+        "target_chars",
+        "overlap_chars",
+        "max_embedding_tokens",
+        "target_embedding_tokens",
+        "overlap_tokens",
+    }
+    offenders: list[tuple[str, int, list[str]]] = []
+    for path, tree in _production_trees():
+        relative = path.relative_to(ROOT).as_posix()
+        if relative in approved:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.For | ast.While):
+                continue
+            names = {item.id for item in ast.walk(node) if isinstance(item, ast.Name)}
+            matched = sorted(names & budget_names)
+            if matched:
+                offenders.append((relative, node.lineno, matched))
+    assert offenders == []
+
+
+def test_embedding_envelopes_are_rendered_only_inside_the_two_named_assemblers() -> None:
+    owners: set[tuple[str, str]] = set()
+    for path, tree in _production_trees():
+        relative = path.relative_to(ROOT).as_posix()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            has_title = any(isinstance(item, ast.Name) and item.id == "title" for item in ast.walk(node))
+            has_source_envelope = any(
+                isinstance(item, ast.Constant) and isinstance(item.value, str) and "source_block_id=" in item.value
+                for item in ast.walk(node)
+            )
+            if has_title and has_source_envelope:
+                owners.add((relative, node.name))
+
+    assert owners == {
+        ("src/rag/ingestion.py", "_render_character_compatibility_input"),
+        ("src/rag/policy_embedding_input.py", "_render_embedding_input"),
+    }
+
+
+def test_authoritative_paths_submit_or_validate_exact_assembler_dto_strings() -> None:
+    ingestion = (ROOT / "src/rag/ingestion.py").read_text(encoding="utf-8")
+    dry_run = (ROOT / "scripts/ingest_policies.py").read_text(encoding="utf-8")
+    golden = (ROOT / "scripts/validate_golden_seeds.py").read_text(encoding="utf-8")
+    parity = (ROOT / "scripts/check_embedding_tokenizer_parity.py").read_text(encoding="utf-8")
+    format_parity = (ROOT / "scripts/eval_rag_format_parity.py").read_text(encoding="utf-8")
+    retrieval_rounds = (ROOT / "src/rag/evaluation/retrieval_rounds.py").read_text(encoding="utf-8")
+
+    assert "texts = [dto.embedding_input for dto in assembled_inputs]" in ingestion
+    assert "_embedding_text" not in ingestion
+    assert "assemble_policy_embedding_inputs(" in dry_run
+    assert "assemble_policy_embedding_inputs(" in golden
+    assert "embedding_input=final_input.embedding_input" in parity
+    assert "input_assembler=_token_candidate()" in format_parity
+    assert "input_assembler: PolicyInputAssembler | None = None" in retrieval_rounds
+    assert "input_assembler=input_assembler or PolicyEmbeddingInputAssembler()" in retrieval_rounds

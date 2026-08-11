@@ -56,7 +56,9 @@ from src.rag.evaluation.retrieval_rounds import (
     rebuild_completed_retrieval_parity,
     run_retrieval_parity,
 )
+from src.rag.ingestion import CharacterCompatibilityAssembler, PolicyInputAssembler
 from src.rag.parsers.runtime import check_ocr_runtime
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.repositories.rag_evaluation_round_repo import (
     FORMAT_PARITY_OWNER_MARKER,
     FORMAT_PARITY_TENANT_ID,
@@ -73,6 +75,16 @@ DEFAULT_MANIFEST = "evaluation/rag_sources/format_parity_manifest.jsonl"
 DEFAULT_GOLD = "evaluation/golden/rag_format_parity_gold.json"
 CANONICAL_JSON_NAME = "baseline.json"
 CANONICAL_MARKDOWN_NAME = "baseline.md"
+
+
+def _token_candidate() -> PolicyInputAssembler:
+    """Return the sole token-aware parsed-block assembler for Phase64.3/64.4 evaluation."""
+    return PolicyEmbeddingInputAssembler()
+
+
+def _character_baseline() -> PolicyInputAssembler:
+    """Return the only explicitly named character incumbent for later same-run A/B."""
+    return CharacterCompatibilityAssembler()
 
 
 class RetrievalRunFixtureIdentityV1(BaseModel):
@@ -438,6 +450,7 @@ async def run_provider(args: argparse.Namespace) -> RetrievalParityRunV1:
                 embedder=EmbeddingService(),
                 owner=owner,
                 generated_at=args.generated_at,
+                input_assembler=_token_candidate(),
             )
     except (TimeoutError, OSError):
         missing.append("database_runtime")
@@ -565,6 +578,7 @@ async def run_full_provider(
                     embedder=EmbeddingService(),
                     owner=claim.owner,
                     generated_at=args.generated_at,
+                    input_assembler=_token_candidate(),
                 )
             retrieval_duration_ms = (time.monotonic() - retrieval_started) * 1000
     except EvaluationIsolationError as exc:

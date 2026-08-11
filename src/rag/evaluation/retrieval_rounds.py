@@ -22,7 +22,8 @@ from src.knowledge.schemas import (
 from src.knowledge.service import PolicyKnowledgeService
 from src.rag.embedder import EmbeddingService
 from src.rag.evaluation.contracts import EvaluationOutcome, FormatParityDataset, SemanticCase
-from src.rag.ingestion import IngestionService
+from src.rag.ingestion import IngestionAssemblyMode, IngestionService, PolicyInputAssembler
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.repositories.rag_evaluation_round_repo import (
     FORMAT_PARITY_OWNER_MARKER,
     FORMAT_PARITY_TENANT_ID,
@@ -191,6 +192,7 @@ async def run_retrieval_parity(
     embedder: EmbeddingService,
     owner: EvaluationRoundIdentity,
     generated_at: str,
+    input_assembler: PolicyInputAssembler | None = None,
 ) -> RetrievalParityRunV1:
     """Run the real production ingestion and knowledge facade in three rounds."""
 
@@ -198,7 +200,13 @@ async def run_retrieval_parity(
         raise EvaluationIsolationError("identity_mismatch")
     if owner.round_format not in ROUND_FORMATS:
         raise EvaluationIsolationError("initial_round_mismatch")
-    ingestion_service = IngestionService(session, embedder, FORMAT_PARITY_TENANT_ID)
+    ingestion_service = IngestionService(
+        session,
+        embedder,
+        FORMAT_PARITY_TENANT_ID,
+        assembly_mode=IngestionAssemblyMode.TOKEN_AWARE,
+        input_assembler=input_assembler or PolicyEmbeddingInputAssembler(),
+    )
     recording_engine = RecordingPolicyRetrievalEngine(PolicyRetrievalEngine(session, embedder=embedder))
     knowledge_service = PolicyKnowledgeService(recording_engine)
     round_repo = RagEvaluationRoundRepository(session)

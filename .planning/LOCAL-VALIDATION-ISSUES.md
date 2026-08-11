@@ -23420,3 +23420,20 @@ Plan 03 执行过程中，上层 orchestrator 的 watchdog 在一段时间内没
 
 **剩余问题和下次继续排查入口**
 产品侧无剩余问题。若后续 executor 再次长时间无可见进度，上层应先查询共享 worktree 的 `git status` 和最近 gate 输出再决定是否重启，避免把调度可见性问题误记为代码未执行。
+
+## 2026-08-11 — Phase 64.4 Plan 04 golden seam 测试误把 heading 文档假设为单 chunk
+
+**问题现象**
+Task 2 首次 GREEN 后精确测试得到 `1 failed, 40 passed, 1 warning`：`test_golden_seed_validator_uses_production_parser_and_shared_assembler` 预期一个带一级标题和二级章节的 fixture 只产生 `refund_policy_000`，实际 token assembler 正确产生 `refund_policy_000` 与 `refund_policy_001`。
+
+**如何检测/复现与关键证据**
+使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_format_parity_contract.py tests/architecture/test_rag_chunking_boundaries.py tests/rag/test_tokenizer_parity.py`；唯一失败显示返回集合比测试预期多 `refund_policy_001`。检查 production parser 与 assembler 输出确认一级标题后的 intro block 和二级章节 block 是两个结构边界，并非重复或不稳定切块。
+
+**当前判断/根因**
+这是新测试 fixture 的错误预期，不是产品实现回归。测试把“token budget 足够容纳全文”错误等同为“跨 parser section 合并为单 chunk”，忽略 assembler 保留结构边界的既有契约。
+
+**已做处理**
+将断言改为精确验证两个稳定 chunk id，并继续验证 validator 确实经 production parser 与 shared assembler。随后先执行 `make format`、完整 `make lint`，再重跑同一精确 gate，结果为 `41 passed, 1 warning`；额外 `tests/eval/test_rag_retrieval_round_isolation.py` 为 `71 passed, 1 warning`，checked-in seed validator 输出 `SEED VALIDATION PASSED`。没有使用裸 pytest/Python。
+
+**剩余问题和下次继续排查入口**
+当前无产品侧剩余问题。后续 golden seam fixture 若包含 Markdown heading，应按 parsed-block 结构断言稳定 id，不应仅凭总 token 数推断 chunk 数量。
