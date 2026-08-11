@@ -23357,3 +23357,7 @@ Phase 64.4 auto discuss 提交 context 后调用 `gsd-sdk query state.record-ses
 
 **剩余问题和下次继续排查入口**
 无产品侧剩余问题。后续临时 `rg` 正则避免在 shell 双引号中放反引号或 `$()`；若审计命令本身失败，必须修正后完整重跑。
+
+### 同类 zsh 参数修饰符补充：CLI detection 的 `$cli:available`
+
+执行 `$gsd-review` CLI detection 时，首次用 `echo "$cli:available"`；zsh 把冒号后的 `a` 解释为参数绝对路径修饰符，输出了形如 `.../geminivailable` 的路径，不能作为 available 标签证据。已改为 `echo "${cli}:available"` 并完整重跑，确认 `gemini`、`claude`、`codex` 可用，显式请求的 `claude` 审查随后成功完成。该问题只影响临时显示格式，没有改变 reviewer 选择或审查内容。
