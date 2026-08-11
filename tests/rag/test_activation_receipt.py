@@ -1,0 +1,419 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+import hashlib
+from pathlib import Path
+from uuid import UUID
+
+import pytest
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.db.models import (
+    PolicyCorpusActivationHistory,
+    PolicyCorpusManifestRevision,
+    PolicyCorpusRollout,
+    PolicyCorpusVersion,
+    Tenant,
+)
+from src.rag.activation_receipt import (
+    ACTIVATION_RECEIPT_GENESIS,
+    ActivationArtifactPaths,
+    ActivationReceiptError,
+    ActivationReceiptFailureCode,
+    ActivationReceiptStore,
+    load_activation_authority,
+    load_activation_receipt,
+)
+from src.rag.embedding_tokenizer import ProviderParityStatus
+from src.rag.evaluation.token_chunk_ab import ABParityEvidenceV1
+from src.rag.tokenizer_parity import (
+    EmbeddingTokenizerParityReportV1,
+    ParityProbeResultV1,
+    parity_content_sha256,
+    write_parity_report_create_only,
+)
+from tests.eval.test_rag_token_chunk_ab import (
+    CANDIDATE_CORPUS_ID,
+    GENERATED_AT,
+    INCUMBENT_CORPUS_ID,
+    SELECTION_ID,
+    TENANT_ID,
+    _api,
+    _selected_run,
+)
+
+
+TOKEN_CONFIG_FINGERPRINT = "sha256:" + "c" * 64
+CANDIDATE_RUN_TOKEN = UUID("64300000-0000-4000-8000-000000000014")
+CANDIDATE_LEASE_OWNER = "moca.rag_token_chunk_ab.v1:candidate"
+SOURCE_MANIFEST_HASH = "sha256:" + "4" * 64
+ACTOR = "operator.phase64_4.live"
+
+
+def _sha256_bytes(payload: bytes) -> str:
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _write_strict_artifacts(root: Path) -> ActivationArtifactPaths:
+    probes = tuple(
+        ParityProbeResultV1(
+            probe_id=f"probe-{index}",
+            category="safe_synthetic",
+            embedding_input_sha256="sha256:" + f"{index:x}" * 64,
+            offline_tokens=index + 2,
+            provider_prompt_tokens=index + 2,
+            provider_total_tokens=index + 2,
+            exact_match=True,
+        )
+        for index in range(10)
+    )
+    content_sha256 = parity_content_sha256(probes)
+    parity = EmbeddingTokenizerParityReportV1(
+        schema_version="embedding_tokenizer_parity.v1",
+        run_id=UUID("64300000-0000-4000-8000-000000000013"),
+        captured_at=datetime(2026, 8, 11, 8, 30, tzinfo=UTC),
+        region_class="dashscope_public",
+        provider="dashscope",
+        model="text-embedding-v4",
+        dimensions=1024,
+        tokenizer_contract_version="embedding_tokenizer.v1",
+        config_fingerprint=TOKEN_CONFIG_FINGERPRINT,
+        assembly_schema_version="policy_embedding_input.v1",
+        probe_fixture_sha256="sha256:" + "2" * 64,
+        submitted_content_sha256=content_sha256,
+        provider_parity_status=ProviderParityStatus.PASSED,
+        reason_code="exact_match",
+        probes=probes,
+        aggregate_input_count=10,
+        aggregate_offline_tokens=sum(item.offline_tokens for item in probes),
+        aggregate_provider_prompt_tokens=sum(item.offline_tokens for item in probes),
+        aggregate_provider_total_tokens=sum(item.offline_tokens for item in probes),
+        aggregate_exact_match=True,
+    )
+    parity_path = write_parity_report_create_only(parity, root=root / "parity")
+    parity_sha256 = _sha256_bytes(parity_path.read_bytes())
+
+    api = _api()
+    selected_payload = _selected_run().model_dump(mode="json")
+    selected_payload["parity"] = ABParityEvidenceV1(
+        report_sha256=parity_sha256,
+        run_id=parity.run_id,
+        captured_at=parity.captured_at,
+        status="passed",
+        config_fingerprint=parity.config_fingerprint,
+        probe_fixture_sha256=parity.probe_fixture_sha256,
+        submitted_content_sha256=parity.submitted_content_sha256,
+        reason_code=parity.reason_code,
+    ).model_dump(mode="json")
+    selected = api["TerminalABRunV1"].model_validate(selected_payload)
+    terminal_pair = api["write_terminal_run_create_only"](selected, root=root / "ab")
+    binding = api["ABSelectionBindingV1"](
+        selection_id=SELECTION_ID,
+        tenant_id=TENANT_ID,
+        candidate_corpus_version_id=CANDIDATE_CORPUS_ID,
+        candidate_run_token=CANDIDATE_RUN_TOKEN,
+        candidate_lease_owner=CANDIDATE_LEASE_OWNER,
+        source_manifest_hash=SOURCE_MANIFEST_HASH,
+    )
+    selection_pair = api["write_selection_create_only"](
+        selected,
+        binding=binding,
+        terminal_run_sha256=terminal_pair.json_sha256,
+        root=root / "ab",
+    )
+    return ActivationArtifactPaths(
+        selection_path=selection_pair.json_path,
+        terminal_run_path=terminal_pair.json_path,
+        parity_report_path=parity_path,
+    )
+
+
+async def _seed_activation_authority(session: AsyncSession) -> PolicyCorpusRollout:
+    session.add(Tenant(id=TENANT_ID, name="phase64-4-activation-receipt", status="active"))
+    await session.flush()
+    manifest = PolicyCorpusManifestRevision(
+        id=UUID("64300000-0000-4000-8000-000000000020"),
+        tenant_id=TENANT_ID,
+        revision=1,
+        manifest_schema_version="policy_corpus_source_manifest.v1",
+        manifest_json={
+            "schema_version": "policy_corpus_source_manifest.v1",
+            "tenant_id": str(TENANT_ID),
+            "documents": [],
+        },
+        manifest_hash=SOURCE_MANIFEST_HASH,
+        document_count=0,
+        block_count=0,
+        chunk_count=0,
+    )
+    session.add(manifest)
+    await session.flush()
+    common = {
+        "tenant_id": TENANT_ID,
+        "source_manifest_revision_id": manifest.id,
+        "source_manifest_hash": SOURCE_MANIFEST_HASH,
+        "state": "complete",
+        "state_version": 1,
+        "next_document_index": 0,
+        "bootstrap_counts_json": {
+            "bound_document_count": 0,
+            "bound_block_count": 0,
+            "bound_chunk_count": 0,
+        },
+        "validation_proof_json": {},
+        "terminal_at": GENERATED_AT,
+    }
+    incumbent = PolicyCorpusVersion(
+        id=INCUMBENT_CORPUS_ID,
+        generation_name="character.v1",
+        owner_marker="moca.phase64_4.bootstrap",
+        run_token=None,
+        config_schema_version="character_compatibility.v1",
+        config_json={"schema_version": "character_compatibility.v1"},
+        config_fingerprint="sha256:" + "b" * 64,
+        provider_parity_report_hash=None,
+        source_active_corpus_version_id=None,
+        source_rollout_epoch=None,
+        expected_evidence_rollout_version=None,
+        lease_owner=None,
+        lease_expires_at=None,
+        **common,
+    )
+    candidate = PolicyCorpusVersion(
+        id=CANDIDATE_CORPUS_ID,
+        generation_name="token.v1:selected",
+        owner_marker="moca.policy_reindex.v1",
+        run_token=CANDIDATE_RUN_TOKEN,
+        config_schema_version="embedding_tokenizer.v1",
+        config_json={"schema_version": "embedding_tokenizer.v1"},
+        config_fingerprint=TOKEN_CONFIG_FINGERPRINT,
+        provider_parity_report_hash=None,
+        source_active_corpus_version_id=INCUMBENT_CORPUS_ID,
+        source_rollout_epoch=7,
+        expected_evidence_rollout_version=11,
+        lease_owner=CANDIDATE_LEASE_OWNER,
+        lease_expires_at=datetime(2026, 8, 12, tzinfo=UTC),
+        **common,
+    )
+    session.add_all((incumbent, candidate))
+    await session.flush()
+    rollout = PolicyCorpusRollout(
+        id=UUID("64300000-0000-4000-8000-000000000021"),
+        tenant_id=TENANT_ID,
+        active_corpus_version_id=INCUMBENT_CORPUS_ID,
+        previous_corpus_version_id=None,
+        rollout_epoch=7,
+    )
+    session.add(rollout)
+    await session.commit()
+    return rollout
+
+
+async def _commit_event(
+    session: AsyncSession,
+    *,
+    sequence: int,
+    from_corpus: UUID,
+    to_corpus: UUID,
+    reason: str,
+    selection_sha256: str | None,
+) -> None:
+    await session.execute(
+        update(PolicyCorpusRollout)
+        .where(PolicyCorpusRollout.tenant_id == TENANT_ID)
+        .values(
+            active_corpus_version_id=to_corpus,
+            previous_corpus_version_id=from_corpus,
+            rollout_epoch=sequence,
+        )
+    )
+    session.add(
+        PolicyCorpusActivationHistory(
+            id=UUID(f"64300000-0000-4000-8000-{sequence:012d}"),
+            tenant_id=TENANT_ID,
+            from_corpus_version_id=from_corpus,
+            to_corpus_version_id=to_corpus,
+            prior_rollout_epoch=sequence - 1,
+            rollout_epoch=sequence,
+            reason_code=reason,
+            actor=ACTOR,
+            selection_decision_hash=selection_sha256,
+            receipt_hash=None,
+            created_at=GENERATED_AT.replace(second=sequence),
+        )
+    )
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_committed_event_writes_create_only_receipt_bound_to_live_pointer_and_artifacts(
+    session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    paths = _write_strict_artifacts(tmp_path / "evidence")
+    authority = load_activation_authority(paths)
+    await _seed_activation_authority(session)
+    await _commit_event(
+        session,
+        sequence=8,
+        from_corpus=INCUMBENT_CORPUS_ID,
+        to_corpus=CANDIDATE_CORPUS_ID,
+        reason="selected_cutover",
+        selection_sha256=authority.selection_decision_sha256,
+    )
+
+    store = ActivationReceiptStore(tmp_path / "activations")
+    first = await store.write_committed(
+        session,
+        tenant_id=TENANT_ID,
+        history_sequence=8,
+        authority=authority,
+    )
+    before = first.path.read_bytes()
+    replayed = await store.write_committed(
+        session,
+        tenant_id=TENANT_ID,
+        history_sequence=8,
+        authority=authority,
+    )
+    receipt = load_activation_receipt(first.path)
+
+    assert replayed == first
+    assert first.path.read_bytes() == before
+    assert receipt.schema_version == "rag_token_chunk_activation.v1"
+    assert receipt.history_sequence == 8
+    assert receipt.event_reason == "selected_cutover"
+    assert receipt.before_rollout_epoch == 7
+    assert receipt.after_rollout_epoch == 8
+    assert receipt.from_corpus_version_id == INCUMBENT_CORPUS_ID
+    assert receipt.to_corpus_version_id == CANDIDATE_CORPUS_ID
+    assert receipt.selection_decision_sha256 == authority.selection_decision_sha256
+    assert receipt.terminal_run_sha256 == authority.terminal_run_sha256
+    assert receipt.provider_parity_report_sha256 == authority.provider_parity_report_sha256
+    assert receipt.db_history_sha256.startswith("sha256:")
+    assert receipt.actor == ACTOR
+    assert receipt.previous_receipt_sha256 == ACTIVATION_RECEIPT_GENESIS
+
+
+@pytest.mark.asyncio
+async def test_three_receipts_form_hash_chain_and_missing_receipt_reconciles_idempotently(
+    session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    authority = load_activation_authority(_write_strict_artifacts(tmp_path / "evidence"))
+    await _seed_activation_authority(session)
+    events = (
+        (8, INCUMBENT_CORPUS_ID, CANDIDATE_CORPUS_ID, "selected_cutover", authority.selection_decision_sha256),
+        (9, CANDIDATE_CORPUS_ID, INCUMBENT_CORPUS_ID, "rollback_prior", None),
+        (10, INCUMBENT_CORPUS_ID, CANDIDATE_CORPUS_ID, "restore_selected", authority.selection_decision_sha256),
+    )
+    for sequence, from_corpus, to_corpus, reason, selection_hash in events:
+        await _commit_event(
+            session,
+            sequence=sequence,
+            from_corpus=from_corpus,
+            to_corpus=to_corpus,
+            reason=reason,
+            selection_sha256=selection_hash,
+        )
+
+    store = ActivationReceiptStore(tmp_path / "activations")
+    receipts = await store.reconcile_missing(session, tenant_id=TENANT_ID, authority=authority)
+    assert [item.receipt.history_sequence for item in receipts] == [8, 9, 10]
+    assert receipts[0].receipt.previous_receipt_sha256 == ACTIVATION_RECEIPT_GENESIS
+    assert receipts[1].receipt.previous_receipt_sha256 == receipts[0].file_sha256
+    assert receipts[2].receipt.previous_receipt_sha256 == receipts[1].file_sha256
+
+    missing_path = receipts[1].path
+    expected_bytes = missing_path.read_bytes()
+    missing_path.unlink()
+    reconciled = await store.reconcile_missing(session, tenant_id=TENANT_ID, authority=authority)
+    assert reconciled[1].path.read_bytes() == expected_bytes
+    assert reconciled[2].receipt.previous_receipt_sha256 == reconciled[1].file_sha256
+    assert [item.file_sha256 for item in reconciled] == [item.file_sha256 for item in receipts]
+
+
+@pytest.mark.asyncio
+async def test_existing_receipt_or_artifact_mismatch_fails_without_rewrite(
+    session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    paths = _write_strict_artifacts(tmp_path / "evidence")
+    authority = load_activation_authority(paths)
+    await _seed_activation_authority(session)
+    await _commit_event(
+        session,
+        sequence=8,
+        from_corpus=INCUMBENT_CORPUS_ID,
+        to_corpus=CANDIDATE_CORPUS_ID,
+        reason="selected_cutover",
+        selection_sha256=authority.selection_decision_sha256,
+    )
+    store = ActivationReceiptStore(tmp_path / "activations")
+    written = await store.write_committed(
+        session,
+        tenant_id=TENANT_ID,
+        history_sequence=8,
+        authority=authority,
+    )
+    written.path.write_bytes(b'{"schema_version":"rag_token_chunk_activation.v1","tampered":true}\n')
+    tampered = written.path.read_bytes()
+
+    with pytest.raises(ActivationReceiptError) as conflict:
+        await store.write_committed(
+            session,
+            tenant_id=TENANT_ID,
+            history_sequence=8,
+            authority=authority,
+        )
+    assert conflict.value.code is ActivationReceiptFailureCode.CREATE_CONFLICT
+    assert written.path.read_bytes() == tampered
+
+    paths.parity_report_path.write_text("{}", encoding="utf-8")
+    with pytest.raises(ActivationReceiptError) as artifact_mismatch:
+        load_activation_authority(paths)
+    assert artifact_mismatch.value.code is ActivationReceiptFailureCode.ARTIFACT_MISMATCH
+
+
+@pytest.mark.asyncio
+async def test_uncommitted_or_stale_pointer_event_cannot_write_latest_receipt(
+    session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    authority = load_activation_authority(_write_strict_artifacts(tmp_path / "evidence"))
+    await _seed_activation_authority(session)
+    await _commit_event(
+        session,
+        sequence=8,
+        from_corpus=INCUMBENT_CORPUS_ID,
+        to_corpus=CANDIDATE_CORPUS_ID,
+        reason="selected_cutover",
+        selection_sha256=authority.selection_decision_sha256,
+    )
+    await session.execute(
+        update(PolicyCorpusRollout)
+        .where(PolicyCorpusRollout.tenant_id == TENANT_ID)
+        .values(active_corpus_version_id=INCUMBENT_CORPUS_ID, rollout_epoch=9)
+    )
+    await session.commit()
+
+    with pytest.raises(ActivationReceiptError) as stale:
+        await ActivationReceiptStore(tmp_path / "activations").write_committed(
+            session,
+            tenant_id=TENANT_ID,
+            history_sequence=8,
+            authority=authority,
+        )
+    assert stale.value.code is ActivationReceiptFailureCode.LIVE_POINTER_MISMATCH
+    assert list((tmp_path / "activations").rglob("*.json")) == []
+
+    rows = list(
+        (
+            await session.execute(
+                select(PolicyCorpusActivationHistory).where(PolicyCorpusActivationHistory.tenant_id == TENANT_ID)
+            )
+        ).scalars()
+    )
+    assert len(rows) == 1
+    assert rows[0].receipt_hash is None
