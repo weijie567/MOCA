@@ -16,6 +16,8 @@ the sealed Phase 64.3 corpus and ordered 45 answerable / 54 total cases.
 Plan 09 provides the production-capable same-run command and contract tests.
 Plan 10 owns live-provider execution, any pointer change, the reversible
 cutover drill, and the independent hash-chained activation receipt series.
+The receipt schema, tenant/sequence path, reconciliation behavior, and
+DB-commit-before-file order are documented in `activations/README.md`.
 Credential-free tests and deterministic providers must never be represented as
 final live selection evidence.
 

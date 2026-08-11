@@ -253,6 +253,10 @@ async def test_committed_event_writes_create_only_receipt_bound_to_live_pointer_
 ) -> None:
     paths = _write_strict_artifacts(tmp_path / "evidence")
     authority = load_activation_authority(paths)
+    proof = authority.to_selection_proof(expected_evidence_rollout_version=11)
+    assert proof.schema_version == "rag_token_chunk_selection.v1"
+    assert proof.selection_decision_sha256 == authority.selection_decision_sha256
+    assert proof.provider_parity_report_hash == authority.provider_parity_report_sha256
     await _seed_activation_authority(session)
     await _commit_event(
         session,

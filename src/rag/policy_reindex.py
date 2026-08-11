@@ -163,6 +163,23 @@ class ImmutableSelectionDecisionFixtureV1:
 
 
 @dataclass(frozen=True, slots=True)
+class ImmutableSelectionDecisionV1:
+    """Strict in-memory projection of a real Plan09 selection artifact."""
+
+    schema_version: Literal["rag_token_chunk_selection.v1"]
+    selection_decision_sha256: str
+    outcome: Literal["selected_pass"]
+    tenant_id: UUID
+    candidate_corpus_version_id: UUID
+    run_token: UUID
+    lease_owner: str
+    config_fingerprint: str
+    provider_parity_report_hash: str
+    source_manifest_hash: str
+    expected_evidence_rollout_version: int
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyCorpusActivationRequest:
     tenant_id: UUID
     target_corpus_version_id: UUID
@@ -171,7 +188,7 @@ class PolicyCorpusActivationRequest:
     expected_evidence_rollout_version: int
     actor: str
     reason: PolicyCorpusActivationReason
-    selection: ImmutableSelectionDecisionFixtureV1 | None
+    selection: ImmutableSelectionDecisionFixtureV1 | ImmutableSelectionDecisionV1 | None
 
 
 class PolicyCandidateEmbedder(Protocol):
@@ -234,7 +251,7 @@ class PolicyReindexService:
             if request.reason is PolicyCorpusActivationReason.RESTORE_SELECTED:
                 if rollout.previous_corpus_version_id != target.id:
                     _fail(PolicyReindexFailureCode.CAS_CONFLICT)
-            self._validate_selection_fixture(
+            self._validate_selection_proof(
                 request,
                 target=target,
                 manifest=manifest,
@@ -931,7 +948,7 @@ class PolicyReindexService:
             _fail(PolicyReindexFailureCode.INVALID_CLAIM)
 
     @staticmethod
-    def _validate_selection_fixture(
+    def _validate_selection_proof(
         request: PolicyCorpusActivationRequest,
         *,
         target: PolicyCorpusVersion,
@@ -941,7 +958,7 @@ class PolicyReindexService:
         selection = request.selection
         if (
             selection is None
-            or selection.schema_version != "rag_token_chunk_selection_fixture.v1"
+            or selection.schema_version not in {"rag_token_chunk_selection_fixture.v1", "rag_token_chunk_selection.v1"}
             or selection.outcome != "selected_pass"
             or not _valid_sha256(selection.selection_decision_sha256)
             or selection.tenant_id != request.tenant_id

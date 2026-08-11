@@ -32,6 +32,7 @@ from src.rag.policy_reindex import (
     POLICY_REINDEX_STATES,
     FreshProviderParityClaimV1,
     ImmutableSelectionDecisionFixtureV1,
+    ImmutableSelectionDecisionV1,
     PolicyCorpusActivationReason,
     PolicyCorpusActivationRequest,
     PolicyReindexClaimRequest,
@@ -504,7 +505,7 @@ def _activation_request(
     expected_active_corpus_version_id: UUID,
     expected_rollout_epoch: int,
     reason: PolicyCorpusActivationReason,
-    selection: ImmutableSelectionDecisionFixtureV1 | None,
+    selection: ImmutableSelectionDecisionFixtureV1 | ImmutableSelectionDecisionV1 | None,
 ) -> PolicyCorpusActivationRequest:
     return PolicyCorpusActivationRequest(
         tenant_id=owner.tenant_id,
@@ -1070,6 +1071,48 @@ async def test_fixture_cutover_rollback_and_restore_are_exactly_one_pointer_even
     await session.refresh(source)
     assert candidate is not None
     assert candidate.state == source.state == "complete"
+
+
+@pytest.mark.asyncio
+async def test_real_selection_projection_authorizes_cutover_without_fixture_schema(
+    session: AsyncSession,
+) -> None:
+    service, owner, source, rollout = await _complete_bound_candidate(session)
+    selection = ImmutableSelectionDecisionV1(
+        schema_version="rag_token_chunk_selection.v1",
+        selection_decision_sha256=SELECTION_DECISION_HASH,
+        outcome="selected_pass",
+        tenant_id=owner.tenant_id,
+        candidate_corpus_version_id=owner.corpus_version_id,
+        run_token=owner.run_token,
+        lease_owner=owner.lease_owner,
+        config_fingerprint=owner.config_fingerprint,
+        provider_parity_report_hash=owner.provider_parity_report_hash,
+        source_manifest_hash=owner.source_manifest_hash,
+        expected_evidence_rollout_version=owner.expected_evidence_rollout_version,
+    )
+
+    activated = await service.activate_corpus(
+        _activation_request(
+            owner,
+            expected_active_corpus_version_id=source.id,
+            expected_rollout_epoch=rollout.rollout_epoch,
+            reason=PolicyCorpusActivationReason.SELECTED_CUTOVER,
+            selection=selection,
+        ),
+        now=NOW,
+    )
+
+    assert activated.active_corpus_version_id == owner.corpus_version_id
+    history = (
+        await session.execute(
+            select(PolicyCorpusActivationHistory).where(
+                PolicyCorpusActivationHistory.tenant_id == owner.tenant_id,
+                PolicyCorpusActivationHistory.rollout_epoch == activated.rollout_epoch,
+            )
+        )
+    ).scalar_one()
+    assert history.selection_decision_hash == SELECTION_DECISION_HASH
 
 
 @pytest.mark.asyncio

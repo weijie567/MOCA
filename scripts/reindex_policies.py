@@ -14,17 +14,27 @@ from sqlalchemy import select
 
 from src.db.models import EvidenceIdentityRollout
 from src.db.session import SessionLocal
+from src.rag.activation_receipt import (
+    ActivationArtifactPaths,
+    ActivationReceiptStore,
+    load_activation_authority,
+)
 from src.rag.embedding_tokenizer import load_embedding_tokenizer_config
 from src.rag.embedder import EmbeddingService
 from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.rag.policy_reindex import (
     FreshProviderParityClaimV1,
+    PolicyCorpusActivationReason,
+    PolicyCorpusActivationRequest,
     PolicyReindexClaimRequest,
     PolicyReindexRunIdentity,
     PolicyReindexService,
 )
 from src.rag.tokenizer_parity import require_fresh_provider_parity
 from src.repositories.policy_corpus_repo import PolicyCorpusRepository
+
+
+DEFAULT_ACTIVATION_ROOT = Path("evaluation/reports/rag_token_chunk_ab/v1/activations")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -50,7 +60,30 @@ def _parse_args() -> argparse.Namespace:
     validate = subcommands.add_parser("validate")
     validate.add_argument("--state-path", type=Path, required=True)
     validate.add_argument("--output-state-path", type=Path, required=True)
+    activate = subcommands.add_parser("activate")
+    activate.add_argument("--tenant-id", type=UUID, required=True)
+    activate.add_argument("--target-corpus-id", type=UUID, required=True)
+    activate.add_argument("--expected-active-corpus-id", type=UUID, required=True)
+    activate.add_argument("--expected-rollout-epoch", type=int, required=True)
+    activate.add_argument("--expected-evidence-rollout-version", type=int, required=True)
+    activate.add_argument("--actor", required=True)
+    activate.add_argument(
+        "--reason",
+        choices=tuple(reason.value for reason in PolicyCorpusActivationReason),
+        required=True,
+    )
+    _add_activation_artifact_args(activate)
+    reconcile = subcommands.add_parser("reconcile-receipts")
+    reconcile.add_argument("--tenant-id", type=UUID, required=True)
+    _add_activation_artifact_args(reconcile)
     return parser.parse_args()
+
+
+def _add_activation_artifact_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--selection", type=Path, required=True)
+    parser.add_argument("--terminal-run", type=Path, required=True)
+    parser.add_argument("--parity-report", type=Path, required=True)
+    parser.add_argument("--activation-root", type=Path, default=DEFAULT_ACTIVATION_ROOT)
 
 
 async def _claim(args: argparse.Namespace) -> PolicyReindexRunIdentity:
@@ -129,6 +162,78 @@ async def _validate(args: argparse.Namespace) -> PolicyReindexRunIdentity:
             )
 
 
+def _activation_authority(args: argparse.Namespace):
+    return load_activation_authority(
+        ActivationArtifactPaths(
+            selection_path=args.selection,
+            terminal_run_path=args.terminal_run,
+            parity_report_path=args.parity_report,
+        )
+    )
+
+
+async def _activate(args: argparse.Namespace) -> dict[str, Any]:
+    """Commit the DB event first, then verify live state and create its receipt."""
+
+    authority = _activation_authority(args)
+    reason = PolicyCorpusActivationReason(args.reason)
+    selection = (
+        None
+        if reason is PolicyCorpusActivationReason.ROLLBACK_PRIOR
+        else authority.to_selection_proof(
+            expected_evidence_rollout_version=args.expected_evidence_rollout_version,
+        )
+    )
+    request = PolicyCorpusActivationRequest(
+        tenant_id=args.tenant_id,
+        target_corpus_version_id=args.target_corpus_id,
+        expected_active_corpus_version_id=args.expected_active_corpus_id,
+        expected_rollout_epoch=args.expected_rollout_epoch,
+        expected_evidence_rollout_version=args.expected_evidence_rollout_version,
+        actor=args.actor,
+        reason=reason,
+        selection=selection,
+    )
+    async with SessionLocal() as session:
+        async with session.begin():
+            activated = await PolicyReindexService(session).activate_corpus(request)
+    async with SessionLocal() as receipt_session:
+        artifact = await ActivationReceiptStore(args.activation_root).write_committed(
+            receipt_session,
+            tenant_id=args.tenant_id,
+            history_sequence=activated.rollout_epoch,
+            authority=authority,
+        )
+        await receipt_session.rollback()
+    return {
+        "schema_version": "rag_token_chunk_activation_result.v1",
+        "tenant_id": str(activated.tenant_id),
+        "active_corpus_version_id": str(activated.active_corpus_version_id),
+        "previous_corpus_version_id": (
+            str(activated.previous_corpus_version_id) if activated.previous_corpus_version_id else None
+        ),
+        "rollout_epoch": activated.rollout_epoch,
+        "receipt_sha256": artifact.file_sha256,
+    }
+
+
+async def _reconcile_receipts(args: argparse.Namespace) -> dict[str, Any]:
+    authority = _activation_authority(args)
+    async with SessionLocal() as session:
+        artifacts = await ActivationReceiptStore(args.activation_root).reconcile_missing(
+            session,
+            tenant_id=args.tenant_id,
+            authority=authority,
+        )
+        await session.rollback()
+    return {
+        "schema_version": "rag_token_chunk_activation_reconciliation.v1",
+        "tenant_id": str(args.tenant_id),
+        "history_sequences": [item.receipt.history_sequence for item in artifacts],
+        "receipt_sha256": [item.file_sha256 for item in artifacts],
+    }
+
+
 def _identity_payload(owner: PolicyReindexRunIdentity) -> dict[str, Any]:
     payload = asdict(owner)
     for key, value in tuple(payload.items()):
@@ -184,9 +289,15 @@ async def _main() -> int:
     elif args.command == "build-next":
         owner = await _build_next(args)
         _write_identity_create_only(args.output_state_path, owner)
-    else:
+    elif args.command == "validate":
         owner = await _validate(args)
         _write_identity_create_only(args.output_state_path, owner)
+    elif args.command == "activate":
+        print(json.dumps(await _activate(args), sort_keys=True))
+        return 0
+    else:
+        print(json.dumps(await _reconcile_receipts(args), sort_keys=True))
+        return 0
     print(json.dumps({"state": owner.state, "state_version": owner.state_version}, sort_keys=True))
     return 0
 
