@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: executing
-last_updated: "2026-08-11T06:59:05Z"
-last_activity: 2026-08-11 -- Phase 64.4 Plan 04 complete; assembly-path convergence gates passed
+last_updated: "2026-08-11T07:38:21Z"
+last_activity: 2026-08-11 -- Phase 64.4 Plan 05 complete; corpus bootstrap/source identity PostgreSQL gates passed
 progress:
   total_phases: 15
   completed_phases: 7
   total_plans: 54
-  completed_plans: 47
+  completed_plans: 48
   percent: 47
 ---
 
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 ## Current Position
 
 Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — EXECUTING
-Plan: 5 of 11 — Plan 64.4-05 corpus schema/bootstrap/source identity
-Status: Plans 01-04 complete; executing the approved strict 01→11 dependency chain.
-Last activity: 2026-08-11 -- Phase 64.4 Plan 04 complete; assembly-path convergence gates passed
-Next: Execute `64.4-05-PLAN.md`, then continue dependency-ordered plans.
+Plan: 6 of 11 — Plan 64.4-06 active corpus paths and immutable bindings
+Status: Plans 01-05 complete; executing the approved strict 01→11 dependency chain.
+Last activity: 2026-08-11 -- Phase 64.4 Plan 05 complete; corpus bootstrap/source identity PostgreSQL gates passed
+Next: Execute `64.4-06-PLAN.md`, then continue dependency-ordered plans.
 After: Phase 65 follows Phase 64.4.
 
 Resume file: `.planning/autopilot/phase-64.4.md`
