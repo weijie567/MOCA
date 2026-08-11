@@ -204,7 +204,7 @@ Plans:
 ### Phase 64.4: Token-Aware Policy Chunking And Reindex Validation (INSERTED)
 
 **Goal:** Replace character-count policy chunk sizing with a versioned tokenizer-aware assembly path that measures the final `text-embedding-v4` input while preserving parser structure, provenance, evidence identity, deterministic rebuilds, and safe rollback, then prove the change against the Phase 64.3 format-parity baseline.
-**Requirements**: ROADMAP-SC-1, ROADMAP-SC-2, ROADMAP-SC-3, ROADMAP-SC-4, ROADMAP-SC-5, ROADMAP-SC-6
+**Requirements**: SC-64.4-1, SC-64.4-2, SC-64.4-3, SC-64.4-4, SC-64.4-5, SC-64.4-6
 **Depends on:** Phase 64.3
 **Plans:** 11 plans
 

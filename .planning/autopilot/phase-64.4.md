@@ -1,11 +1,11 @@
 ---
 phase: "64.4"
 status: running
-current_step: codex_plan_adjudication
-plan_review_loop: 1
+current_step: execute
+plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-08-11T13:06:51+08:00"
-next_command: "Codex adjudicate 64.4-REVIEWS.md against repository evidence"
+updated_at: "2026-08-11T13:23:07+08:00"
+next_command: "$gsd-execute-phase 64.4"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -22,6 +22,9 @@ next_command: "Codex adjudicate 64.4-REVIEWS.md against repository evidence"
 - Stage 2 validation created a 22-task Nyquist strategy with mandatory live provider/PostgreSQL gates and MOCA `make format` / `make lint` / `uv run pytest` entries.
 - Stage 2 planning split Phase 64.4 into 11 strictly sequential plans and 22 bounded tasks. GSD plan-checker converged from 9 issues to 2 and then clean after the accepted repairs were applied.
 - Stage 3 external review: invoked a separate Claude CLI session through `$gsd-review 64.4 --claude` and wrote `64.4-REVIEWS.md`. Claude verified the core repository facts and raised one HIGH, three MEDIUM, and three LOW concerns for Codex adjudication.
+- Stage 4 Codex adjudication checked all seven concerns and three suggestions against live repository/planning evidence, accepted eight items, classified one as already covered and disagreed with one boundary-mixing suggestion, and recorded every outcome in `64.4-PLAN-REVIEW-DECISIONS.md`.
+- Accepted repairs keep Plan04 token mode default-off until Plan06 active routing, define the canonical threat registry, make production/current versus explicit evaluation/history scopes exact, cap provider attempts without post-observation tuning, register unique SC-64.4 requirements, lock tokenizer platform/license evidence, and align Phase64.3 hash field names.
+- Fresh GSD plan-checker returned `## VERIFICATION PASSED`; Claude review loop 2 returned no actionable blocker or warning; Codex's independent coverage/order/scope review is clean. Two optional traceability clarifications were applied without changing tasks, files, dependencies, values, thresholds, or scope.
 
 ## Evidence
 
@@ -35,6 +38,7 @@ next_command: "Codex adjudicate 64.4-REVIEWS.md against repository evidence"
 - `evidence_identity.v1` remains corpus-free; canonical document source content comes from ordered blocks, chunk compatibility is config-aware, and corpus projections control visibility only.
 - Provider parity, all-outcome terminal A/B reports, passing-only selection decisions, and hash-chained activation receipts are separate immutable stages.
 - External review's highest-priority inference is that Plan 04 must keep token-aware production activation default-off until active-corpus routing exists in Plan 06; no external finding has been accepted before repository-backed adjudication.
+- Plan review is closed after two loops: 11 plans/22 tasks, all SC-64.4-1..6 and D-01..D-24 mapped, canonical T64.4 IDs, structural/YAML/XML checks green, external verdict clean, and independent GSD/Codex verdicts clean.
 
 ## Last Failure
 

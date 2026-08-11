@@ -23361,3 +23361,9 @@ Phase 64.4 auto discuss 提交 context 后调用 `gsd-sdk query state.record-ses
 ### 同类 zsh 参数修饰符补充：CLI detection 的 `$cli:available`
 
 执行 `$gsd-review` CLI detection 时，首次用 `echo "$cli:available"`；zsh 把冒号后的 `a` 解释为参数绝对路径修饰符，输出了形如 `.../geminivailable` 的路径，不能作为 available 标签证据。已改为 `echo "${cli}:available"` 并完整重跑，确认 `gemini`、`claude`、`codex` 可用，显式请求的 `claude` 审查随后成功完成。该问题只影响临时显示格式，没有改变 reviewer 选择或审查内容。
+
+### 外部复审 prompt 流首次被 Ruby 源码默认 US-ASCII 编码拦截
+
+Phase 64.4 第二轮 Claude plan review 首次用 Ruby 从现有 planning artifacts 组装标准输入时，Ruby 2.6 在解析 prompt 中的中文/长破折号前即报 `invalid multibyte char (US-ASCII)`；因此没有调用到 Claude，也没有生成或覆盖 review artifact。单独检查 `ruby -v` 与 `locale` 证明系统 locale 虽为 `C.UTF-8`，该 Ruby 仍要求源码级编码声明；仅加 `-EUTF-8:UTF-8` 不足以改变源码解析编码。已在临时 stdin 脚本第一行加入 `# encoding: UTF-8` 后完整重跑。这个问题只影响一次性复审 prompt 组装入口，不是计划或产品代码失败；后续 Ruby 临时脚本只要包含非 ASCII 字面量，就必须同时保留源码编码声明。
+
+修正编码后的完整串流已到达 Claude CLI，但 11 个 plan、RESEARCH、CONTEXT、VALIDATION、ROADMAP、REQUIREMENTS 和裁决记录合并后超过 CLI 单次 prompt 上限，CLI 明确返回 `Prompt is too long`，仍未产生 review 结论或改写 artifact。当前处理改为给独立 Claude Code 会话一份短的文件清单与审查契约，由其在同一隔离 worktree 内逐文件读取完整内容和必要源码，避免截断任一 plan；最终只采纳该完整仓库读取会话的输出。后续 plan 数量较多时，`$gsd-review` 应优先让代码型 reviewer 按路径读取，或由工具实现分块/context-file 输入，而不是把所有正文拼成单条 prompt。
