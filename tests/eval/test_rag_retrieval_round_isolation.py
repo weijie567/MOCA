@@ -2202,8 +2202,10 @@ async def test_contract_load_read_and_hash_failures_are_execution_errors_for_bot
 @pytest.mark.parametrize(
     ("stage", "reason_code"),
     [
+        ("role_setup", "role_setup_failed"),
         ("format_ingestion", "format_ingestion_failed"),
         ("retrieval_resource_proof", "resource_proof_failed"),
+        ("post_rollback_baseline_verification", "rollback_proof_failed"),
     ],
 )
 @pytest.mark.asyncio
@@ -2266,6 +2268,8 @@ async def test_typed_role_failure_survives_outer_rollback_and_fresh_baseline_pro
             del session
 
         async def create_round(self, **kwargs: object) -> EvaluationRoundIdentity:
+            if stage == "role_setup":
+                raise RuntimeError("provider payload must not escape")
             return _identity(
                 run_token=kwargs["run_token"],
                 round_token=kwargs["round_token"],
@@ -2279,16 +2283,22 @@ async def test_typed_role_failure_survives_outer_rollback_and_fresh_baseline_pro
         nonlocal captures
         captures += 1
         events.append(f"baseline_{captures}")
+        if stage == "post_rollback_baseline_verification" and captures == 2:
+            return _rollback_baseline(current_view_sha256="sha256:" + "e" * 64)
         return _rollback_baseline()
 
     async def fail(*args: object, **kwargs: object) -> object:
         del args, kwargs
+        injected_stage = "format_ingestion" if stage in {"role_setup", "post_rollback_baseline_verification"} else stage
+        injected_reason = (
+            "format_ingestion_failed" if stage in {"role_setup", "post_rollback_baseline_verification"} else reason_code
+        )
         raise SafeRoleExecutionError(
             SafeRoleFailureV1(
                 failing_role="character_incumbent" if role == "incumbent" else "token_candidate",
                 round_format="markdown",
-                stage=stage,
-                reason_code=reason_code,
+                stage=injected_stage,
+                reason_code=injected_reason,
                 provider_availability="available",
                 provider_request_classification="request_failed",
                 outer_rollback_attempted=False,
@@ -2322,7 +2332,7 @@ async def test_typed_role_failure_survives_outer_rollback_and_fresh_baseline_pro
     assert failure.stage == stage
     assert failure.reason_code == reason_code
     assert failure.outer_rollback_attempted is True
-    assert failure.outer_rollback_proved is True
+    assert failure.outer_rollback_proved is (stage != "post_rollback_baseline_verification")
     assert events == ["baseline_1", "session_close", "outer_rollback", "baseline_2"]
 
 

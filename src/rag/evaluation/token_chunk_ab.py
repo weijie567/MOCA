@@ -967,6 +967,10 @@ def write_execution_error_bundle_create_only(
         staged_root.mkdir(parents=True, exist_ok=True)
     except OSError:
         raise ValueError("write_failed") from None
+    _fsync_directory(staged_root.parent)
+    _inject_fault(fault_injector, "staging_parent_fsync")
+    _fsync_directory(root)
+    _inject_fault(fault_injector, "output_root_fsync:staging")
     for name, (path, payload) in staged_payloads.items():
         _stage_bundle_payload(
             path,
@@ -985,6 +989,12 @@ def write_execution_error_bundle_create_only(
         "diagnostic_markdown": (root / "diagnostics" / f"{run_id}.md", diagnostic_markdown),
     }
     for name, (target, payload) in final_payloads.items():
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            raise ValueError("write_failed") from None
+        _fsync_directory(root)
+        _inject_fault(fault_injector, f"publish_parent_fsync:{name}")
         _publish_bundle_link(
             source=staged_payloads[name][0],
             target=target,
@@ -1007,6 +1017,8 @@ def write_execution_error_bundle_create_only(
         commit_stage_dir.mkdir(exist_ok=True)
     except OSError:
         raise ValueError("write_failed") from None
+    _fsync_directory(staged_root)
+    _inject_fault(fault_injector, "manifest_source_parent_fsync")
     _stage_bundle_payload(
         commit_stage_dir / "manifest.json",
         manifest_payload,
@@ -1023,6 +1035,8 @@ def write_execution_error_bundle_create_only(
         commits_root.mkdir(parents=True, exist_ok=True)
     except OSError:
         raise ValueError("write_failed") from None
+    _fsync_directory(root)
+    _inject_fault(fault_injector, "commits_parent_fsync")
     final_manifest_path = final_commit_dir / "manifest.json"
     if final_commit_dir.exists():
         if not final_commit_dir.is_dir() or _read_bytes_or_conflict(final_manifest_path) != manifest_payload:
@@ -1035,6 +1049,9 @@ def write_execution_error_bundle_create_only(
             if not final_commit_dir.is_dir() or _read_bytes_or_conflict(final_manifest_path) != manifest_payload:
                 raise ValueError("bundle_conflict") from None
     _fsync_directory(commits_root)
+    _inject_fault(fault_injector, "manifest_parent_fsync")
+    _fsync_directory(staged_root)
+    _inject_fault(fault_injector, "manifest_source_parent_post_rename_fsync")
     loaded = load_execution_error_bundle(root=root, run_id=validated_report.run_id)
     if loaded.manifest != manifest:
         raise ValueError("bundle_conflict")

@@ -23663,3 +23663,14 @@ fresh parity 仍为 passed/exact-match；但 A/B orchestration 的 broad catch �
 
 **已做处理 / 剩余入口**
 废弃该错误结论，改用只对 files/action 涉及 `.py` 的 task 检查 `make format` 的紧凑校验；同时继续检查 13 plans、26 tasks、依赖顺序、每 plan 文件面上限、XML task 字段、完整 lint 与 `uv run pytest`。后续计划校验脚本须区分 docs-only 与 Python task，不能把工具误报写成 planning blocker。
+
+## 2026-08-12 — Phase 64.4 Plan 11 首轮 GREEN 未覆盖全部目录 fsync 与 failure stage 注入
+
+**问题现象 / 如何检测**
+Task1/Task2 首轮 scoped GREEN 已分别达到 `66 passed` 与 `156 passed`，但提交前按 Plan11 的 publication boundary 和 typed provenance 清单逐项反查测试矩阵，发现初版只对 staging leaf/final leaf 目录做 fsync，未显式覆盖新建 `.staging`、`runs`、`diagnostics`、`commits` 在其父目录中的持久化边界；failure 注入也只实际穿透 ingestion/resource 两阶段，role setup 与 post-rollback baseline 仅有类型枚举断言。
+
+**关键证据 / 当前判断 / 根因**
+检查 `write_execution_error_bundle_create_only()` 的 fsync/fault label 与参数化测试列表可以一一看到缺项；`run_rollback_only_retrieval_parity()` 的初版注入用例只有两类 inner `SafeRoleExecutionError`。这是 Plan11 新 crash-consistency/诊断测试矩阵首版覆盖不完整，不是 provider、数据库或已有 v1 artifact 失败；全程没有 live provider 调用。
+
+**已做处理 / 剩余入口**
+补齐 staging/output/commit parent 与 manifest rename 后 source/destination parent fsync，并把每个目录边界加入 fault injection；manifest rename 前故障保持 bundle 不可读，rename 后故障按已提交 bundle 读取。typed runtime 参数化扩展到两种 role × role setup/format ingestion/retrieval resource/post-rollback baseline，并让 invalid candidate state 实际生成 shared-preflight committed diagnostic。重新执行 `make format`、完整 `make lint` 与 prescribed 三文件 gate，结果 `166 passed, 1 warning`。当前无剩余本地验证缺口；Plan12 首次 live exercise 仍必须复核真实 filesystem/rollback evidence，不能把 deterministic fault test 当成 provider 成功证据。

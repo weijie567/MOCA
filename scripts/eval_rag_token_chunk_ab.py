@@ -37,6 +37,8 @@ from src.rag.embedder import EmbeddingService
 from src.rag.embedding_tokenizer import load_embedding_tokenizer_config
 from src.rag.evaluation.contracts import EvaluationOutcome, FormatParityContractError, load_format_parity_contract
 from src.rag.evaluation.retrieval_rounds import (
+    SafeRoleExecutionError,
+    SafeRoleFailureV1,
     build_ab_round_namespaces,
     ordered_gold_questions,
     run_rollback_only_retrieval_parity,
@@ -226,18 +228,22 @@ def _terminal_without_observations(
 
 async def run_full_provider_ab(
     args: argparse.Namespace,
-) -> tuple[TerminalABRunV1, ABSelectionBindingV1 | None]:
+) -> tuple[TerminalABRunV1, ABSelectionBindingV1 | None, SafeRoleFailureV1 | None]:
     generated_at = datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC)
     candidate_identity: PolicyReindexRunIdentity | None = None
     try:
         candidate_identity = _load_reindex_identity(args.candidate_state)
     except Exception:
-        return _terminal_without_observations(
-            args,
-            outcome="execution_error",
-            stage="execution",
-            reason_code="candidate_state_invalid",
-        ), None
+        return (
+            _terminal_without_observations(
+                args,
+                outcome="execution_error",
+                stage="execution",
+                reason_code="candidate_state_invalid",
+            ),
+            None,
+            _shared_preflight_failure(args, reason_code="candidate_state_invalid"),
+        )
 
     incumbent_corpus_id = candidate_identity.source_active_corpus_version_id
     candidate_corpus_id = candidate_identity.corpus_version_id
@@ -248,14 +254,18 @@ async def run_full_provider_ab(
         questions_hash = _ordered_questions_sha256(ordered_gold_questions(dataset))
         inputs = _inputs(args, ordered_questions_sha256=questions_hash)
     except (FormatParityContractError, OSError, ValueError):
-        return _terminal_without_observations(
-            args,
-            outcome="execution_error",
-            stage="execution",
-            reason_code="sealed_input_invalid",
-            incumbent_corpus_id=incumbent_corpus_id,
-            candidate_corpus_id=candidate_corpus_id,
-        ), None
+        return (
+            _terminal_without_observations(
+                args,
+                outcome="execution_error",
+                stage="execution",
+                reason_code="sealed_input_invalid",
+                incumbent_corpus_id=incumbent_corpus_id,
+                candidate_corpus_id=candidate_corpus_id,
+            ),
+            None,
+            _shared_preflight_failure(args, reason_code="sealed_input_invalid"),
+        )
 
     token_assembler = _token_candidate()
     character_assembler = _character_incumbent()
@@ -278,14 +288,18 @@ async def run_full_provider_ab(
             reason_code=parity_report.reason_code,
         )
     except (OSError, TokenizerParityError, ValueError):
-        return _terminal_without_observations(
-            args,
-            outcome="unavailable",
-            stage="parity",
-            reason_code="provider_usage_unavailable",
-            incumbent_corpus_id=incumbent_corpus_id,
-            candidate_corpus_id=candidate_corpus_id,
-        ), None
+        return (
+            _terminal_without_observations(
+                args,
+                outcome="unavailable",
+                stage="parity",
+                reason_code="provider_usage_unavailable",
+                incumbent_corpus_id=incumbent_corpus_id,
+                candidate_corpus_id=candidate_corpus_id,
+            ),
+            None,
+            None,
+        )
 
     missing: list[str] = []
     if not (settings.dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY")):
@@ -293,15 +307,19 @@ async def run_full_provider_ab(
     if not check_ocr_runtime(required_languages=("chi_sim", "eng")).available:
         missing.append("provider_request_unavailable")
     if missing:
-        return _terminal_without_observations(
-            args,
-            outcome="unavailable",
-            stage="provider",
-            reason_code=missing[0],
-            incumbent_corpus_id=incumbent_corpus_id,
-            candidate_corpus_id=candidate_corpus_id,
-            parity=parity,
-        ), None
+        return (
+            _terminal_without_observations(
+                args,
+                outcome="unavailable",
+                stage="provider",
+                reason_code=missing[0],
+                incumbent_corpus_id=incumbent_corpus_id,
+                candidate_corpus_id=candidate_corpus_id,
+                parity=parity,
+            ),
+            None,
+            None,
+        )
 
     try:
         candidate_snapshot = await _validate_corpus_pair(
@@ -346,40 +364,77 @@ async def run_full_provider_ab(
             for item in role_runs
         ):
             raise RuntimeError("retrieval_round_incomplete")
-        final_snapshot = await _validate_corpus_pair(
-            candidate_identity,
-            character_fingerprint=character_assembler.config_fingerprint,
-            token_fingerprint=token_assembler.config.config_fingerprint,
-            expected_parity_hash=parity.report_sha256,
-        )
+        try:
+            final_snapshot = await _validate_corpus_pair(
+                candidate_identity,
+                character_fingerprint=character_assembler.config_fingerprint,
+                token_fingerprint=token_assembler.config.config_fingerprint,
+                expected_parity_hash=parity.report_sha256,
+            )
+        except Exception:
+            raise SafeRoleExecutionError(
+                _completed_role_resource_failure(
+                    args=args,
+                    namespace=namespaces[1],
+                    role_run=role_runs[1],
+                    assembler_fingerprint=token_assembler.config.config_fingerprint,
+                )
+            ) from None
         if final_snapshot != candidate_snapshot:
-            raise ValueError("candidate_identity_drift")
-        incumbent = build_candidate_observation_from_retrieval(
-            role="incumbent",
-            corpus_version_id=incumbent_corpus_id,
-            config_schema_version=CHARACTER_COMPATIBILITY_CONFIG_VERSION,
-            config_fingerprint=character_assembler.config_fingerprint,
-            deterministic_rebuild_sha256=_sha256_json(role_runs[0].model_dump(mode="json")),
-            rounds=role_runs[0].rounds,
-            retrieval_duration_ms=role_durations[0],
-            cost_basis_version=COST_BASIS_VERSION,
-            cost_currency=COST_CURRENCY,
-            cost_unit_tokens=COST_UNIT_TOKENS,
-            cost_price_per_unit=COST_PRICE_PER_UNIT,
-        )
-        candidate = build_candidate_observation_from_retrieval(
-            role="candidate",
-            corpus_version_id=candidate_corpus_id,
-            config_schema_version=token_assembler.config.schema_version,
-            config_fingerprint=token_assembler.config.config_fingerprint,
-            deterministic_rebuild_sha256=candidate_snapshot.deterministic_rebuild_hash,
-            rounds=role_runs[1].rounds,
-            retrieval_duration_ms=role_durations[1],
-            cost_basis_version=COST_BASIS_VERSION,
-            cost_currency=COST_CURRENCY,
-            cost_unit_tokens=COST_UNIT_TOKENS,
-            cost_price_per_unit=COST_PRICE_PER_UNIT,
-        )
+            raise SafeRoleExecutionError(
+                _completed_role_resource_failure(
+                    args=args,
+                    namespace=namespaces[1],
+                    role_run=role_runs[1],
+                    assembler_fingerprint=token_assembler.config.config_fingerprint,
+                )
+            )
+        try:
+            incumbent = build_candidate_observation_from_retrieval(
+                role="incumbent",
+                corpus_version_id=incumbent_corpus_id,
+                config_schema_version=CHARACTER_COMPATIBILITY_CONFIG_VERSION,
+                config_fingerprint=character_assembler.config_fingerprint,
+                deterministic_rebuild_sha256=_sha256_json(role_runs[0].model_dump(mode="json")),
+                rounds=role_runs[0].rounds,
+                retrieval_duration_ms=role_durations[0],
+                cost_basis_version=COST_BASIS_VERSION,
+                cost_currency=COST_CURRENCY,
+                cost_unit_tokens=COST_UNIT_TOKENS,
+                cost_price_per_unit=COST_PRICE_PER_UNIT,
+            )
+        except Exception:
+            raise SafeRoleExecutionError(
+                _completed_role_resource_failure(
+                    args=args,
+                    namespace=namespaces[0],
+                    role_run=role_runs[0],
+                    assembler_fingerprint=character_assembler.config_fingerprint,
+                )
+            ) from None
+        try:
+            candidate = build_candidate_observation_from_retrieval(
+                role="candidate",
+                corpus_version_id=candidate_corpus_id,
+                config_schema_version=token_assembler.config.schema_version,
+                config_fingerprint=token_assembler.config.config_fingerprint,
+                deterministic_rebuild_sha256=candidate_snapshot.deterministic_rebuild_hash,
+                rounds=role_runs[1].rounds,
+                retrieval_duration_ms=role_durations[1],
+                cost_basis_version=COST_BASIS_VERSION,
+                cost_currency=COST_CURRENCY,
+                cost_unit_tokens=COST_UNIT_TOKENS,
+                cost_price_per_unit=COST_PRICE_PER_UNIT,
+            )
+        except Exception:
+            raise SafeRoleExecutionError(
+                _completed_role_resource_failure(
+                    args=args,
+                    namespace=namespaces[1],
+                    role_run=role_runs[1],
+                    assembler_fingerprint=token_assembler.config.config_fingerprint,
+                )
+            ) from None
         runtime = _runtime(
             run_id=args.run_id,
             incumbent_corpus_id=incumbent_corpus_id,
@@ -407,17 +462,35 @@ async def run_full_provider_ab(
             if report.outcome == "selected_pass"
             else None
         )
-        return report, binding
+        return report, binding, None
+    except SafeRoleExecutionError as safe_error:
+        return (
+            _terminal_without_observations(
+                args,
+                outcome="execution_error",
+                stage="execution",
+                reason_code="provider_execution_failed",
+                incumbent_corpus_id=incumbent_corpus_id,
+                candidate_corpus_id=candidate_corpus_id,
+                parity=parity,
+            ),
+            None,
+            safe_error.failure,
+        )
     except Exception:
-        return _terminal_without_observations(
-            args,
-            outcome="execution_error",
-            stage="execution",
-            reason_code="provider_execution_failed",
-            incumbent_corpus_id=incumbent_corpus_id,
-            candidate_corpus_id=candidate_corpus_id,
-            parity=parity,
-        ), None
+        return (
+            _terminal_without_observations(
+                args,
+                outcome="execution_error",
+                stage="execution",
+                reason_code="provider_execution_failed",
+                incumbent_corpus_id=incumbent_corpus_id,
+                candidate_corpus_id=candidate_corpus_id,
+                parity=parity,
+            ),
+            None,
+            _shared_preflight_failure(args, reason_code="candidate_pair_invalid"),
+        )
 
 
 async def _validate_corpus_pair(
@@ -592,6 +665,34 @@ def _round_identity_hash(*, args: argparse.Namespace, role: str, assembler_finge
     ).removeprefix("sha256:")
 
 
+def _completed_role_resource_failure(
+    *,
+    args: argparse.Namespace,
+    namespace: Any,
+    role_run: Any,
+    assembler_fingerprint: str,
+) -> SafeRoleFailureV1:
+    rounds = tuple(role_run.rounds)
+    return SafeRoleFailureV1(
+        failing_role="character_incumbent" if namespace.role == "incumbent" else "token_candidate",
+        round_format=rounds[-1].round_format if rounds else None,
+        stage="retrieval_resource_proof",
+        reason_code="resource_proof_failed",
+        provider_availability="available",
+        provider_request_classification="request_completed",
+        outer_rollback_attempted=True,
+        outer_rollback_proved=True,
+        completed_round_count=len(rounds),
+        provider_request_count=sum(len(round_result.cases) for round_result in rounds),
+        safe_context_sha256="sha256:"
+        + _round_identity_hash(
+            args=args,
+            role=namespace.role,
+            assembler_fingerprint=assembler_fingerprint,
+        ),
+    )
+
+
 def _valid_sha256(value: object) -> bool:
     return bool(
         isinstance(value, str)
@@ -614,14 +715,41 @@ def _sha256_json(value: Any) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
+def _shared_preflight_failure(
+    args: argparse.Namespace,
+    *,
+    reason_code: str,
+) -> SafeRoleFailureV1:
+    return SafeRoleFailureV1(
+        failing_role="shared_preflight",
+        round_format=None,
+        stage="shared_preflight",
+        reason_code=reason_code,
+        provider_availability="not_checked",
+        provider_request_classification="not_attempted",
+        outer_rollback_attempted=False,
+        outer_rollback_proved=False,
+        completed_round_count=0,
+        provider_request_count=0,
+        safe_context_sha256=_sha256_json(
+            {
+                "schema_version": "rag_token_chunk_ab_preflight.v1",
+                "run_id": str(args.run_id),
+                "reason_code": reason_code,
+            }
+        ),
+    )
+
+
 async def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    report, binding = await run_full_provider_ab(args)
+    report, binding, safe_failure = await run_full_provider_ab(args)
     try:
         if report.outcome == "execution_error":
+            failure = safe_failure or _shared_preflight_failure(args, reason_code="candidate_pair_invalid")
             bundle = write_execution_error_bundle_create_only(
                 report,
-                diagnostic=_fallback_execution_diagnostic(report),
+                diagnostic=_execution_diagnostic_from_failure(report, failure),
                 root=args.output_root,
             )
             run_pair = bundle.run
@@ -653,32 +781,28 @@ async def main(argv: list[str] | None = None) -> int:
     return 0 if report.outcome == "selected_pass" else 2
 
 
-def _fallback_execution_diagnostic(report: TerminalABRunV1) -> ABExecutionDiagnosticV1:
-    """Build a safe preflight diagnostic until role execution supplies richer provenance."""
+def _execution_diagnostic_from_failure(
+    report: TerminalABRunV1,
+    failure: SafeRoleFailureV1,
+) -> ABExecutionDiagnosticV1:
+    """Bind one validated typed failure to the exact terminal-run bytes."""
 
     run_payload = canonical_report_json_bytes(report.model_dump(mode="json"))
-    safe_reason = report.safe_reason_codes[0] if report.safe_reason_codes else "provider_execution_failed"
-    reason_code = (
-        safe_reason
-        if safe_reason in {"candidate_state_invalid", "sealed_input_invalid", "provider_execution_failed"}
-        else "candidate_pair_invalid"
-    )
-    provider_attempted = reason_code == "provider_execution_failed"
     return ABExecutionDiagnosticV1(
         run_id=report.run_id,
         terminal_run_sha256="sha256:" + hashlib.sha256(run_payload).hexdigest(),
         occurred_at=report.generated_at,
-        failing_role="shared_preflight",
-        round_format=None,
-        stage="shared_preflight",
-        reason_code=reason_code,
-        provider_availability="available" if provider_attempted else "not_checked",
-        provider_request_classification="request_failed" if provider_attempted else "not_attempted",
-        outer_rollback_attempted=False,
-        outer_rollback_proved=False,
-        completed_round_count=0,
-        provider_request_count=1 if provider_attempted else 0,
-        safe_context_sha256=_sha256_json(report.runtime.model_dump(mode="json")),
+        failing_role=failure.failing_role,
+        round_format=failure.round_format,
+        stage=failure.stage,
+        reason_code=failure.reason_code,
+        provider_availability=failure.provider_availability,
+        provider_request_classification=failure.provider_request_classification,
+        outer_rollback_attempted=failure.outer_rollback_attempted,
+        outer_rollback_proved=failure.outer_rollback_proved,
+        completed_round_count=failure.completed_round_count,
+        provider_request_count=failure.provider_request_count,
+        safe_context_sha256=failure.safe_context_sha256,
     )
 
 

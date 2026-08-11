@@ -588,6 +588,11 @@ async def test_cli_early_execution_error_still_writes_one_create_only_terminal_p
     terminal = _api()["load_terminal_ab_run"](json_path)
     assert terminal.outcome == "execution_error"
     assert terminal.safe_reason_codes == ("candidate_state_invalid",)
+    committed = _api()["load_execution_error_bundle"](root=output_root, run_id=RUN_ID)
+    assert committed.diagnostic.failing_role == "shared_preflight"
+    assert committed.diagnostic.stage == "shared_preflight"
+    assert committed.diagnostic.reason_code == "candidate_state_invalid"
+    assert committed.diagnostic.provider_request_classification == "not_attempted"
     assert not (output_root / "selections").exists()
     assert await ab_cli.main(argv) == 2
     assert before == (json_path.read_bytes(), markdown_path.read_bytes())
@@ -729,10 +734,18 @@ def test_execution_error_bundle_has_one_manifest_visibility_point_and_preserves_
         *(f"stage_write:{name}" for name in ("run_json", "run_markdown", "diagnostic_json", "diagnostic_markdown")),
         *(f"stage_fsync:{name}" for name in ("run_json", "run_markdown", "diagnostic_json", "diagnostic_markdown")),
         *(f"publish_link:{name}" for name in ("run_json", "run_markdown", "diagnostic_json", "diagnostic_markdown")),
+        *(
+            f"publish_parent_fsync:{name}"
+            for name in ("run_json", "run_markdown", "diagnostic_json", "diagnostic_markdown")
+        ),
         "stage_dir_fsync",
+        "staging_parent_fsync",
+        "output_root_fsync:staging",
         "manifest_stage_write",
         "manifest_stage_fsync",
         "manifest_dir_fsync",
+        "manifest_source_parent_fsync",
+        "commits_parent_fsync",
         "manifest_rename",
     ],
 )
@@ -767,6 +780,40 @@ def test_execution_bundle_fault_boundaries_are_invisible_then_byte_identically_r
     bundle = api["write_execution_error_bundle_create_only"](report, diagnostic=diagnostic, root=tmp_path)
     loaded = api["load_execution_error_bundle"](root=tmp_path, run_id=RUN_ID)
     assert loaded.manifest == bundle.manifest
+    assert loaded.report == report
+    assert loaded.diagnostic == diagnostic
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    ["manifest_parent_fsync", "manifest_source_parent_post_rename_fsync"],
+)
+def test_post_manifest_fault_keeps_the_already_committed_bundle_readable(
+    tmp_path: Path,
+    boundary: str,
+) -> None:
+    api = _api()
+    from src.rag.evaluation.reporting import canonical_report_json_bytes
+
+    report = _execution_error_run()
+    run_sha = (
+        "sha256:"
+        + __import__("hashlib").sha256(canonical_report_json_bytes(report.model_dump(mode="json"))).hexdigest()
+    )
+    diagnostic = _execution_diagnostic(terminal_run_sha256=run_sha)
+
+    def crash(observed: str) -> None:
+        if observed == boundary:
+            raise RuntimeError("simulated crash")
+
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        api["write_execution_error_bundle_create_only"](
+            report,
+            diagnostic=diagnostic,
+            root=tmp_path,
+            fault_injector=crash,
+        )
+    loaded = api["load_execution_error_bundle"](root=tmp_path, run_id=RUN_ID)
     assert loaded.report == report
     assert loaded.diagnostic == diagnostic
 
