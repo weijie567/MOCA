@@ -24,6 +24,7 @@ from src.repositories.rag_evaluation_round_repo import (
     EvaluationRoundIdentity,
     ProjectionState,
     RagEvaluationRoundRepository,
+    RollbackBaselineProof,
     classify_attempt_projection,
     validate_run_sequence,
 )
@@ -100,6 +101,32 @@ def _identity(**overrides: object) -> EvaluationRoundIdentity:
     }
     values.update(overrides)
     return EvaluationRoundIdentity(**values)
+
+
+def _rollback_baseline(**overrides: object) -> RollbackBaselineProof:
+    values: dict[str, object] = {
+        "tenant_id": FORMAT_PARITY_TENANT_ID,
+        "active_corpus_version_id": UUID("64300000-0000-4000-8000-000000000011"),
+        "previous_corpus_version_id": None,
+        "rollout_epoch": 4,
+        "activation_history_count": 4,
+        "activation_history_hashes": ("sha256:" + "1" * 64,),
+        "active_config_schema_version": "character_compatibility.v1",
+        "active_config_fingerprint": "sha256:" + "2" * 64,
+        "source_manifest_revision_id": UUID("64300000-0000-4000-8000-000000000015"),
+        "source_manifest_hash": "sha256:" + "3" * 64,
+        "current_document_count": 3,
+        "current_block_count": 158,
+        "current_chunk_count": 13,
+        "current_view_sha256": "sha256:" + "4" * 64,
+        "evidence_rollout_version": 1,
+        "evidence_rollout_sha256": "sha256:" + "5" * 64,
+        "immutable_document_count": 3,
+        "immutable_chunk_count": 13,
+        "proof_sha256": "sha256:" + "6" * 64,
+    }
+    values.update(overrides)
+    return RollbackBaselineProof(**values)
 
 
 def _sequence_row(
@@ -350,6 +377,7 @@ async def test_rollback_only_ab_wrapper_always_rolls_back_root_transaction(
 
         async def rollback(self) -> None:
             type(self).rollbacks += 1
+            events.append("root_rollback")
             self.is_active = False
 
     class _Connection:
@@ -391,6 +419,15 @@ async def test_rollback_only_ab_wrapper_always_rolls_back_root_transaction(
         commits = 0
         closes = 0
 
+        async def __aenter__(self) -> _RollbackSession:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+        async def rollback(self) -> None:
+            events.append("read_session_rollback")
+
         def begin(self) -> _BeginContext:
             return _BeginContext()
 
@@ -401,8 +438,15 @@ async def test_rollback_only_ab_wrapper_always_rolls_back_root_transaction(
             type(self).closes += 1
 
     class _RoundRepository:
+        captures = 0
+
         def __init__(self, session: object) -> None:
             del session
+
+        async def capture_rollback_baseline(self) -> RollbackBaselineProof:
+            type(self).captures += 1
+            events.append(f"capture_{type(self).captures}")
+            return _rollback_baseline()
 
         async def create_round(self, **kwargs: object) -> EvaluationRoundIdentity:
             return _identity(
@@ -412,16 +456,41 @@ async def test_rollback_only_ab_wrapper_always_rolls_back_root_transaction(
                 run_identity_hash=kwargs["run_identity_hash"],
             )
 
-    sentinel = object()
-    constructor: dict[str, object] = {}
+    sentinel = RetrievalParityRunV1(
+        mode="provider",
+        baseline_eligible=True,
+        outcome="completed_pass",
+        generated_at="2026-08-11T09:00:00Z",
+        tenant_id=str(FORMAT_PARITY_TENANT_ID),
+        owner_marker=FORMAT_PARITY_OWNER_MARKER,
+        run_token=str(namespace.run_token),
+        manifest_hash="a" * 64,
+        gold_hash="b" * 64,
+        baseline_identity="c" * 64,
+        rounds=(
+            RetrievalRoundResultV1(
+                round_format="markdown",
+                round_token=str(uuid4()),
+                outcome="completed_pass",
+                pre_state_proved=True,
+                exactly_three_current_proved=True,
+                post_state_proved=False,
+                immutable_history_preserved=False,
+            ),
+        ),
+        prerequisites=(),
+    )
+    constructors: list[dict[str, object]] = []
+    events: list[str] = []
 
     def _isolated_session(**kwargs: object) -> _RollbackSession:
-        constructor.update(kwargs)
+        constructors.append(dict(kwargs))
         return _RollbackSession()
 
     async def _run(*args: object, **kwargs: object) -> object:
         del args
-        assert "rollback_only" not in kwargs
+        assert kwargs["rollback_only"] is True
+        assert kwargs["rollback_baseline"] == _rollback_baseline()
         rollback_session = kwargs["session"]
         assert isinstance(rollback_session, _RollbackSession)
         await rollback_session.commit()
@@ -433,6 +502,7 @@ async def test_rollback_only_ab_wrapper_always_rolls_back_root_transaction(
     _RootTransaction.rollbacks = 0
     _RollbackSession.commits = 0
     _RollbackSession.closes = 0
+    _RoundRepository.captures = 0
 
     result = await retrieval_rounds_module.run_rollback_only_retrieval_parity(
         _dataset(),
@@ -445,12 +515,26 @@ async def test_rollback_only_ab_wrapper_always_rolls_back_root_transaction(
         input_assembler=object(),  # type: ignore[arg-type]
     )
 
-    assert result is sentinel
-    assert constructor["join_transaction_mode"] == "create_savepoint"
-    assert constructor["expire_on_commit"] is False
+    assert result.rounds[0].post_state_proved is True
+    assert result.rounds[0].immutable_history_preserved is True
+    assert len(constructors) == 3
+    assert constructors[1]["join_transaction_mode"] == "create_savepoint"
+    assert constructors[1]["expire_on_commit"] is False
     assert _RollbackSession.commits == 1
     assert _RollbackSession.closes == 1
     assert _RootTransaction.rollbacks == 1
+    assert _RoundRepository.captures == 2
+    assert events.index("capture_1") < events.index("root_rollback") < events.index("capture_2")
+
+
+def test_rollback_only_ab_wrapper_rejects_any_post_rollback_baseline_drift() -> None:
+    before = _rollback_baseline()
+    after = _rollback_baseline(current_view_sha256="sha256:" + "9" * 64)
+
+    with pytest.raises(EvaluationIsolationError) as caught:
+        retrieval_rounds_module._require_rollback_baseline_unchanged(before, after)  # noqa: SLF001
+
+    assert caught.value.reason_code == "rollback_baseline_mismatch"
 
 
 @pytest.mark.asyncio
@@ -862,6 +946,123 @@ async def test_cleanup_rejects_replacement_or_mixed_projection_before_any_delete
         await repo.cleanup_current_projection(owner, terminal_state="abandoned")
     assert caught.value.reason_code == "projection_drift"
     assert deletes == []
+
+
+@pytest.mark.asyncio
+async def test_rollback_pre_state_accepts_only_the_exact_nonempty_baseline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _identity()
+    baseline = _rollback_baseline()
+    row = SimpleNamespace()
+    heads = [SimpleNamespace(id=uuid4(), doc_key=doc_key) for doc_key in FORMAT_PARITY_DOC_KEYS]
+    repo = RagEvaluationRoundRepository(SimpleNamespace())  # type: ignore[arg-type]
+    cas_values: dict[str, object] = {}
+
+    async def lock_owned(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        return row
+
+    async def lock_heads() -> list[SimpleNamespace]:
+        return heads
+
+    async def capture() -> RollbackBaselineProof:
+        return baseline
+
+    async def cas(_row: object, _owner: object, **values: object) -> EvaluationRoundIdentity:
+        assert _row is row
+        assert _owner is owner
+        cas_values.update(values)
+        return owner
+
+    monkeypatch.setattr(repo, "lock_owned", lock_owned)
+    monkeypatch.setattr(repo, "_lock_tenant_heads", lock_heads)
+    monkeypatch.setattr(repo, "capture_rollback_baseline", capture, raising=False)
+    monkeypatch.setattr(repo, "_cas", cas)
+
+    assert await repo.prove_compatible_pre_state(owner, rollback_baseline=baseline) is owner
+    proof = cas_values["pre_state_proof_json"]
+    assert isinstance(proof, dict)
+    assert proof["rollback_baseline_sha256"] == baseline.proof_sha256
+    assert proof["current"] == {
+        "documents": 3,
+        "blocks": 158,
+        "chunks": 13,
+        "jobs": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_rollback_cleanup_never_deletes_append_only_bound_projection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _identity(next_document_index=3)
+    baseline = _rollback_baseline()
+    heads = [SimpleNamespace(id=uuid4(), doc_key=doc_key) for doc_key in FORMAT_PARITY_DOC_KEYS]
+    row = SimpleNamespace(
+        head_mappings_json={doc_key: {} for doc_key in FORMAT_PARITY_DOC_KEYS},
+        immutable_counts_json={"document_versions": 3, "chunk_versions": 13},
+    )
+    repo = RagEvaluationRoundRepository(SimpleNamespace())  # type: ignore[arg-type]
+    deletes: list[str] = []
+    cas_values: dict[str, object] = {}
+
+    async def lock_owned(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        return row
+
+    async def lock_heads() -> list[SimpleNamespace]:
+        return heads
+
+    async def prove(*args: object, **kwargs: object) -> list[SimpleNamespace]:
+        del args
+        assert kwargs["require_all"] is False
+        return heads
+
+    async def current_counts(_heads: object) -> dict[str, int]:
+        return {"documents": 3, "blocks": 165, "chunks": 60, "jobs": 0}
+
+    async def immutable_counts() -> dict[str, int]:
+        return {"document_versions": 6, "chunk_versions": 73}
+
+    async def delete_block(*args: object, **kwargs: object) -> int:
+        del args, kwargs
+        deletes.append("block")
+        return 1
+
+    async def delete_chunk(*args: object, **kwargs: object) -> int:
+        del args, kwargs
+        deletes.append("chunk")
+        return 1
+
+    async def cas(_row: object, _owner: object, **values: object) -> EvaluationRoundIdentity:
+        assert _row is row
+        assert _owner is owner
+        cas_values.update(values)
+        return owner
+
+    monkeypatch.setattr(repo, "lock_owned", lock_owned)
+    monkeypatch.setattr(repo, "_lock_tenant_heads", lock_heads)
+    monkeypatch.setattr(repo, "_prove_recorded_projection", prove)
+    monkeypatch.setattr(repo, "_current_counts", current_counts)
+    monkeypatch.setattr(repo, "_immutable_counts", immutable_counts)
+    monkeypatch.setattr(repo.block_repo, "delete_by_document_id", delete_block)
+    monkeypatch.setattr(repo.chunk_repo, "delete_by_document_id", delete_chunk)
+    monkeypatch.setattr(repo, "_cas", cas)
+
+    assert (
+        await repo.cleanup_current_projection(
+            owner,
+            terminal_state="completed",
+            rollback_baseline=baseline,
+        )
+        is owner
+    )
+    assert deletes == []
+    post = cas_values["post_state_proof_json"]
+    assert isinstance(post, dict)
+    assert post["rollback_pending"] is True
+    assert post["rollback_baseline_sha256"] == baseline.proof_sha256
 
 
 @pytest.mark.asyncio
