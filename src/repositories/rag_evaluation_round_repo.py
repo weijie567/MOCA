@@ -25,6 +25,11 @@ from src.db.models import (
 from src.knowledge.text_hash import evidence_text_hash
 from src.repositories.document_block_repo import DocumentBlockRepository
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
+from src.repositories.policy_corpus_scope import (
+    join_active_block_projection,
+    join_active_chunk_projection,
+    join_active_document_projection,
+)
 from src.repositories.rag_ingestion_job_repo import (
     RagIngestionJobRepository,
     canonical_ingestion_source_checksum,
@@ -555,23 +560,26 @@ class RagEvaluationRoundRepository:
         chunk_rows = list(
             (
                 await self.session.execute(
-                    select(
-                        PolicyChunk.doc_id,
-                        PolicyChunk.chunk_id,
-                        PolicyChunk.content,
-                        PolicyChunk.source_block_refs_json,
-                    )
-                    .join(
-                        PolicyDocument,
-                        and_(
-                            PolicyChunk.doc_id == PolicyDocument.id,
-                            PolicyDocument.tenant_id == FORMAT_PARITY_TENANT_ID,
+                    join_active_chunk_projection(
+                        select(
+                            PolicyChunk.doc_id,
+                            PolicyChunk.chunk_id,
+                            PolicyChunk.content,
+                            PolicyChunk.source_block_refs_json,
+                        )
+                        .join(
+                            PolicyDocument,
+                            and_(
+                                PolicyChunk.doc_id == PolicyDocument.id,
+                                PolicyDocument.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            ),
+                        )
+                        .where(
+                            PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            PolicyDocument.doc_key == doc_key,
+                            PolicyChunk.chunk_id.in_(chunk_ids),
                         ),
-                    )
-                    .where(
-                        PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        PolicyDocument.doc_key == doc_key,
-                        PolicyChunk.chunk_id.in_(chunk_ids),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
                     )
                 )
             ).all()
@@ -588,10 +596,13 @@ class RagEvaluationRoundRepository:
         block_rows = list(
             (
                 await self.session.execute(
-                    select(DocumentBlock).where(
-                        DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        DocumentBlock.doc_id.in_(document_ids),
-                        DocumentBlock.source_block_id.in_(source_block_ids),
+                    join_active_block_projection(
+                        select(DocumentBlock).where(
+                            DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            DocumentBlock.doc_id.in_(document_ids),
+                            DocumentBlock.source_block_id.in_(source_block_ids),
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
                     )
                 )
             )
@@ -882,9 +893,13 @@ class RagEvaluationRoundRepository:
         head_rows = (
             (
                 await self.session.execute(
-                    select(PolicyDocument)
-                    .where(PolicyDocument.tenant_id == row.tenant_id, PolicyDocument.doc_key == doc_key)
-                    .with_for_update()
+                    join_active_document_projection(
+                        select(PolicyDocument).where(
+                            PolicyDocument.tenant_id == row.tenant_id,
+                            PolicyDocument.doc_key == doc_key,
+                        ),
+                        tenant_id=row.tenant_id,
+                    ).with_for_update()
                 )
             )
             .scalars()
@@ -907,9 +922,12 @@ class RagEvaluationRoundRepository:
             blocks = list(
                 (
                     await self.session.execute(
-                        select(DocumentBlock).where(
-                            DocumentBlock.tenant_id == row.tenant_id,
-                            DocumentBlock.doc_id == head.id,
+                        join_active_block_projection(
+                            select(DocumentBlock).where(
+                                DocumentBlock.tenant_id == row.tenant_id,
+                                DocumentBlock.doc_id == head.id,
+                            ),
+                            tenant_id=row.tenant_id,
                         )
                     )
                 )
@@ -919,9 +937,13 @@ class RagEvaluationRoundRepository:
             chunks = list(
                 (
                     await self.session.execute(
-                        select(PolicyChunk)
-                        .where(PolicyChunk.tenant_id == row.tenant_id, PolicyChunk.doc_id == head.id)
-                        .with_for_update()
+                        join_active_chunk_projection(
+                            select(PolicyChunk).where(
+                                PolicyChunk.tenant_id == row.tenant_id,
+                                PolicyChunk.doc_id == head.id,
+                            ),
+                            tenant_id=row.tenant_id,
+                        ).with_for_update()
                     )
                 )
                 .scalars()
@@ -1044,12 +1066,13 @@ class RagEvaluationRoundRepository:
         blocks = list(
             (
                 await self.session.execute(
-                    select(DocumentBlock)
-                    .where(
-                        DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        DocumentBlock.doc_id == head.id,
-                    )
-                    .with_for_update()
+                    join_active_block_projection(
+                        select(DocumentBlock).where(
+                            DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            DocumentBlock.doc_id == head.id,
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
+                    ).with_for_update()
                 )
             )
             .scalars()
@@ -1058,12 +1081,13 @@ class RagEvaluationRoundRepository:
         chunks = list(
             (
                 await self.session.execute(
-                    select(PolicyChunk)
-                    .where(
-                        PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        PolicyChunk.doc_id == head.id,
-                    )
-                    .with_for_update()
+                    join_active_chunk_projection(
+                        select(PolicyChunk).where(
+                            PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            PolicyChunk.doc_id == head.id,
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
+                    ).with_for_update()
                 )
             )
             .scalars()
@@ -1113,8 +1137,10 @@ class RagEvaluationRoundRepository:
         heads = list(
             (
                 await self.session.execute(
-                    select(PolicyDocument)
-                    .where(PolicyDocument.tenant_id == FORMAT_PARITY_TENANT_ID)
+                    join_active_document_projection(
+                        select(PolicyDocument).where(PolicyDocument.tenant_id == FORMAT_PARITY_TENANT_ID),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
+                    )
                     .order_by(PolicyDocument.doc_key, PolicyDocument.id)
                     .with_for_update()
                 )
@@ -1147,11 +1173,14 @@ class RagEvaluationRoundRepository:
         blocks = int(
             (
                 await self.session.execute(
-                    select(func.count())
-                    .select_from(DocumentBlock)
-                    .where(
-                        DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        DocumentBlock.doc_id.in_(document_ids),
+                    join_active_block_projection(
+                        select(func.count())
+                        .select_from(DocumentBlock)
+                        .where(
+                            DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            DocumentBlock.doc_id.in_(document_ids),
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
                     )
                 )
             ).scalar_one()
@@ -1159,11 +1188,14 @@ class RagEvaluationRoundRepository:
         chunks = int(
             (
                 await self.session.execute(
-                    select(func.count())
-                    .select_from(PolicyChunk)
-                    .where(
-                        PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        PolicyChunk.doc_id.in_(document_ids),
+                    join_active_chunk_projection(
+                        select(func.count())
+                        .select_from(PolicyChunk)
+                        .where(
+                            PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            PolicyChunk.doc_id.in_(document_ids),
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
                     )
                 )
             ).scalar_one()

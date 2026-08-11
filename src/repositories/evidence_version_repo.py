@@ -24,9 +24,13 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import (
+    CorpusChunkBinding,
+    CorpusDocumentBinding,
     EvidenceIdentityRollout,
     PolicyChunk,
     PolicyChunkVersion,
+    PolicyCorpusRollout,
+    PolicyCorpusVersion,
     PolicyDocument,
     PolicyDocumentVersion,
 )
@@ -457,59 +461,69 @@ class EvidenceVersionRepository:
             return {}
         rollout_version = await self._require_canonical_reads_enabled()
         requested = set(keys)
-        documents = list(
+        rows = list(
             (
                 await self.session.execute(
-                    select(PolicyDocument).where(
+                    select(PolicyDocument, PolicyChunk, PolicyChunkVersion)
+                    .join(
+                        CorpusDocumentBinding,
+                        (CorpusDocumentBinding.tenant_id == tenant_id)
+                        & (CorpusDocumentBinding.policy_document_id == PolicyDocument.id),
+                    )
+                    .join(
+                        PolicyCorpusRollout,
+                        (PolicyCorpusRollout.tenant_id == tenant_id)
+                        & (PolicyCorpusRollout.active_corpus_version_id == CorpusDocumentBinding.corpus_version_id),
+                    )
+                    .join(
+                        PolicyCorpusVersion,
+                        (PolicyCorpusVersion.tenant_id == tenant_id)
+                        & (PolicyCorpusVersion.id == PolicyCorpusRollout.active_corpus_version_id)
+                        & (PolicyCorpusVersion.state == "complete"),
+                    )
+                    .join(
+                        PolicyChunk,
+                        (PolicyChunk.tenant_id == tenant_id) & (PolicyChunk.doc_id == PolicyDocument.id),
+                    )
+                    .join(
+                        CorpusChunkBinding,
+                        (CorpusChunkBinding.tenant_id == tenant_id)
+                        & (CorpusChunkBinding.corpus_version_id == PolicyCorpusRollout.active_corpus_version_id)
+                        & (CorpusChunkBinding.policy_chunk_id == PolicyChunk.id),
+                    )
+                    .join(
+                        PolicyChunkVersion,
+                        (PolicyChunkVersion.tenant_id == tenant_id)
+                        & (PolicyChunkVersion.id == CorpusChunkBinding.policy_chunk_version_id)
+                        & (
+                            PolicyChunkVersion.policy_document_version_id
+                            == CorpusDocumentBinding.policy_document_version_id
+                        ),
+                    )
+                    .where(
                         PolicyDocument.tenant_id == tenant_id,
                         PolicyDocument.doc_key.in_({doc_key for doc_key, _ in requested}),
+                        PolicyCorpusRollout.quarantine_reason.is_(None),
                     )
                 )
-            ).scalars()
+            ).all()
         )
         identities: dict[tuple[str, str], CanonicalEvidenceIdentityV1] = {}
-        for document in documents:
-            chunks = list(
-                (
-                    await self.session.execute(
-                        select(PolicyChunk)
-                        .where(
-                            PolicyChunk.tenant_id == tenant_id,
-                            PolicyChunk.doc_id == document.id,
-                        )
-                        .order_by(PolicyChunk.chunk_id, PolicyChunk.id)
-                    )
-                ).scalars()
-            )
-            try:
-                binding = await self.find_exact_binding(
-                    tenant_id=tenant_id,
-                    document=document,
-                    chunks=chunks,
-                    fingerprint=str(document.policy_version_fingerprint),
-                )
-            except ImmutableBindingMismatch as exc:
-                raise CanonicalReadUnavailable("canonical evidence unavailable") from exc
-            if binding is None:
+        for document, current_chunk, immutable_chunk in rows:
+            key = (document.doc_key, current_chunk.chunk_id)
+            if key not in requested:
+                continue
+            if not canonical_chunk_version_matches_projection(immutable_chunk, current_chunk):
                 raise CanonicalReadUnavailable("canonical evidence unavailable")
-            _, immutable_chunks = binding
-            immutable_by_chunk = {chunk.chunk_id: chunk for chunk in immutable_chunks}
-            for chunk in chunks:
-                key = (document.doc_key, chunk.chunk_id)
-                if key not in requested:
-                    continue
-                immutable_chunk = immutable_by_chunk.get(chunk.chunk_id)
-                if immutable_chunk is None:
-                    raise CanonicalReadUnavailable("canonical evidence unavailable")
-                resolution = await self.mint_for_chunk_version(
-                    immutable_chunk,
-                    expected_tenant_id=tenant_id,
-                    expected_scope_type=ACCEPTED_POLICY_SCOPE_TYPE,
-                    expected_scope_id=str(tenant_id),
-                )
-                if resolution.identity is None or key in identities:
-                    raise CanonicalReadUnavailable("canonical evidence unavailable")
-                identities[key] = resolution.identity
+            resolution = await self.mint_for_chunk_version(
+                immutable_chunk,
+                expected_tenant_id=tenant_id,
+                expected_scope_type=ACCEPTED_POLICY_SCOPE_TYPE,
+                expected_scope_id=str(tenant_id),
+            )
+            if resolution.identity is None or key in identities:
+                raise CanonicalReadUnavailable("canonical evidence unavailable")
+            identities[key] = resolution.identity
         if set(identities) != requested:
             raise CanonicalReadUnavailable("canonical evidence unavailable")
         if await self._require_canonical_reads_enabled() != rollout_version:

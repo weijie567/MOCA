@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
+from src.knowledge.text_hash import evidence_text_hash
+from src.repositories.evidence_version_repo import canonical_chunk_version_matches_projection
 
 from .conftest import FIXED_RETRIEVED_AT, make_evidence_ref
 
@@ -95,3 +98,30 @@ def test_same_logical_chunk_keeps_identity_and_hash_across_retrievals():
 
     assert first.evidence_id == second.evidence_id
     assert first.text_hash == second.text_hash
+
+
+def test_immutable_chunk_compatibility_is_corpus_free():
+    current = SimpleNamespace(
+        chunk_id="refund_policy_001",
+        content="退款必须原路返回。",
+        search_text="退款 原路返回",
+        source_block_refs_json=[{"source_block_id": "refund:block:0001"}],
+        chunking_config_fingerprint=evidence_text_hash("token-config"),
+        embedding_input_hash=evidence_text_hash("provider-input"),
+        embedding_token_count=19,
+    )
+    immutable = SimpleNamespace(
+        chunk_id=current.chunk_id,
+        content=current.content,
+        text_hash=evidence_text_hash(current.content),
+        search_text=current.search_text,
+        source_locator_json={"source_block_refs": current.source_block_refs_json},
+        chunking_config_fingerprint=current.chunking_config_fingerprint,
+        embedding_input_hash=current.embedding_input_hash,
+        embedding_token_count=current.embedding_token_count,
+    )
+
+    assert canonical_chunk_version_matches_projection(immutable, current)
+    current.corpus_version_id = "corpus-b"
+    immutable.corpus_version_id = "corpus-a"
+    assert canonical_chunk_version_matches_projection(immutable, current)

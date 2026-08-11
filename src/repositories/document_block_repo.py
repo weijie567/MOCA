@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import DocumentBlock
 from src.knowledge.text_hash import evidence_text_hash
 from src.rag.parsers.base import ParsedBlock
+from src.repositories.policy_corpus_scope import active_block_ids, join_active_block_projection
 
 
 MAX_DOCUMENT_BLOCK_TEXT_LENGTH = 20_000
@@ -102,6 +103,7 @@ class DocumentBlockRepository:
         stmt = delete(DocumentBlock).where(
             DocumentBlock.doc_id == document_id,
             DocumentBlock.tenant_id == tenant_id,
+            DocumentBlock.id.in_(active_block_ids(tenant_id=tenant_id, document_id=document_id)),
         )
         result = await self.session.execute(stmt)
         return result.rowcount or 0
@@ -113,14 +115,14 @@ class DocumentBlockRepository:
         await self.session.flush()
 
     async def list_by_document_id(self, document_id: UUID, tenant_id: UUID) -> list[DocumentBlock]:
-        stmt = (
-            select(DocumentBlock)
-            .where(
+        stmt = join_active_block_projection(
+            select(DocumentBlock).where(
                 DocumentBlock.doc_id == document_id,
                 DocumentBlock.tenant_id == tenant_id,
-            )
-            .order_by(DocumentBlock.block_index)
+            ),
+            tenant_id=tenant_id,
         )
+        stmt = stmt.order_by(DocumentBlock.block_index)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -133,15 +135,15 @@ class DocumentBlockRepository:
     ) -> list[DocumentBlock]:
         if not source_block_ids:
             return []
-        stmt = (
-            select(DocumentBlock)
-            .where(
+        stmt = join_active_block_projection(
+            select(DocumentBlock).where(
                 DocumentBlock.tenant_id == tenant_id,
                 DocumentBlock.doc_id == document_id,
                 DocumentBlock.source_block_id.in_(list(source_block_ids)),
-            )
-            .order_by(DocumentBlock.block_index)
+            ),
+            tenant_id=tenant_id,
         )
+        stmt = stmt.order_by(DocumentBlock.block_index)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
