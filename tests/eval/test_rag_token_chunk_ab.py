@@ -814,3 +814,48 @@ def test_non_execution_outcomes_keep_legacy_pair_path_and_never_create_diagnosti
         )
     assert not (tmp_path / "diagnostics").exists()
     assert not (tmp_path / "commits").exists()
+
+
+def test_typed_runtime_failure_drives_exact_diagnostic_without_raw_exception() -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+    from src.rag.evaluation.retrieval_rounds import SafeRoleFailureV1
+
+    failure = SafeRoleFailureV1(
+        failing_role="token_candidate",
+        round_format="scanned_pdf",
+        stage="post_rollback_baseline_verification",
+        reason_code="rollback_proof_failed",
+        provider_availability="available",
+        provider_request_classification="request_completed",
+        outer_rollback_attempted=True,
+        outer_rollback_proved=False,
+        completed_round_count=2,
+        provider_request_count=36,
+        safe_context_sha256="sha256:" + "7" * 64,
+    )
+    diagnostic = ab_cli._execution_diagnostic_from_failure(_execution_error_run(), failure)
+    assert diagnostic.failing_role == "token_candidate"
+    assert diagnostic.round_format == "scanned_pdf"
+    assert diagnostic.stage == "post_rollback_baseline_verification"
+    assert diagnostic.reason_code == "rollback_proof_failed"
+    assert diagnostic.outer_rollback_attempted is True
+    assert diagnostic.outer_rollback_proved is False
+    serialized = diagnostic.model_dump_json().lower()
+    for forbidden in ("traceback", "runtimeerror", "provider payload", "secret", "/private/tmp"):
+        assert forbidden not in serialized
+
+
+def test_diagnostic_cli_has_no_selection_activation_or_pointer_write_surface() -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+
+    diagnostic_source = inspect.getsource(ab_cli._execution_diagnostic_from_failure)
+    main_source = inspect.getsource(ab_cli.main)
+    for forbidden in (
+        "write_selection_create_only",
+        "activate_corpus",
+        "cas_rollout",
+        "policycorpusactivationhistory",
+        "activation_receipt",
+    ):
+        assert forbidden not in diagnostic_source.lower()
+    assert "write_execution_error_bundle_create_only" in main_source

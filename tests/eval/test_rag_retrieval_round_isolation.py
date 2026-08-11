@@ -2196,3 +2196,179 @@ async def test_contract_load_read_and_hash_failures_are_execution_errors_for_bot
     else:
         assert payload["prerequisites"] == ["evaluation_contract"]
         assert payload["reason_codes"] == ["evaluation_contract_invalid"]
+
+
+@pytest.mark.parametrize("role", ["incumbent", "candidate"])
+@pytest.mark.parametrize(
+    ("stage", "reason_code"),
+    [
+        ("format_ingestion", "format_ingestion_failed"),
+        ("retrieval_resource_proof", "resource_proof_failed"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_typed_role_failure_survives_outer_rollback_and_fresh_baseline_proof(
+    monkeypatch: pytest.MonkeyPatch,
+    role: str,
+    stage: str,
+    reason_code: str,
+) -> None:
+    from src.rag.evaluation.retrieval_rounds import SafeRoleExecutionError, SafeRoleFailureV1
+
+    namespace = build_ab_round_namespaces(
+        run_id=UUID("64300000-0000-4000-8000-000000000009"),
+        incumbent_corpus_version_id=UUID("64300000-0000-4000-8000-000000000011"),
+        candidate_corpus_version_id=UUID("64300000-0000-4000-8000-000000000012"),
+    )[0 if role == "incumbent" else 1]
+    events: list[str] = []
+
+    class _Transaction:
+        is_active = True
+
+        async def rollback(self) -> None:
+            events.append("outer_rollback")
+            self.is_active = False
+
+    class _Connection:
+        async def begin(self) -> _Transaction:
+            return _Transaction()
+
+    class _Connect:
+        async def __aenter__(self) -> _Connection:
+            return _Connection()
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+    class _Bind:
+        def connect(self) -> _Connect:
+            return _Connect()
+
+    class _RootSession:
+        bind = _Bind()
+
+    class _Begin:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+    class _RollbackSession:
+        def begin(self) -> _Begin:
+            return _Begin()
+
+        async def close(self) -> None:
+            events.append("session_close")
+
+    class _Repository:
+        def __init__(self, session: object) -> None:
+            del session
+
+        async def create_round(self, **kwargs: object) -> EvaluationRoundIdentity:
+            return _identity(
+                run_token=kwargs["run_token"],
+                round_token=kwargs["round_token"],
+                round_format=kwargs["round_format"],
+                run_identity_hash=kwargs["run_identity_hash"],
+            )
+
+    captures = 0
+
+    async def capture(_bind: object) -> RollbackBaselineProof:
+        nonlocal captures
+        captures += 1
+        events.append(f"baseline_{captures}")
+        return _rollback_baseline()
+
+    async def fail(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise SafeRoleExecutionError(
+            SafeRoleFailureV1(
+                failing_role="character_incumbent" if role == "incumbent" else "token_candidate",
+                round_format="markdown",
+                stage=stage,
+                reason_code=reason_code,
+                provider_availability="available",
+                provider_request_classification="request_failed",
+                outer_rollback_attempted=False,
+                outer_rollback_proved=False,
+                completed_round_count=0,
+                provider_request_count=1,
+                safe_context_sha256="sha256:" + RUN_IDENTITY_HASH,
+            )
+        )
+
+    monkeypatch.setattr(retrieval_rounds_module, "AsyncSession", lambda **kwargs: _RollbackSession())
+    monkeypatch.setattr(retrieval_rounds_module, "RagEvaluationRoundRepository", _Repository)
+    monkeypatch.setattr(retrieval_rounds_module, "_capture_rollback_baseline", capture)
+    monkeypatch.setattr(retrieval_rounds_module, "run_retrieval_parity", fail)
+
+    with pytest.raises(SafeRoleExecutionError) as caught:
+        await retrieval_rounds_module.run_rollback_only_retrieval_parity(
+            _dataset(),
+            session=_RootSession(),  # type: ignore[arg-type]
+            embedder=object(),  # type: ignore[arg-type]
+            namespace=namespace,
+            generated_at="2026-08-11T09:00:00Z",
+            run_identity_hash=RUN_IDENTITY_HASH,
+            expected_rollout_version=1,
+            input_assembler=object(),  # type: ignore[arg-type]
+        )
+
+    failure = caught.value.failure
+    assert failure.failing_role == ("character_incumbent" if role == "incumbent" else "token_candidate")
+    assert failure.round_format == "markdown"
+    assert failure.stage == stage
+    assert failure.reason_code == reason_code
+    assert failure.outer_rollback_attempted is True
+    assert failure.outer_rollback_proved is True
+    assert events == ["baseline_1", "session_close", "outer_rollback", "baseline_2"]
+
+
+def test_safe_role_failure_contract_covers_all_stages_and_rejects_raw_payload() -> None:
+    from pydantic import ValidationError
+
+    from src.rag.evaluation.retrieval_rounds import SafeRoleFailureV1
+
+    base = {
+        "failing_role": "shared_preflight",
+        "round_format": None,
+        "reason_code": "candidate_pair_invalid",
+        "provider_availability": "not_checked",
+        "provider_request_classification": "not_attempted",
+        "outer_rollback_attempted": False,
+        "outer_rollback_proved": False,
+        "completed_round_count": 0,
+        "provider_request_count": 0,
+        "safe_context_sha256": "sha256:" + "f" * 64,
+    }
+    stages = {
+        "shared_preflight",
+        "role_setup",
+        "format_ingestion",
+        "retrieval_resource_proof",
+        "post_rollback_baseline_verification",
+    }
+    for stage in stages:
+        reason = {
+            "shared_preflight": "candidate_pair_invalid",
+            "role_setup": "role_setup_failed",
+            "format_ingestion": "format_ingestion_failed",
+            "retrieval_resource_proof": "resource_proof_failed",
+            "post_rollback_baseline_verification": "rollback_proof_failed",
+        }[stage]
+        assert SafeRoleFailureV1(**{**base, "stage": stage, "reason_code": reason}).stage == stage
+
+    with pytest.raises(ValidationError):
+        SafeRoleFailureV1(**{**base, "stage": "shared_preflight", "raw_exception": "secret traceback"})
+    with pytest.raises(ValidationError):
+        SafeRoleFailureV1(**{**base, "stage": "shared_preflight", "reason_code": "RuntimeError: secret"})
+
+
+def test_runtime_failure_source_never_serializes_raw_exception_or_traceback() -> None:
+    source = inspect.getsource(retrieval_rounds_module)
+    assert "SafeRoleFailureV1" in source
+    assert "SafeRoleExecutionError" in source
+    for forbidden in ("str(exc)", "repr(exc)", "traceback.format_exc"):
+        assert forbidden not in source
