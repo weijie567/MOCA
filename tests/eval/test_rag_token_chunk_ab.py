@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+import inspect
 import json
 from pathlib import Path
 from uuid import UUID
@@ -443,3 +444,17 @@ def test_decimal_cost_basis_is_exact_and_versioned() -> None:
     assert cost.basis_version == "dashscope_text_embedding_v4_cost.v1"
     assert cost.price_per_unit == Decimal("0.0007")
     assert cost.estimated_cost == Decimal("0.00875")
+
+
+def test_full_provider_cli_names_only_the_two_approved_assemblers_and_has_no_cutover_surface() -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+    from src.rag.ingestion import CharacterCompatibilityAssembler
+    from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
+
+    assert isinstance(ab_cli._character_incumbent(), CharacterCompatibilityAssembler)
+    assert isinstance(ab_cli._token_candidate(), PolicyEmbeddingInputAssembler)
+    source = inspect.getsource(ab_cli)
+    assert "write_terminal_run_create_only" in source
+    assert "write_selection_create_only" in source
+    for forbidden in ("activate_corpus(", "activate_rollout", "cas_rollout", "activation_receipt"):
+        assert forbidden not in source

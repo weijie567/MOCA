@@ -23564,3 +23564,14 @@ Task 1 初版 GREEN 使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run 
 
 **已做处理 / 剩余入口**
 字段改为语义等价且安全的 `provider_embedding_tokens`，仍只保存请求级 provider token 总数，不分摊到输入，也不保留 prompt/provider payload。重新运行格式、完整 lint 与相同 scoped gate。后续报告字段若来自 provider API，必须先通过共享 safe-key allowlist，不得为兼容供应商原始命名而放宽 disclosure 边界。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 1 编排器误判 executor idle/status
+
+**问题现象 / 如何检测**
+Task 1 RED commit `cb60064d` 后，编排器在约八分钟未观察到文件变化、子进程或消息，主动中断并以“恢复 Task1 GREEN”重新派发；恢复时仓库实际已经存在 GREEN commit `3753fad2`，worktree 为 clean。
+
+**关键证据 / 当前判断 / 根因**
+`git log --oneline -4` 显示 `3753fad2 feat(64.4-09): define exact immutable A-B selection` 紧随 `cb60064d`；`git show --stat 3753fad2` 显示 Task1 六个文件共 852 行变更。当前判断为 turn 中断与编排状态传播延迟造成的观测误差，不是 MOCA 产品、测试、provider 或 Git 数据失败。
+
+**已做处理 / 剩余入口**
+恢复后先核对 commit、文件统计和 clean worktree，并通知 orchestrator 不重复实现、不改写历史；随后从 Task2 read-first / Wave0 RED 继续。若后续再出现 agent status 长时间无刷新，继续以仓库 commit 与 worktree 实态为准，并单独排查编排链路，不将其计入产品失败率。

@@ -35,6 +35,7 @@ from src.knowledge.service import PolicyKnowledgeService
 from src.knowledge.text_hash import evidence_text_hash
 from src.rag.evaluation.contracts import FormatParityContractError, load_format_parity_contract
 from src.rag.evaluation.retrieval_rounds import (
+    build_ab_round_namespaces,
     RecordingPolicyRetrievalEngine,
     RetrievalParityRunV1,
     RetrievalRoundResultV1,
@@ -52,6 +53,37 @@ from scripts.eval_rag_format_parity import (
 
 MIGRATION = Path("src/db/migrations/versions/029_phase64_3_rag_eval_rounds.py")
 RUN_IDENTITY_HASH = "d" * 64
+
+
+def test_ab_round_namespaces_are_deterministic_distinct_and_fixed_owner_scoped() -> None:
+    incumbent_corpus_id = UUID("64300000-0000-4000-8000-000000000011")
+    candidate_corpus_id = UUID("64300000-0000-4000-8000-000000000012")
+    run_id = UUID("64300000-0000-4000-8000-000000000009")
+
+    namespaces = build_ab_round_namespaces(
+        run_id=run_id,
+        incumbent_corpus_version_id=incumbent_corpus_id,
+        candidate_corpus_version_id=candidate_corpus_id,
+    )
+
+    assert tuple(item.role for item in namespaces) == ("incumbent", "candidate")
+    assert namespaces[0].corpus_version_id == incumbent_corpus_id
+    assert namespaces[1].corpus_version_id == candidate_corpus_id
+    assert namespaces[0].run_token != namespaces[1].run_token
+    assert namespaces[0].round_owner != namespaces[1].round_owner
+    assert {item.evaluation_owner_marker for item in namespaces} == {FORMAT_PARITY_OWNER_MARKER}
+    assert namespaces == build_ab_round_namespaces(
+        run_id=run_id,
+        incumbent_corpus_version_id=incumbent_corpus_id,
+        candidate_corpus_version_id=candidate_corpus_id,
+    )
+
+    with pytest.raises(EvaluationIsolationError, match="evaluation isolation denied"):
+        build_ab_round_namespaces(
+            run_id=run_id,
+            incumbent_corpus_version_id=incumbent_corpus_id,
+            candidate_corpus_version_id=incumbent_corpus_id,
+        )
 
 
 def _identity(**overrides: object) -> EvaluationRoundIdentity:
