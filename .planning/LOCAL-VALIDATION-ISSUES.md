@@ -23542,3 +23542,14 @@ Task 2 预期 RED 为 `3 failed, 44 passed`，证明首次 ingestion 未刷新 p
 
 **已做处理 / 剩余入口**
 改用非保留变量 `task_file` 和 `task_commit_hash` 重新执行完整 self-check，并以第二次输出作为有效结论；SUMMARY 只在全部文件/commit真实找到后写 `PASSED`。以后 shell 辅助变量不得使用 `path`/`PATH` 等系统选项名。当前无剩余问题。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 1 Wave-0 辅助导入被 Ruff 自动删除
+
+**问题现象 / 如何检测**
+Task 1 首轮 Wave-0 在 `make format` 与完整 `make lint` 通过后，使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_token_chunk_ab.py tests/eval/test_rag_format_parity_report.py`，collection 以 `KeyError: 'ABQualityMetricsV1'` 失败，而不是预期的 Plan 09 实现缺失。
+
+**关键证据 / 当前判断 / 根因**
+新测试辅助器 `_api()` 用函数内 import 加 `locals()` 间接返回 API；`make format` 的 `ruff check --fix` 无法识别这种动态引用，把 24 个导入全部判为未使用并删除，只留下空映射。失败发生在测试模块参数化收集期，属于 Wave-0 测试辅助器写法与项目自动修复规则不兼容，不是 A/B 产品实现、Python 入口或 Phase64.3 数据契约问题。
+
+**已做处理 / 剩余入口**
+辅助器改为显式导入并返回逐项命名映射，使 Ruff 能静态识别所有符号；重新执行 `make format`、完整 `make lint` 和相同 project-entry pytest，以实现缺失的受控失败作为有效 RED。后续若新增动态 API helper，应使用显式 tuple/dict 返回，禁止依赖 `locals()` 保留导入。当前无产品侧剩余问题。
