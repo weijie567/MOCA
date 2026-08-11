@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from dataclasses import replace
@@ -8,14 +9,17 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import (
     CorpusBlockBinding,
     CorpusChunkBinding,
     CorpusDocumentBinding,
     DocumentBlock,
+    EvidenceIdentityRollout,
     PolicyChunk,
+    PolicyChunkVersion,
+    PolicyCorpusActivationHistory,
     PolicyCorpusManifestRevision,
     PolicyCorpusRollout,
     PolicyCorpusVersion,
@@ -27,9 +31,13 @@ from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.rag.policy_reindex import (
     POLICY_REINDEX_STATES,
     FreshProviderParityClaimV1,
+    ImmutableSelectionDecisionFixtureV1,
+    PolicyCorpusActivationReason,
+    PolicyCorpusActivationRequest,
     PolicyReindexClaimRequest,
     PolicyReindexError,
     PolicyReindexFailureCode,
+    PolicyReindexRunIdentity,
     PolicyReindexService,
 )
 from src.repositories.document_block_repo import build_canonical_document_content
@@ -39,6 +47,7 @@ from src.repositories.evidence_version_repo import EvidenceVersionRepository
 NOW = datetime(2026, 8, 11, 8, 30, tzinfo=UTC)
 TOKEN_CONFIG_FINGERPRINT = "sha256:" + "1" * 64
 PARITY_REPORT_HASH = "sha256:" + "2" * 64
+SELECTION_DECISION_HASH = "sha256:" + "3" * 64
 
 
 def _sha256(payload: object) -> str:
@@ -401,6 +410,22 @@ class _RecordingEmbedder:
         return [[float(index + 1)] * 1024 for index, _ in enumerate(texts)]
 
 
+async def _seed_evidence_rollout(session: AsyncSession, *, rollout_version: int = 11) -> None:
+    if await session.get(EvidenceIdentityRollout, 1) is not None:
+        return
+    session.add(
+        EvidenceIdentityRollout(
+            id=1,
+            rollout_version=rollout_version,
+            dual_write_enabled_at=NOW,
+            canonical_reads_enabled=True,
+            canonical_reads_enabled_at=NOW,
+            audit_counts_json={"dual_write_health": "healthy"},
+        )
+    )
+    await session.flush()
+
+
 async def _claim_bound_candidate(
     session: AsyncSession,
     *,
@@ -435,6 +460,79 @@ async def _claim_bound_candidate(
     )
     building = await service.resume(claimed, now=NOW)
     return service, assembler, building, source, rollout, documents
+
+
+async def _complete_bound_candidate(
+    session: AsyncSession,
+) -> tuple[
+    PolicyReindexService,
+    PolicyReindexRunIdentity,
+    PolicyCorpusVersion,
+    PolicyCorpusRollout,
+]:
+    await _seed_evidence_rollout(session)
+    service, assembler, owner, source, rollout, _ = await _claim_bound_candidate(session)
+    built = await service.build_next_document(
+        owner,
+        assembler=assembler,
+        embedder=_RecordingEmbedder(),
+        now=NOW,
+    )
+    complete = await service.validate_candidate(built, assembler=assembler, now=NOW)
+    return service, complete, source, rollout
+
+
+def _selection_fixture(owner: PolicyReindexRunIdentity) -> ImmutableSelectionDecisionFixtureV1:
+    return ImmutableSelectionDecisionFixtureV1(
+        schema_version="rag_token_chunk_selection_fixture.v1",
+        selection_decision_sha256=SELECTION_DECISION_HASH,
+        outcome="selected_pass",
+        tenant_id=owner.tenant_id,
+        candidate_corpus_version_id=owner.corpus_version_id,
+        run_token=owner.run_token,
+        lease_owner=owner.lease_owner,
+        config_fingerprint=owner.config_fingerprint,
+        provider_parity_report_hash=owner.provider_parity_report_hash,
+        source_manifest_hash=owner.source_manifest_hash,
+        expected_evidence_rollout_version=owner.expected_evidence_rollout_version,
+    )
+
+
+def _activation_request(
+    owner: PolicyReindexRunIdentity,
+    *,
+    expected_active_corpus_version_id: UUID,
+    expected_rollout_epoch: int,
+    reason: PolicyCorpusActivationReason,
+    selection: ImmutableSelectionDecisionFixtureV1 | None,
+) -> PolicyCorpusActivationRequest:
+    return PolicyCorpusActivationRequest(
+        tenant_id=owner.tenant_id,
+        target_corpus_version_id=owner.corpus_version_id,
+        expected_active_corpus_version_id=expected_active_corpus_version_id,
+        expected_rollout_epoch=expected_rollout_epoch,
+        expected_evidence_rollout_version=owner.expected_evidence_rollout_version,
+        actor="operator.phase64_4.fixture",
+        reason=reason,
+        selection=selection,
+    )
+
+
+async def _active_chunk_ids(session: AsyncSession, *, tenant_id: UUID) -> set[str]:
+    return set(
+        (
+            await session.execute(
+                select(PolicyChunk.chunk_id)
+                .join(CorpusChunkBinding, CorpusChunkBinding.policy_chunk_id == PolicyChunk.id)
+                .join(
+                    PolicyCorpusRollout,
+                    (PolicyCorpusRollout.tenant_id == tenant_id)
+                    & (PolicyCorpusRollout.active_corpus_version_id == CorpusChunkBinding.corpus_version_id),
+                )
+                .where(CorpusChunkBinding.tenant_id == tenant_id)
+            )
+        ).scalars()
+    )
 
 
 @pytest.mark.asyncio
@@ -890,3 +988,256 @@ async def test_cross_tenant_and_run_resume_or_rollback_cannot_clean_other_candid
     candidate_b = await session.get(PolicyCorpusVersion, owner_b.corpus_version_id)
     assert candidate_b is not None
     assert candidate_b.state == built_b.state == "built"
+
+
+@pytest.mark.asyncio
+async def test_fixture_cutover_rollback_and_restore_are_exactly_one_pointer_events(
+    session: AsyncSession,
+) -> None:
+    service, owner, source, rollout = await _complete_bound_candidate(session)
+    selection = _selection_fixture(owner)
+
+    assert await _active_chunk_ids(session, tenant_id=owner.tenant_id) == {"policy-a_legacy"}
+    cutover = await service.activate_corpus(
+        _activation_request(
+            owner,
+            expected_active_corpus_version_id=source.id,
+            expected_rollout_epoch=rollout.rollout_epoch,
+            reason=PolicyCorpusActivationReason.SELECTED_CUTOVER,
+            selection=selection,
+        ),
+        now=NOW,
+    )
+    assert cutover.active_corpus_version_id == owner.corpus_version_id
+    assert cutover.previous_corpus_version_id == source.id
+    assert cutover.rollout_epoch == 8
+    assert await _active_chunk_ids(session, tenant_id=owner.tenant_id) == {"policy-a_000"}
+
+    rollback_request = replace(
+        _activation_request(
+            owner,
+            expected_active_corpus_version_id=owner.corpus_version_id,
+            expected_rollout_epoch=8,
+            reason=PolicyCorpusActivationReason.ROLLBACK_PRIOR,
+            selection=None,
+        ),
+        target_corpus_version_id=source.id,
+    )
+    rollback = await service.activate_corpus(rollback_request, now=NOW + timedelta(seconds=1))
+    assert rollback.active_corpus_version_id == source.id
+    assert rollback.previous_corpus_version_id == owner.corpus_version_id
+    assert rollback.rollout_epoch == 9
+    assert await _active_chunk_ids(session, tenant_id=owner.tenant_id) == {"policy-a_legacy"}
+
+    restored = await service.activate_corpus(
+        _activation_request(
+            owner,
+            expected_active_corpus_version_id=source.id,
+            expected_rollout_epoch=9,
+            reason=PolicyCorpusActivationReason.RESTORE_SELECTED,
+            selection=selection,
+        ),
+        now=NOW + timedelta(seconds=2),
+    )
+    assert restored.active_corpus_version_id == owner.corpus_version_id
+    assert restored.previous_corpus_version_id == source.id
+    assert restored.rollout_epoch == 10
+    assert await _active_chunk_ids(session, tenant_id=owner.tenant_id) == {"policy-a_000"}
+
+    rows = list(
+        (
+            await session.execute(
+                select(PolicyCorpusActivationHistory)
+                .where(PolicyCorpusActivationHistory.tenant_id == owner.tenant_id)
+                .order_by(PolicyCorpusActivationHistory.rollout_epoch)
+            )
+        ).scalars()
+    )
+    assert [row.reason_code for row in rows] == [
+        "selected_cutover",
+        "rollback_prior",
+        "restore_selected",
+    ]
+    assert [(row.prior_rollout_epoch, row.rollout_epoch) for row in rows] == [(7, 8), (8, 9), (9, 10)]
+    assert [row.actor for row in rows] == ["operator.phase64_4.fixture"] * 3
+    assert [row.selection_decision_hash for row in rows] == [
+        SELECTION_DECISION_HASH,
+        None,
+        SELECTION_DECISION_HASH,
+    ]
+    assert all(row.receipt_hash is None for row in rows)
+    candidate = await session.get(PolicyCorpusVersion, owner.corpus_version_id)
+    await session.refresh(source)
+    assert candidate is not None
+    assert candidate.state == source.state == "complete"
+
+
+@pytest.mark.asyncio
+async def test_activation_rejects_incomplete_or_mismatched_fixture_without_pointer_or_history_mutation(
+    session: AsyncSession,
+) -> None:
+    service, owner, source, rollout = await _complete_bound_candidate(session)
+    selection = _selection_fixture(owner)
+    request = _activation_request(
+        owner,
+        expected_active_corpus_version_id=source.id,
+        expected_rollout_epoch=rollout.rollout_epoch,
+        reason=PolicyCorpusActivationReason.SELECTED_CUTOVER,
+        selection=selection,
+    )
+    invalid_selections = (
+        replace(selection, tenant_id=uuid4()),
+        replace(selection, run_token=uuid4()),
+        replace(selection, lease_owner="foreign-worker"),
+        replace(selection, provider_parity_report_hash="sha256:" + "8" * 64),
+        replace(selection, config_fingerprint="sha256:" + "9" * 64),
+        replace(selection, source_manifest_hash="sha256:" + "a" * 64),
+        replace(selection, selection_decision_sha256="not-a-sha256"),
+        replace(selection, outcome="rejected"),
+    )
+    for invalid in invalid_selections:
+        with pytest.raises(PolicyReindexError) as denied:
+            await service.activate_corpus(replace(request, selection=invalid), now=NOW)
+        assert denied.value.code is PolicyReindexFailureCode.SELECTION_PROOF_INVALID
+
+    candidate = await session.get(PolicyCorpusVersion, owner.corpus_version_id)
+    assert candidate is not None
+    candidate.validation_proof_json = {
+        **candidate.validation_proof_json,
+        "candidate_validation": {
+            **candidate.validation_proof_json["candidate_validation"],
+            "immutable_binding_replay": False,
+        },
+    }
+    await session.flush()
+    with pytest.raises(PolicyReindexError) as incomplete:
+        await service.activate_corpus(request, now=NOW)
+    assert incomplete.value.code is PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH
+    await session.refresh(rollout)
+    assert (rollout.active_corpus_version_id, rollout.rollout_epoch) == (source.id, 7)
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(PolicyCorpusActivationHistory)
+            .where(PolicyCorpusActivationHistory.tenant_id == owner.tenant_id)
+        )
+        == 0
+    )
+
+
+@pytest.mark.asyncio
+async def test_stale_activation_cas_has_no_pointer_or_history_side_effect(
+    session: AsyncSession,
+) -> None:
+    service, owner, source, rollout = await _complete_bound_candidate(session)
+    request = _activation_request(
+        owner,
+        expected_active_corpus_version_id=source.id,
+        expected_rollout_epoch=rollout.rollout_epoch,
+        reason=PolicyCorpusActivationReason.SELECTED_CUTOVER,
+        selection=_selection_fixture(owner),
+    )
+    activated = await service.activate_corpus(request, now=NOW)
+    with pytest.raises(PolicyReindexError) as stale:
+        await service.activate_corpus(request, now=NOW)
+    assert stale.value.code is PolicyReindexFailureCode.CAS_CONFLICT
+    current = await session.get(PolicyCorpusRollout, rollout.id)
+    assert current is not None
+    assert (current.active_corpus_version_id, current.rollout_epoch) == (
+        activated.active_corpus_version_id,
+        activated.rollout_epoch,
+    )
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(PolicyCorpusActivationHistory)
+            .where(PolicyCorpusActivationHistory.tenant_id == owner.tenant_id)
+        )
+        == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_activation_cas_has_exactly_one_winner(session: AsyncSession, test_engine) -> None:
+    _, owner, source, rollout = await _complete_bound_candidate(session)
+    request = _activation_request(
+        owner,
+        expected_active_corpus_version_id=source.id,
+        expected_rollout_epoch=rollout.rollout_epoch,
+        reason=PolicyCorpusActivationReason.SELECTED_CUTOVER,
+        selection=_selection_fixture(owner),
+    )
+    await session.commit()
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def activate() -> str:
+        async with session_factory() as contender:
+            try:
+                await PolicyReindexService(contender).activate_corpus(request, now=NOW)
+                await contender.commit()
+                return "won"
+            except PolicyReindexError as exc:
+                await contender.rollback()
+                return exc.code.value
+
+    outcomes = await asyncio.gather(activate(), activate())
+    assert sorted(outcomes) == [PolicyReindexFailureCode.CAS_CONFLICT.value, "won"]
+    async with session_factory() as verifier:
+        current = (
+            await verifier.execute(select(PolicyCorpusRollout).where(PolicyCorpusRollout.tenant_id == owner.tenant_id))
+        ).scalar_one()
+        assert (current.active_corpus_version_id, current.rollout_epoch) == (owner.corpus_version_id, 8)
+        assert (
+            await verifier.scalar(
+                select(func.count())
+                .select_from(PolicyCorpusActivationHistory)
+                .where(PolicyCorpusActivationHistory.tenant_id == owner.tenant_id)
+            )
+            == 1
+        )
+
+
+@pytest.mark.asyncio
+async def test_candidate_cleanup_is_exact_identity_allowlisted_and_retains_all_evidence(
+    session: AsyncSession,
+) -> None:
+    await _seed_evidence_rollout(session)
+    service_a, assembler_a, owner_a, _, _, _ = await _claim_bound_candidate(
+        session,
+        lease_owner="worker-a",
+    )
+    service_b, assembler_b, owner_b, _, _, _ = await _claim_bound_candidate(
+        session,
+        lease_owner="worker-b",
+    )
+    built_a = await service_a.build_next_document(
+        owner_a,
+        assembler=assembler_a,
+        embedder=_RecordingEmbedder(),
+        now=NOW,
+    )
+    built_b = await service_b.build_next_document(
+        owner_b,
+        assembler=assembler_b,
+        embedder=_RecordingEmbedder(),
+        now=NOW,
+    )
+    evidence_before = int(await session.scalar(select(func.count()).select_from(PolicyChunkVersion)) or 0)
+    bindings_before = int(await session.scalar(select(func.count()).select_from(CorpusChunkBinding)) or 0)
+
+    with pytest.raises(PolicyReindexError) as foreign:
+        await service_a.cleanup_candidate(
+            replace(built_a, corpus_version_id=built_b.corpus_version_id),
+            actor="operator.cleanup",
+            now=NOW,
+        )
+    assert foreign.value.code is PolicyReindexFailureCode.RUN_IDENTITY_MISMATCH
+
+    cleaned = await service_a.cleanup_candidate(built_a, actor="operator.cleanup", now=NOW)
+    assert cleaned.state == "failed"
+    candidate_b = await session.get(PolicyCorpusVersion, built_b.corpus_version_id)
+    assert candidate_b is not None
+    assert candidate_b.state == "built"
+    assert int(await session.scalar(select(func.count()).select_from(PolicyChunkVersion)) or 0) == evidence_before
+    assert int(await session.scalar(select(func.count()).select_from(CorpusChunkBinding)) or 0) == bindings_before
+    assert await session.scalar(select(func.count()).select_from(PolicyCorpusActivationHistory)) == 0
