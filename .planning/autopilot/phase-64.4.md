@@ -2,10 +2,10 @@
 phase: "64.4"
 status: running
 current_step: execute
-plan_review_loop: 2
+plan_review_loop: 4
 quota_waits: 0
-updated_at: "2026-08-11T19:23:56+08:00"
-next_command: "$gsd-execute-phase 64.4 (resume at 64.4-10)"
+updated_at: "2026-08-12T07:29:54+08:00"
+next_command: "execute Phase 64.4 Plan 11 dependency-first"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -34,6 +34,10 @@ next_command: "$gsd-execute-phase 64.4 (resume at 64.4-10)"
 - Stage 5 execution Plan 07 complete: fixed candidate claim/lease/CAS resume, authoritative database-only source snapshots, inactive token-corpus build and deterministic completion proofs committed in four atomic commits; `make lint` and 89 PostgreSQL/pgvector-focused regressions passed. Candidate immutable append explicitly suppresses shared current-head projection while ordinary ingestion retains the compatible default.
 - Stage 5 execution Plan 08 complete: reversible fixture-authorized pointer CAS, append-only activation history, source-stale refusal and ordinary-ingestion same-config COW committed in five atomic commits; `make lint` and a 94-test PostgreSQL/pgvector combined gate passed. A user-approved Rule 4 migration 031 removed the incompatible block-source uniqueness constraint and added prior epoch/actor audit fields without entering Plan 09/10 selection or receipt scope.
 - Stage 5 execution Plan 09 complete: exact raw Fraction/Decimal A/B gates, create-only all-outcome run artifacts, passing-only immutable selection and a production-capable rollback-only full-provider CLI committed in five atomic commits; `make lint` and 118 focused tests passed. Connection-owned outer transactions now prove production ingestion commits cannot leak evaluation pointer/history changes; no live selected pass was fabricated.
+- Stage 5 execution Plan 10 reached the planned bounded stop: activation receipt mechanics, fresh parity, a complete inactive token candidate and three immutable nonpassing provider attempts were retained; no selection or pointer mutation occurred. After the third execution error exposed missing role-level provenance, the user approved a reviewed recovery replan on 2026-08-12.
+- Fresh recovery review found five real blockers: crash-partial diagnostic publication, ambiguous unavailable retry evidence, unbounded unknown-defect repair, missing immediate ledgers and a forbidden Plan10 summary rewrite. Claude additionally identified procedural attempt caps and false-closeout risk.
+- The repaired recovery expands the phase from 11 plans/22 tasks to 14 plans/28 tasks: Plan11 uses a single commit manifest as the diagnostic bundle visibility point without provider calls; Plan12 machine-enforces a two-slot selection budget and never repairs unknown defects; Plan13 owns the reversible activation drill plus live closeout guard; Plan14 owns final docs/regression closeout. Plan10 failure evidence remains untouched.
+- Clean recovery re-review passed: fresh GSD checker closed all five blockers/two warnings with no new finding; external Claude returned PASS with no actionable blocker or warning; Codex final coverage/order/scope adjudication is clean.
 
 ## Evidence
 
@@ -43,12 +47,12 @@ next_command: "$gsd-execute-phase 64.4 (resume at 64.4-10)"
 - Production must fail closed on unknown tokenizer/count failures and may keep character sizing only as an explicit A/B baseline, never a silent fallback.
 - Phase completion requires a token-aware candidate that passes hard safety and fixed same-run non-regression gates; a truthful red candidate report alone is not completion.
 - Planning must split tokenizer/parity, assembly/path convergence, persistence/reindex, and A/B/cutover into separate dependency-ordered plans.
-- Final granularity is 11 plans, 2 tasks each, with at most 12 files per plan and a 22/22 validation map.
+- Original granularity was 11 plans/22 tasks; the reviewed recovery is 14 plans/28 tasks, still 2 tasks and at most 12 files per plan, with clean GSD/Claude/Codex re-review.
 - `evidence_identity.v1` remains corpus-free; canonical document source content comes from ordered blocks, chunk compatibility is config-aware, and corpus projections control visibility only.
 - Provider parity, all-outcome terminal A/B reports, passing-only selection decisions, and hash-chained activation receipts are separate immutable stages.
 - External review's highest-priority inference is that Plan 04 must keep token-aware production activation default-off until active-corpus routing exists in Plan 06; no external finding has been accepted before repository-backed adjudication.
-- Plan review is closed after two loops: 11 plans/22 tasks, all SC-64.4-1..6 and D-01..D-24 mapped, canonical T64.4 IDs, structural/YAML/XML checks green, external verdict clean, and independent GSD/Codex verdicts clean.
+- The original plan review closed clean after two loops; the material Plans11-14 recovery repair also passed a clean GSD/Claude/Codex re-review and may execute dependency-first.
 
 ## Last Failure
 
-None.
+Plan10 exhausted its initial three-attempt provider budget without selected_pass. Attempt3 retained only `provider_execution_failed`; the clean-reviewed recovery now starts with Plan11 safe role/round/stage provenance before any separately machine-bounded live retry.

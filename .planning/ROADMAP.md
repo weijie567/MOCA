@@ -206,7 +206,7 @@ Plans:
 **Goal:** Replace character-count policy chunk sizing with a versioned tokenizer-aware assembly path that measures the final `text-embedding-v4` input while preserving parser structure, provenance, evidence identity, deterministic rebuilds, and safe rollback, then prove the change against the Phase 64.3 format-parity baseline.
 **Requirements**: SC-64.4-1, SC-64.4-2, SC-64.4-3, SC-64.4-4, SC-64.4-5, SC-64.4-6
 **Depends on:** Phase 64.3
-**Plans:** 11 plans
+**Plans:** 14 plans
 
 **Confirmed gaps owned:** Production `chunk_blocks` and legacy `chunk_markdown` enforce character budgets rather than embedding-model token budgets; final embedding text adds title, section, and source context only after chunking; dry-run/golden validation and production ingestion do not share one authoritative chunk path; chunker/tokenizer configuration and per-chunk token counts are not persisted; and a rechunk/re-embedding rollout must preserve the immutable evidence/replay contract established by Phase 64.2.
 
@@ -230,8 +230,11 @@ Plans:
 - [x] 64.4-07-PLAN.md — Authoritative Snapshot Reindex Build And Resume (`depends_on: [64.4-06]`).
 - [x] 64.4-08-PLAN.md — Atomic Pointer Activation And Ingestion Continuity (`depends_on: [64.4-07]`).
 - [x] 64.4-09-PLAN.md — Exact A-B Runtime And Immutable Selection (`depends_on: [64.4-08]`).
-- [ ] 64.4-10-PLAN.md — Real Activation Drill And Hash Chained Receipts (`depends_on: [64.4-09]`).
-- [ ] 64.4-11-PLAN.md — Final Documentation Ledgers And Regression Closeout (`depends_on: [64.4-10]`).
+- [x] 64.4-10-PLAN.md — Activation Receipts And Bounded Initial Live Evidence (`depends_on: [64.4-09]`).
+- [ ] 64.4-11-PLAN.md — Role Failure Provenance And Safe Diagnostic Artifacts (`depends_on: [64.4-10]`).
+- [ ] 64.4-12-PLAN.md — Guarded Live Selection Recovery (`depends_on: [64.4-11]`).
+- [ ] 64.4-13-PLAN.md — Reversible Activation Drill And Closeout Guard (`depends_on: [64.4-12]`).
+- [ ] 64.4-14-PLAN.md — Final Documentation Ledgers And Regression Closeout (`depends_on: [64.4-13]`).
 
 ### Phase 65: Trace Event And Console Label Consistency
 

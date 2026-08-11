@@ -23652,3 +23652,14 @@ fresh parity 仍为 passed/exact-match；但 A/B orchestration 的 broad catch �
 
 **已做处理 / 剩余入口**
 如实保留三次 immutable error reports、fresh parity 与 complete inactive candidate；prior character corpus 保持 active，不伪造 selection/activation success。Phase64.4 Plan10 在此停止为 incomplete user-decision checkpoint。继续前需用户发起新的 reviewed config/diagnostic plan，先修复 terminal artifact 的 role-level safe failure provenance，再决定是否授权新的 provider budget；本 plan 不再重试。
+
+## 2026-08-12 — Phase 64.4 恢复计划结构校验脚本误判 docs-only task
+
+**问题现象 / 如何检测**
+恢复计划从 11 plans / 22 tasks 拆为 13 plans / 26 tasks 后，使用项目入口执行一次临时结构校验脚本。脚本错误要求每个 task 的 action 都必须包含 `make format`，因此把 Plan13 Task1 的纯文档更新误报为失败；该 task 不修改 Python 文件，按项目约束不需要格式化源码。
+
+**关键证据 / 当前判断 / 根因**
+命令通过 `UV_CACHE_DIR=/tmp/uv-cache uv run python` 运行，环境入口有效；失败断言来自临时校验器把“Python task 必须执行 make format”错误扩大为“所有 task 必须执行 make format”。计划本身仍要求每个 task 运行完整 `make lint` 与项目入口 pytest，且所有修改 Python 的 task 均包含 `make format`。这是本地验证脚本规则过宽，不是产品代码或计划契约失败。
+
+**已做处理 / 剩余入口**
+废弃该错误结论，改用只对 files/action 涉及 `.py` 的 task 检查 `make format` 的紧凑校验；同时继续检查 13 plans、26 tasks、依赖顺序、每 plan 文件面上限、XML task 字段、完整 lint 与 `uv run pytest`。后续计划校验脚本须区分 docs-only 与 Python task，不能把工具误报写成 planning blocker。
