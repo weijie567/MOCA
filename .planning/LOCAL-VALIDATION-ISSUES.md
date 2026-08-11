@@ -23575,3 +23575,36 @@ Task 1 RED commit `cb60064d` 后，编排器在约八分钟未观察到文件变
 
 **已做处理 / 剩余入口**
 恢复后先核对 commit、文件统计和 clean worktree，并通知 orchestrator 不重复实现、不改写历史；随后从 Task2 read-first / Wave0 RED 继续。若后续再出现 agent status 长时间无刷新，继续以仓库 commit 与 worktree 实态为准，并单独排查编排链路，不将其计入产品失败率。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 2 首轮 GREEN 的资源 proof 破坏旧 resume/mock seam
+
+**问题现象 / 如何检测**
+完成 full-provider runtime 初版后按项目入口执行 `make format`、完整 `make lint` 和三文件 scoped pytest，结果 `105 passed, 10 failed`。其中旧 resume repository spy 缺少新增 `prove_advanced_document_resources`，直接调用 `_resolve_ingestion_attempt` 缺少 `rollback_only`，简化 chunk/job fixture 不含 token/config usage 字段；这些异常被 evaluator 安全降级成 `provider_execution_failed`，连带 8 条 round 测试失败。
+
+**关键证据 / 当前判断 / 根因**
+失败集中在 `tests/eval/test_rag_retrieval_round_isolation.py`；产品新增字段本身正确，但把 Phase64.3 的公开测试 seam 当成所有实现都已同步，未保留旧 terminal payload、resume spy 和 projection fixture 的向后兼容。另有一条测试仍对整个 `PolicyReindexService` 断言源码不含 `activate`，与 Plan08 已合法加入独立 activation 方法冲突，属于测试断言范围陈旧，不是 activation 产品失败。
+
+**已做处理 / 剩余入口**
+资源 proof 对旧 fixture 使用只读缺省值，resume 优先调用新资源 API、缺失时回落旧 proof；`rollback_only` 恢复默认 `False`。陈旧测试收窄到 `build_next_document`，继续证明 candidate build 不触碰 evaluation cleanup/activation，而不否定 Plan08 已审核的独立 activation boundary。重跑同序 gate 后为 `115 passed, 1 warning`。当前无剩余产品问题。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 2 新 rollback 测试插入到相邻测试断言中
+
+**问题现象 / 如何检测**
+补充 root-transaction rollback acceptance test 后执行 `make format`，Ruff 立即以 `F821 Undefined name _CompletedRunRepository` 与 `F841 claim assigned but never used` 失败，未进入 lint/pytest。
+
+**关键证据 / 当前判断 / 根因**
+`apply_patch` 以重复的 `_claim_or_resume` 调用作为锚点，把原 `test_post_final_terminal_claim...` 的尾部断言插入到前一个参数化测试，并把新测试放在原测试函数中间。属于测试补丁锚点不唯一造成的本地编辑事故，不是 runtime、数据库或 provider 失败。
+
+**已做处理 / 剩余入口**
+用行号核对函数边界，把 completed-run 断言恢复到原测试，并保持 rollback test 独立；随后按规定从 `make format` 起完整重跑。最终三文件 gate 为 `118 passed, 1 warning`。后续向长测试文件插入新函数时必须使用唯一函数名与尾部断言作为双锚点。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 2 提交前深审发现 session root rollback 会被 production commit 提前结束
+
+**问题现象 / 如何检测**
+Task 2 scoped gate 已到 `118 passed` 后，提交前沿真实 production ingestion 调用链复核事务边界，发现 rollback wrapper 以 `AsyncSession.begin()` 建立 root transaction，但 `IngestionService.ingest_document()` 在每个文档成功后会调用 `session.commit()`；原单元测试只 mock 了 evaluator，没有模拟该内部 commit。
+
+**关键证据 / 当前判断 / 根因**
+`src/rag/ingestion.py` 的真实成功路径显式 `await self.session.commit()`；SQLAlchemy 2.0 的 session commit 会结束该 session 管理的最外层 transaction，因此 wrapper finally 看到 transaction 已 inactive 时不能再 rollback，Plan 08 COW pointer/history 可能已提交。这是 Plan09 新隔离 wrapper 的 correctness bug，不是 provider、数据库环境或 Plan08 contract 失败。
+
+**已做处理 / 剩余入口**
+rollback owner 改为独占 `AsyncConnection` 的外层 transaction，并把 evaluator 使用的 `AsyncSession` 以 `join_transaction_mode="create_savepoint"` 绑定该 connection；production 内部 commit 只结束 session savepoint，最终 connection transaction 无条件 rollback。回归测试显式模拟内部 commit，并断言 create-savepoint 配置、session close 与外层 rollback 均发生。随后依次执行 `make format`、完整 `make lint` 与三文件 scoped gate，结果为 `118 passed, 1 warning`。Plan10 live drill 仍须从真实 pointer/history 前后快照验证零漂移，不能把单元 seam 当作 live selected evidence。

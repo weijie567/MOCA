@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -31,6 +32,7 @@ from src.repositories.rag_evaluation_round_repo import (
     AnchorLocatorRequirement,
     EvaluationIsolationError,
     EvaluationRoundIdentity,
+    IngestionResourceProof,
     ProjectionState,
     RecordedChunkLocatorProof,
     RecordedSourceLocatorProof,
@@ -54,6 +56,20 @@ class IngestionObservationV1(BaseModel):
     source_checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
     status: Literal["success", "failed"]
     error_code: str | None = None
+    chunk_count: int = Field(default=0, ge=0)
+    duplicate_count: int = Field(default=0, ge=0)
+    offline_embedding_tokens: int = Field(default=0, ge=0)
+    provider_embedding_tokens: int | None = Field(default=None, ge=0)
+    provider_tokens_status: Literal["provider_reported", "unavailable"] = "unavailable"
+    config_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_resources(self) -> IngestionObservationV1:
+        if self.duplicate_count > self.chunk_count:
+            raise ValueError("ingestion_duplicate_count_invalid")
+        if (self.provider_embedding_tokens is None) != (self.provider_tokens_status == "unavailable"):
+            raise ValueError("ingestion_provider_token_status_mismatch")
+        return self
 
 
 class RetrievalCaseObservationV1(BaseModel):
@@ -122,6 +138,47 @@ class RetrievalParityRunV1(BaseModel):
         return self
 
 
+@dataclass(frozen=True, slots=True)
+class ABRoundNamespace:
+    """One deterministic role/corpus owner inside an A/B evaluation run."""
+
+    role: Literal["incumbent", "candidate"]
+    corpus_version_id: UUID
+    run_token: UUID
+    round_owner: str
+    evaluation_owner_marker: str = FORMAT_PARITY_OWNER_MARKER
+
+
+def build_ab_round_namespaces(
+    *,
+    run_id: UUID,
+    incumbent_corpus_version_id: UUID,
+    candidate_corpus_version_id: UUID,
+) -> tuple[ABRoundNamespace, ABRoundNamespace]:
+    """Derive stable, non-overlapping role owners without changing DB ownership."""
+
+    if (
+        run_id.int == 0
+        or incumbent_corpus_version_id.int == 0
+        or candidate_corpus_version_id.int == 0
+        or incumbent_corpus_version_id == candidate_corpus_version_id
+    ):
+        raise EvaluationIsolationError("ab_namespace_invalid")
+
+    def namespace(role: Literal["incumbent", "candidate"], corpus_version_id: UUID) -> ABRoundNamespace:
+        return ABRoundNamespace(
+            role=role,
+            corpus_version_id=corpus_version_id,
+            run_token=uuid5(NAMESPACE_URL, f"{run_id}:rag-token-chunk-ab:{role}"),
+            round_owner=f"moca.rag_token_chunk_ab.v1:{role}",
+        )
+
+    return (
+        namespace("incumbent", incumbent_corpus_version_id),
+        namespace("candidate", candidate_corpus_version_id),
+    )
+
+
 class RecordingPolicyRetrievalEngine:
     """Forwards the service's one query and exposes one bounded observation."""
 
@@ -185,6 +242,58 @@ def build_knowledge_query(*, question: str, generated_at: str) -> tuple[Knowledg
     return request, context
 
 
+def _round_transaction(session: AsyncSession, *, rollback_only: bool):
+    return session.begin_nested() if rollback_only else session.begin()
+
+
+async def run_rollback_only_retrieval_parity(
+    dataset: FormatParityDataset,
+    *,
+    session: AsyncSession,
+    embedder: EmbeddingService,
+    namespace: ABRoundNamespace,
+    generated_at: str,
+    run_identity_hash: str,
+    expected_rollout_version: int,
+    input_assembler: PolicyInputAssembler,
+) -> RetrievalParityRunV1:
+    """Run production commits inside a connection-owned rollback boundary."""
+
+    bind = session.bind
+    if bind is None or not hasattr(bind, "connect"):
+        raise EvaluationIsolationError("rollback_boundary_unavailable")
+    async with bind.connect() as connection:
+        transaction = await connection.begin()
+        rollback_session = AsyncSession(
+            bind=connection,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
+        try:
+            async with rollback_session.begin():
+                repository = RagEvaluationRoundRepository(rollback_session)
+                owner = await repository.create_round(
+                    run_token=namespace.run_token,
+                    round_token=uuid5(NAMESPACE_URL, f"{namespace.run_token}:{ROUND_FORMATS[0]}"),
+                    round_format=ROUND_FORMATS[0],
+                    run_identity_hash=run_identity_hash,
+                    lease_expires_at=datetime.now(UTC) + timedelta(hours=2),
+                    expected_rollout_version=expected_rollout_version,
+                )
+            return await run_retrieval_parity(
+                dataset,
+                session=rollback_session,
+                embedder=embedder,
+                owner=owner,
+                generated_at=generated_at,
+                input_assembler=input_assembler,
+            )
+        finally:
+            await rollback_session.close()
+            if transaction.is_active:
+                await transaction.rollback()
+
+
 async def run_retrieval_parity(
     dataset: FormatParityDataset,
     *,
@@ -193,6 +302,7 @@ async def run_retrieval_parity(
     owner: EvaluationRoundIdentity,
     generated_at: str,
     input_assembler: PolicyInputAssembler | None = None,
+    rollback_only: bool = False,
 ) -> RetrievalParityRunV1:
     """Run the real production ingestion and knowledge facade in three rounds."""
 
@@ -214,7 +324,7 @@ async def run_retrieval_parity(
     start_index = ROUND_FORMATS.index(owner.round_format)
     round_results: list[RetrievalRoundResultV1] = []
     if start_index:
-        async with session.begin():
+        async with _round_transaction(session, rollback_only=rollback_only):
             sequence = validate_run_sequence(
                 await round_repo.lock_run_rows(owner.run_token),
                 run_token=owner.run_token,
@@ -244,12 +354,12 @@ async def run_retrieval_parity(
         ingestion_quality_failed = False
         successful_round: RetrievalRoundResultV1 | None = None
         try:
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 progress = await round_repo.read_progress(current_owner)
             if progress.state == "claimed":
                 if current_owner.next_document_index != 0 or progress.has_attempt_reservation:
                     raise EvaluationIsolationError("claimed_progress_malformed")
-                async with session.begin():
+                async with _round_transaction(session, rollback_only=rollback_only):
                     current_owner = await round_repo.prove_compatible_pre_state(current_owner)
                 progress_state = "ingesting"
             elif progress.state in {"ingesting", "retrieving"}:
@@ -260,17 +370,39 @@ async def run_retrieval_parity(
             for document_index, policy in enumerate(dataset.policies):
                 variant = next(item for item in policy.variants if item.format == round_format)
                 if document_index < current_owner.next_document_index:
-                    async with session.begin():
-                        current_owner = await round_repo.prove_advanced_document(
-                            current_owner,
-                            doc_key=policy.doc_key,
-                            source_checksum=variant.sha256,
-                        )
+                    async with _round_transaction(session, rollback_only=rollback_only):
+                        resource_reader = getattr(round_repo, "prove_advanced_document_resources", None)
+                        if callable(resource_reader):
+                            current_owner, resources = await resource_reader(
+                                current_owner,
+                                doc_key=policy.doc_key,
+                                source_checksum=variant.sha256,
+                            )
+                        else:
+                            current_owner = await round_repo.prove_advanced_document(
+                                current_owner,
+                                doc_key=policy.doc_key,
+                                source_checksum=variant.sha256,
+                            )
+                            resources = IngestionResourceProof(
+                                chunk_count=0,
+                                duplicate_count=0,
+                                offline_embedding_tokens=0,
+                                provider_embedding_tokens=None,
+                                provider_tokens_status="unavailable",
+                                config_fingerprint=None,
+                            )
                     ingestions.append(
                         IngestionObservationV1(
                             doc_key=policy.doc_key,
                             source_checksum=variant.sha256,
                             status="success",
+                            chunk_count=resources.chunk_count,
+                            duplicate_count=resources.duplicate_count,
+                            offline_embedding_tokens=resources.offline_embedding_tokens,
+                            provider_embedding_tokens=resources.provider_embedding_tokens,
+                            provider_tokens_status=resources.provider_tokens_status,
+                            config_fingerprint=resources.config_fingerprint,
                         )
                     )
                     continue
@@ -285,12 +417,12 @@ async def run_retrieval_parity(
                     "effective_date": date.fromisoformat("2026-01-01"),
                     "source_type": variant.source_type,
                 }
-                async with session.begin():
+                async with _round_transaction(session, rollback_only=rollback_only):
                     current_progress = await round_repo.read_progress(current_owner)
                 if current_progress.has_attempt_reservation:
                     report = None
                 else:
-                    async with session.begin():
+                    async with _round_transaction(session, rollback_only=rollback_only):
                         current_owner = await round_repo.reserve_document(
                             current_owner,
                             doc_key=policy.doc_key,
@@ -312,6 +444,7 @@ async def run_retrieval_parity(
                     source_checksum=variant.sha256,
                     doc_meta=doc_meta,
                     first_report=report,
+                    rollback_only=rollback_only,
                 )
                 ingestions.append(observation)
                 if ingestion_error is not None:
@@ -321,7 +454,7 @@ async def run_retrieval_parity(
             if ingestion_quality_failed:
                 terminal_outcome = EvaluationOutcome.COMPLETED_QUALITY_FAIL
             else:
-                async with session.begin():
+                async with _round_transaction(session, rollback_only=rollback_only):
                     current_owner = await round_repo.prove_retrieval_ready(current_owner)
                 for policy in dataset.policies:
                     anchors_by_id = {anchor.anchor_id: anchor for anchor in policy.gold.anchors}
@@ -330,7 +463,7 @@ async def run_retrieval_parity(
                             question=case.question,
                             generated_at=generated_at,
                         )
-                        async with session.begin():
+                        async with _round_transaction(session, rollback_only=rollback_only):
                             current_owner = await round_repo.prove_run_identity(current_owner)
                             service_result = await knowledge_service.search(request, context)
                             recorded = recording_engine.take_recording(expected_query=case.question)
@@ -382,7 +515,7 @@ async def run_retrieval_parity(
                 post_state_proved=True,
                 immutable_history_preserved=True,
             )
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 current_owner = await round_repo.cleanup_current_projection(
                     current_owner,
                     terminal_state="completed",
@@ -396,7 +529,7 @@ async def run_retrieval_parity(
                 exc.reason_code if isinstance(exc, EvaluationIsolationError) else "provider_execution_failed"
             )
             try:
-                async with session.begin():
+                async with _round_transaction(session, rollback_only=rollback_only):
                     current_owner = await round_repo.cleanup_current_projection(
                         current_owner,
                         terminal_state="abandoned",
@@ -428,7 +561,7 @@ async def run_retrieval_parity(
             break
         if format_index + 1 < len(ROUND_FORMATS):
             next_format = ROUND_FORMATS[format_index + 1]
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 current_owner = await round_repo.create_round(
                     run_token=owner.run_token,
                     round_token=uuid5(NAMESPACE_URL, f"{owner.run_token}:{next_format}"),
@@ -518,30 +651,49 @@ async def _resolve_ingestion_attempt(
     source_checksum: str,
     doc_meta: dict[str, Any],
     first_report: object,
+    rollback_only: bool = False,
 ) -> tuple[EvaluationRoundIdentity, IngestionObservationV1, str | None]:
     report = first_report
     real_report_count = int(report is not None)
     for _inspection_attempt in range(3):
-        async with session.begin():
+        async with _round_transaction(session, rollback_only=rollback_only):
             inspection = await round_repo.inspect_attempt(owner)
         if inspection.state is ProjectionState.EXACT_COMPLETE:
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 owner = await round_repo.claim_attempt_job(owner, require_null_document=False)
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 owner = await round_repo.advance_exact_complete(owner)
+            resources = getattr(
+                inspection,
+                "resources",
+                IngestionResourceProof(
+                    chunk_count=int(getattr(inspection.projection, "chunk_count", 0)),
+                    duplicate_count=0,
+                    offline_embedding_tokens=0,
+                    provider_embedding_tokens=None,
+                    provider_tokens_status="unavailable",
+                    config_fingerprint=None,
+                ),
+            )
             return (
                 owner,
                 IngestionObservationV1(
                     doc_key=str(doc_meta["doc_key"]),
                     source_checksum=source_checksum,
                     status="success",
+                    chunk_count=resources.chunk_count,
+                    duplicate_count=resources.duplicate_count,
+                    offline_embedding_tokens=resources.offline_embedding_tokens,
+                    provider_embedding_tokens=resources.provider_embedding_tokens,
+                    provider_tokens_status=resources.provider_tokens_status,
+                    config_fingerprint=resources.config_fingerprint,
                 ),
                 None,
             )
         if inspection.state in {ProjectionState.JOB_ONLY, ProjectionState.FAILURE}:
             if report is None:
                 real_report_count = max(real_report_count, 1)
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 owner = await round_repo.claim_attempt_job(
                     owner,
                     require_null_document=inspection.state is ProjectionState.JOB_ONLY,
@@ -553,7 +705,7 @@ async def _resolve_ingestion_attempt(
                 and round_format == "scanned_pdf"
                 and error_code == "malformed_source"
             ):
-                async with session.begin():
+                async with _round_transaction(session, rollback_only=rollback_only):
                     owner = await round_repo.advance_exact_failed_quality(
                         owner,
                         error_code=error_code,
@@ -568,7 +720,7 @@ async def _resolve_ingestion_attempt(
                     ),
                     None,
                 )
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 owner = await round_repo.retry_attempt(owner)
         elif inspection.state is not ProjectionState.RESERVATION_ONLY:
             raise EvaluationIsolationError("malformed_projection")
@@ -584,7 +736,7 @@ async def _resolve_ingestion_attempt(
                 ),
                 f"ingestion_failed:{error_code}",
             )
-        async with session.begin():
+        async with _round_transaction(session, rollback_only=rollback_only):
             owner = await round_repo.reserve_document(
                 owner,
                 doc_key=str(doc_meta["doc_key"]),

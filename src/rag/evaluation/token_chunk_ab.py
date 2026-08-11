@@ -422,6 +422,140 @@ class ImmutableArtifactPairV1:
     markdown_sha256: str
 
 
+def build_candidate_observation_from_retrieval(
+    *,
+    role: Literal["incumbent", "candidate"],
+    corpus_version_id: UUID,
+    config_schema_version: str,
+    config_fingerprint: str,
+    deterministic_rebuild_sha256: str,
+    rounds: tuple[Any, ...],
+    retrieval_duration_ms: Decimal,
+    cost_basis_version: str,
+    cost_currency: Literal["CNY", "USD"],
+    cost_unit_tokens: int,
+    cost_price_per_unit: Decimal,
+) -> ABCandidateObservationV1:
+    """Convert one raw retrieval run to exact selection observations."""
+
+    tagged_cases = tuple((round_result.round_format, case) for round_result in rounds for case in round_result.cases)
+    cases = tuple(case for _, case in tagged_cases)
+    ingestions = tuple(item for round_result in rounds for item in round_result.ingestions)
+    answerable = tuple(case for case in cases if case.category != "no_answer")
+    if len(cases) != SEALED_TOTAL_CASE_COUNT or len(answerable) != SEALED_ANSWERABLE_CASE_COUNT:
+        raise ValueError("ab_case_count_mismatch")
+    if len(rounds) != len(_FORMAT_ORDER) or tuple(item.round_format for item in rounds) != _FORMAT_ORDER:
+        raise ValueError("ab_round_order_mismatch")
+    if any(item.status != "success" for item in ingestions):
+        raise ValueError("ab_ingestion_incomplete")
+    fingerprints = {item.config_fingerprint for item in ingestions}
+    if fingerprints != {config_fingerprint}:
+        raise ValueError("ab_ingestion_config_mismatch")
+
+    chunk_count = sum(item.chunk_count for item in ingestions)
+    duplicate_count = sum(item.duplicate_count for item in ingestions)
+    offline_tokens = sum(item.offline_embedding_tokens for item in ingestions)
+    if chunk_count <= 0 or offline_tokens <= 0:
+        raise ValueError("ab_resource_observation_missing")
+    provider_reported = all(item.provider_tokens_status == "provider_reported" for item in ingestions)
+    provider_tokens = (
+        sum(int(item.provider_embedding_tokens or 0) for item in ingestions) if provider_reported else None
+    )
+    estimated_cost = Decimal(offline_tokens) * cost_price_per_unit / Decimal(cost_unit_tokens)
+    return ABCandidateObservationV1(
+        role=role,
+        assembler="CharacterCompatibilityAssembler" if role == "incumbent" else "PolicyEmbeddingInputAssembler",
+        config_schema_version=config_schema_version,
+        config_fingerprint=config_fingerprint,
+        corpus_version_id=corpus_version_id,
+        deterministic_rebuild_sha256=deterministic_rebuild_sha256,
+        quality=_quality_from_cases(tagged_cases),
+        resources=ABResourceMetricsV1(
+            chunk_count=chunk_count,
+            duplicate_count=duplicate_count,
+            offline_embedding_tokens=offline_tokens,
+            provider_embedding_tokens=provider_tokens,
+            provider_tokens_status="provider_reported" if provider_reported else "unavailable",
+            retrieval_duration_ms=retrieval_duration_ms,
+            embedding_cost=ABEmbeddingCostV1(
+                basis_version=cost_basis_version,
+                currency=cost_currency,
+                unit_tokens=cost_unit_tokens,
+                price_per_unit=cost_price_per_unit,
+                estimated_cost=estimated_cost,
+                observed_cost=None,
+                observed_cost_status="unavailable",
+            ),
+        ),
+    )
+
+
+def _quality_from_cases(tagged_cases: tuple[tuple[str, Any], ...]) -> ABQualityMetricsV1:
+    cases = tuple(case for _, case in tagged_cases)
+    answerable = tuple(case for case in cases if case.category != "no_answer")
+    by_format: list[ABFormatMetricsV1] = []
+    for format_name in _FORMAT_ORDER:
+        format_cases = tuple(
+            case for case_format, case in tagged_cases if case_format == format_name and case.category != "no_answer"
+        )
+        if len(format_cases) != SEALED_ANSWERABLE_CASE_COUNT // len(_FORMAT_ORDER):
+            raise ValueError("ab_format_case_count_mismatch")
+        by_format.append(
+            ABFormatMetricsV1(
+                format=format_name,  # type: ignore[arg-type]
+                hit_at_1=_boolean_ratio(format_cases, "hit_at_1"),
+                hit_at_3=_boolean_ratio(format_cases, "hit_at_3"),
+                hit_at_5=_boolean_ratio(format_cases, "hit_at_5"),
+                mrr=_mrr_ratio(format_cases),
+            )
+        )
+    anchor_denominator = sum(int(case.semantic_anchor_total) for case in answerable)
+    locator_cases = tuple(case for case in answerable if case.locator_expected)
+    fallback_successes = sum(
+        bool(case.no_answer_correct) if case.category == "no_answer" else case.service_status != "no_evidence"
+        for case in cases
+    )
+    return ABQualityMetricsV1(
+        answerable_case_count=SEALED_ANSWERABLE_CASE_COUNT,
+        total_case_count=SEALED_TOTAL_CASE_COUNT,
+        hit_at_1=_boolean_ratio(answerable, "hit_at_1"),
+        hit_at_3=_boolean_ratio(answerable, "hit_at_3"),
+        hit_at_5=_boolean_ratio(answerable, "hit_at_5"),
+        mrr=_mrr_ratio(answerable),
+        semantic_anchor_coverage=ExactRatioV1(
+            numerator=sum(int(case.semantic_anchor_hits) for case in answerable),
+            denominator=anchor_denominator,
+        ),
+        locator_coverage=ExactRatioV1(
+            numerator=sum(bool(case.locator_covered) for case in locator_cases),
+            denominator=len(locator_cases),
+        ),
+        fallback_correctness=ExactRatioV1(
+            numerator=fallback_successes,
+            denominator=len(cases),
+        ),
+        by_format=tuple(by_format),
+    )
+
+
+def _boolean_ratio(cases: tuple[Any, ...], attribute: str) -> ExactRatioV1:
+    return ExactRatioV1(
+        numerator=sum(bool(getattr(case, attribute)) for case in cases),
+        denominator=len(cases),
+    )
+
+
+def _mrr_ratio(cases: tuple[Any, ...]) -> ExactRatioV1:
+    total = Fraction(0)
+    for case in cases:
+        try:
+            rank = tuple(case.ranked_doc_keys).index(case.policy_id) + 1
+        except ValueError:
+            continue
+        total += Fraction(1, rank)
+    return ExactRatioV1.from_fraction(total / len(cases))
+
+
 def evaluate_exact_gates(
     *,
     incumbent: ABCandidateObservationV1,

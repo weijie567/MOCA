@@ -5,6 +5,7 @@ from decimal import Decimal
 import inspect
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -458,3 +459,127 @@ def test_full_provider_cli_names_only_the_two_approved_assemblers_and_has_no_cut
     assert "write_selection_create_only" in source
     for forbidden in ("activate_corpus(", "activate_rollout", "cas_rollout", "activation_receipt"):
         assert forbidden not in source
+
+
+def test_raw_retrieval_rows_build_exact_quality_and_truthful_resource_status() -> None:
+    from src.rag.evaluation.token_chunk_ab import build_candidate_observation_from_retrieval
+
+    config_fingerprint = "sha256:" + "c" * 64
+    rounds = []
+    for format_name in ("markdown", "digital_pdf", "scanned_pdf"):
+        cases = [
+            SimpleNamespace(
+                policy_id=f"policy-{index % 3}",
+                case_id=f"answerable-{index}",
+                category="answerable",
+                ranked_doc_keys=(f"policy-{index % 3}",),
+                hit_at_1=True,
+                hit_at_3=True,
+                hit_at_5=True,
+                semantic_anchor_hits=1,
+                semantic_anchor_total=1,
+                no_answer_correct=False,
+                locator_expected=True,
+                locator_covered=True,
+                service_status="strong_evidence",
+            )
+            for index in range(15)
+        ]
+        cases.extend(
+            SimpleNamespace(
+                policy_id=f"policy-{index}",
+                case_id=f"no-answer-{index}",
+                category="no_answer",
+                ranked_doc_keys=(),
+                hit_at_1=False,
+                hit_at_3=False,
+                hit_at_5=False,
+                semantic_anchor_hits=0,
+                semantic_anchor_total=0,
+                no_answer_correct=True,
+                locator_expected=False,
+                locator_covered=True,
+                service_status="no_evidence",
+            )
+            for index in range(3)
+        )
+        rounds.append(
+            SimpleNamespace(
+                round_format=format_name,
+                cases=tuple(cases),
+                ingestions=tuple(
+                    SimpleNamespace(
+                        status="success",
+                        chunk_count=10,
+                        duplicate_count=1,
+                        offline_embedding_tokens=100,
+                        provider_embedding_tokens=100 if document_index else None,
+                        provider_tokens_status="provider_reported" if document_index else "unavailable",
+                        config_fingerprint=config_fingerprint,
+                    )
+                    for document_index in range(3)
+                ),
+            )
+        )
+
+    observation = build_candidate_observation_from_retrieval(
+        role="candidate",
+        corpus_version_id=CANDIDATE_CORPUS_ID,
+        config_schema_version="embedding_tokenizer.v1",
+        config_fingerprint=config_fingerprint,
+        deterministic_rebuild_sha256="sha256:" + "d" * 64,
+        rounds=tuple(rounds),
+        retrieval_duration_ms=Decimal("123.456789"),
+        cost_basis_version="dashscope_text_embedding_v4_cost.v1",
+        cost_currency="CNY",
+        cost_unit_tokens=1_000,
+        cost_price_per_unit=Decimal("0.0007"),
+    )
+
+    assert observation.quality.hit_at_5.model_dump() == {"numerator": 45, "denominator": 45}
+    assert observation.quality.mrr.model_dump() == {"numerator": 1, "denominator": 1}
+    assert observation.quality.semantic_anchor_coverage.model_dump() == {"numerator": 45, "denominator": 45}
+    assert observation.quality.fallback_correctness.model_dump() == {"numerator": 54, "denominator": 54}
+    assert observation.resources.chunk_count == 90
+    assert observation.resources.duplicate_count == 9
+    assert observation.resources.offline_embedding_tokens == 900
+    assert observation.resources.provider_embedding_tokens is None
+    assert observation.resources.provider_tokens_status == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_cli_early_execution_error_still_writes_one_create_only_terminal_pair(tmp_path: Path) -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+
+    candidate_state = tmp_path / "candidate.json"
+    candidate_state.write_text("{}\n", encoding="utf-8")
+    output_root = tmp_path / "reports"
+    argv = [
+        "--candidate-state",
+        str(candidate_state),
+        "--parity-report",
+        str(tmp_path / "missing-parity.json"),
+        "--probe-fixture-hash",
+        "sha256:" + "1" * 64,
+        "--submitted-content-hash",
+        "sha256:" + "2" * 64,
+        "--run-id",
+        str(RUN_ID),
+        "--selection-id",
+        str(SELECTION_ID),
+        "--generated-at",
+        GENERATED_AT.isoformat(),
+        "--output-root",
+        str(output_root),
+    ]
+
+    assert await ab_cli.main(argv) == 2
+    json_path = output_root / "runs" / f"{RUN_ID}.json"
+    markdown_path = output_root / "runs" / f"{RUN_ID}.md"
+    before = (json_path.read_bytes(), markdown_path.read_bytes())
+    terminal = _api()["load_terminal_ab_run"](json_path)
+    assert terminal.outcome == "execution_error"
+    assert terminal.safe_reason_codes == ("candidate_state_invalid",)
+    assert not (output_root / "selections").exists()
+    assert await ab_cli.main(argv) == 2
+    assert before == (json_path.read_bytes(), markdown_path.read_bytes())

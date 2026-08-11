@@ -201,7 +201,7 @@ def test_fixed_evaluation_identity_and_orm_constraints_are_exact() -> None:
 
 
 def test_candidate_reindex_does_not_share_evaluation_cleanup_or_activation_paths() -> None:
-    source = inspect.getsource(PolicyReindexService)
+    source = inspect.getsource(PolicyReindexService.build_next_document)
 
     assert "RagEvaluationRound" not in source
     assert "RagIngestionJob" not in source
@@ -262,7 +262,6 @@ async def test_same_token_resume_creates_only_first_missing_round_or_returns_any
         expected_rollout_version=2,
         run_identity_hash=RUN_IDENTITY_HASH,
     )
-
     owner = claim.owner
     assert owner is not None
     assert owner.round_format == expected_format
@@ -310,7 +309,6 @@ async def test_post_final_terminal_claim_rebuilds_without_new_round_mutation(
         expected_rollout_version=2,
         run_identity_hash=RUN_IDENTITY_HASH,
     )
-
     assert claim.owner is None
     assert len(claim.completed_results) == 3
     rebuilt = retrieval_rounds_module.rebuild_completed_retrieval_parity(
@@ -334,6 +332,125 @@ async def test_post_final_terminal_claim_rebuilds_without_new_round_mutation(
             expected_run_identity_hash="e" * 64,
         )
     assert caught.value.reason_code == "run_identity_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_rollback_only_ab_wrapper_always_rolls_back_root_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = build_ab_round_namespaces(
+        run_id=UUID("64300000-0000-4000-8000-000000000009"),
+        incumbent_corpus_version_id=UUID("64300000-0000-4000-8000-000000000011"),
+        candidate_corpus_version_id=UUID("64300000-0000-4000-8000-000000000012"),
+    )[0]
+
+    class _RootTransaction:
+        is_active = True
+        rollbacks = 0
+
+        async def rollback(self) -> None:
+            type(self).rollbacks += 1
+            self.is_active = False
+
+    class _Connection:
+        transaction: _RootTransaction | None = None
+
+        async def begin(self) -> _RootTransaction:
+            self.transaction = _RootTransaction()
+            return self.transaction
+
+    class _ConnectContext:
+        def __init__(self, connection: _Connection) -> None:
+            self.connection = connection
+
+        async def __aenter__(self) -> _Connection:
+            return self.connection
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+    class _Bind:
+        def __init__(self) -> None:
+            self.connection = _Connection()
+
+        def connect(self) -> _ConnectContext:
+            return _ConnectContext(self.connection)
+
+    class _RootSession:
+        def __init__(self) -> None:
+            self.bind = _Bind()
+
+    class _BeginContext:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+    class _RollbackSession:
+        commits = 0
+        closes = 0
+
+        def begin(self) -> _BeginContext:
+            return _BeginContext()
+
+        async def commit(self) -> None:
+            type(self).commits += 1
+
+        async def close(self) -> None:
+            type(self).closes += 1
+
+    class _RoundRepository:
+        def __init__(self, session: object) -> None:
+            del session
+
+        async def create_round(self, **kwargs: object) -> EvaluationRoundIdentity:
+            return _identity(
+                run_token=kwargs["run_token"],
+                round_token=kwargs["round_token"],
+                round_format=kwargs["round_format"],
+                run_identity_hash=kwargs["run_identity_hash"],
+            )
+
+    sentinel = object()
+    constructor: dict[str, object] = {}
+
+    def _isolated_session(**kwargs: object) -> _RollbackSession:
+        constructor.update(kwargs)
+        return _RollbackSession()
+
+    async def _run(*args: object, **kwargs: object) -> object:
+        del args
+        assert "rollback_only" not in kwargs
+        rollback_session = kwargs["session"]
+        assert isinstance(rollback_session, _RollbackSession)
+        await rollback_session.commit()
+        return sentinel
+
+    monkeypatch.setattr(retrieval_rounds_module, "AsyncSession", _isolated_session)
+    monkeypatch.setattr(retrieval_rounds_module, "RagEvaluationRoundRepository", _RoundRepository)
+    monkeypatch.setattr(retrieval_rounds_module, "run_retrieval_parity", _run)
+    _RootTransaction.rollbacks = 0
+    _RollbackSession.commits = 0
+    _RollbackSession.closes = 0
+
+    result = await retrieval_rounds_module.run_rollback_only_retrieval_parity(
+        _dataset(),
+        session=_RootSession(),  # type: ignore[arg-type]
+        embedder=object(),  # type: ignore[arg-type]
+        namespace=namespace,
+        generated_at="2026-08-11T09:00:00Z",
+        run_identity_hash=RUN_IDENTITY_HASH,
+        expected_rollout_version=1,
+        input_assembler=object(),  # type: ignore[arg-type]
+    )
+
+    assert result is sentinel
+    assert constructor["join_transaction_mode"] == "create_savepoint"
+    assert constructor["expire_on_commit"] is False
+    assert _RollbackSession.commits == 1
+    assert _RollbackSession.closes == 1
+    assert _RootTransaction.rollbacks == 1
 
 
 @pytest.mark.asyncio

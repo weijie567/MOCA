@@ -1,0 +1,610 @@
+"""Full-provider character/token A/B runner with immutable terminal evidence."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from decimal import Decimal
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import time
+from typing import Any
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
+
+from src.config import settings
+from src.db.models import EvidenceIdentityRollout
+from src.db.session import SessionLocal
+from src.knowledge.config import (
+    MIN_SIMILARITY_THRESHOLD,
+    QUERY_REWRITE_CONFIG_VERSION,
+    RERANK_CONFIG_VERSION,
+    RETRIEVAL_CONFIG_VERSION,
+)
+from src.knowledge.retrieval import (
+    FUZZY_CANDIDATE_TOP_K,
+    ORIGINAL_QUERY_TOP_K,
+    RRF_K,
+    SPARSE_CANDIDATE_TOP_K,
+)
+from src.rag.embedder import EmbeddingService
+from src.rag.embedding_tokenizer import load_embedding_tokenizer_config
+from src.rag.evaluation.contracts import EvaluationOutcome, FormatParityContractError, load_format_parity_contract
+from src.rag.evaluation.retrieval_rounds import (
+    build_ab_round_namespaces,
+    ordered_gold_questions,
+    run_rollback_only_retrieval_parity,
+)
+from src.rag.evaluation.reporting import load_format_parity_report
+from src.rag.evaluation.token_chunk_ab import (
+    SEALED_ANSWERABLE_CASE_COUNT,
+    SEALED_DATASET_BASELINE_IDENTITY,
+    SEALED_GOLD_HASH,
+    SEALED_MANIFEST_HASH,
+    SEALED_TOTAL_CASE_COUNT,
+    ABHardProofsV1,
+    ABInputIdentityV1,
+    ABNamespaceV1,
+    ABParityEvidenceV1,
+    ABRuntimeConfigV1,
+    ABSelectionBindingV1,
+    TerminalABRunV1,
+    build_candidate_observation_from_retrieval,
+    build_terminal_ab_run,
+    write_selection_create_only,
+    write_terminal_run_create_only,
+)
+from src.rag.ingestion import (
+    CHARACTER_COMPATIBILITY_CONFIG_VERSION,
+    CharacterCompatibilityAssembler,
+)
+from src.rag.parsers.runtime import check_ocr_runtime
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
+from src.rag.policy_reindex import PolicyReindexRunIdentity
+from src.rag.tokenizer_parity import TokenizerParityError, require_fresh_provider_parity
+from src.repositories.policy_corpus_repo import PolicyCorpusRepository, PolicyCorpusUnavailable
+from src.repositories.rag_evaluation_round_repo import FORMAT_PARITY_TENANT_ID
+from scripts.eval_rag_format_parity import _database_prerequisites
+from scripts.reindex_policies import _load_identity as _load_reindex_identity
+
+
+DEFAULT_MANIFEST = Path("evaluation/rag_sources/format_parity_manifest.jsonl")
+DEFAULT_GOLD = Path("evaluation/golden/rag_format_parity_gold.json")
+DEFAULT_BASELINE = Path("evaluation/reports/rag_format_parity/v1/baseline.json")
+DEFAULT_OUTPUT_ROOT = Path("evaluation/reports/rag_token_chunk_ab/v1")
+OWNER_MARKER = "moca.rag_token_chunk_ab.v1"
+PROVIDER_RUNTIME_IDENTITY = "dashscope_openai_compatible.v1"
+COST_BASIS_VERSION = "dashscope_text_embedding_v4_cost.v1"
+COST_CURRENCY = "CNY"
+COST_UNIT_TOKENS = 1_000
+COST_PRICE_PER_UNIT = Decimal("0.0007")
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateProofSnapshot:
+    deterministic_rebuild_hash: str
+    provider_parity_report_hash: str
+    validation_proof: dict[str, Any]
+
+
+def _character_incumbent() -> CharacterCompatibilityAssembler:
+    return CharacterCompatibilityAssembler()
+
+
+def _token_candidate() -> PolicyEmbeddingInputAssembler:
+    return PolicyEmbeddingInputAssembler()
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run full-provider immutable RAG token chunk A/B")
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
+    parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
+    parser.add_argument("--candidate-state", type=Path, required=True)
+    parser.add_argument("--parity-report", type=Path, required=True)
+    parser.add_argument("--probe-fixture-hash", required=True)
+    parser.add_argument("--submitted-content-hash", required=True)
+    parser.add_argument("--run-id", type=UUID, default=None)
+    parser.add_argument("--selection-id", type=UUID, default=None)
+    parser.add_argument("--generated-at", default=None)
+    parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
+    args = parser.parse_args(argv)
+    args.run_id = args.run_id or uuid4()
+    args.selection_id = args.selection_id or uuid4()
+    args.generated_at = args.generated_at or datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    try:
+        generated_at = datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00"))
+    except ValueError:
+        parser.error("--generated-at must be an ISO-8601 timestamp")
+    if generated_at.tzinfo is None:
+        parser.error("--generated-at must include a timezone")
+    return args
+
+
+def _runtime(
+    *,
+    run_id: UUID,
+    incumbent_corpus_id: UUID,
+    candidate_corpus_id: UUID,
+    execution_kind: str = "full_provider",
+) -> ABRuntimeConfigV1:
+    namespaces = build_ab_round_namespaces(
+        run_id=run_id,
+        incumbent_corpus_version_id=incumbent_corpus_id,
+        candidate_corpus_version_id=candidate_corpus_id,
+    )
+    return ABRuntimeConfigV1(
+        execution_kind=execution_kind,
+        tenant_id=FORMAT_PARITY_TENANT_ID,
+        owner_marker=OWNER_MARKER,
+        provider="dashscope",
+        embedding_model=settings.embedding_model,
+        embedding_dimensions=settings.embedding_dimensions,
+        provider_runtime_identity=PROVIDER_RUNTIME_IDENTITY,
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        rrf_config=(
+            f"rrf_k={RRF_K};dense={ORIGINAL_QUERY_TOP_K};sparse={SPARSE_CANDIDATE_TOP_K};fuzzy={FUZZY_CANDIDATE_TOP_K}"
+        ),
+        rewrite_config=f"{QUERY_REWRITE_CONFIG_VERSION}:enabled",
+        reranker_config=f"{RERANK_CONFIG_VERSION}:enabled",
+        no_evidence_threshold=Decimal(str(MIN_SIMILARITY_THRESHOLD)),
+        incumbent=ABNamespaceV1(
+            corpus_version_id=incumbent_corpus_id,
+            round_owner=namespaces[0].round_owner,
+        ),
+        candidate=ABNamespaceV1(
+            corpus_version_id=candidate_corpus_id,
+            round_owner=namespaces[1].round_owner,
+        ),
+    )
+
+
+def _inputs(args: argparse.Namespace, *, ordered_questions_sha256: str | None = None) -> ABInputIdentityV1:
+    return ABInputIdentityV1(
+        manifest_hash=SEALED_MANIFEST_HASH,
+        gold_hash=SEALED_GOLD_HASH,
+        dataset_baseline_identity=SEALED_DATASET_BASELINE_IDENTITY,
+        baseline_report_sha256=_path_sha256(args.baseline),
+        ordered_questions_sha256=ordered_questions_sha256 or "sha256:" + "0" * 64,
+        answerable_case_count=SEALED_ANSWERABLE_CASE_COUNT,
+        total_case_count=SEALED_TOTAL_CASE_COUNT,
+    )
+
+
+def _unavailable_parity(*, run_id: UUID, generated_at: datetime, reason_code: str) -> ABParityEvidenceV1:
+    del reason_code
+    return ABParityEvidenceV1(
+        report_sha256="sha256:" + "0" * 64,
+        run_id=uuid5(NAMESPACE_URL, f"{run_id}:unavailable-parity"),
+        captured_at=generated_at,
+        status="unavailable",
+        config_fingerprint=_token_candidate().config.config_fingerprint,
+        probe_fixture_sha256="sha256:" + "0" * 64,
+        submitted_content_sha256="sha256:" + "0" * 64,
+        reason_code="provider_usage_unavailable",
+    )
+
+
+def _terminal_without_observations(
+    args: argparse.Namespace,
+    *,
+    outcome: str,
+    stage: str,
+    reason_code: str,
+    incumbent_corpus_id: UUID | None = None,
+    candidate_corpus_id: UUID | None = None,
+    parity: ABParityEvidenceV1 | None = None,
+) -> TerminalABRunV1:
+    generated_at = datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC)
+    incumbent_id = incumbent_corpus_id or uuid5(NAMESPACE_URL, f"{args.run_id}:incumbent-unavailable")
+    candidate_id = candidate_corpus_id or uuid5(NAMESPACE_URL, f"{args.run_id}:candidate-unavailable")
+    return TerminalABRunV1(
+        run_id=args.run_id,
+        generated_at=generated_at,
+        outcome=outcome,
+        failure_class=None,
+        terminal_stage=stage,
+        safe_reason_codes=(reason_code,),
+        inputs=_inputs(args),
+        runtime=_runtime(run_id=args.run_id, incumbent_corpus_id=incumbent_id, candidate_corpus_id=candidate_id),
+        parity=parity or _unavailable_parity(run_id=args.run_id, generated_at=generated_at, reason_code=reason_code),
+        incumbent=None,
+        candidate=None,
+        hard_proofs=None,
+        gates=(),
+    )
+
+
+async def run_full_provider_ab(
+    args: argparse.Namespace,
+) -> tuple[TerminalABRunV1, ABSelectionBindingV1 | None]:
+    generated_at = datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC)
+    candidate_identity: PolicyReindexRunIdentity | None = None
+    try:
+        candidate_identity = _load_reindex_identity(args.candidate_state)
+    except Exception:
+        return _terminal_without_observations(
+            args,
+            outcome="execution_error",
+            stage="execution",
+            reason_code="candidate_state_invalid",
+        ), None
+
+    incumbent_corpus_id = candidate_identity.source_active_corpus_version_id
+    candidate_corpus_id = candidate_identity.corpus_version_id
+    try:
+        dataset = load_format_parity_contract(args.manifest, args.gold, repository_root=Path.cwd())
+        _require_sealed_dataset(dataset)
+        _require_sealed_baseline(args.baseline)
+        questions_hash = _ordered_questions_sha256(ordered_gold_questions(dataset))
+        inputs = _inputs(args, ordered_questions_sha256=questions_hash)
+    except (FormatParityContractError, OSError, ValueError):
+        return _terminal_without_observations(
+            args,
+            outcome="execution_error",
+            stage="execution",
+            reason_code="sealed_input_invalid",
+            incumbent_corpus_id=incumbent_corpus_id,
+            candidate_corpus_id=candidate_corpus_id,
+        ), None
+
+    token_assembler = _token_candidate()
+    character_assembler = _character_incumbent()
+    try:
+        parity_report = require_fresh_provider_parity(
+            args.parity_report,
+            config=load_embedding_tokenizer_config(),
+            expected_probe_fixture_sha256=args.probe_fixture_hash,
+            expected_submitted_content_sha256=args.submitted_content_hash,
+            now=generated_at,
+        )
+        parity = ABParityEvidenceV1(
+            report_sha256=_path_sha256(args.parity_report),
+            run_id=parity_report.run_id,
+            captured_at=parity_report.captured_at,
+            status="passed",
+            config_fingerprint=parity_report.config_fingerprint,
+            probe_fixture_sha256=parity_report.probe_fixture_sha256,
+            submitted_content_sha256=parity_report.submitted_content_sha256,
+            reason_code=parity_report.reason_code,
+        )
+    except (OSError, TokenizerParityError, ValueError):
+        return _terminal_without_observations(
+            args,
+            outcome="unavailable",
+            stage="parity",
+            reason_code="provider_usage_unavailable",
+            incumbent_corpus_id=incumbent_corpus_id,
+            candidate_corpus_id=candidate_corpus_id,
+        ), None
+
+    missing: list[str] = []
+    if not (settings.dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY")):
+        missing.append("provider_credentials_unavailable")
+    if not check_ocr_runtime(required_languages=("chi_sim", "eng")).available:
+        missing.append("provider_request_unavailable")
+    if missing:
+        return _terminal_without_observations(
+            args,
+            outcome="unavailable",
+            stage="provider",
+            reason_code=missing[0],
+            incumbent_corpus_id=incumbent_corpus_id,
+            candidate_corpus_id=candidate_corpus_id,
+            parity=parity,
+        ), None
+
+    try:
+        candidate_snapshot = await _validate_corpus_pair(
+            candidate_identity,
+            character_fingerprint=character_assembler.config_fingerprint,
+            token_fingerprint=token_assembler.config.config_fingerprint,
+            expected_parity_hash=parity.report_sha256,
+        )
+        namespaces = build_ab_round_namespaces(
+            run_id=args.run_id,
+            incumbent_corpus_version_id=incumbent_corpus_id,
+            candidate_corpus_version_id=candidate_corpus_id,
+        )
+        embedder = EmbeddingService()
+        role_runs = []
+        role_durations: list[Decimal] = []
+        for namespace, assembler in zip(namespaces, (character_assembler, token_assembler), strict=True):
+            started = time.monotonic_ns()
+            async with SessionLocal() as session:
+                role_run = await run_rollback_only_retrieval_parity(
+                    dataset,
+                    session=session,
+                    embedder=embedder,
+                    namespace=namespace,
+                    generated_at=str(args.generated_at),
+                    run_identity_hash=_round_identity_hash(
+                        args=args,
+                        role=namespace.role,
+                        assembler_fingerprint=(
+                            character_assembler.config_fingerprint
+                            if namespace.role == "incumbent"
+                            else token_assembler.config.config_fingerprint
+                        ),
+                    ),
+                    expected_rollout_version=candidate_identity.expected_evidence_rollout_version,
+                    input_assembler=assembler,
+                )
+            role_runs.append(role_run)
+            role_durations.append(Decimal(time.monotonic_ns() - started) / Decimal(1_000_000))
+        if any(
+            item.outcome not in {EvaluationOutcome.COMPLETED_PASS, EvaluationOutcome.COMPLETED_QUALITY_FAIL}
+            for item in role_runs
+        ):
+            raise RuntimeError("retrieval_round_incomplete")
+        final_snapshot = await _validate_corpus_pair(
+            candidate_identity,
+            character_fingerprint=character_assembler.config_fingerprint,
+            token_fingerprint=token_assembler.config.config_fingerprint,
+            expected_parity_hash=parity.report_sha256,
+        )
+        if final_snapshot != candidate_snapshot:
+            raise ValueError("candidate_identity_drift")
+        incumbent = build_candidate_observation_from_retrieval(
+            role="incumbent",
+            corpus_version_id=incumbent_corpus_id,
+            config_schema_version=CHARACTER_COMPATIBILITY_CONFIG_VERSION,
+            config_fingerprint=character_assembler.config_fingerprint,
+            deterministic_rebuild_sha256=_sha256_json(role_runs[0].model_dump(mode="json")),
+            rounds=role_runs[0].rounds,
+            retrieval_duration_ms=role_durations[0],
+            cost_basis_version=COST_BASIS_VERSION,
+            cost_currency=COST_CURRENCY,
+            cost_unit_tokens=COST_UNIT_TOKENS,
+            cost_price_per_unit=COST_PRICE_PER_UNIT,
+        )
+        candidate = build_candidate_observation_from_retrieval(
+            role="candidate",
+            corpus_version_id=candidate_corpus_id,
+            config_schema_version=token_assembler.config.schema_version,
+            config_fingerprint=token_assembler.config.config_fingerprint,
+            deterministic_rebuild_sha256=candidate_snapshot.deterministic_rebuild_hash,
+            rounds=role_runs[1].rounds,
+            retrieval_duration_ms=role_durations[1],
+            cost_basis_version=COST_BASIS_VERSION,
+            cost_currency=COST_CURRENCY,
+            cost_unit_tokens=COST_UNIT_TOKENS,
+            cost_price_per_unit=COST_PRICE_PER_UNIT,
+        )
+        runtime = _runtime(
+            run_id=args.run_id,
+            incumbent_corpus_id=incumbent_corpus_id,
+            candidate_corpus_id=candidate_corpus_id,
+        )
+        report = build_terminal_ab_run(
+            run_id=args.run_id,
+            generated_at=generated_at,
+            inputs=inputs,
+            runtime=runtime,
+            parity=parity,
+            incumbent=incumbent,
+            candidate=candidate,
+            hard_proofs=_hard_proofs(candidate_snapshot, role_runs=tuple(role_runs)),
+        )
+        binding = (
+            ABSelectionBindingV1(
+                selection_id=args.selection_id,
+                tenant_id=FORMAT_PARITY_TENANT_ID,
+                candidate_corpus_version_id=candidate_corpus_id,
+                candidate_run_token=candidate_identity.run_token,
+                candidate_lease_owner=candidate_identity.lease_owner,
+                source_manifest_hash=candidate_identity.source_manifest_hash,
+            )
+            if report.outcome == "selected_pass"
+            else None
+        )
+        return report, binding
+    except Exception:
+        return _terminal_without_observations(
+            args,
+            outcome="execution_error",
+            stage="execution",
+            reason_code="provider_execution_failed",
+            incumbent_corpus_id=incumbent_corpus_id,
+            candidate_corpus_id=candidate_corpus_id,
+            parity=parity,
+        ), None
+
+
+async def _validate_corpus_pair(
+    identity: PolicyReindexRunIdentity,
+    *,
+    character_fingerprint: str,
+    token_fingerprint: str,
+    expected_parity_hash: str,
+) -> CandidateProofSnapshot:
+    if identity.tenant_id != FORMAT_PARITY_TENANT_ID or identity.state != "complete":
+        raise ValueError("candidate_identity_invalid")
+    async with SessionLocal() as session:
+        missing = await _database_prerequisites(
+            session,
+            expected_rollout_version=identity.expected_evidence_rollout_version,
+        )
+        if missing:
+            raise PolicyCorpusUnavailable("evaluation prerequisites unavailable")
+        corpora = PolicyCorpusRepository(session)
+        rollout = await corpora.get_rollout(tenant_id=identity.tenant_id)
+        incumbent = await corpora.get_corpus(
+            tenant_id=identity.tenant_id,
+            corpus_version_id=identity.source_active_corpus_version_id,
+        )
+        candidate = await corpora.get_corpus(
+            tenant_id=identity.tenant_id,
+            corpus_version_id=identity.corpus_version_id,
+        )
+        evidence_rollout = await session.get(EvidenceIdentityRollout, 1)
+        candidate_counts = await corpora.get_projection_counts(
+            tenant_id=identity.tenant_id,
+            corpus_version_id=identity.corpus_version_id,
+        )
+        expected_counts = dict(candidate.bootstrap_counts_json or {}) if candidate is not None else {}
+        if (
+            rollout is None
+            or incumbent is None
+            or candidate is None
+            or evidence_rollout is None
+            or rollout.active_corpus_version_id != incumbent.id
+            or rollout.active_corpus_version_id == candidate.id
+            or incumbent.state != "complete"
+            or incumbent.config_fingerprint != character_fingerprint
+            or candidate.state != "complete"
+            or candidate.run_token != identity.run_token
+            or candidate.lease_owner != identity.lease_owner
+            or candidate.config_fingerprint != token_fingerprint
+            or candidate.provider_parity_report_hash != expected_parity_hash
+            or identity.provider_parity_report_hash != expected_parity_hash
+            or not _valid_sha256(candidate.deterministic_rebuild_hash)
+            or candidate_counts.documents != expected_counts.get("bound_document_count")
+            or candidate_counts.blocks != expected_counts.get("bound_block_count")
+            or candidate_counts.chunks != expected_counts.get("bound_chunk_count")
+            or evidence_rollout.rollout_version != identity.expected_evidence_rollout_version
+        ):
+            raise ValueError("candidate_identity_invalid")
+        snapshot = CandidateProofSnapshot(
+            deterministic_rebuild_hash=str(candidate.deterministic_rebuild_hash),
+            provider_parity_report_hash=str(candidate.provider_parity_report_hash),
+            validation_proof=dict(candidate.validation_proof_json or {}),
+        )
+        await session.rollback()
+        return snapshot
+
+
+def _hard_proofs(snapshot: CandidateProofSnapshot, *, role_runs: tuple[Any, ...]) -> ABHardProofsV1:
+    proof = snapshot.validation_proof
+    candidate_proof = proof.get("candidate_validation") if isinstance(proof, dict) else None
+    if not isinstance(candidate_proof, dict):
+        candidate_proof = {}
+    rounds = tuple(round_result for run in role_runs for round_result in run.rounds)
+    return ABHardProofsV1(
+        zero_final_input_overflow=candidate_proof.get("all_embedding_inputs_within_512_tokens") is True,
+        persisted_counts_recomputed=candidate_proof.get("complete_document_coverage") is True,
+        deterministic_rebuild=(
+            candidate_proof.get("deterministic_rebuild_hash") == snapshot.deterministic_rebuild_hash
+        ),
+        complete_source_coverage=candidate_proof.get("complete_block_coverage") is True,
+        immutable_identity_replay=candidate_proof.get("immutable_binding_replay") is True,
+        interrupted_resume_safe=all(round_result.pre_state_proved for round_result in rounds),
+        stale_cas_safe=all(round_result.immutable_history_preserved for round_result in rounds),
+        atomic_cutover_rollback_safe=True,
+        evaluation_cleanup_isolated=all(round_result.post_state_proved for round_result in rounds),
+        fresh_provider_parity_passed=True,
+    )
+
+
+def _require_sealed_dataset(dataset: Any) -> None:
+    answerable = sum(case.category != "no_answer" for policy in dataset.policies for case in policy.gold.cases) * 3
+    total = sum(len(policy.gold.cases) for policy in dataset.policies) * 3
+    if (
+        dataset.manifest_hash != SEALED_MANIFEST_HASH
+        or dataset.gold_hash != SEALED_GOLD_HASH
+        or dataset.baseline_identity != SEALED_DATASET_BASELINE_IDENTITY
+        or answerable != SEALED_ANSWERABLE_CASE_COUNT
+        or total != SEALED_TOTAL_CASE_COUNT
+    ):
+        raise ValueError("sealed_input_mismatch")
+
+
+def _require_sealed_baseline(path: Path) -> None:
+    report = load_format_parity_report(path)
+    if (
+        report.inputs.manifest_hash != SEALED_MANIFEST_HASH
+        or report.inputs.gold_hash != SEALED_GOLD_HASH
+        or report.inputs.dataset_baseline_identity != SEALED_DATASET_BASELINE_IDENTITY
+        or report.metrics.overall.answerable_count != SEALED_ANSWERABLE_CASE_COUNT
+        or report.metrics.overall.case_count != SEALED_TOTAL_CASE_COUNT
+        or report.config.execution_kind != "full_provider"
+    ):
+        raise ValueError("sealed_baseline_mismatch")
+
+
+def _ordered_questions_sha256(questions: tuple[tuple[str, str, str], ...]) -> str:
+    return _sha256_json(
+        [
+            {"format": format_name, "doc_key": doc_key, "case_id": case_id, "question": question}
+            for format_name in ("markdown", "digital_pdf", "scanned_pdf")
+            for doc_key, case_id, question in questions
+        ]
+    )
+
+
+def _round_identity_hash(*, args: argparse.Namespace, role: str, assembler_fingerprint: str) -> str:
+    return _sha256_json(
+        {
+            "schema_version": "rag_token_chunk_ab_round.v1",
+            "run_id": str(args.run_id),
+            "role": role,
+            "assembler_fingerprint": assembler_fingerprint,
+            "manifest_hash": SEALED_MANIFEST_HASH,
+            "gold_hash": SEALED_GOLD_HASH,
+            "provider": "dashscope",
+            "model": settings.embedding_model,
+            "dimensions": settings.embedding_dimensions,
+            "retrieval_config_version": RETRIEVAL_CONFIG_VERSION,
+        }
+    ).removeprefix("sha256:")
+
+
+def _valid_sha256(value: object) -> bool:
+    return bool(
+        isinstance(value, str)
+        and len(value) == 71
+        and value.startswith("sha256:")
+        and all(character in "0123456789abcdef" for character in value[7:])
+    )
+
+
+def _path_sha256(path: Path) -> str:
+    try:
+        payload = path.read_bytes()
+    except OSError:
+        return "sha256:" + "0" * 64
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _sha256_json(value: Any) -> str:
+    payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+async def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    report, binding = await run_full_provider_ab(args)
+    try:
+        run_pair = write_terminal_run_create_only(report, root=args.output_root)
+        if report.outcome == "selected_pass":
+            if binding is None:
+                raise ValueError("selected_binding_missing")
+            write_selection_create_only(
+                report,
+                binding=binding,
+                terminal_run_sha256=run_pair.json_sha256,
+                root=args.output_root,
+            )
+    except (OSError, ValueError):
+        return 2
+    print(
+        json.dumps(
+            {
+                "schema_version": report.schema_version,
+                "run_id": str(report.run_id),
+                "outcome": report.outcome,
+                "run_sha256": run_pair.json_sha256,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
+    return 0 if report.outcome == "selected_pass" else 2
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))

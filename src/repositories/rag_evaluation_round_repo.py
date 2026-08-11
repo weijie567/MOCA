@@ -148,6 +148,17 @@ class ProjectionInspection:
     job_error_code: str | None
     head_mapping: dict[str, dict[str, Any]]
     immutable_counts: dict[str, int]
+    resources: IngestionResourceProof
+
+
+@dataclass(frozen=True)
+class IngestionResourceProof:
+    chunk_count: int
+    duplicate_count: int
+    offline_embedding_tokens: int
+    provider_embedding_tokens: int | None
+    provider_tokens_status: Literal["provider_reported", "unavailable"]
+    config_fingerprint: str | None
 
 
 @dataclass(frozen=True)
@@ -541,6 +552,26 @@ class RagEvaluationRoundRepository:
         heads = await self._lock_tenant_heads()
         await self._prove_recorded_projection(row, heads, require_all=False)
         return owner
+
+    async def prove_advanced_document_resources(
+        self,
+        owner: EvaluationRoundIdentity,
+        *,
+        doc_key: str,
+        source_checksum: str,
+    ) -> tuple[EvaluationRoundIdentity, IngestionResourceProof]:
+        """Rebuild safe resource counters for one already-checkpointed document."""
+
+        proved = await self.prove_advanced_document(
+            owner,
+            doc_key=doc_key,
+            source_checksum=source_checksum,
+        )
+        heads = await self._lock_tenant_heads()
+        matching = [head for head in heads if head.doc_key == doc_key]
+        if len(matching) != 1:
+            raise EvaluationIsolationError("advanced_document_mismatch")
+        return proved, await self._head_resource_proof(matching[0])
 
     async def prove_recorded_anchor_locators(
         self,
@@ -994,6 +1025,7 @@ class RagEvaluationRoundRepository:
             failed_job_count=sum(job.status == "failed" for job in jobs),
         )
         immutable = await self._immutable_counts()
+        resource_proof = self._resource_proof(chunks=chunks, job=jobs[0] if len(jobs) == 1 else None)
         return ProjectionInspection(
             state=classify_attempt_projection(projection),
             projection=projection,
@@ -1014,6 +1046,51 @@ class RagEvaluationRoundRepository:
                 else {}
             ),
             immutable_counts=immutable,
+            resources=resource_proof,
+        )
+
+    async def _head_resource_proof(self, head: PolicyDocument) -> IngestionResourceProof:
+        chunks = list(
+            (
+                await self.session.execute(
+                    join_active_chunk_projection(
+                        select(PolicyChunk).where(
+                            PolicyChunk.tenant_id == head.tenant_id,
+                            PolicyChunk.doc_id == head.id,
+                        ),
+                        tenant_id=head.tenant_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return self._resource_proof(chunks=chunks, job=None)
+
+    @staticmethod
+    def _resource_proof(
+        *,
+        chunks: Sequence[PolicyChunk],
+        job: RagIngestionJob | None,
+    ) -> IngestionResourceProof:
+        fingerprints = {
+            str(fingerprint)
+            for chunk in chunks
+            if (fingerprint := getattr(chunk, "chunking_config_fingerprint", None)) is not None
+        }
+        provider_reported = bool(
+            job is not None
+            and getattr(job, "provider_usage_status", None) == "available"
+            and getattr(job, "provider_prompt_tokens", None) is not None
+        )
+        hashes = [getattr(chunk, "embedding_input_hash", None) for chunk in chunks]
+        return IngestionResourceProof(
+            chunk_count=len(chunks),
+            duplicate_count=len(chunks) - len({str(value) for value in hashes}) if all(hashes) else 0,
+            offline_embedding_tokens=sum(int(getattr(chunk, "embedding_token_count", 0)) for chunk in chunks),
+            provider_embedding_tokens=int(getattr(job, "provider_prompt_tokens")) if provider_reported else None,
+            provider_tokens_status="provider_reported" if provider_reported else "unavailable",
+            config_fingerprint=next(iter(fingerprints)) if len(fingerprints) == 1 else None,
         )
 
     async def _prove_recorded_projection(
