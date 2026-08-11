@@ -2520,4 +2520,13 @@
 - **处理状态**：✅ 已增加冻结的 request usage 与 batch result DTO，以及 `embed_documents_with_usage`；仅按 provider request 记录 usage，只有每个 request 都报告完整 usage 时才汇总 totals，缺失/非法 usage 统一为 `unavailable`，从不生成 per-input 分配。既有 `embed_documents`/`embed_query` vector-only list 契约、最多十条 batching、index 顺序、dimensions 参数和 retry 行为保留。
 - **证据**：Phase 64.4 Plan 03 Task 1；`src/rag/embedder.py`、`tests/rag/test_embedding_usage.py`、`tests/test_embedder.py`；Wave-0 RED 为缺少 `EmbeddingBatchResultV1` 的预期 collection error，完成后完整 `make lint` 通过，精确 gate 为 `7 passed, 1 warning`。
 - **剩余风险**：Task 2 仍需把这些 request-level usage 接入 create-only parity artifact，并以 10 个 single request 加一个 10-input aggregate request 做精确 freshness/identity gate；Plan 04 继续负责所有 live final strings 收敛到唯一 assembler。
+
+## 2026-08-11 — Phase 64.4 Plan 03 Task 2 — tokenizer parity 缺少不可变身份与 freshness 授权边界 ✅已修复验证
+
+- **子系统**：RAG embedding tokenizer parity / selection authorization / provider evidence。
+- **问题现象 / 根因**：Plan 01 只有离线 fixture 与一次 planning 期实证，原仓库没有 create-only run identity、精确 final-input content hash、freshness、provider/model/config 复核或 `passed|quarantined|unavailable` 的严格 artifact；旧实证若被复制、覆盖或跨 fingerprint 使用，会把陈旧/变异 provider 事实错误带入后续 selection。
+- **影响**：缺少该边界时，Plan 09/10 无法证明选择消费的是当前 pinned tokenizer、当前 provider/model 和 assembler exact final strings，也无法区分 usage 缺失与真正 count mismatch。
+- **处理状态**：✅ 已定义严格 `embedding_tokenizer_parity.v1`、UUID/timestamp/region/config/model/fixture/content identity、10 个 single request 加一个 10-input aggregate 的 prompt-token exact gate，以及 fingerprint/run-id create-only 原子 writer。`unavailable`、`quarantined` 均不能通过 `require_fresh_provider_parity`；所有 report/failure 字段只允许安全 label/count/hash/code，不含文本、key、URL、raw response、path 或 exception。
+- **证据**：Phase 64.4 Plan 03 Task 2；`src/rag/tokenizer_parity.py`、`scripts/check_embedding_tokenizer_parity.py`、`evaluation/golden/embedding_tokenizer_parity_probes.v1.json`、`evaluation/reports/rag_embedding_tokenizer/v1/README.md`、`tests/rag/test_tokenizer_parity.py`；Wave-0 RED 为缺少 module 的预期 collection error，完成后完整 `make lint` 与精确 gate `11 passed, 1 warning` 通过。显式清空 credential 的 CLI 安全探针写出真实 `unavailable/provider_credentials_unavailable` artifact 并以 exit 2 结束，没有 provider 请求或成功声明。
+- **剩余风险**：本 plan 没有伪造或宣称 live `passed`；Plan 04 仍需完成 production/dry-run/golden/parity/A-B 的 assembler seam 静态收敛，Plan 10 必须在真实 provider 与 selected configuration 上产生 fresh passed artifact 后才能激活。
 - **剩余风险 / 继续入口**：Plan 04 前 production ingestion/dry-run 尚未消费该 DTO，所以当前生产 character path 仍保持不变；必须在 Plan 04 convergence gate 证明 embedder 直接消费 `embedding_input` 且提交/持久化前复算一致，才能将本条升级为端到端已修复。Plan 03 仍负责 fresh provider parity，而 persistence/reindex/cutover 由后续 Plans 05-10 负责。

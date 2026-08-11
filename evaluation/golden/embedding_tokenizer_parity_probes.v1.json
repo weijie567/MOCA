@@ -1,0 +1,116 @@
+{
+  "schema_version": "embedding_tokenizer_parity_probes.v1",
+  "note": "Safe synthetic ParsedBlock inputs only. Every live submitted string must be returned by PolicyEmbeddingInputAssembler.",
+  "probes": [
+    {
+      "id": "ascii",
+      "category": "ascii",
+      "doc_key": "parity_ascii",
+      "title": "Synthetic refund policy",
+      "block": {
+        "source_block_id": "parity:ascii:0000",
+        "block_type": "paragraph",
+        "content": "Refunds require manager approval."
+      }
+    },
+    {
+      "id": "chinese",
+      "category": "chinese",
+      "doc_key": "parity_chinese",
+      "title": "合成退款政策",
+      "block": {
+        "source_block_id": "parity:chinese:0000",
+        "block_type": "paragraph",
+        "content": "退款审核通过后两个工作日内原路退回。"
+      }
+    },
+    {
+      "id": "mixed",
+      "category": "mixed",
+      "doc_key": "parity_mixed",
+      "title": "Synthetic mixed policy",
+      "block": {
+        "source_block_id": "parity:mixed:0000",
+        "block_type": "paragraph",
+        "content": "Refund 退款 case A-1024 requires 人工复核."
+      }
+    },
+    {
+      "id": "markdown_table",
+      "category": "markdown_table",
+      "doc_key": "parity_table",
+      "title": "合成表格政策",
+      "block": {
+        "source_block_id": "parity:table:0000",
+        "block_type": "paragraph",
+        "content": "| 场景 | 审核要求 |\n| --- | --- |\n| 仅退款 | 核实物流 |"
+      }
+    },
+    {
+      "id": "url",
+      "category": "url",
+      "doc_key": "parity_url",
+      "title": "Synthetic URL policy",
+      "block": {
+        "source_block_id": "parity:url:0000",
+        "block_type": "paragraph",
+        "content": "Policy: https://example.invalid/rules/refund?v=4#evidence"
+      }
+    },
+    {
+      "id": "numbers",
+      "category": "numbers",
+      "doc_key": "parity_numbers",
+      "title": "合成数字政策",
+      "block": {
+        "source_block_id": "parity:numbers:0000",
+        "block_type": "paragraph",
+        "content": "订单 20260811 金额 CNY 128.50，折扣 12.5%。"
+      }
+    },
+    {
+      "id": "emoji",
+      "category": "emoji",
+      "doc_key": "parity_emoji",
+      "title": "Synthetic emoji policy",
+      "block": {
+        "source_block_id": "parity:emoji:0000",
+        "block_type": "paragraph",
+        "content": "Safe synthetic probe ✅ 🧾 🔒"
+      }
+    },
+    {
+      "id": "unpunctuated_zh",
+      "category": "unpunctuated_zh",
+      "doc_key": "parity_unpunctuated",
+      "title": "合成长文本政策",
+      "block": {
+        "source_block_id": "parity:unpunctuated:0000",
+        "block_type": "paragraph",
+        "content": "退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则"
+      }
+    },
+    {
+      "id": "combining_unicode",
+      "category": "combining_unicode",
+      "doc_key": "parity_unicode",
+      "title": "Synthetic Unicode policy",
+      "block": {
+        "source_block_id": "parity:unicode:0000",
+        "block_type": "paragraph",
+        "content": "Café 与 café must normalize only as the asset defines."
+      }
+    },
+    {
+      "id": "whitespace_envelope",
+      "category": "whitespace_envelope",
+      "doc_key": "parity_whitespace",
+      "title": "合成空白政策",
+      "block": {
+        "source_block_id": "parity:whitespace:0000",
+        "block_type": "paragraph",
+        "content": "退款规则 / 审核要求: 仅退款需核实物流\n\n安全合成段落"
+      }
+    }
+  ]
+}
