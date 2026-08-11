@@ -23531,3 +23531,14 @@ Task 2 预期 RED 为 `3 failed, 44 passed`，证明首次 ingestion 未刷新 p
 
 **已做处理 / 剩余入口**
 测试改为 character 单块真实输出，并将 chunk-version count 调整为实际每次一个；projection contract 改为 suffix 正例，未知 schema/fingerprint 仍 fail closed。另补 delete-not-found rollback 断言，避免持有 evidence/corpus/manifest/document locks 返回。按规定依次执行 `make format`、完整 `make lint`、Task 2 精确 gate，结果 `47 passed, 1 warning`；最终合并 gate `94 passed, 4 warnings`。当前无产品侧剩余问题。
+
+## 2026-08-11 — Phase 64.4 Plan 08 SUMMARY self-check 误用 zsh 特殊变量 `path`
+
+**问题现象 / 如何检测**
+首次 SUMMARY self-check 在文件存在性检查后连续报告 `zsh: command not found: git` 与 `command not found: rg`，因而把四个实际存在的 commit 错报为 missing。
+
+**关键证据 / 当前判断 / 根因**
+同一命令用 `for path in ...` 作为循环变量；zsh 的小写 `path` 是与 `PATH` 绑定的特殊数组，赋值后仅在该子 shell 内覆盖命令搜索路径。此前和后续独立 shell 均可正常调用 Git/Ripgrep，仓库文件、commit 和持久环境没有丢失。这是验证脚本变量命名错误，不是 MOCA 或 Git 状态损坏。
+
+**已做处理 / 剩余入口**
+改用非保留变量 `task_file` 和 `task_commit_hash` 重新执行完整 self-check，并以第二次输出作为有效结论；SUMMARY 只在全部文件/commit真实找到后写 `PASSED`。以后 shell 辅助变量不得使用 `path`/`PATH` 等系统选项名。当前无剩余问题。
