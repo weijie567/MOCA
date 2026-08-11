@@ -23372,6 +23372,10 @@ Phase 64.4 第二轮 Claude plan review 首次用 Ruby 从现有 planning artifa
 
 修正编码后的完整串流已到达 Claude CLI，但 11 个 plan、RESEARCH、CONTEXT、VALIDATION、ROADMAP、REQUIREMENTS 和裁决记录合并后超过 CLI 单次 prompt 上限，CLI 明确返回 `Prompt is too long`，仍未产生 review 结论或改写 artifact。当前处理改为给独立 Claude Code 会话一份短的文件清单与审查契约，由其在同一隔离 worktree 内逐文件读取完整内容和必要源码，避免截断任一 plan；最终只采纳该完整仓库读取会话的输出。后续 plan 数量较多时，`$gsd-review` 应优先让代码型 reviewer 按路径读取，或由工具实现分块/context-file 输入，而不是把所有正文拼成单条 prompt。
 
+### `verify.key-links` 未解析 inline YAML 且误报当前 wave 产物缺失
+
+Plan01 完成后按 execute-phase pre-wave gate 调用 `gsd-sdk query verify.key-links .../64.4-02-PLAN.md`，工具返回 `all_verified:false`，但唯一 link 的 `from/to/via` 全为空并报 `Source file not found`。人工核对 Plan02 frontmatter 后确认该 link 是合法 inline YAML map，`from: src/rag/policy_embedding_input.py` 正是 Plan02 当前 wave 将创建的产物，按 execute-phase 规则本应跳过而不是阻断；其 `to: src/rag/embedding_tokenizer.py` 已由 Plan01 创建且存在。当前判断是 GSD key-link parser/当前-wave skip 的工具缺口，不是跨 plan 接线失败。已保留工具输出并用 plan/source existence 人工门禁后继续；Plan02 完成后还会对实际 import/count 调用和 tests 做源代码复核。
+
 ## 2026-08-11 — Phase 64.4 Plan 01 tokenizer 资产与新 worktree 验证入口问题
 
 **问题现象 / 如何检测**
