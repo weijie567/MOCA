@@ -1858,9 +1858,14 @@ def _canonical_sha256(value: object) -> str:
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
-def _canonical_json_default(value: object) -> str:
+def _canonical_json_default(value: object) -> object:
     if isinstance(value, UUID):
         return str(value)
     if isinstance(value, (date, datetime)):
         return value.isoformat()
+    to_list = getattr(value, "tolist", None)
+    if callable(to_list):
+        normalized = to_list()
+        if isinstance(normalized, list):
+            return normalized
     raise TypeError(f"unsupported canonical JSON value: {type(value).__name__}")
