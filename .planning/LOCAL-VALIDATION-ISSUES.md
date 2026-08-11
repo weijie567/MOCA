@@ -23403,3 +23403,20 @@ assembler 需要区分“不同 parser block 的 canonical 换行”和“同一
 
 **剩余问题和下次继续排查入口**
 assembler 本体当前无已知重建缺口；Plan 04 仍需把 production/dry-run/golden/parity/A-B 接到同一 DTO，届时必须再次证明 embedder 收到的 bytes 与本 assembler 返回值完全一致。若后续改变 structural unit packing，优先从 `tests/rag/test_token_aware_chunker.py` 的 multilingual rebuild 与 sentence/clause exact-source 用例继续排查。
+
+## 2026-08-11 — Phase 64.4 Plan 03 executor 可见性空转与强制恢复
+
+**问题现象**
+Plan 03 执行过程中，上层 orchestrator 的 watchdog 在一段时间内没有看到新的文件、命令或提交，因而中断原 executor turn 并要求立即从 Wave-0 Task 1 恢复。该现象发生在本地执行编排层，不是 embedding usage 产品逻辑失败。
+
+**如何检测/复现与关键证据**
+上层收到的状态是“长期无可见改动”；恢复 turn 后立即运行 `git status --short` 和 `rg -n "EmbeddingBatchResultV1|embed_documents_with_usage"`，确认中断前的 `src/rag/embedder.py`、`tests/test_embedder.py` 修改和新建 `tests/rag/test_embedding_usage.py` 实际仍在共享 worktree。中断前有效 RED 为测试 collection 找不到 `EmbeddingBatchResultV1`；实现后有效门禁为完整 `make lint` 通过，随后项目入口测试 `7 passed, 1 warning`。
+
+**当前判断/根因**
+当前只能确认是 agent turn 的进度可见性/调度空转，具体触发原因未确认；仓库文件没有丢失，也没有出现 Python 环境入口错误、provider 请求、凭据读取或产品回归。不能据此推断 MOCA 代码缺陷。
+
+**已做处理**
+中断恢复后先以 Git 和源码事实核对保留状态，没有重复覆盖已有编辑；向上层报告精确 RED/green 证据后继续原子提交。没有运行裸 pytest/Python，也没有修改 `.planning/STATE.md` 或 `.planning/ROADMAP.md`。
+
+**剩余问题和下次继续排查入口**
+产品侧无剩余问题。若后续 executor 再次长时间无可见进度，上层应先查询共享 worktree 的 `git status` 和最近 gate 输出再决定是否重启，避免把调度可见性问题误记为代码未执行。
