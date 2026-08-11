@@ -130,7 +130,7 @@ def _resources(
         chunk_count=chunk_count,
         duplicate_count=duplicate_count,
         offline_embedding_tokens=offline_tokens,
-        provider_prompt_tokens=provider_tokens,
+        provider_embedding_tokens=provider_tokens,
         provider_tokens_status="provider_reported" if provider_tokens is not None else "unavailable",
         retrieval_duration_ms=Decimal("125.125"),
         embedding_cost=api["ABEmbeddingCostV1"](

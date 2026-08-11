@@ -2611,3 +2611,12 @@
 - **处理状态**：✅ 已修复验证。helper 统一通过 `PolicyChunk.doc_id` 证明同 active corpus 的 document binding，current identity caller复用该唯一 binding join；canonical v2 无 DTO 分支严格验证 source checksum、persisted content hash/canonical fields，并与 current head content/hash再比较。历史 `resolve_immutable_evidence` 保持只按 retained immutable ID/tenant/scope，不读取当前 pointer。
 - **证据**：Phase 64.4 Plan 08 Task 1/2 Rule 1；`src/repositories/policy_corpus_scope.py`、`src/repositories/evidence_version_repo.py`、`tests/knowledge/test_evidence_cutover.py`、`tests/knowledge/test_evidence_projection.py`；targeted regression `2 passed`，最终合并 gate `94 passed`。
 - **剩余风险 / 继续入口**：当前无已知缺口。后续修改 active projection helper 时须避免 caller 重复 join同一 ORM entity；历史 identity resolver 必须继续与 current authority 解耦。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 1 — A/B 选择缺少精确数值与不可变终态 owner ✅已修复验证
+
+- **子系统**：RAG token chunk A/B evaluation / selection evidence。
+- **问题现象 / 根因**：Phase64.3 canonical report 以六位小数展示 retrieval 指标，仓库此前没有 character/token 同次比较 owner，也没有为 quality red、safety red、provider unavailable、execution error 都保留 create-only 终态证据的 strict schema。若直接比较 `0.022223/0.066667/0.018519` 等展示值，边界舍入可能改变 selection；若把 selection 与 activation 写入同一 artifact，后续 cutover 会反向改写授权证据。
+- **影响**：候选可能因 round drift 被错误选中/拒绝；red/unavailable/error 运行可能无证据；selection hash 可能被 pointer/receipt 字段污染，无法作为 Plan10 独立 activation 的稳定授权输入。
+- **处理状态**：✅ 已修复验证。新增 `rag_token_chunk_ab.v1`：所有命中、MRR、format spread、anchor/locator/fallback、duplicate、chunk/token 比例只保存 raw numerator/denominator 并用 `Fraction` 比较；成本用版本化 `Decimal` basis，六位小数只在 Markdown 投影。固定 14 个门禁精确实现 9/10、1/10、1/45、1/15、1/54、1/50、3/2、5/4 边界，并封存 Phase64.3 三个 hash 与 45/54 case counts。四种终态均写 create-only canonical JSON/MD；只有真实 full-provider `selected_pass` 可额外生成独立 `rag_token_chunk_selection.v1` JSON/MD/hash，schema 不含 activation/pointer/cutover/rollback/history/receipt 字段。
+- **证据**：Phase64.4 Plan09 Task1；`src/rag/evaluation/token_chunk_ab.py`、`src/rag/evaluation/reporting.py`、`tests/eval/test_rag_token_chunk_ab.py`、`evaluation/reports/rag_token_chunk_ab/v1/README.md`；Wave-0 以缺少 module 的 collection error 正确 RED，完成后 `make lint` 通过，精确 report gate 为 `41 passed, 1 warning`。
+- **剩余风险 / 继续入口**：Task2 仍须把 exact contract 接到 production-capable full-provider CLI，并证明 character/token 使用相同 provider/retrieval 配置和隔离 inactive corpus/round owner。Plan10 才执行 live parity/A-B、cutover/rollback/restore 与 receipt chain；当前没有伪造 selected_pass，也没有修改 rollout pointer/history。

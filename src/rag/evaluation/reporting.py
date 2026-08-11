@@ -893,6 +893,19 @@ def _validated_safe_report(report: FormatParityReportV1) -> FormatParityReportV1
     return report
 
 
+def validate_safe_report_payload(value: Any) -> None:
+    """Validate a report payload against the shared disclosure allowlist."""
+
+    _scan_safe(value)
+
+
+def canonical_report_json_bytes(value: Mapping[str, Any]) -> bytes:
+    """Return stable compact JSON bytes after the shared disclosure scan."""
+
+    validate_safe_report_payload(value)
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode() + b"\n"
+
+
 def _scan_safe(value: Any, *, key_path: tuple[str, ...] = ()) -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():

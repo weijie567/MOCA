@@ -23553,3 +23553,14 @@ Task 1 首轮 Wave-0 在 `make format` 与完整 `make lint` 通过后，使用�
 
 **已做处理 / 剩余入口**
 辅助器改为显式导入并返回逐项命名映射，使 Ruff 能静态识别所有符号；重新执行 `make format`、完整 `make lint` 和相同 project-entry pytest，以实现缺失的受控失败作为有效 RED。后续若新增动态 API helper，应使用显式 tuple/dict 返回，禁止依赖 `locals()` 保留导入。当前无产品侧剩余问题。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 1 安全扫描拒绝 provider prompt 字段名
+
+**问题现象 / 如何检测**
+Task 1 初版 GREEN 使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_token_chunk_ab.py`，结果 `4 failed, 12 passed`；四条均在构造完整终态报告时被共享 disclosure scanner 以 `unsafe_report_key` 拒绝。
+
+**关键证据 / 当前判断 / 根因**
+新资源 DTO 沿用了供应商 usage 名称 `provider_prompt_tokens`。Phase64.3 的共享报告安全扫描会拒绝任何包含 `prompt` 的 key，以防 prompt/raw payload 泄漏；即使该值只是整数 token count，也不能绕开统一 allowlist。属于新报告字段命名与既有安全契约冲突，扫描器行为正确，不应放宽。
+
+**已做处理 / 剩余入口**
+字段改为语义等价且安全的 `provider_embedding_tokens`，仍只保存请求级 provider token 总数，不分摊到输入，也不保留 prompt/provider payload。重新运行格式、完整 lint 与相同 scoped gate。后续报告字段若来自 provider API，必须先通过共享 safe-key allowlist，不得为兼容供应商原始命名而放宽 disclosure 边界。
