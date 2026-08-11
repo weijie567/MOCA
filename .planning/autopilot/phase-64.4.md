@@ -1,11 +1,11 @@
 ---
 phase: "64.4"
 status: running
-current_step: plan
+current_step: claude_plan_review
 plan_review_loop: 0
 quota_waits: 0
-updated_at: "2026-08-11T11:20:49+08:00"
-next_command: "$gsd-plan-phase 64.4"
+updated_at: "2026-08-11T12:56:17+08:00"
+next_command: "$gsd-review 64.4 --claude"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -18,6 +18,9 @@ next_command: "$gsd-plan-phase 64.4"
 - `gsd-sdk query init.phase-op 64.4` found the registered roadmap phase with no context, research, plans, verification, or reviews.
 - Stage 1 discuss: auto-selected conservative decisions for the tokenizer contract, exact final-input assembly, path convergence, immutable reindex/cutover, and A/B selection; committed `64.4-CONTEXT.md` and the audit-only discussion log.
 - Reproduced the known GSD decimal-phase `state.record-session` metadata bug, restored the 7/15 (47%) milestone state, and recorded the incident in the local validation ledger.
+- Stage 2 research pinned the official Qwen tokenizer asset/revision, established exact 10/10 DashScope single-input parity plus aggregate-batch accounting boundaries, and documented that the mapping is empirical rather than vendor-guaranteed.
+- Stage 2 validation created a 22-task Nyquist strategy with mandatory live provider/PostgreSQL gates and MOCA `make format` / `make lint` / `uv run pytest` entries.
+- Stage 2 planning split Phase 64.4 into 11 strictly sequential plans and 22 bounded tasks. GSD plan-checker converged from 9 issues to 2 and then clean after the accepted repairs were applied.
 
 ## Evidence
 
@@ -27,6 +30,9 @@ next_command: "$gsd-plan-phase 64.4"
 - Production must fail closed on unknown tokenizer/count failures and may keep character sizing only as an explicit A/B baseline, never a silent fallback.
 - Phase completion requires a token-aware candidate that passes hard safety and fixed same-run non-regression gates; a truthful red candidate report alone is not completion.
 - Planning must split tokenizer/parity, assembly/path convergence, persistence/reindex, and A/B/cutover into separate dependency-ordered plans.
+- Final granularity is 11 plans, 2 tasks each, with at most 12 files per plan and a 22/22 validation map.
+- `evidence_identity.v1` remains corpus-free; canonical document source content comes from ordered blocks, chunk compatibility is config-aware, and corpus projections control visibility only.
+- Provider parity, all-outcome terminal A/B reports, passing-only selection decisions, and hash-chained activation receipts are separate immutable stages.
 
 ## Last Failure
 

@@ -23340,3 +23340,20 @@ Phase 64.4 auto discuss 提交 context 后调用 `gsd-sdk query state.record-ses
 
 **剩余问题和下次继续排查入口**
 产品实现仍需把 tokenizer asset、revision/SHA 与 provider parity gate 正式版本化，并在架构债务台账记录阿里云未公开服务 tokenizer 映射这一事实和实证启用策略。后续新 worktree 若默认镜像再次 403，应先显式 `UV_DEFAULT_INDEX=https://pypi.org/simple` 重跑，不能把镜像失败误判为项目依赖失败。
+
+## 2026-08-11 — Phase 64.4 plan 命令审计首次因 zsh 引号未闭合失败
+
+**问题现象**
+第一次执行 plan 内裸测试入口扫描时，zsh 在解析包含反引号的双引号正则后报 `unmatched "`，命令未进入任何仓库校验逻辑。
+
+**如何检测/复现与关键证据**
+失败命令把反引号放进 `rg` 的双引号 pattern；shell 在命令启动前即退出，exit code 非零且没有 plan 校验结果。改用不含 command-substitution 字符的单引号 pattern 后，同一 `git diff --check`、11 个 `gsd-sdk query verify.plan-structure` 和 requirement 扫描均成功，11/11 返回 `true`。
+
+**当前判断/根因**
+这是本次临时 zsh 审计命令的转义错误，不是 MOCA plan、uv、pytest、Ruff 或代码失败；首轮输出无效，未被用作绿色结论。
+
+**已做处理**
+用安全单引号 pattern 重跑，并继续以 GSD plan-structure、frontmatter、`git diff --check` 和独立 plan-checker 为正式证据。未运行裸 pytest/Python。
+
+**剩余问题和下次继续排查入口**
+无产品侧剩余问题。后续临时 `rg` 正则避免在 shell 双引号中放反引号或 `$()`；若审计命令本身失败，必须修正后完整重跑。

@@ -204,9 +204,9 @@ Plans:
 ### Phase 64.4: Token-Aware Policy Chunking And Reindex Validation (INSERTED)
 
 **Goal:** Replace character-count policy chunk sizing with a versioned tokenizer-aware assembly path that measures the final `text-embedding-v4` input while preserving parser structure, provenance, evidence identity, deterministic rebuilds, and safe rollback, then prove the change against the Phase 64.3 format-parity baseline.
-**Requirements**: TBD during Phase 64.4 planning.
+**Requirements**: ROADMAP-SC-1, ROADMAP-SC-2, ROADMAP-SC-3, ROADMAP-SC-4, ROADMAP-SC-5, ROADMAP-SC-6
 **Depends on:** Phase 64.3
-**Plans:** 0 plans
+**Plans:** 11 plans
 
 **Confirmed gaps owned:** Production `chunk_blocks` and legacy `chunk_markdown` enforce character budgets rather than embedding-model token budgets; final embedding text adds title, section, and source context only after chunking; dry-run/golden validation and production ingestion do not share one authoritative chunk path; chunker/tokenizer configuration and per-chunk token counts are not persisted; and a rechunk/re-embedding rollout must preserve the immutable evidence/replay contract established by Phase 64.2.
 
@@ -221,7 +221,17 @@ Plans:
 6. A versioned A/B report compares character- and token-aware candidates on Phase 64.3 Hit@1/3/5, MRR, anchor/locator coverage, format parity, duplicate rate, chunk count, latency, and embedding token cost; the selected configuration satisfies explicit non-regression gates and existing RAG tests pass.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 64.4; expected slices: tokenizer contract/parity, token-aware chunk assembly, identity/reindex compatibility, and A/B rollout gates)
+- [ ] 64.4-01-PLAN.md — Pinned Tokenizer Contract And Assets (`depends_on: []`).
+- [ ] 64.4-02-PLAN.md — Exact Final Input Token Chunker (`depends_on: [64.4-01]`).
+- [ ] 64.4-03-PLAN.md — Provider Usage And Immutable Parity Protocol (`depends_on: [64.4-02]`).
+- [ ] 64.4-04-PLAN.md — Production Dry Run Golden And A-B Convergence (`depends_on: [64.4-03]`).
+- [ ] 64.4-05-PLAN.md — Corpus Schema Bootstrap And Source Identity (`depends_on: [64.4-04]`).
+- [ ] 64.4-06-PLAN.md — Active Corpus Paths And Immutable Bindings (`depends_on: [64.4-05]`).
+- [ ] 64.4-07-PLAN.md — Authoritative Snapshot Reindex Build And Resume (`depends_on: [64.4-06]`).
+- [ ] 64.4-08-PLAN.md — Atomic Pointer Activation And Ingestion Continuity (`depends_on: [64.4-07]`).
+- [ ] 64.4-09-PLAN.md — Exact A-B Runtime And Immutable Selection (`depends_on: [64.4-08]`).
+- [ ] 64.4-10-PLAN.md — Real Activation Drill And Hash Chained Receipts (`depends_on: [64.4-09]`).
+- [ ] 64.4-11-PLAN.md — Final Documentation Ledgers And Regression Closeout (`depends_on: [64.4-10]`).
 
 ### Phase 65: Trace Event And Console Label Consistency
 
