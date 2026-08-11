@@ -574,6 +574,16 @@ def test_rollback_only_ab_wrapper_rejects_any_post_rollback_baseline_drift() -> 
     assert caught.value.reason_code == "rollback_baseline_mismatch"
 
 
+def test_rollback_baseline_canonical_hash_accepts_pgvector_array_shape() -> None:
+    class _PgVectorArray:
+        def tolist(self) -> list[float]:
+            return [0.25, -0.5, 1.0]
+
+    assert round_repo_module._canonical_sha256(  # noqa: SLF001
+        _PgVectorArray()
+    ) == round_repo_module._canonical_sha256([0.25, -0.5, 1.0])  # noqa: SLF001
+
+
 @pytest.mark.asyncio
 async def test_claim_rejects_run_identity_drift_before_create_or_resume_mutation(
     monkeypatch: pytest.MonkeyPatch,
