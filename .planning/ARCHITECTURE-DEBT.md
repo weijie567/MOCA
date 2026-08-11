@@ -2647,3 +2647,30 @@
 - **处理状态**：✅ 已修复验证。Phase64.3 函数保持不变；A/B 新增局部向上兼容 owner，先执行旧 tenant/evidence检查，只在旧结果含 `database_schema` 且 live DB 同时证明 evaluation rounds、corpus rollout、chunk binding、activation history、pgvector 与 exact `031_phase64_4_policy_corpus_cow` 时移除该单项。其他 missing 原样保留，未来未知 revision 不自动放行。
 - **证据**：Phase64.4 Plan10 Task2；RED commit `f3c85309` 与本条所在修复 commit；`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；RED 为缺少 Phase64.4 compatibility owner，完成后 format/full lint 通过，A/B scoped gate `94 passed, 1 warning`，真实 031 probe 从 `['database_schema']` 变为 `[]`；attempt 1 artifact `runs/3d4dae9c-a692-482d-b172-965edf5890e0.json` 保留且 pointer/history 零漂移。
 - **剩余风险 / 继续入口**：只允许因该已验证实现缺陷启动 attempt 2；若后续得到 genuine `candidate_failed`，必须停止并保留 prior active，不能再以 schema compatibility 为理由重跑或调阈值。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 — rollback-only evaluator 与合法非空 COW baseline 冲突 ✅已修复验证
+
+- **子系统**：RAG full-provider evaluation / append-only corpus COW / transaction isolation。
+- **问题现象 / 根因**：Plan09 rollback wrapper 已保护 outer connection transaction，但 Phase64.3 repository 仍把 current blocks/chunks/jobs 非空视为残留，并在 terminal cleanup DELETE current projection。Plan08 后 evaluation tenant 的 active corpus 合法绑定非空 current projection；DELETE 会破坏 append-only binding/replay，且后续格式不能在同一 root transaction 内证明回到原 baseline。
+- **影响**：真实 A/B attempt 2 在 ingestion 前 `execution_error`；若简单放宽 clean check 或继续 DELETE，可能破坏 active corpus、历史 evidence 与 pointer authority。
+- **处理状态**：✅ 已修复验证。`[Rule 4 - Architectural change]` 经用户明确批准，仅为 `rollback_only=True` 增加 baseline-aware contract：独立只读 session 封存 rollout/history、active corpus/config/manifest、exact current view/jobs、evidence rollout 与 corpus/evidence immutable counts；每个 format 使用独立 outer connection transaction，production commit 只释放 savepoint，terminal repository 只写 rollback-pending proof而不 DELETE；outer rollback 后全新 session 必须字节语义等价重读，只有完全一致才把返回 round 的 post-state/immutable flags 设 true。Phase64.3 non-rollback pre-state、cleanup DELETE 与 resume payload 调用保持原路径。
+- **证据**：Phase64.4 Plan10 Task2；用户 2026-08-11 Rule4 rollback-only baseline 批准；RED `7440b0df`、GREEN `2851d385`；`src/rag/evaluation/retrieval_rounds.py`、`src/repositories/rag_evaluation_round_repo.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；format/full lint，Plan09 `122 passed`、Plan10 `38 passed`，attempt3 前后 live baseline proof 同为 `sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3`。
+- **剩余风险 / 继续入口**：当前 rollback isolation 零漂移已由 live exact proof验证；full-provider run 仍因下条诊断证据缺口无法定位最后 execution_error，本 plan 已耗尽 attempt budget。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 — baseline proof 未规范化 pgvector ndarray ✅已修复验证
+
+- **子系统**：RAG evaluation baseline hashing / PostgreSQL pgvector adapter。
+- **问题现象 / 根因**：新 baseline proof 的 canonical JSON helper 支持 UUID/date/list，但真实 pgvector ORM 返回 NumPy `ndarray`，只读 preflight 因无法序列化 embedding 中止；单元 fixture 的 list 形态未覆盖 driver representation。
+- **影响**：即使 DB/candidate/provider prerequisites 健康，rollback baseline 无法在 live DB 封存，最后 attempt 不应启动。
+- **处理状态**：✅ 已修复验证。只接受带 `tolist()` 且归一结果为 list 的 array-like DB 值，等价 array/list 生成相同 canonical hash；不保存或输出 embedding/content。RED `55d6458d`、GREEN `c4bc6aea`，Plan09 `123 passed`、Plan10 `38 passed`，live baseline capture 与 candidate preflight `missing=[]`。
+- **证据**：Phase64.4 Plan10 Task2；`src/repositories/rag_evaluation_round_repo.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；live PostgreSQL baseline proof `sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3`。
+- **剩余风险 / 继续入口**：当前无此 representation 缺口；未来更换 pgvector adapter 时仍须用 live read-only proof确认 canonical shape。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 — A/B terminal broad catch 丢失 role-level failure provenance 🔴待立项
+
+- **子系统**：RAG full-provider A/B orchestration / immutable failure reporting。
+- **问题现象 / 根因**：attempt3 run `9aa10545-2350-4053-b4ef-03a57fda0535` 终态只有 `terminal_stage=execution` 与 `provider_execution_failed`；`scripts/eval_rag_token_chunk_ab.py` 在 role run 非完成时先抛 `retrieval_round_incomplete`，随后 broad catch 使用 `_terminal_without_observations`，丢弃已计算的 role rounds/reason codes。
+- **影响**：create-only artifact 能证明“没有 selected_pass”，但不能区分 provider transient、ingestion/retrieval实现错误或 baseline cleanup error；三次上限后无法用 immutable证据裁定是否允许新 attempt，也不能安全声称 genuine candidate quality fail。
+- **处理状态**：🔴 待新 reviewed diagnostic plan。当前不在 attempt 已耗尽后修改 artifact schema或重跑；三份 immutable execution_error report与 prior active corpus全部保留。
+- **证据**：Phase64.4 Plan10 attempt3；artifact JSON SHA `sha256:863a88ec87c575668712e4b56937b45d7d24d9773f0af0dbe8e6b8b89e9d7c49`；selection `30ffe6e0-6f91-4429-91b2-2dee8c20ee73` 不存在；attempt 前后 baseline proof完全相同。
+- **剩余风险 / 继续入口**：用户需决定是否新建诊断/config plan。建议先让 execution-error terminal artifact保留每个已完成/失败 role round的 safe `reason_code` 与 rollback proof，再由新的显式 provider budget决定是否允许额外 attempt；禁止在 Plan10 内第四次执行。

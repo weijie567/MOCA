@@ -23619,3 +23619,36 @@ Plan10 live preflight/初始化连续发现：首次临时 `uv run python -c` �
 
 **已做处理 / 剩余入口**
 以 `alembic upgrade 025` → evaluation singleton healthy CAS → `upgrade head` 的受控顺序完成空库；固定 tenant `643…0001` 最终为唯一 `evaluation_only` tenant，sealed Markdown source 为 3 docs / 158 blocks / 13 character chunks。新增 RED regression 后，A/B 自己的 preflight 保留 Phase64.3 tenant/evidence gate，并仅在 `rag_evaluation_rounds`、rollout/binding/history tables、pgvector 与 exact revision031 全部存在时消除旧 `database_schema` false negative；`make format`、完整 `make lint` 与 scoped gate `94 passed, 1 warning`，live probe 为 missing `[]`。attempt 1 immutable error artifact 保留，不覆盖；只因该已验证实现缺陷允许 attempt 2。后续若 source ingestion 再出现 broad `parse_failed`，应改进 stage-preserving error taxonomy，当前不为完成 live drill 扩 scope。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 attempt 2 触发 rollback-only 与 append-only COW 冲突
+
+**问题现象 / 如何检测**
+修复 head031 preflight 后启动 full-provider attempt 2，run `1628accd-05ea-495e-8961-b74c18d6b85c` 仍以 immutable `execution_error` 终止。只读核对显示 active evaluation corpus 已合法包含 3 documents / 158 blocks / 13 chunks 与 4 条既有 ingestion jobs，而 Phase64.3 round repository 仍要求 `pre_state` 的 blocks/chunks/jobs 全为零，并在 terminal cleanup 删除 current block/chunk。
+
+**关键证据 / 当前判断 / 根因**
+Plan08 已把 ordinary ingestion 改为 append-only corpus COW；active binding 指向的 current block/chunk 不能被 evaluator 删除。旧 `pre_state_not_clean` 与 cleanup DELETE 语义只适用于无 active projection 的 Phase64.3 非 rollback 路径，直接放宽会破坏历史 replay，属于架构边界而非可继续重试的 provider 波动。主代理确认 Rule 4 blocker 后保持零写入，并未消耗第三次 attempt。
+
+**已做处理 / 剩余入口**
+`[Rule 4 - Architectural change]` 用户明确批准只修改 `rollback_only=True`：每个格式前用独立只读 session 封存 pointer/epoch、ordered history hash、active corpus/config/manifest、exact active view、jobs/evidence rollout/immutable counts；production commits 仅释放 savepoint，外层 connection transaction rollback 后必须由全新 session 精确重读一致，才在返回内存结果中标记 post-state/immutable proof。rollback cleanup 不再删除 append-only projection；非 rollback pre-state/cleanup/resume 保持兼容。RED `7440b0df`、GREEN `2851d385`，format/full lint、Plan09 `122 passed`、Plan10 `38 passed`。下一入口仅是批准后的第三次且最后一次 full-provider attempt。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 live baseline probe 暴露 pgvector ndarray canonicalization 缺口
+
+**问题现象 / 如何检测**
+attempt 3 前只读调用 `capture_rollback_baseline()` 时，PostgreSQL/pgvector ORM 把 embedding 返回为 `ndarray`，canonical JSON helper 抛出 `TypeError: unsupported canonical JSON value: ndarray`。更早的临时 probe 还分别因误引入不存在的 `load_reindex_identity`、向 `_load_identity` 传 `str` 而非 `Path` 失败；这些均在 provider 调用前发生。
+
+**关键证据 / 当前判断 / 根因**
+单元测试只覆盖 JSON list embedding，未覆盖真实 pgvector driver 的 ndarray 形态。新增回归精确复现相同错误；这属于新 baseline proof 的 in-scope implementation defect。临时 probe 的 import/参数错误是本地验证脚本误用，不是产品缺陷，均未写 DB。
+
+**已做处理 / 剩余入口**
+RED `55d6458d` 后，canonicalizer 只把有 `tolist()` 且结果为 list 的 DB array 规范化，等价 list/array 得到相同 hash；GREEN `c4bc6aea`。重新执行 format/full lint、Plan09 `123 passed`、Plan10 `38 passed`，live preflight 得到 `missing=[]`，baseline proof `sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3`。主仓 `.env` 同时设置了 provider key 与受限 UV/PIP index，第一次启动被 index 403 在脚本前拦截；去掉 index override、只保留 provider key 后才进入唯一 attempt 3。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 attempt 3 execution_error，三次上限耗尽
+
+**问题现象 / 如何检测**
+最后一次 full-provider run `9aa10545-2350-4053-b4ef-03a57fda0535` 生成 create-only `execution_error` artifact，safe reason 仅为 `provider_execution_failed`，JSON SHA 为 `sha256:863a88ec87c575668712e4b56937b45d7d24d9773f0af0dbe8e6b8b89e9d7c49`。没有生成 selection `30ffe6e0-6f91-4429-91b2-2dee8c20ee73`，因此未执行 cutover/rollback/restore，也没有 activation receipt。
+
+**关键证据 / 当前判断 / 根因**
+fresh parity 仍为 passed/exact-match；但 A/B orchestration 的 broad catch 在任一 role 非成功时丢弃 role rounds，只保留通用 `provider_execution_failed`，现有 artifact 无法进一步证明是 provider transient、ingestion/retrieval execution error 或新的实现缺陷。三次 full-provider attempt 已达到 plan 硬上限，禁止第四次。新 session 复读 active corpus `55d651e5-634f-4b64-b057-350b22054007`、epoch/history `4/4`、current `3/158/13`、jobs `4` 及完整 baseline proof 均与 attempt 前一致，证明 rollback-only 零漂移。
+
+**已做处理 / 剩余入口**
+如实保留三次 immutable error reports、fresh parity 与 complete inactive candidate；prior character corpus 保持 active，不伪造 selection/activation success。Phase64.4 Plan10 在此停止为 incomplete user-decision checkpoint。继续前需用户发起新的 reviewed config/diagnostic plan，先修复 terminal artifact 的 role-level safe failure provenance，再决定是否授权新的 provider budget；本 plan 不再重试。
