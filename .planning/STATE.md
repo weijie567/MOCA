@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
-status: planning
-last_updated: "2026-08-11T04:56:17Z"
-last_activity: 2026-08-11 -- Phase 64.4 planned as 11 plans/22 tasks; GSD plan-checker passed after three iterations
+status: executing
+last_updated: "2026-08-11T05:25:10.972Z"
+last_activity: 2026-08-11 -- Phase 64.4 plan review clean; execution started with 11 plans/22 tasks
 progress:
   total_phases: 15
   completed_phases: 7
@@ -24,11 +24,11 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 
 ## Current Position
 
-Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — PLAN REVIEW
-Plan: 0/11 — implementation not started
-Status: Plans passed GSD plan-checker; external Claude and Codex adjudication remain before execution.
-Last activity: 2026-08-11 -- Phase 64.4 planned as 11 plans/22 tasks; GSD plan-checker passed after three iterations
-Next: Run `$gsd-review 64.4 --claude`, adjudicate against repository evidence, then execute the approved plans.
+Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — EXECUTING
+Plan: 1 of 11 — Plan 64.4-01 tokenizer contract and assets
+Status: Plan review clean; executing the approved strict 01→11 dependency chain.
+Last activity: 2026-08-11 -- Phase 64.4 plan review clean; execution started with 11 plans/22 tasks
+Next: Execute `64.4-01-PLAN.md`, then continue dependency-ordered plans.
 After: Phase 65 follows Phase 64.4.
 
 Resume file: `.planning/autopilot/phase-64.4.md`

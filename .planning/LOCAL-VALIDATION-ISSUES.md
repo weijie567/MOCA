@@ -23324,6 +23324,10 @@ Phase 64.4 auto discuss 提交 context 后调用 `gsd-sdk query state.record-ses
 **剩余问题和下次继续排查入口**
 产品侧无剩余问题。GSD SDK 需统一 query handler 的 positional/flag 参数契约，并让进度同步区分“已规划 plan 完成率”和“当前里程碑 phase 完成率”；修复前不直接信任 handler 生成的 decimal phase transition/progress metadata。
 
+### `state.begin-phase` 同样把 flag 名当成小数阶段参数
+
+进入 Phase 64.4 execution 时按 execute-phase workflow 调用 `gsd-sdk query state.begin-phase --phase 64.4 --name token-aware-policy-chunking-and-reindex-validation --plans 11`，返回值却是 `phase: "--phase"`、`name: "64.4"`、`plan_count: "--name"`，并把 STATE 写成 `Phase --phase`、`Plan 1 of --name`、里程碑进度 80%。这证明问题不只存在于 `state.record-session`：`state.begin-phase` handler 也按位置参数读取，却与 workflow 的 flag 示例不兼容，并继续误算 decimal inserted phase 进度。已在启动任何 executor 前核对 diff，按 ROADMAP 的 7/15 完成阶段恢复 47%，保留真实 Phase64.4、11 plans/22 tasks 和 execution 状态。后续每个 GSD tracking handler 仍必须立即检查 STATE/ROADMAP diff，不能直接提交工具输出。
+
 ## 2026-08-11 — Phase 64.4 tokenizer parity 探针首次被 uv 镜像 403 阻断
 
 **问题现象**
