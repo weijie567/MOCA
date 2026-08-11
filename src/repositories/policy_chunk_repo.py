@@ -12,7 +12,12 @@ from src.db.models import PolicyChunk, PolicyDocument
 from src.knowledge.provenance import EvidenceProvenance, source_locator_from_block
 from src.repositories.document_block_repo import DocumentBlockRepository
 from src.repositories.evidence_version_repo import EvidenceRolloutError, EvidenceVersionRepository
-from src.repositories.policy_corpus_scope import active_chunk_ids, join_active_chunk_projection
+from src.repositories.policy_corpus_scope import (
+    ActivePolicyCorpusScope,
+    PolicyCorpusScopeUnavailable,
+    active_chunk_ids,
+    join_active_chunk_projection,
+)
 
 
 class PolicyChunkRepository:
@@ -29,6 +34,13 @@ class PolicyChunkRepository:
         return result.rowcount or 0
 
     async def bulk_insert(self, chunks: list[PolicyChunk]) -> None:
+        tenant_ids = {chunk.tenant_id for chunk in chunks}
+        if len(tenant_ids) != 1:
+            raise PolicyCorpusScopeUnavailable("one tenant active policy corpus is required")
+        tenant_id = next(iter(tenant_ids))
+        scope = await ActivePolicyCorpusScope.resolve(self.session, tenant_id=tenant_id)
+        for chunk in chunks:
+            scope.require_chunk_config(chunk.chunking_config_fingerprint)
         self.session.add_all(chunks)
         await self.session.flush()
 

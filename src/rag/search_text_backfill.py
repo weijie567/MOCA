@@ -8,12 +8,13 @@ from sqlalchemy.orm import selectinload
 
 from src.db.models import PolicyChunk
 from src.rag.search_text import build_policy_chunk_search_text
+from src.repositories.policy_corpus_scope import ActivePolicyCorpusScope, join_active_chunk_projection
 
 
 async def rebuild_policy_chunk_search_texts(
     session: AsyncSession,
     *,
-    tenant_id: UUID | None = None,
+    tenant_id: UUID,
 ) -> int:
     """Rebuild retrieval-only search text for existing policy chunks.
 
@@ -21,9 +22,11 @@ async def rebuild_policy_chunk_search_texts(
     This maintenance path applies the same Python tokenizer used by ingestion
     without changing citation content.
     """
-    stmt = select(PolicyChunk).options(selectinload(PolicyChunk.document))
-    if tenant_id is not None:
-        stmt = stmt.where(PolicyChunk.tenant_id == tenant_id)
+    await ActivePolicyCorpusScope.resolve(session, tenant_id=tenant_id)
+    stmt = join_active_chunk_projection(
+        select(PolicyChunk).options(selectinload(PolicyChunk.document)).where(PolicyChunk.tenant_id == tenant_id),
+        tenant_id=tenant_id,
+    )
 
     chunks = list((await session.execute(stmt)).scalars().all())
     for chunk in chunks:

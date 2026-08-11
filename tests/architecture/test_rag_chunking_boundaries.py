@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RAG_ROOT = ROOT / "src" / "rag"
+REPOSITORIES_ROOT = ROOT / "src" / "repositories"
 SCRIPTS_ROOT = ROOT / "scripts"
 
 
@@ -35,6 +36,50 @@ class _CallCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+class _CurrentSqlCollector(ast.NodeVisitor):
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.scopes: list[str] = []
+        self.scope_sources: list[str] = []
+        self.operations: list[tuple[str, str, str, str]] = []
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.scopes.append(node.name)
+        self.scope_sources.append(ast.unparse(node))
+        self.generic_visit(node)
+        self.scope_sources.pop()
+        self.scopes.pop()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.scopes.append(node.name)
+        self.scope_sources.append(ast.unparse(node))
+        self.generic_visit(node)
+        self.scope_sources.pop()
+        self.scopes.pop()
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.visit_FunctionDef(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        name = _call_name(node.func).rsplit(".", 1)[-1]
+        if name in {"select", "select_from", "delete", "update"}:
+            models = {
+                item.id
+                for item in ast.walk(node)
+                if isinstance(item, ast.Name) and item.id in {"PolicyChunk", "DocumentBlock"}
+            }
+            for model in models:
+                self.operations.append(
+                    (
+                        self.path.relative_to(ROOT).as_posix(),
+                        ".".join(self.scopes),
+                        f"{'select' if name == 'select_from' else name}:{model}",
+                        self.scope_sources[-1] if self.scope_sources else "",
+                    )
+                )
+        self.generic_visit(node)
+
+
 def _call_name(node: ast.expr) -> str:
     if isinstance(node, ast.Name):
         return node.id
@@ -45,7 +90,7 @@ def _call_name(node: ast.expr) -> str:
 
 
 def _production_trees() -> list[tuple[Path, ast.Module]]:
-    files = sorted(RAG_ROOT.rglob("*.py")) + sorted(SCRIPTS_ROOT.glob("*.py"))
+    files = sorted(RAG_ROOT.rglob("*.py")) + sorted(REPOSITORIES_ROOT.rglob("*.py")) + sorted(SCRIPTS_ROOT.glob("*.py"))
     return [(path, ast.parse(path.read_text(encoding="utf-8"))) for path in files]
 
 
@@ -66,6 +111,7 @@ def test_only_named_compatibility_owner_may_call_legacy_block_chunking() -> None
     assert block_callers == [("src/rag/ingestion.py", "CharacterCompatibilityAssembler.assemble", "chunk_blocks")]
     assert compatibility_constructors == {
         ("src/rag/ingestion.py", "_assembler_for_mode"),
+        ("src/rag/ingestion.py", "assembler_for_active_policy_corpus"),
         ("scripts/eval_rag_format_parity.py", "_character_baseline"),
     }
 
@@ -135,3 +181,148 @@ def test_authoritative_paths_submit_or_validate_exact_assembler_dto_strings() ->
     assert "input_assembler=_token_candidate()" in format_parity
     assert "input_assembler: PolicyInputAssembler | None = None" in retrieval_rounds
     assert "input_assembler=input_assembler or PolicyEmbeddingInputAssembler()" in retrieval_rounds
+
+
+def test_every_current_policy_chunk_or_document_block_constructor_has_one_named_owner() -> None:
+    calls: set[tuple[str, str, str]] = set()
+    for path, tree in _production_trees():
+        collector = _CallCollector(path)
+        collector.visit(tree)
+        calls.update(call for call in collector.calls if call[2].rsplit(".", 1)[-1] in {"PolicyChunk", "DocumentBlock"})
+
+    assert calls == {
+        ("src/rag/ingestion.py", "_document_blocks_from_parsed", "DocumentBlock"),
+        ("src/rag/ingestion.py", "_policy_chunks_from_embedding_inputs", "PolicyChunk"),
+    }
+
+
+def test_every_current_policy_chunk_or_document_block_sql_path_is_active_scoped() -> None:
+    operations: list[tuple[str, str, str, str]] = []
+    for path, tree in _production_trees():
+        collector = _CurrentSqlCollector(path)
+        collector.visit(tree)
+        operations.extend(collector.operations)
+
+    actual = {(path, scope, operation) for path, scope, operation, _ in operations}
+    assert actual == {
+        ("src/rag/search_text_backfill.py", "rebuild_policy_chunk_search_texts", "select:PolicyChunk"),
+        (
+            "src/repositories/document_block_repo.py",
+            "DocumentBlockRepository.delete_by_document_id",
+            "delete:DocumentBlock",
+        ),
+        (
+            "src/repositories/document_block_repo.py",
+            "DocumentBlockRepository.get_by_source_block_ids",
+            "select:DocumentBlock",
+        ),
+        (
+            "src/repositories/document_block_repo.py",
+            "DocumentBlockRepository.list_by_document_id",
+            "select:DocumentBlock",
+        ),
+        (
+            "src/repositories/evidence_version_repo.py",
+            "EvidenceVersionRepository.backfill_current_heads",
+            "select:PolicyChunk",
+        ),
+        (
+            "src/repositories/evidence_version_repo.py",
+            "EvidenceVersionRepository.get_current_identities_by_keys",
+            "select:PolicyChunk",
+        ),
+        (
+            "src/repositories/evidence_version_repo.py",
+            "EvidenceVersionRepository.reconcile_and_enable_canonical_reads",
+            "select:PolicyChunk",
+        ),
+        (
+            "src/repositories/policy_chunk_repo.py",
+            "PolicyChunkRepository.delete_by_document_id",
+            "delete:PolicyChunk",
+        ),
+        *{
+            ("src/repositories/policy_chunk_repo.py", f"PolicyChunkRepository.{method}", "select:PolicyChunk")
+            for method in {
+                "get_canonical_evidence_rows_by_keys",
+                "get_contents_by_evidence_keys",
+                "get_provenance_by_evidence_keys",
+                "list_by_document_id_for_update",
+                "search_fuzzy",
+                "search_similar",
+                "search_sparse",
+            }
+        },
+        (
+            "src/repositories/policy_corpus_scope.py",
+            "active_block_ids",
+            "select:DocumentBlock",
+        ),
+        (
+            "src/repositories/policy_corpus_scope.py",
+            "active_chunk_ids",
+            "select:PolicyChunk",
+        ),
+        *{
+            (
+                "src/repositories/rag_evaluation_round_repo.py",
+                f"RagEvaluationRoundRepository.{method}",
+                f"select:{model}",
+            )
+            for method, model in {
+                ("_head_projection", "DocumentBlock"),
+                ("_head_projection", "PolicyChunk"),
+                ("_inspect_locked", "DocumentBlock"),
+                ("_inspect_locked", "PolicyChunk"),
+                ("prove_recorded_anchor_locators", "DocumentBlock"),
+                ("prove_recorded_anchor_locators", "PolicyChunk"),
+                ("_current_counts", "DocumentBlock"),
+                ("_current_counts", "PolicyChunk"),
+            }
+        },
+    }
+    scope_tokens = {
+        "join_active_chunk_projection",
+        "join_active_block_projection",
+        "active_chunk_ids",
+        "active_block_ids",
+    }
+    assert all(any(token in source for token in scope_tokens) for _, _, _, source in operations)
+
+
+def test_current_mutation_and_maintenance_paths_require_active_scope() -> None:
+    ingestion = (ROOT / "src/rag/ingestion.py").read_text(encoding="utf-8")
+    backfill = (ROOT / "src/rag/search_text_backfill.py").read_text(encoding="utf-8")
+    seed = (ROOT / "scripts/seed_demo.py").read_text(encoding="utf-8")
+    chunk_repo = (ROOT / "src/repositories/policy_chunk_repo.py").read_text(encoding="utf-8")
+    block_repo = (ROOT / "src/repositories/document_block_repo.py").read_text(encoding="utf-8")
+
+    assert "await ActivePolicyCorpusScope.resolve(" in ingestion
+    assert "assembler_for_active_policy_corpus" in ingestion
+    assert "bind_active_policy_projection" in ingestion
+    assert "join_active_chunk_projection" in backfill
+    assert "tenant_id: UUID," in backfill
+    assert "ActivePolicyCorpusScope.resolve" in seed
+    assert "assembler_for_active_policy_corpus" in seed
+    assert "await ActivePolicyCorpusScope.resolve(" in chunk_repo
+    assert "await ActivePolicyCorpusScope.resolve(" in block_repo
+
+
+def test_identity_and_compatibility_authorities_are_corpus_free_and_source_based() -> None:
+    identity = (ROOT / "src/knowledge/evidence_identity.py").read_text(encoding="utf-8")
+    evidence_repo = (ROOT / "src/repositories/evidence_version_repo.py").read_text(encoding="utf-8")
+    ingestion = (ROOT / "src/rag/ingestion.py").read_text(encoding="utf-8")
+
+    for function_name in (
+        "canonical_document_version_matches_source",
+        "canonical_chunk_version_matches_projection",
+    ):
+        function = next(
+            node
+            for node in ast.parse(evidence_repo).body
+            if isinstance(node, ast.FunctionDef) and node.name == function_name
+        )
+        assert "corpus_version_id" not in ast.unparse(function)
+    assert "corpus_version_id" not in identity
+    assert "_document_citation_text" not in ingestion
+    assert "canonical_source = build_canonical_document_content(blocks)" in ingestion

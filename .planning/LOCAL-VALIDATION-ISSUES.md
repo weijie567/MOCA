@@ -23465,3 +23465,14 @@ ORM canonical JSON 列改用 `JSONB(none_as_null=True)`，legacy append 继续�
 
 **剩余问题和下次继续排查入口**
 上层按 Rule 2 确认该 staging 断言必须由 Plan05 一并收敛，已最小改为精确验证 current chunk 与 ingestion job 的 DTO count/hash/config audit；immutable audit 由同 plan 的真实 PostgreSQL source/config versioning test 覆盖。对应 ingestion gate 随后完整通过。Plan06/07 继续分别验证 candidate current-head isolation 与 reindex，不在本 plan 提前实现。
+
+## 2026-08-11 — Phase 64.4 Plan 06 Task 2 静态 guard 首版类边界插入错误
+
+**问题现象 / 如何检测**
+扩展 `tests/architecture/test_rag_chunking_boundaries.py` 覆盖 repository current SQL 后，首次执行 `make format` 被 Ruff 以 3 个 `F811` 拦截：`visit_FunctionDef`、`visit_AsyncFunctionDef`、`visit_Call` 在 `_CurrentSqlCollector` 内被重复定义。
+
+**关键证据 / 当前判断**
+检查文件顶部确认新 collector 插入在旧 `_CallCollector.visit_ClassDef()` 与其后续 methods 之间，导致旧 methods 落入新 class。这是测试 guard 编辑位置错误，不是 production active-corpus 实现或 Python 环境入口失败；Ruff 在任何 pytest gate 前已可靠检出。
+
+**已做处理 / 剩余入口**
+恢复 `_CallCollector` 完整类边界，并让 `_CurrentSqlCollector` 独立维护 scope/source stack；随后 `make format`、两次完整 `make lint`、Task 2 精确 gate `65 passed, 1 warning` 与受影响 Task 1 回归 gate `41 passed, 1 warning` 全部通过。没有使用裸 pytest/Python。当前无产品侧剩余问题；以后修改 AST visitor 时先运行 `make format`，再运行 architecture test 单文件定位 collector 自身错误。

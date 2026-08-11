@@ -2,10 +2,22 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
 
 from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
 from src.knowledge.text_hash import evidence_text_hash
+from src.rag.embedding_tokenizer import load_embedding_tokenizer_config
+from src.rag.ingestion import (
+    CharacterCompatibilityAssembler,
+    PolicyCorpusConfigError,
+    assembler_for_active_policy_corpus,
+)
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.repositories.evidence_version_repo import canonical_chunk_version_matches_projection
+from src.db.models import CorpusBlockBinding, CorpusChunkBinding, CorpusDocumentBinding
+from src.repositories.policy_corpus_scope import ActivePolicyCorpusScope, bind_active_policy_projection
 
 from .conftest import FIXED_RETRIEVED_AT, make_evidence_ref
 
@@ -125,3 +137,176 @@ def test_immutable_chunk_compatibility_is_corpus_free():
     current.corpus_version_id = "corpus-b"
     immutable.corpus_version_id = "corpus-a"
     assert canonical_chunk_version_matches_projection(immutable, current)
+
+
+def _active_scope(**overrides: object) -> ActivePolicyCorpusScope:
+    data: dict[str, object] = {
+        "tenant_id": uuid4(),
+        "corpus_version_id": uuid4(),
+        "generation_name": "character.v1",
+        "config_schema_version": "character_compatibility.v1",
+        "config_fingerprint": CharacterCompatibilityAssembler().config_fingerprint,
+        "rollout_epoch": 1,
+    }
+    data.update(overrides)
+    return ActivePolicyCorpusScope(**data)  # type: ignore[arg-type]
+
+
+def test_active_character_corpus_selects_only_character_compatibility_assembler() -> None:
+    assembler = assembler_for_active_policy_corpus(_active_scope())
+
+    assert isinstance(assembler, CharacterCompatibilityAssembler)
+
+
+def test_active_token_corpus_selects_only_pinned_token_assembler() -> None:
+    token_config = load_embedding_tokenizer_config()
+    assembler = assembler_for_active_policy_corpus(
+        _active_scope(
+            generation_name="token.selected.v1",
+            config_schema_version=token_config.schema_version,
+            config_fingerprint=token_config.config_fingerprint,
+        )
+    )
+
+    assert isinstance(assembler, PolicyEmbeddingInputAssembler)
+    assert assembler.config.config_fingerprint == token_config.config_fingerprint
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"generation_name": "unknown.v1"},
+        {"config_schema_version": "unknown.v1"},
+        {"config_fingerprint": evidence_text_hash("drifted-config")},
+        {
+            "generation_name": "character.v1",
+            "config_schema_version": "embedding_tokenizer.v1",
+            "config_fingerprint": load_embedding_tokenizer_config().config_fingerprint,
+        },
+    ],
+)
+def test_active_unknown_mixed_or_drifted_config_fails_closed(overrides: dict[str, object]) -> None:
+    with pytest.raises(PolicyCorpusConfigError, match="active_policy_corpus_config_unavailable"):
+        assembler_for_active_policy_corpus(_active_scope(**overrides))
+
+
+class _BindingResult:
+    def __init__(self, *, row=None, scalar=None, values=()) -> None:
+        self.row = row
+        self.scalar = scalar
+        self.values = values
+
+    def one_or_none(self):
+        return self.row
+
+    def scalar_one_or_none(self):
+        return self.scalar
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self.values
+
+    def __iter__(self):
+        return iter(self.values)
+
+
+class _BindingSession:
+    def __init__(self, results: list[_BindingResult]) -> None:
+        self.results = results
+        self.added: list[object] = []
+        self.flushed = False
+
+    async def execute(self, statement):
+        return self.results.pop(0)
+
+    def add(self, row: object) -> None:
+        self.added.append(row)
+
+    def add_all(self, rows: list[object]) -> None:
+        self.added.extend(rows)
+
+    async def flush(self) -> None:
+        self.flushed = True
+
+
+@pytest.mark.asyncio
+async def test_active_projection_binding_resolves_pointer_and_binds_exact_immutable_rows() -> None:
+    scope = _active_scope()
+    document_id = uuid4()
+    document_version_id = uuid4()
+    block_id = uuid4()
+    chunk_id = uuid4()
+    chunk_version_id = uuid4()
+    source_refs = [{"source_block_id": "refund:block:0001"}]
+    document = SimpleNamespace(id=document_id, tenant_id=scope.tenant_id)
+    document_version = SimpleNamespace(
+        id=document_version_id,
+        tenant_id=scope.tenant_id,
+        policy_document_id=document_id,
+    )
+    block = SimpleNamespace(id=block_id, tenant_id=scope.tenant_id, doc_id=document_id)
+    chunk = SimpleNamespace(
+        id=chunk_id,
+        tenant_id=scope.tenant_id,
+        doc_id=document_id,
+        chunk_id="refund_001",
+        content="退款必须原路返回。",
+        search_text="退款 原路返回",
+        source_block_refs_json=source_refs,
+        chunking_config_fingerprint=scope.config_fingerprint,
+        embedding_input_hash=evidence_text_hash("provider-input"),
+        embedding_token_count=19,
+    )
+    chunk_version = SimpleNamespace(
+        id=chunk_version_id,
+        tenant_id=scope.tenant_id,
+        policy_document_version_id=document_version_id,
+        chunk_id=chunk.chunk_id,
+        content=chunk.content,
+        text_hash=evidence_text_hash(chunk.content),
+        search_text=chunk.search_text,
+        source_locator_json={"source_block_refs": source_refs},
+        chunking_config_fingerprint=chunk.chunking_config_fingerprint,
+        embedding_input_hash=chunk.embedding_input_hash,
+        embedding_token_count=chunk.embedding_token_count,
+    )
+    rollout = SimpleNamespace(
+        tenant_id=scope.tenant_id,
+        active_corpus_version_id=scope.corpus_version_id,
+        rollout_epoch=scope.rollout_epoch,
+    )
+    corpus = SimpleNamespace(
+        id=scope.corpus_version_id,
+        generation_name=scope.generation_name,
+        config_schema_version=scope.config_schema_version,
+        config_fingerprint=scope.config_fingerprint,
+    )
+    session = _BindingSession(
+        [
+            _BindingResult(row=(rollout, corpus)),
+            _BindingResult(scalar=None),
+            _BindingResult(values=()),
+            _BindingResult(values=()),
+        ]
+    )
+
+    resolved = await bind_active_policy_projection(
+        session,  # type: ignore[arg-type]
+        tenant_id=scope.tenant_id,
+        document=document,  # type: ignore[arg-type]
+        blocks=[block],  # type: ignore[list-item]
+        chunks=[chunk],  # type: ignore[list-item]
+        document_version=document_version,  # type: ignore[arg-type]
+        chunk_versions=[chunk_version],  # type: ignore[list-item]
+    )
+
+    assert resolved == scope
+    assert {type(row) for row in session.added} == {
+        CorpusDocumentBinding,
+        CorpusBlockBinding,
+        CorpusChunkBinding,
+    }
+    assert {row.corpus_version_id for row in session.added} == {scope.corpus_version_id}
+    assert session.flushed is True

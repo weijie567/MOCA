@@ -35,6 +35,11 @@ from src.repositories.document_block_repo import (
 )
 from src.repositories.evidence_version_repo import EvidenceVersionRepository
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
+from src.repositories.policy_corpus_scope import (
+    ActivePolicyCorpusScope,
+    PolicyCorpusScopeUnavailable,
+    bind_active_policy_projection,
+)
 from src.repositories.policy_document_repo import PolicyDocumentRepository
 from src.repositories.rag_ingestion_job_repo import RagIngestionJobRepository, validate_rag_ingestion_job
 
@@ -62,6 +67,10 @@ _CHARACTER_COMPATIBILITY_OVERLAP_CHARS = 100
 class IngestionAssemblyMode(StrEnum):
     CHARACTER_COMPATIBILITY = "character_compatibility"
     TOKEN_AWARE = "token_aware"
+
+
+class PolicyCorpusConfigError(RuntimeError):
+    """An active corpus does not match either supported named configuration."""
 
 
 class PolicyInputAssembler(Protocol):
@@ -252,6 +261,7 @@ class IngestionService:
         self.embedder = embedder
         self.tenant_id = tenant_id
         self.assembly_mode = IngestionAssemblyMode(assembly_mode)
+        self._input_assembler_explicit = input_assembler is not None
         self.input_assembler = input_assembler or _assembler_for_mode(self.assembly_mode)
         self.chunk_repo = PolicyChunkRepository(session)
         self.doc_repo = PolicyDocumentRepository(session)
@@ -285,6 +295,20 @@ class IngestionService:
                 safe_message="Policy document key is invalid.",
             )
         doc_key = str(raw_doc_key)
+        active_scope: ActivePolicyCorpusScope | None = None
+        if isinstance(self.session, AsyncSession) and not self._input_assembler_explicit:
+            try:
+                active_scope = await ActivePolicyCorpusScope.resolve(self.session, tenant_id=self.tenant_id)
+                self.input_assembler = assembler_for_active_policy_corpus(active_scope)
+            except (PolicyCorpusConfigError, PolicyCorpusScopeUnavailable):
+                return IngestionReport(
+                    doc_key=doc_key,
+                    title=title,
+                    status="failed",
+                    error="Active policy corpus configuration is unavailable.",
+                    error_code="active_policy_corpus_config_unavailable",
+                    safe_message="Active policy corpus configuration is unavailable.",
+                )
         source_type = _source_type_for(file_path, doc_meta)
         source_checksum = _source_checksum(file_path)
         effective_date = doc_meta.get("effective_date")
@@ -511,7 +535,7 @@ class IngestionService:
                 persisted_chunks = db_chunks
                 chunks_created = len(db_chunks)
                 if use_immutable_writer:
-                    await self.evidence_repo.append_immutable_version(
+                    document_version, chunk_versions = await self.evidence_repo.append_immutable_version(
                         tenant_id=self.tenant_id,
                         document=doc,
                         chunks=persisted_chunks,
@@ -519,6 +543,17 @@ class IngestionService:
                         canonical_source=canonical_source,
                         correction_of_document_version_id=doc_meta.get("correction_of_document_version_id"),
                     )
+                    bound_scope = await bind_active_policy_projection(
+                        self.session,
+                        tenant_id=self.tenant_id,
+                        document=doc,
+                        blocks=db_blocks,
+                        chunks=persisted_chunks,
+                        document_version=document_version,
+                        chunk_versions=chunk_versions,
+                    )
+                    if active_scope is not None and bound_scope != active_scope:
+                        raise PolicyCorpusScopeUnavailable("active policy corpus pointer changed during ingestion")
             if job is not None:
                 _mark_job_success(
                     job,
@@ -846,6 +881,27 @@ def _assembler_for_mode(mode: IngestionAssemblyMode) -> PolicyInputAssembler:
     if mode is IngestionAssemblyMode.CHARACTER_COMPATIBILITY:
         return CharacterCompatibilityAssembler(counter=counter)
     return PolicyEmbeddingInputAssembler(counter=counter)
+
+
+def assembler_for_active_policy_corpus(scope: ActivePolicyCorpusScope) -> PolicyInputAssembler:
+    """Select the sole assembler matching one internally resolved active config."""
+
+    counter = _default_embedding_token_counter()
+    character = CharacterCompatibilityAssembler(counter=counter)
+    if (
+        scope.generation_name == "character.v1"
+        and scope.config_schema_version == CHARACTER_COMPATIBILITY_CONFIG_VERSION
+        and scope.config_fingerprint == character.config_fingerprint
+    ):
+        return character
+    token_config = counter.config
+    if (
+        scope.generation_name != "character.v1"
+        and scope.config_schema_version == token_config.schema_version
+        and scope.config_fingerprint == token_config.config_fingerprint
+    ):
+        return PolicyEmbeddingInputAssembler(counter=counter)
+    raise PolicyCorpusConfigError("active_policy_corpus_config_unavailable")
 
 
 def _character_compatibility_config_fingerprint(counter: EmbeddingTokenCounter) -> str:

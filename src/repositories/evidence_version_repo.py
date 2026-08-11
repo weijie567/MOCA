@@ -30,7 +30,6 @@ from src.db.models import (
     PolicyChunk,
     PolicyChunkVersion,
     PolicyCorpusRollout,
-    PolicyCorpusVersion,
     PolicyDocument,
     PolicyDocumentVersion,
 )
@@ -48,6 +47,11 @@ from src.knowledge.evidence_identity import (
 from src.knowledge.text_hash import evidence_text_hash
 from src.rag.versioning import build_policy_version_fingerprint
 from src.repositories.document_block_repo import CanonicalDocumentContentV2
+from src.repositories.policy_corpus_scope import (
+    ActivePolicyCorpusScope,
+    join_active_chunk_projection,
+    join_active_document_projection,
+)
 
 ROLLOUT_ID = 1
 DEFAULT_EVIDENCE_RETENTION = timedelta(days=3650)
@@ -224,6 +228,31 @@ class EvidenceVersionRepository:
         await self.session.flush()
         return watermark
 
+    async def _active_documents_for_update(self) -> list[PolicyDocument]:
+        """Lock current heads one tenant active pointer at a time."""
+
+        tenant_ids = list(
+            (
+                await self.session.execute(
+                    select(PolicyCorpusRollout.tenant_id).order_by(PolicyCorpusRollout.tenant_id)
+                )
+            ).scalars()
+        )
+        documents: list[PolicyDocument] = []
+        for tenant_id in tenant_ids:
+            await ActivePolicyCorpusScope.resolve(self.session, tenant_id=tenant_id)
+            statement = join_active_document_projection(
+                select(PolicyDocument).where(PolicyDocument.tenant_id == tenant_id),
+                tenant_id=tenant_id,
+            )
+            rows = (
+                await self.session.execute(
+                    statement.order_by(PolicyDocument.doc_key, PolicyDocument.id).with_for_update()
+                )
+            ).scalars()
+            documents.extend(rows)
+        return documents
+
     async def backfill_current_heads(
         self,
         *,
@@ -239,15 +268,7 @@ class EvidenceVersionRepository:
         if rollout.backfill_watermark_sequence is None:
             raise EvidenceRolloutError("backfill watermark is not reserved")
         watermark = int(rollout.backfill_watermark_sequence)
-        documents = list(
-            (
-                await self.session.execute(
-                    select(PolicyDocument)
-                    .order_by(PolicyDocument.tenant_id, PolicyDocument.doc_key, PolicyDocument.id)
-                    .with_for_update()
-                )
-            ).scalars()
-        )
+        documents = await self._active_documents_for_update()
         canonical_count = 0
         resolved_count = 0
         unresolved_count = 0
@@ -255,10 +276,12 @@ class EvidenceVersionRepository:
             chunks = list(
                 (
                     await self.session.execute(
-                        select(PolicyChunk)
-                        .where(
-                            PolicyChunk.tenant_id == document.tenant_id,
-                            PolicyChunk.doc_id == document.id,
+                        join_active_chunk_projection(
+                            select(PolicyChunk).where(
+                                PolicyChunk.tenant_id == document.tenant_id,
+                                PolicyChunk.doc_id == document.id,
+                            ),
+                            tenant_id=document.tenant_id,
                         )
                         .order_by(PolicyChunk.tenant_id, PolicyChunk.doc_id, PolicyChunk.id)
                         .with_for_update()
@@ -330,15 +353,7 @@ class EvidenceVersionRepository:
         if rollout.backfill_watermark_sequence is None:
             raise CanonicalReadCutoverBlocked("backfill watermark is not reserved")
         watermark = int(rollout.backfill_watermark_sequence)
-        documents = list(
-            (
-                await self.session.execute(
-                    select(PolicyDocument)
-                    .order_by(PolicyDocument.tenant_id, PolicyDocument.doc_key, PolicyDocument.id)
-                    .with_for_update()
-                )
-            ).scalars()
-        )
+        documents = await self._active_documents_for_update()
         canonical_count = 0
         reconciled_count = 0
         unresolved_count = 0
@@ -348,10 +363,12 @@ class EvidenceVersionRepository:
             chunks = list(
                 (
                     await self.session.execute(
-                        select(PolicyChunk)
-                        .where(
-                            PolicyChunk.tenant_id == document.tenant_id,
-                            PolicyChunk.doc_id == document.id,
+                        join_active_chunk_projection(
+                            select(PolicyChunk).where(
+                                PolicyChunk.tenant_id == document.tenant_id,
+                                PolicyChunk.doc_id == document.id,
+                            ),
+                            tenant_id=document.tenant_id,
                         )
                         .order_by(PolicyChunk.tenant_id, PolicyChunk.doc_id, PolicyChunk.id)
                         .with_for_update()
@@ -464,26 +481,12 @@ class EvidenceVersionRepository:
         rows = list(
             (
                 await self.session.execute(
-                    select(PolicyDocument, PolicyChunk, PolicyChunkVersion)
-                    .join(
-                        CorpusDocumentBinding,
-                        (CorpusDocumentBinding.tenant_id == tenant_id)
-                        & (CorpusDocumentBinding.policy_document_id == PolicyDocument.id),
-                    )
-                    .join(
-                        PolicyCorpusRollout,
-                        (PolicyCorpusRollout.tenant_id == tenant_id)
-                        & (PolicyCorpusRollout.active_corpus_version_id == CorpusDocumentBinding.corpus_version_id),
-                    )
-                    .join(
-                        PolicyCorpusVersion,
-                        (PolicyCorpusVersion.tenant_id == tenant_id)
-                        & (PolicyCorpusVersion.id == PolicyCorpusRollout.active_corpus_version_id)
-                        & (PolicyCorpusVersion.state == "complete"),
-                    )
-                    .join(
-                        PolicyChunk,
-                        (PolicyChunk.tenant_id == tenant_id) & (PolicyChunk.doc_id == PolicyDocument.id),
+                    join_active_chunk_projection(
+                        select(PolicyDocument, PolicyChunk, PolicyChunkVersion).join(
+                            PolicyChunk,
+                            (PolicyChunk.tenant_id == tenant_id) & (PolicyChunk.doc_id == PolicyDocument.id),
+                        ),
+                        tenant_id=tenant_id,
                     )
                     .join(
                         CorpusChunkBinding,
@@ -503,7 +506,6 @@ class EvidenceVersionRepository:
                     .where(
                         PolicyDocument.tenant_id == tenant_id,
                         PolicyDocument.doc_key.in_({doc_key for doc_key, _ in requested}),
-                        PolicyCorpusRollout.quarantine_reason.is_(None),
                     )
                 )
             ).all()

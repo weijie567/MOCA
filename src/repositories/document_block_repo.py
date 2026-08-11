@@ -14,7 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import DocumentBlock
 from src.knowledge.text_hash import evidence_text_hash
 from src.rag.parsers.base import ParsedBlock
-from src.repositories.policy_corpus_scope import active_block_ids, join_active_block_projection
+from src.repositories.policy_corpus_scope import (
+    ActivePolicyCorpusScope,
+    PolicyCorpusScopeUnavailable,
+    active_block_ids,
+    join_active_block_projection,
+)
 
 
 MAX_DOCUMENT_BLOCK_TEXT_LENGTH = 20_000
@@ -109,6 +114,11 @@ class DocumentBlockRepository:
         return result.rowcount or 0
 
     async def bulk_insert(self, blocks: Sequence[DocumentBlock]) -> None:
+        tenant_ids = {block.tenant_id for block in blocks}
+        if len(tenant_ids) != 1:
+            raise PolicyCorpusScopeUnavailable("one tenant active policy corpus is required")
+        tenant_id = next(iter(tenant_ids))
+        await ActivePolicyCorpusScope.resolve(self.session, tenant_id=tenant_id)
         for block in blocks:
             validate_document_block(block)
         self.session.add_all(list(blocks))
