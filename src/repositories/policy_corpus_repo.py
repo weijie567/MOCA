@@ -1,16 +1,19 @@
 """Persistence primitives for policy corpus generations and projections.
 
-This module deliberately does not route production reads, claim reindex runs,
-or mutate the rollout pointer. Plan 06 owns active-scope routing and Plan 07
-owns candidate lifecycle behavior. The repository here exposes only the
-schema/bootstrap facts established by migration 030.
+Plan 06 owns active-scope routing, Plan 07 owns candidate lifecycle behavior,
+and Plan 08 adds the only pointer CAS plus ordinary-ingestion copy-on-write
+primitive. Selection policy and durable cutover receipts remain outside this
+repository.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
+import hashlib
+import json
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,10 +22,15 @@ from src.db.models import (
     CorpusBlockBinding,
     CorpusChunkBinding,
     CorpusDocumentBinding,
+    DocumentBlock,
+    PolicyChunk,
+    PolicyChunkVersion,
     PolicyCorpusActivationHistory,
     PolicyCorpusManifestRevision,
     PolicyCorpusRollout,
     PolicyCorpusVersion,
+    PolicyDocument,
+    PolicyDocumentVersion,
 )
 
 
@@ -58,6 +66,14 @@ class PolicyCorpusActivationView:
     active_corpus_version_id: UUID
     previous_corpus_version_id: UUID | None
     rollout_epoch: int
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyCorpusCowView:
+    activation: PolicyCorpusActivationView
+    corpus_version_id: UUID
+    manifest_revision_id: UUID
+    manifest_revision: int
 
 
 class PolicyCorpusRepository:
@@ -174,7 +190,7 @@ class PolicyCorpusRepository:
                 PolicyCorpusVersion.next_document_index == expected_next_document_index,
             )
             .values(**values, state_version=expected_state_version + 1, updated_at=func.now())
-            .execution_options(synchronize_session=False)
+            .execution_options(synchronize_session="fetch")
         )
         if (result.rowcount or 0) != 1:
             return None
@@ -190,6 +206,7 @@ class PolicyCorpusRepository:
         reason_code: str,
         actor: str,
         selection_decision_hash: str | None,
+        source_drifted_at: datetime | None = None,
     ) -> PolicyCorpusActivationView | None:
         """Flip one exact pointer and append its audit row in this transaction."""
 
@@ -206,9 +223,10 @@ class PolicyCorpusRepository:
                 active_corpus_version_id=target_corpus_version_id,
                 previous_corpus_version_id=expected_active_corpus_version_id,
                 rollout_epoch=new_epoch,
+                source_drifted_at=source_drifted_at,
                 updated_at=func.now(),
             )
-            .execution_options(synchronize_session=False)
+            .execution_options(synchronize_session="fetch")
         )
         if (result.rowcount or 0) != 1:
             return None
@@ -231,6 +249,322 @@ class PolicyCorpusRepository:
             active_corpus_version_id=target_corpus_version_id,
             previous_corpus_version_id=expected_active_corpus_version_id,
             rollout_epoch=new_epoch,
+        )
+
+    async def get_bound_document_version(
+        self,
+        *,
+        tenant_id: UUID,
+        corpus_version_id: UUID,
+        policy_document_id: UUID,
+    ) -> PolicyDocumentVersion | None:
+        return (
+            await self.session.execute(
+                select(PolicyDocumentVersion)
+                .join(
+                    CorpusDocumentBinding,
+                    (CorpusDocumentBinding.tenant_id == tenant_id)
+                    & (CorpusDocumentBinding.corpus_version_id == corpus_version_id)
+                    & (CorpusDocumentBinding.policy_document_version_id == PolicyDocumentVersion.id),
+                )
+                .where(
+                    CorpusDocumentBinding.policy_document_id == policy_document_id,
+                    PolicyDocumentVersion.tenant_id == tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    async def create_ingestion_cow(
+        self,
+        *,
+        rollout: PolicyCorpusRollout,
+        source_manifest: PolicyCorpusManifestRevision,
+        active_corpus: PolicyCorpusVersion,
+        document: PolicyDocument,
+        blocks: list[DocumentBlock],
+        chunks: list[PolicyChunk],
+        document_version: PolicyDocumentVersion | None,
+        chunk_versions: list[PolicyChunkVersion],
+        expected_evidence_rollout_version: int,
+        actor: str,
+        delete_document: bool = False,
+        now: datetime | None = None,
+    ) -> PolicyCorpusCowView:
+        """Append one same-config corpus and atomically replace current visibility."""
+
+        changed_at = _as_utc(now or datetime.now(UTC))
+        if (
+            rollout.active_corpus_version_id != active_corpus.id
+            or active_corpus.tenant_id != rollout.tenant_id
+            or source_manifest.tenant_id != rollout.tenant_id
+            or active_corpus.source_manifest_revision_id != source_manifest.id
+            or active_corpus.source_manifest_hash != source_manifest.manifest_hash
+            or active_corpus.state != "complete"
+            or document.tenant_id != rollout.tenant_id
+        ):
+            raise PolicyCorpusUnavailable("policy corpus source authority changed")
+        if delete_document:
+            if blocks or chunks or document_version is not None or chunk_versions:
+                raise PolicyCorpusUnavailable("deleted policy corpus projection is not empty")
+        elif (
+            document_version is None
+            or document_version.tenant_id != rollout.tenant_id
+            or document_version.policy_document_id != document.id
+            or len(chunks) != len(chunk_versions)
+            or any(chunk.tenant_id != rollout.tenant_id or chunk.doc_id != document.id for chunk in chunks)
+            or any(block.tenant_id != rollout.tenant_id or block.doc_id != document.id for block in blocks)
+        ):
+            raise PolicyCorpusUnavailable("policy corpus replacement projection is invalid")
+
+        prior_documents = source_manifest.manifest_json.get("documents")
+        if not isinstance(prior_documents, list):
+            raise PolicyCorpusUnavailable("policy corpus manifest is invalid")
+        next_documents = [
+            dict(item) for item in prior_documents if isinstance(item, dict) and item.get("doc_key") != document.doc_key
+        ]
+        if len(next_documents) != len(prior_documents) - sum(
+            1 for item in prior_documents if isinstance(item, dict) and item.get("doc_key") == document.doc_key
+        ):
+            raise PolicyCorpusUnavailable("policy corpus manifest is invalid")
+        replaced_documents = [
+            item for item in prior_documents if isinstance(item, dict) and item.get("doc_key") == document.doc_key
+        ]
+        prior_block_count = sum(
+            len(item.get("source_block_ids", []))
+            for item in replaced_documents
+            if isinstance(item.get("source_block_ids"), list)
+        )
+        prior_chunk_count = sum(
+            len(item.get("chunk_ids", [])) for item in replaced_documents if isinstance(item.get("chunk_ids"), list)
+        )
+        if not delete_document:
+            assert document_version is not None
+            next_documents.append(
+                {
+                    "policy_document_id": str(document.id),
+                    "policy_document_version_id": str(document_version.id),
+                    "doc_key": document.doc_key,
+                    "document_version": int(document.version or 1),
+                    "source_type": document.source_type,
+                    "source_checksum": document.source_checksum,
+                    "source_block_ids": [
+                        block.source_block_id for block in sorted(blocks, key=lambda row: row.block_index)
+                    ],
+                    "chunk_ids": [chunk.chunk_id for chunk in sorted(chunks, key=lambda row: row.chunk_id)],
+                }
+            )
+        next_documents.sort(key=lambda item: str(item["doc_key"]))
+        manifest_payload = {
+            "schema_version": "policy_corpus_source_manifest.v1",
+            "tenant_id": str(rollout.tenant_id),
+            "documents": next_documents,
+        }
+        manifest_hash = _sha256_json(manifest_payload)
+        next_revision = source_manifest.revision + 1
+        next_block_count = source_manifest.block_count - prior_block_count + (0 if delete_document else len(blocks))
+        next_chunk_count = source_manifest.chunk_count - prior_chunk_count + (0 if delete_document else len(chunks))
+        next_manifest = PolicyCorpusManifestRevision(
+            id=uuid4(),
+            tenant_id=rollout.tenant_id,
+            revision=next_revision,
+            manifest_schema_version="policy_corpus_source_manifest.v1",
+            manifest_json=manifest_payload,
+            manifest_hash=manifest_hash,
+            document_count=len(next_documents),
+            block_count=next_block_count,
+            chunk_count=next_chunk_count,
+        )
+        self.session.add(next_manifest)
+        await self.session.flush()
+        suffix = f":ingest:{next_revision}"
+        generation_name = active_corpus.generation_name[: 128 - len(suffix)] + suffix
+        next_corpus = PolicyCorpusVersion(
+            id=uuid4(),
+            tenant_id=rollout.tenant_id,
+            generation_name=generation_name,
+            owner_marker="moca.policy_ingestion.cow.v1",
+            run_token=None,
+            config_schema_version=active_corpus.config_schema_version,
+            config_json=dict(active_corpus.config_json or {}),
+            config_fingerprint=active_corpus.config_fingerprint,
+            provider_parity_report_hash=active_corpus.provider_parity_report_hash,
+            source_manifest_revision_id=next_manifest.id,
+            source_manifest_hash=manifest_hash,
+            source_active_corpus_version_id=active_corpus.id,
+            source_rollout_epoch=rollout.rollout_epoch,
+            expected_evidence_rollout_version=expected_evidence_rollout_version,
+            state="complete",
+            state_version=1,
+            lease_owner=None,
+            lease_expires_at=None,
+            next_document_index=len(next_documents),
+            bootstrap_counts_json={
+                "bound_document_count": len(next_documents),
+                "bound_block_count": next_block_count,
+                "bound_chunk_count": next_chunk_count,
+            },
+            validation_proof_json={
+                "ordinary_ingestion_cow": {
+                    "schema_version": "policy_ingestion_cow.v1",
+                    "source_manifest_hash": source_manifest.manifest_hash,
+                    "manifest_hash": manifest_hash,
+                    "config_fingerprint": active_corpus.config_fingerprint,
+                    "immutable_rows_retained": True,
+                }
+            },
+            terminal_at=changed_at,
+        )
+        self.session.add(next_corpus)
+        await self.session.flush()
+
+        document_bindings = list(
+            (
+                await self.session.execute(
+                    select(CorpusDocumentBinding).where(
+                        CorpusDocumentBinding.tenant_id == rollout.tenant_id,
+                        CorpusDocumentBinding.corpus_version_id == active_corpus.id,
+                        CorpusDocumentBinding.policy_document_id != document.id,
+                    )
+                )
+            ).scalars()
+        )
+        block_bindings = list(
+            (
+                await self.session.execute(
+                    select(CorpusBlockBinding)
+                    .join(DocumentBlock, DocumentBlock.id == CorpusBlockBinding.document_block_id)
+                    .where(
+                        CorpusBlockBinding.tenant_id == rollout.tenant_id,
+                        CorpusBlockBinding.corpus_version_id == active_corpus.id,
+                        DocumentBlock.doc_id != document.id,
+                    )
+                )
+            ).scalars()
+        )
+        chunk_bindings = list(
+            (
+                await self.session.execute(
+                    select(CorpusChunkBinding)
+                    .join(PolicyChunk, PolicyChunk.id == CorpusChunkBinding.policy_chunk_id)
+                    .where(
+                        CorpusChunkBinding.tenant_id == rollout.tenant_id,
+                        CorpusChunkBinding.corpus_version_id == active_corpus.id,
+                        PolicyChunk.doc_id != document.id,
+                    )
+                )
+            ).scalars()
+        )
+        self.session.add_all(
+            [
+                CorpusDocumentBinding(
+                    tenant_id=rollout.tenant_id,
+                    corpus_version_id=next_corpus.id,
+                    policy_document_id=row.policy_document_id,
+                    policy_document_version_id=row.policy_document_version_id,
+                )
+                for row in document_bindings
+            ]
+        )
+        self.session.add_all(
+            [
+                CorpusBlockBinding(
+                    tenant_id=rollout.tenant_id,
+                    corpus_version_id=next_corpus.id,
+                    document_block_id=row.document_block_id,
+                    policy_document_version_id=row.policy_document_version_id,
+                )
+                for row in block_bindings
+            ]
+        )
+        self.session.add_all(
+            [
+                CorpusChunkBinding(
+                    tenant_id=rollout.tenant_id,
+                    corpus_version_id=next_corpus.id,
+                    policy_chunk_id=row.policy_chunk_id,
+                    policy_chunk_version_id=row.policy_chunk_version_id,
+                )
+                for row in chunk_bindings
+            ]
+        )
+        if not delete_document:
+            assert document_version is not None
+            self.session.add(
+                CorpusDocumentBinding(
+                    tenant_id=rollout.tenant_id,
+                    corpus_version_id=next_corpus.id,
+                    policy_document_id=document.id,
+                    policy_document_version_id=document_version.id,
+                )
+            )
+            self.session.add_all(
+                [
+                    CorpusBlockBinding(
+                        tenant_id=rollout.tenant_id,
+                        corpus_version_id=next_corpus.id,
+                        document_block_id=block.id,
+                        policy_document_version_id=document_version.id,
+                    )
+                    for block in blocks
+                ]
+            )
+            self.session.add_all(
+                [
+                    CorpusChunkBinding(
+                        tenant_id=rollout.tenant_id,
+                        corpus_version_id=next_corpus.id,
+                        policy_chunk_id=chunk.id,
+                        policy_chunk_version_id=immutable.id,
+                    )
+                    for chunk, immutable in zip(chunks, chunk_versions, strict=True)
+                ]
+            )
+        await self.session.flush()
+        counts = await self.get_projection_counts(
+            tenant_id=rollout.tenant_id,
+            corpus_version_id=next_corpus.id,
+        )
+        if (counts.documents, counts.blocks, counts.chunks) != (
+            len(next_documents),
+            next_block_count,
+            next_chunk_count,
+        ):
+            raise PolicyCorpusUnavailable("policy corpus copy-on-write coverage mismatch")
+        await self.session.execute(
+            update(PolicyCorpusVersion)
+            .where(
+                PolicyCorpusVersion.tenant_id == rollout.tenant_id,
+                PolicyCorpusVersion.id != next_corpus.id,
+                PolicyCorpusVersion.source_manifest_revision_id == source_manifest.id,
+                PolicyCorpusVersion.state.in_({"claimed", "building", "built", "validating", "complete"}),
+            )
+            .values(
+                state="source_stale",
+                state_version=PolicyCorpusVersion.state_version + 1,
+                failure_code="source_manifest_drift",
+                safe_message="corpus source authority changed by ordinary ingestion",
+                terminal_at=changed_at,
+                updated_at=func.now(),
+            )
+            .execution_options(synchronize_session="fetch")
+        )
+        activation = await self.activate_rollout_cas(
+            rollout,
+            expected_active_corpus_version_id=active_corpus.id,
+            expected_rollout_epoch=rollout.rollout_epoch,
+            target_corpus_version_id=next_corpus.id,
+            reason_code="ordinary_ingestion",
+            actor=actor,
+            selection_decision_hash=None,
+            source_drifted_at=changed_at,
+        )
+        if activation is None:
+            raise PolicyCorpusUnavailable("policy corpus pointer changed")
+        return PolicyCorpusCowView(
+            activation=activation,
+            corpus_version_id=next_corpus.id,
+            manifest_revision_id=next_manifest.id,
+            manifest_revision=next_revision,
         )
 
     async def get_projection_counts(
@@ -291,3 +625,14 @@ class PolicyCorpusRepository:
             rollout_epoch=rollout.rollout_epoch,
             counts=counts,
         )
+
+
+def _sha256_json(payload: object) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)

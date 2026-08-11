@@ -684,7 +684,13 @@ async def test_current_historical_and_legacy_resolution_are_separate_and_scope_b
     old_identity = old_resolution.identity
 
     source = _write_policy(tmp_path, "historical v2 当前内容")
-    await service.ingest_document(source, _metadata(), expected_rollout_version=rollout.rollout_version)
+    second_ingestion = await service.ingest_document(
+        source,
+        _metadata(),
+        expected_rollout_version=rollout.rollout_version,
+    )
+    assert second_ingestion.status == "success"
+    assert await session.get(PolicyChunkVersion, UUID(old_identity.chunk_version_id)) is not None
     await repository.reserve_backfill_watermark(expected_rollout_version=rollout.rollout_version)
     await repository.reconcile_and_enable_canonical_reads(expected_rollout_version=rollout.rollout_version)
     await session.commit()

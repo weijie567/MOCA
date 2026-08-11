@@ -496,12 +496,6 @@ class EvidenceVersionRepository:
                         tenant_id=tenant_id,
                     )
                     .join(
-                        CorpusChunkBinding,
-                        (CorpusChunkBinding.tenant_id == tenant_id)
-                        & (CorpusChunkBinding.corpus_version_id == PolicyCorpusRollout.active_corpus_version_id)
-                        & (CorpusChunkBinding.policy_chunk_id == PolicyChunk.id),
-                    )
-                    .join(
                         PolicyChunkVersion,
                         (PolicyChunkVersion.tenant_id == tenant_id)
                         & (PolicyChunkVersion.id == CorpusChunkBinding.policy_chunk_version_id)

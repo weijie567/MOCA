@@ -33,13 +33,16 @@ from src.repositories.document_block_repo import (
     DocumentBlockRepository,
     build_canonical_document_content,
 )
-from src.repositories.evidence_version_repo import EvidenceVersionRepository
+from src.repositories.evidence_version_repo import (
+    EvidenceVersionRepository,
+    canonical_document_version_matches_source,
+)
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 from src.repositories.policy_corpus_scope import (
     ActivePolicyCorpusScope,
     PolicyCorpusScopeUnavailable,
-    bind_active_policy_projection,
 )
+from src.repositories.policy_corpus_repo import PolicyCorpusRepository, PolicyCorpusUnavailable
 from src.repositories.policy_document_repo import PolicyDocumentRepository
 from src.repositories.rag_ingestion_job_repo import RagIngestionJobRepository, validate_rag_ingestion_job
 
@@ -267,6 +270,7 @@ class IngestionService:
         self.doc_repo = PolicyDocumentRepository(session)
         self.block_repo = DocumentBlockRepository(session)
         self.evidence_repo = EvidenceVersionRepository(session)
+        self.corpus_repo = PolicyCorpusRepository(session)
         self.job_repo = RagIngestionJobRepository(session)
         self.parser_registry = ParserRegistry()
 
@@ -417,6 +421,19 @@ class IngestionService:
                     expected_rollout_version=expected_rollout_version,
                 )
                 writer_rollout_version = writer_rollout.rollout_version
+                corpus_rollout = await self.corpus_repo.acquire_tenant_rollout_lock(tenant_id=self.tenant_id)
+                source_manifest = await self.corpus_repo.lock_latest_manifest(tenant_id=self.tenant_id)
+                active_corpus = await self.corpus_repo.get_corpus(
+                    tenant_id=self.tenant_id,
+                    corpus_version_id=corpus_rollout.active_corpus_version_id,
+                )
+                if active_corpus is None or active_corpus.state != "complete":
+                    raise PolicyCorpusUnavailable("active policy corpus is unavailable")
+                if active_scope is not None and (
+                    active_scope.config_schema_version != active_corpus.config_schema_version
+                    or active_scope.config_fingerprint != active_corpus.config_fingerprint
+                ):
+                    raise PolicyCorpusScopeUnavailable("active policy corpus config changed during ingestion")
             # Lock the existing row through the final commit so concurrent
             # re-imports cannot write the same next content version.
             existing_doc = await self.doc_repo.get_by_doc_key_for_update(doc_key, self.tenant_id)
@@ -438,12 +455,30 @@ class IngestionService:
             previous_fingerprint = (
                 getattr(existing_doc, "policy_version_fingerprint", None) if existing_doc is not None else None
             )
+            source_identity_changed = False
+            if use_immutable_writer and existing_doc is not None:
+                bound_document_version = await self.corpus_repo.get_bound_document_version(
+                    tenant_id=self.tenant_id,
+                    corpus_version_id=active_corpus.id,
+                    policy_document_id=existing_doc.id,
+                )
+                source_identity_changed = (
+                    bound_document_version is None
+                    or not canonical_document_version_matches_source(
+                        bound_document_version,
+                        source_checksum=source_checksum,
+                        canonical_source=canonical_source,
+                    )
+                )
             fingerprint_changed = bool(
                 existing_doc is not None
                 and (
-                    existing_doc.content != content
-                    if previous_fingerprint is None
-                    else previous_fingerprint != fingerprint
+                    source_identity_changed
+                    or (
+                        existing_doc.content != content
+                        if previous_fingerprint is None
+                        else previous_fingerprint != fingerprint
+                    )
                 )
             )
             if use_immutable_writer:
@@ -528,8 +563,9 @@ class IngestionService:
                 persisted_chunks = locked_chunks
                 chunks_created = 0
             else:
-                await self.block_repo.delete_by_document_id(doc.id, self.tenant_id)
-                await self.chunk_repo.delete_by_document_id(doc.id, self.tenant_id)
+                if not use_immutable_writer:
+                    await self.block_repo.delete_by_document_id(doc.id, self.tenant_id)
+                    await self.chunk_repo.delete_by_document_id(doc.id, self.tenant_id)
                 await self.block_repo.bulk_insert(db_blocks)
                 await self.chunk_repo.bulk_insert(db_chunks)
                 persisted_chunks = db_chunks
@@ -543,17 +579,18 @@ class IngestionService:
                         canonical_source=canonical_source,
                         correction_of_document_version_id=doc_meta.get("correction_of_document_version_id"),
                     )
-                    bound_scope = await bind_active_policy_projection(
-                        self.session,
-                        tenant_id=self.tenant_id,
+                    await self.corpus_repo.create_ingestion_cow(
+                        rollout=corpus_rollout,
+                        source_manifest=source_manifest,
+                        active_corpus=active_corpus,
                         document=doc,
                         blocks=db_blocks,
                         chunks=persisted_chunks,
                         document_version=document_version,
                         chunk_versions=chunk_versions,
+                        expected_evidence_rollout_version=writer_rollout_version,
+                        actor="moca.policy_ingestion.v1",
                     )
-                    if active_scope is not None and bound_scope != active_scope:
-                        raise PolicyCorpusScopeUnavailable("active policy corpus pointer changed during ingestion")
             if job is not None:
                 _mark_job_success(
                     job,
@@ -603,6 +640,86 @@ class IngestionService:
                 safe_message=safe_message,
                 evidence_write_sequence=None,
                 rollout_version=None,
+            )
+
+    async def delete_document(
+        self,
+        doc_key: str,
+        *,
+        expected_rollout_version: int | None = None,
+    ) -> IngestionReport:
+        """Remove one logical document only from a new active COW corpus."""
+
+        if not is_valid_doc_key(doc_key):
+            return IngestionReport(
+                doc_key="invalid_doc_key",
+                title="Policy deletion",
+                status="failed",
+                error="Policy document key is invalid.",
+                error_code="invalid_doc_key",
+                safe_message="Policy document key is invalid.",
+            )
+        try:
+            active_scope = await ActivePolicyCorpusScope.resolve(self.session, tenant_id=self.tenant_id)
+            writer_rollout = await self.evidence_repo.lock_for_writer(
+                expected_rollout_version=expected_rollout_version,
+            )
+            corpus_rollout = await self.corpus_repo.acquire_tenant_rollout_lock(tenant_id=self.tenant_id)
+            source_manifest = await self.corpus_repo.lock_latest_manifest(tenant_id=self.tenant_id)
+            active_corpus = await self.corpus_repo.get_corpus(
+                tenant_id=self.tenant_id,
+                corpus_version_id=corpus_rollout.active_corpus_version_id,
+            )
+            if active_corpus is None or active_corpus.state != "complete":
+                raise PolicyCorpusUnavailable("active policy corpus is unavailable")
+            if (
+                active_scope.config_schema_version != active_corpus.config_schema_version
+                or active_scope.config_fingerprint != active_corpus.config_fingerprint
+            ):
+                raise PolicyCorpusScopeUnavailable("active policy corpus config changed during deletion")
+            document = await self.doc_repo.get_by_doc_key_for_update(doc_key, self.tenant_id)
+            if document is None:
+                await self.session.rollback()
+                return IngestionReport(
+                    doc_key=doc_key,
+                    title="Policy deletion",
+                    status="failed",
+                    error="Policy document is unavailable.",
+                    error_code="policy_document_unavailable",
+                    safe_message="Policy document is unavailable.",
+                )
+            await self.corpus_repo.create_ingestion_cow(
+                rollout=corpus_rollout,
+                source_manifest=source_manifest,
+                active_corpus=active_corpus,
+                document=document,
+                blocks=[],
+                chunks=[],
+                document_version=None,
+                chunk_versions=[],
+                expected_evidence_rollout_version=writer_rollout.rollout_version,
+                actor="moca.policy_ingestion.delete.v1",
+                delete_document=True,
+            )
+            await self.session.commit()
+            return IngestionReport(
+                doc_key=doc_key,
+                title=document.title,
+                status="success",
+                chunks_created=0,
+                evidence_write_sequence=None,
+                rollout_version=writer_rollout.rollout_version,
+            )
+        except Exception as exc:
+            await self.session.rollback()
+            safe_message = _safe_message(str(exc), default="Policy deletion failed safely.")
+            return IngestionReport(
+                doc_key=doc_key,
+                title="Policy deletion",
+                status="failed",
+                error=safe_message,
+                error_code="db_write_failed",
+                safe_message=safe_message,
             )
 
     async def ingest_directory(self, dir_path: Path, manifest: list[dict]) -> list[IngestionReport]:
@@ -889,15 +1006,13 @@ def assembler_for_active_policy_corpus(scope: ActivePolicyCorpusScope) -> Policy
     counter = _default_embedding_token_counter()
     character = CharacterCompatibilityAssembler(counter=counter)
     if (
-        scope.generation_name == "character.v1"
-        and scope.config_schema_version == CHARACTER_COMPATIBILITY_CONFIG_VERSION
+        scope.config_schema_version == CHARACTER_COMPATIBILITY_CONFIG_VERSION
         and scope.config_fingerprint == character.config_fingerprint
     ):
         return character
     token_config = counter.config
     if (
-        scope.generation_name != "character.v1"
-        and scope.config_schema_version == token_config.schema_version
+        scope.config_schema_version == token_config.schema_version
         and scope.config_fingerprint == token_config.config_fingerprint
     ):
         return PolicyEmbeddingInputAssembler(counter=counter)

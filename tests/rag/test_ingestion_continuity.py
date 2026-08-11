@@ -301,10 +301,7 @@ async def test_create_update_delete_use_cow_and_retain_all_prior_projection_and_
     assert rollout.active_corpus_version_id != bootstrap.id
     await session.refresh(bootstrap)
     assert bootstrap.state == "source_stale"
-    assert await _active_chunk_contents(session, tenant_id=tenant_id) == {
-        "Policy A",
-        "first authoritative content",
-    }
+    assert await _active_chunk_contents(session, tenant_id=tenant_id) == {"Policy A\nfirst authoritative content"}
     first_binding_count = int(await session.scalar(select(func.count()).select_from(CorpusChunkBinding)) or 0)
 
     changed = await _ingest(
@@ -315,13 +312,10 @@ async def test_create_update_delete_use_cow_and_retain_all_prior_projection_and_
     assert changed.status == "success"
     rollout = await _active_rollout(session, tenant_id=tenant_id)
     assert rollout.rollout_epoch == 3
-    assert await _active_chunk_contents(session, tenant_id=tenant_id) == {
-        "Policy A",
-        "changed authoritative content",
-    }
+    assert await _active_chunk_contents(session, tenant_id=tenant_id) == {"Policy A\nchanged authoritative content"}
     assert int(await session.scalar(select(func.count()).select_from(CorpusChunkBinding)) or 0) > first_binding_count
     assert await session.scalar(select(func.count()).select_from(PolicyDocumentVersion)) == 2
-    assert await session.scalar(select(func.count()).select_from(PolicyChunkVersion)) == 4
+    assert await session.scalar(select(func.count()).select_from(PolicyChunkVersion)) == 2
 
     evidence_before_delete = int(await session.scalar(select(func.count()).select_from(PolicyChunkVersion)) or 0)
     deleted = await IngestionService(
@@ -352,6 +346,15 @@ async def test_create_update_delete_use_cow_and_retain_all_prior_projection_and_
         )
         == 3
     )
+
+    missing = await IngestionService(
+        session=session,
+        embedder=_EmbeddingService(),
+        tenant_id=tenant_id,
+    ).delete_document("missing-policy", expected_rollout_version=EVIDENCE_EPOCH)
+    assert missing.status == "failed"
+    assert missing.error_code == "policy_document_unavailable"
+    assert not session.in_transaction()
 
 
 @pytest.mark.asyncio
@@ -462,10 +465,7 @@ async def test_post_token_ingestion_refuses_obsolete_rollback_then_rebuilds_curr
     rebuilt = await _active_corpus(session, tenant_id=tenant_id)
     assert rebuilt.id == rebuilt_character.corpus_version_id
     assert rebuilt.config_fingerprint == CharacterCompatibilityAssembler().config_fingerprint
-    assert await _active_chunk_contents(session, tenant_id=tenant_id) == {
-        "Policy A",
-        "token post-cutover source",
-    }
+    assert await _active_chunk_contents(session, tenant_id=tenant_id) == {"Policy A\ntoken post-cutover source"}
 
     assert (
         await _ingest(
@@ -477,6 +477,5 @@ async def test_post_token_ingestion_refuses_obsolete_rollback_then_rebuilds_curr
     post_rollback = await _active_corpus(session, tenant_id=tenant_id)
     assert post_rollback.config_fingerprint == CharacterCompatibilityAssembler().config_fingerprint
     assert await _active_chunk_contents(session, tenant_id=tenant_id) == {
-        "Policy A",
-        "prior config write remains available",
+        "Policy A\nprior config write remains available"
     }

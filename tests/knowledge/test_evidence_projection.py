@@ -152,8 +152,8 @@ def _active_scope(**overrides: object) -> ActivePolicyCorpusScope:
     return ActivePolicyCorpusScope(**data)  # type: ignore[arg-type]
 
 
-def test_active_character_corpus_selects_only_character_compatibility_assembler() -> None:
-    assembler = assembler_for_active_policy_corpus(_active_scope())
+def test_active_character_corpus_selects_assembler_from_pinned_config_not_generation_name() -> None:
+    assembler = assembler_for_active_policy_corpus(_active_scope(generation_name="character.v1:ingest:2"))
 
     assert isinstance(assembler, CharacterCompatibilityAssembler)
 
@@ -175,17 +175,11 @@ def test_active_token_corpus_selects_only_pinned_token_assembler() -> None:
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"generation_name": "unknown.v1"},
         {"config_schema_version": "unknown.v1"},
         {"config_fingerprint": evidence_text_hash("drifted-config")},
-        {
-            "generation_name": "character.v1",
-            "config_schema_version": "embedding_tokenizer.v1",
-            "config_fingerprint": load_embedding_tokenizer_config().config_fingerprint,
-        },
     ],
 )
-def test_active_unknown_mixed_or_drifted_config_fails_closed(overrides: dict[str, object]) -> None:
+def test_active_unknown_or_drifted_config_fails_closed(overrides: dict[str, object]) -> None:
     with pytest.raises(PolicyCorpusConfigError, match="active_policy_corpus_config_unavailable"):
         assembler_for_active_policy_corpus(_active_scope(**overrides))
 

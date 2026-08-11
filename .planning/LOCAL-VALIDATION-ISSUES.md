@@ -23498,3 +23498,36 @@ Wave-0 先补 source file 不可用、inactive candidate 可见性、per-documen
 
 **已做处理 / 剩余入口**
 新增显式 source-corpus 的数据库快照 DTO、重检、candidate bindings、唯一 assembler/provider input、immutable compatibility、count/vector/coverage/deterministic proof 与 cursor 同事务 CAS；immutable owner 仅增加默认 `True` 的 `project_current_head` 参数，candidate 显式传 `False`，ordinary append 回归证明默认仍更新 current head。最终先执行 `make format`、完整 `make lint`，再运行 Plan 07 三文件 gate 为 `89 passed, 3 warnings`。当前无已知本地验证缺口；Plan 08 才能验证 pointer activation 与 ordinary-ingestion continuity。
+
+## 2026-08-11 — Phase 64.4 Plan 08 Rule 4 前读发现 append-only schema 无法支持普通 ingestion
+
+**问题现象 / 如何检测**
+Plan 08 mandatory reads 与只读 schema 核对发现，migration 030 对 corpus bindings 设置 append-only trigger/FK RESTRICT，`PolicyDocument` 又保持单一 `(tenant_id, doc_key)` head，`DocumentBlock` 还具有 `(tenant_id, doc_id, source_block_id)` 唯一约束；原 plan 若继续沿用 delete/replace current rows，会直接违反已落地 schema，也无法同时保留旧 corpus replay。
+
+**关键证据 / 当前判断 / 根因**
+核对 `030_phase64_4_token_corpora.py`、`src/db/models.py`、document/block/chunk repository 与 ingestion delete 路径后，确认这不是可用局部代码绕过的测试问题，而是普通 ingestion 与 immutable corpus history 的结构冲突，触发 execute-plan Rule 4。最小安全方案是同 config copy-on-write corpus：复用唯一 `PolicyDocument` head，变更 source 追加 block/chunk/immutable rows并复制未变 bindings，随后原子 pointer flip；只需移除 block source identity 唯一约束，不允许删除历史。
+
+**已做处理 / 剩余入口**
+先暂停写入并上报；用户于 2026-08-11 本轮 Rule 4 checkpoint 后明确批准 migration 031、COW ingestion、source-stale/refusal/rebuild 与 config schema+fingerprint 识别边界。实现没有删除 immutable/binding/history，也没有提前制造 Plan 09 selection 或 Plan 10 receipt。最终真实 PostgreSQL 合并 gate 为 `94 passed, 4 warnings`。当前无 schema blocker；downgrade 遇到重复 block identity 会 fail closed。
+
+## 2026-08-11 — Phase 64.4 Plan 08 activation 首轮回归暴露 active projection SQL 与 canonical v2 reconciliation 缺口
+
+**问题现象 / 如何检测**
+Task 1 首轮 GREEN 中，旧 retrieval/evidence fixture 在 Plan 06 fail-closed active authority 下不可用；补齐 fixture 后 PostgreSQL 又报 active chunk helper 缺少 `policy_documents` FROM，canonical read reconciliation 则把已存在的 `canonical_document_content.v2` immutable row 在未传 canonical source DTO 时误判不兼容。
+
+**关键证据 / 当前判断 / 根因**
+Plan 06 helper 将 `CorpusDocumentBinding.policy_document_id` 连接到未必存在于 statement 的 `PolicyDocument.id`；正确 authority 已可由 `PolicyChunk.doc_id` 证明。canonical matcher 的 `canonical_source=None` 分支无条件 `False`，使 retained v2 row 无法在仅持有 current head/hash 的 reconciliation 路径复用。两者都是经真实 PostgreSQL SQL/immutable 回归核实的 RAG 产品缺陷，不是 Python 环境或 fake fixture 问题。
+
+**已做处理 / 剩余入口**
+active projection 改为 chunk→document binding；canonical v2 retained-source 分支验证 checksum、persisted content hash 与 canonical fields，再与 current content/hash复核。Task 1 核心 gate 达到 `40 passed, 4 warnings`。合并回归随后还检出 current identity caller 对同一 `CorpusChunkBinding` 再 join，导致 `DuplicateAliasError`；移除重复 join 后对应两条 targeted PostgreSQL 回归 `2 passed`，最终合并 gate `94 passed`。历史 immutable identity 的伴随失败确认是前一个 SQL transaction error 的级联，未把 active pointer 错加到历史 resolver。当前无已知剩余缺口。
+
+## 2026-08-11 — Phase 64.4 Plan 08 Task 2 测试预期与 generation authority 旧断言
+
+**问题现象 / 如何检测**
+Task 2 预期 RED 为 `3 failed, 44 passed`，证明首次 ingestion 未刷新 pointer/manifest；实现后首次 GREEN 为 `2 failed, 45 passed`，两条新测试把 character assembler 的真实单块 `标题\n正文` 错写成标题/正文两块。额外 evidence projection 回归为 `1 failed, 11 passed`：旧参数化用例仍要求 generation name 与 config 类型精确配对。
+
+**关键证据 / 当前判断 / 根因**
+前两个失败的 COW epoch/history/state assertions 已先通过，差异只在 fixture 对 incumbent character chunk 边界的错误假设。后一个断言与用户批准的“assembler/config recognition 按 config_schema_version+fingerprint，而不是 generation_name 精确值”直接冲突；generation suffix `:ingest:<manifest_revision>` 是 COW corpus 的合法身份，不是配置权威。
+
+**已做处理 / 剩余入口**
+测试改为 character 单块真实输出，并将 chunk-version count 调整为实际每次一个；projection contract 改为 suffix 正例，未知 schema/fingerprint 仍 fail closed。另补 delete-not-found rollback 断言，避免持有 evidence/corpus/manifest/document locks 返回。按规定依次执行 `make format`、完整 `make lint`、Task 2 精确 gate，结果 `47 passed, 1 warning`；最终合并 gate `94 passed, 4 warnings`。当前无产品侧剩余问题。

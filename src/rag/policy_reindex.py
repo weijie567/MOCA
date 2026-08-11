@@ -1,8 +1,9 @@
 """Tenant/run-scoped inactive policy corpus build lifecycle.
 
-The rollout pointer is the only current authority.  This service may claim,
-resume, checkpoint, validate, or fail a candidate, but it never flips that
-pointer and never reparses source files.
+The rollout pointer is the only current authority. This service claims,
+resumes, validates, or fails inactive candidates and exposes Plan 08's
+fixture-authorized pointer CAS. It never reparses source files or produces a
+real selection decision.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from src.db.models import (
     PolicyDocument,
 )
 from src.rag.ingestion import _policy_chunks_from_embedding_inputs
-from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler, PolicyEmbeddingInputV1
+from src.rag.policy_embedding_input import PolicyEmbeddingInputV1
 from src.repositories.document_block_repo import (
     AuthoritativePolicyDocumentSnapshotV1,
     AuthoritativeSourceSnapshotError,
@@ -446,7 +447,7 @@ class PolicyReindexService:
         self,
         owner: PolicyReindexRunIdentity,
         *,
-        assembler: PolicyEmbeddingInputAssembler,
+        assembler: Any,
         embedder: PolicyCandidateEmbedder,
         now: datetime | None = None,
     ) -> PolicyReindexRunIdentity:
@@ -456,7 +457,7 @@ class PolicyReindexService:
         row, manifest = await self._lock_validated(owner, now=checked_at)
         if row.state != "building" or owner.next_document_index >= len(owner.ordered_doc_keys):
             _fail(PolicyReindexFailureCode.STATE_MISMATCH)
-        if assembler.config.config_fingerprint != owner.config_fingerprint:
+        if _assembler_fingerprint(assembler) != owner.config_fingerprint:
             _fail(PolicyReindexFailureCode.CONFIG_DRIFT)
         doc_key = owner.ordered_doc_keys[owner.next_document_index]
         manifest_document = _manifest_document(manifest, doc_key=doc_key)
@@ -474,7 +475,9 @@ class PolicyReindexService:
         self._verify_assembled_inputs(owner, assembler=assembler, assembled=assembled)
         embeddings = await embedder.embed_documents([item.embedding_input for item in assembled])
         self._verify_embeddings(
-            embeddings, expected_count=len(assembled), expected_dimensions=assembler.config.dimensions
+            embeddings,
+            expected_count=len(assembled),
+            expected_dimensions=_assembler_dimensions(assembler),
         )
 
         document = await self.session.get(PolicyDocument, snapshot.policy_document_id)
@@ -556,13 +559,13 @@ class PolicyReindexService:
         self,
         owner: PolicyReindexRunIdentity,
         *,
-        assembler: PolicyEmbeddingInputAssembler,
+        assembler: Any,
         now: datetime | None = None,
     ) -> PolicyReindexRunIdentity:
         """Rebuild audit material from source snapshots and seal completion proofs."""
 
         checked_at = _as_utc(now or datetime.now(UTC))
-        if assembler.config.config_fingerprint != owner.config_fingerprint:
+        if _assembler_fingerprint(assembler) != owner.config_fingerprint:
             _fail(PolicyReindexFailureCode.CONFIG_DRIFT)
         validating = await self.transition(owner, state="validating", now=checked_at)
         row, manifest = await self._lock_validated(validating, now=checked_at)
@@ -698,7 +701,7 @@ class PolicyReindexService:
     def _verify_assembled_inputs(
         owner: PolicyReindexRunIdentity,
         *,
-        assembler: PolicyEmbeddingInputAssembler,
+        assembler: Any,
         assembled: tuple[PolicyEmbeddingInputV1, ...],
     ) -> None:
         for item in assembled:
@@ -706,7 +709,7 @@ class PolicyReindexService:
                 item.chunking_config_fingerprint != owner.config_fingerprint
                 or item.embedding_input_hash != _sha256_text(item.embedding_input)
                 or item.embedding_token_count != assembler.counter.count(item.embedding_input)
-                or item.embedding_token_count > assembler.config.max_embedding_tokens
+                or item.embedding_token_count > _assembler_max_embedding_tokens(assembler)
             ):
                 _fail(PolicyReindexFailureCode.EMBEDDING_PROOF_FAILED)
 
@@ -1168,6 +1171,36 @@ def _projection_matches_dto(chunk: PolicyChunk, dto: PolicyEmbeddingInputV1) -> 
         and chunk.embedding_input_hash == dto.embedding_input_hash
         and chunk.embedding_token_count == dto.embedding_token_count
     )
+
+
+def _assembler_fingerprint(assembler: Any) -> str:
+    direct = getattr(assembler, "config_fingerprint", None)
+    if isinstance(direct, str):
+        return direct
+    config = getattr(assembler, "config", None)
+    fingerprint = getattr(config, "config_fingerprint", None)
+    if not isinstance(fingerprint, str):
+        _fail(PolicyReindexFailureCode.CONFIG_DRIFT)
+    return fingerprint
+
+
+def _assembler_runtime_config(assembler: Any) -> Any:
+    config = getattr(assembler, "config", None)
+    if config is not None:
+        return config
+    counter = getattr(assembler, "counter", None)
+    config = getattr(counter, "config", None)
+    if config is None:
+        _fail(PolicyReindexFailureCode.CONFIG_DRIFT)
+    return config
+
+
+def _assembler_dimensions(assembler: Any) -> int:
+    return int(_assembler_runtime_config(assembler).dimensions)
+
+
+def _assembler_max_embedding_tokens(assembler: Any) -> int:
+    return int(_assembler_runtime_config(assembler).max_embedding_tokens)
 
 
 def _sha256_text(value: str) -> str:
