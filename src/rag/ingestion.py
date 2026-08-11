@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import asdict
 from datetime import UTC, date, datetime
+from enum import StrEnum
+from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
+from typing import Protocol
 from uuid import UUID
 from uuid import uuid4
 
@@ -17,9 +22,11 @@ from src.conversation.schemas import FORBIDDEN_MESSAGE_KEYS
 from src.db.models import DocumentBlock, PolicyChunk, PolicyDocument, RagIngestionJob
 from src.knowledge.text_hash import evidence_text_hash
 from src.rag.chunker import BlockChunkResult, chunk_blocks
+from src.rag.embedding_tokenizer import EmbeddingTokenCounter, load_embedding_tokenizer_config
 from src.rag.embedder import EmbeddingService
 from src.rag.parsers.base import ParsedBlock, ParseResult, is_valid_doc_key
 from src.rag.parsers.registry import ParserRegistry
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler, PolicyEmbeddingInputV1
 from src.rag.search_text import build_policy_chunk_search_text
 from src.rag.versioning import build_policy_version_fingerprint
 from src.repositories.document_block_repo import DocumentBlockRepository
@@ -41,6 +48,108 @@ class IngestionReport:
     safe_message: str | None = None
     evidence_write_sequence: int | None = None
     rollout_version: int | None = None
+
+
+CHARACTER_COMPATIBILITY_CONFIG_VERSION = "character_compatibility.v1"
+_CHARACTER_COMPATIBILITY_MAX_CHARS = 1200
+_CHARACTER_COMPATIBILITY_TARGET_CHARS = 800
+_CHARACTER_COMPATIBILITY_OVERLAP_CHARS = 100
+
+
+class IngestionAssemblyMode(StrEnum):
+    CHARACTER_COMPATIBILITY = "character_compatibility"
+    TOKEN_AWARE = "token_aware"
+
+
+class PolicyInputAssembler(Protocol):
+    def assemble(
+        self,
+        *,
+        blocks: Sequence[ParsedBlock],
+        doc_key: str,
+        title: str,
+        doc_type: str | None = None,
+        risk_level: str | None = None,
+    ) -> tuple[PolicyEmbeddingInputV1, ...]: ...
+
+
+class CharacterCompatibilityAssembler:
+    """Named read-only incumbent that preserves the pre-Plan04 provider bytes."""
+
+    config_version = CHARACTER_COMPATIBILITY_CONFIG_VERSION
+
+    def __init__(self, *, counter: EmbeddingTokenCounter | None = None) -> None:
+        self.counter = counter or _default_embedding_token_counter()
+        self.config_fingerprint = _character_compatibility_config_fingerprint(self.counter)
+
+    def assemble(
+        self,
+        *,
+        blocks: Sequence[ParsedBlock],
+        doc_key: str,
+        title: str,
+        doc_type: str | None = None,
+        risk_level: str | None = None,
+    ) -> tuple[PolicyEmbeddingInputV1, ...]:
+        chunks = chunk_blocks(
+            tuple(blocks),
+            doc_key=doc_key,
+            max_chars=_CHARACTER_COMPATIBILITY_MAX_CHARS,
+            target_chars=_CHARACTER_COMPATIBILITY_TARGET_CHARS,
+            overlap_chars=_CHARACTER_COMPATIBILITY_OVERLAP_CHARS,
+        )
+        assembled: list[PolicyEmbeddingInputV1] = []
+        for chunk in chunks:
+            embedding_input = _render_character_compatibility_input(title=title, chunk=chunk)
+            assembled.append(
+                PolicyEmbeddingInputV1(
+                    doc_key=chunk.doc_key,
+                    chunk_id=chunk.chunk_id,
+                    section=chunk.section,
+                    citation_content=chunk.content,
+                    primary_content=chunk.content,
+                    overlap_content="",
+                    search_text=build_policy_chunk_search_text(
+                        title=title,
+                        section=chunk.section,
+                        content=chunk.content,
+                        doc_type=doc_type,
+                        risk_level=risk_level,
+                        heading_path=_chunk_heading_path(chunk),
+                        table_headers=_chunk_table_headers(chunk),
+                        source_context=_chunk_source_context(chunk),
+                    ),
+                    embedding_input=embedding_input,
+                    embedding_input_hash=("sha256:" + hashlib.sha256(embedding_input.encode("utf-8")).hexdigest()),
+                    embedding_token_count=self.counter.count(embedding_input),
+                    overlap_token_count=0,
+                    chunking_config_fingerprint=self.config_fingerprint,
+                    source_block_refs=tuple(MappingProxyType(dict(ref)) for ref in chunk.source_block_refs),
+                    metadata=MappingProxyType(dict(chunk.metadata)),
+                    chunk_index=chunk.chunk_index,
+                    part_index=chunk.part_index,
+                )
+            )
+        return tuple(assembled)
+
+
+def assemble_policy_embedding_inputs(
+    *,
+    blocks: Sequence[ParsedBlock],
+    doc_key: str,
+    title: str,
+    doc_type: str | None,
+    risk_level: str | None,
+    input_assembler: PolicyInputAssembler,
+) -> tuple[PolicyEmbeddingInputV1, ...]:
+    """Call the selected parsed-block assembler without local reconstruction."""
+    return input_assembler.assemble(
+        blocks=blocks,
+        doc_key=doc_key,
+        title=title,
+        doc_type=doc_type,
+        risk_level=risk_level,
+    )
 
 
 SAFE_INGESTION_REPORT_FIELDS = (
@@ -127,10 +236,20 @@ def sanitize_failure_reason(
 
 
 class IngestionService:
-    def __init__(self, session: AsyncSession, embedder: EmbeddingService, tenant_id: UUID):
+    def __init__(
+        self,
+        session: AsyncSession,
+        embedder: EmbeddingService,
+        tenant_id: UUID,
+        *,
+        assembly_mode: IngestionAssemblyMode = IngestionAssemblyMode.CHARACTER_COMPATIBILITY,
+        input_assembler: PolicyInputAssembler | None = None,
+    ):
         self.session = session
         self.embedder = embedder
         self.tenant_id = tenant_id
+        self.assembly_mode = IngestionAssemblyMode(assembly_mode)
+        self.input_assembler = input_assembler or _assembler_for_mode(self.assembly_mode)
         self.chunk_repo = PolicyChunkRepository(session)
         self.doc_repo = PolicyDocumentRepository(session)
         self.block_repo = DocumentBlockRepository(session)
@@ -211,8 +330,15 @@ class IngestionService:
                 )
 
             blocks = tuple(block for block in parse_result.blocks if block.text.strip())
-            chunks = chunk_blocks(blocks, doc_key=doc_key)
-            if not chunks:
+            assembled_inputs = assemble_policy_embedding_inputs(
+                blocks=blocks,
+                doc_key=doc_key,
+                title=title,
+                doc_type=doc_meta["doc_type"],
+                risk_level=doc_meta["risk_level"],
+                input_assembler=self.input_assembler,
+            )
+            if not assembled_inputs:
                 return await self._finish_preflight_failure(
                     job=job,
                     doc_key=doc_key,
@@ -223,10 +349,10 @@ class IngestionService:
                     default_message="Policy source did not produce visible chunks.",
                 )
 
-            texts = [_embedding_text(title=title, chunk=chunk) for chunk in chunks]
+            texts = [dto.embedding_input for dto in assembled_inputs]
             embeddings = await self.embedder.embed_documents(texts)
-            if len(embeddings) != len(chunks):
-                msg = f"Embedding count mismatch: expected {len(chunks)}, got {len(embeddings)}"
+            if len(embeddings) != len(assembled_inputs):
+                msg = f"Embedding count mismatch: expected {len(assembled_inputs)}, got {len(embeddings)}"
                 return await self._finish_preflight_failure(
                     job=job,
                     doc_key=doc_key,
@@ -235,7 +361,7 @@ class IngestionService:
                     stage="embedding",
                     default_code="embedding_count_mismatch",
                     default_message=msg,
-                    counts={"chunks": len(chunks), "embeddings": len(embeddings)},
+                    counts={"chunks": len(assembled_inputs), "embeddings": len(embeddings)},
                 )
         except Exception:
             return await self._finish_preflight_failure(
@@ -270,7 +396,7 @@ class IngestionService:
             if use_immutable_writer and existing_doc is not None:
                 locked_chunks = await self.chunk_repo.list_by_document_id_for_update(existing_doc.id, self.tenant_id)
 
-            content = _document_citation_text(chunks)
+            content = _document_citation_text(assembled_inputs)
             effective_date = (
                 effective_date or (existing_doc.effective_date if existing_doc is not None else None) or date.today()
             )
@@ -345,14 +471,14 @@ class IngestionService:
                 blocks=blocks,
                 parse_result=parse_result,
             )
-            db_chunks = _policy_chunks_from_block_chunks(
+            db_chunks = _policy_chunks_from_embedding_inputs(
                 tenant_id=self.tenant_id,
                 doc_id=doc.id,
                 title=title,
                 doc_type=doc_meta["doc_type"],
                 risk_level=doc_meta["risk_level"],
                 effective_date=effective_date,
-                chunks=chunks,
+                assembled_inputs=assembled_inputs,
                 embeddings=embeddings,
             )
             reused_binding = None
@@ -702,11 +828,36 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def _document_citation_text(chunks: list[BlockChunkResult]) -> str:
-    return "\n\n".join(chunk.content for chunk in chunks).strip()
+@lru_cache(maxsize=1)
+def _default_embedding_token_counter() -> EmbeddingTokenCounter:
+    return EmbeddingTokenCounter(load_embedding_tokenizer_config())
 
 
-def _embedding_text(*, title: str, chunk: BlockChunkResult) -> str:
+def _assembler_for_mode(mode: IngestionAssemblyMode) -> PolicyInputAssembler:
+    counter = _default_embedding_token_counter()
+    if mode is IngestionAssemblyMode.CHARACTER_COMPATIBILITY:
+        return CharacterCompatibilityAssembler(counter=counter)
+    return PolicyEmbeddingInputAssembler(counter=counter)
+
+
+def _character_compatibility_config_fingerprint(counter: EmbeddingTokenCounter) -> str:
+    payload = {
+        "schema_version": CHARACTER_COMPATIBILITY_CONFIG_VERSION,
+        "embedding_tokenizer_config_fingerprint": counter.config.config_fingerprint,
+        "max_chars": _CHARACTER_COMPATIBILITY_MAX_CHARS,
+        "target_chars": _CHARACTER_COMPATIBILITY_TARGET_CHARS,
+        "overlap_chars": _CHARACTER_COMPATIBILITY_OVERLAP_CHARS,
+        "provider_input_envelope": "legacy_ingestion.v1",
+    }
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _document_citation_text(chunks: Sequence[PolicyEmbeddingInputV1]) -> str:
+    return "\n\n".join(chunk.citation_content for chunk in chunks).strip()
+
+
+def _render_character_compatibility_input(*, title: str, chunk: BlockChunkResult) -> str:
     prefix = f"{title}: {chunk.content}" if chunk.section == "intro" else f"{title} / {chunk.section}: {chunk.content}"
     source_context = " ".join(
         f"source_block_id={ref['source_block_id']}" for ref in chunk.source_block_refs if ref.get("source_block_id")
@@ -764,7 +915,7 @@ def _document_blocks_from_parsed(
     return rows
 
 
-def _policy_chunks_from_block_chunks(
+def _policy_chunks_from_embedding_inputs(
     *,
     tenant_id: UUID,
     doc_id: UUID,
@@ -772,30 +923,21 @@ def _policy_chunks_from_block_chunks(
     doc_type: str,
     risk_level: str,
     effective_date: date,
-    chunks: list[BlockChunkResult],
+    assembled_inputs: Sequence[PolicyEmbeddingInputV1],
     embeddings: list[list[float]],
 ) -> list[PolicyChunk]:
     db_chunks: list[PolicyChunk] = []
-    for index, chunk in enumerate(chunks):
+    for index, assembled in enumerate(assembled_inputs):
         db_chunks.append(
             PolicyChunk(
                 tenant_id=tenant_id,
                 doc_id=doc_id,
-                chunk_id=chunk.chunk_id,
-                section=chunk.section,
-                content=chunk.content,
-                search_text=build_policy_chunk_search_text(
-                    title=title,
-                    section=chunk.section,
-                    content=chunk.content,
-                    doc_type=doc_type,
-                    risk_level=risk_level,
-                    heading_path=_chunk_heading_path(chunk),
-                    table_headers=_chunk_table_headers(chunk),
-                    source_context=_chunk_source_context(chunk),
-                ),
-                source_block_refs_json=[dict(ref) for ref in chunk.source_block_refs],
-                ocr_metadata_json=_chunk_ocr_metadata(chunk),
+                chunk_id=assembled.chunk_id,
+                section=assembled.section,
+                content=assembled.citation_content,
+                search_text=assembled.search_text,
+                source_block_refs_json=[dict(ref) for ref in assembled.source_block_refs],
+                ocr_metadata_json=_chunk_ocr_metadata(assembled),
                 risk_level=risk_level,
                 effective_date=effective_date,
                 embedding=embeddings[index],
@@ -804,7 +946,7 @@ def _policy_chunks_from_block_chunks(
     return db_chunks
 
 
-def _chunk_ocr_metadata(chunk: BlockChunkResult) -> dict[str, Any]:
+def _chunk_ocr_metadata(chunk: PolicyEmbeddingInputV1) -> dict[str, Any]:
     ocr_refs = [ref["ocr"] for ref in chunk.source_block_refs if "ocr" in ref]
     return {"blocks": ocr_refs} if ocr_refs else {}
 

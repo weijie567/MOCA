@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -11,8 +12,15 @@ from docx import Document
 
 from src.db.models import PolicyDocument
 from src.knowledge.schemas import EvidenceRefV1
-from src.rag.ingestion import IngestionService
+from src.rag.embedding_tokenizer import EmbeddingTokenCounter, load_embedding_tokenizer_config
+from src.rag.ingestion import (
+    CHARACTER_COMPATIBILITY_CONFIG_VERSION,
+    CharacterCompatibilityAssembler,
+    IngestionAssemblyMode,
+    IngestionService,
+)
 from src.rag.parsers.base import ParsedBlock, ParseResult, safe_failed_result
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.rag.versioning import build_policy_version_fingerprint
 
 
@@ -29,6 +37,27 @@ class _MismatchEmbedder(_FakeEmbedder):
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         self.texts = texts
         return []
+
+
+class _RecordingAssembler:
+    def __init__(self, delegate) -> None:
+        self.delegate = delegate
+        self.calls: list[dict] = []
+        self.results = ()
+
+    def assemble(self, **kwargs):
+        self.calls.append(kwargs)
+        self.results = self.delegate.assemble(**kwargs)
+        return self.results
+
+
+class _FailClosedAssembler:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def assemble(self, **kwargs):
+        self.calls += 1
+        raise RuntimeError("token_assembly_failed")
 
 
 class _FakeSession:
@@ -418,7 +447,129 @@ async def test_ingestion_embeds_title_and_section_but_persists_raw_content(tmp_p
     assert "七天无理由" in chunk_repo.inserted[0].search_text
     assert "二次销售" in chunk_repo.inserted[0].search_text
     assert chunk_repo.inserted[0].source_block_refs_json[0]["source_block_id"].endswith(":0000")
+    assert isinstance(service.input_assembler, CharacterCompatibilityAssembler)
     assert session.committed is True
+
+
+def test_character_compatibility_assembler_returns_auditable_exact_input_dto() -> None:
+    registry = _FakeParserRegistry(block_text="商品不影响二次销售时，支持七天无理由退货退款。")
+    parsed = registry.parse(
+        Path("unused.md"),
+        doc_key="refund_policy",
+        source_type="policy_markdown",
+        metadata=_doc_meta(),
+    )
+    counter = EmbeddingTokenCounter(load_embedding_tokenizer_config())
+    assembler = CharacterCompatibilityAssembler(counter=counter)
+
+    assembled = assembler.assemble(
+        blocks=parsed.blocks,
+        doc_key="refund_policy",
+        title="退款规则",
+        doc_type="refund_rule",
+        risk_level="high",
+    )
+
+    assert len(assembled) == 1
+    dto = assembled[0]
+    expected_input = (
+        "退款规则 / 退款规则: 退款规则\n"
+        "商品不影响二次销售时，支持七天无理由退货退款。\n"
+        "source_block_id=refund_policy:policy_markdown:synthetic:0000 "
+        "source_block_id=refund_policy:policy_markdown:synthetic:0001"
+    )
+    assert dto.embedding_input == expected_input
+    assert dto.embedding_token_count == counter.count(expected_input)
+    assert dto.embedding_input_hash == "sha256:" + hashlib.sha256(expected_input.encode()).hexdigest()
+    assert assembler.config_version == CHARACTER_COMPATIBILITY_CONFIG_VERSION
+    assert dto.chunking_config_fingerprint.startswith("sha256:")
+
+
+@pytest.mark.asyncio
+async def test_explicit_token_mode_submits_exact_assembler_dto_without_persisting_audit_fields(
+    tmp_path: Path,
+) -> None:
+    policy_file = _write_policy(tmp_path, "# 退款规则\n\n变更后内容")
+    parser_registry = _FakeParserRegistry(block_text="变更后内容")
+    counter = EmbeddingTokenCounter(load_embedding_tokenizer_config())
+    recording = _RecordingAssembler(PolicyEmbeddingInputAssembler(counter=counter))
+    embedder = _FakeEmbedder()
+    chunk_repo = _FakeChunkRepo()
+    service = IngestionService(
+        session=_FakeSession(),
+        embedder=embedder,
+        tenant_id=uuid4(),
+        assembly_mode=IngestionAssemblyMode.TOKEN_AWARE,
+        input_assembler=recording,
+    )
+    service.parser_registry = parser_registry
+    service.doc_repo = _FakeDocumentRepo(None)
+    service.chunk_repo = chunk_repo
+    service.block_repo = _FakeBlockRepo()
+    service.job_repo = _FakeJobRepo()
+
+    report = await service.ingest_document(policy_file, _doc_meta())
+
+    assert report.status == "success"
+    assert len(recording.calls) == 1
+    assert embedder.texts == [dto.embedding_input for dto in recording.results]
+    assert [chunk.content for chunk in chunk_repo.inserted] == [dto.citation_content for dto in recording.results]
+    assert [chunk.search_text for chunk in chunk_repo.inserted] == [dto.search_text for dto in recording.results]
+    for chunk in chunk_repo.inserted:
+        assert "embedding_token_count" not in chunk.__dict__
+        assert "embedding_input_hash" not in chunk.__dict__
+        assert "chunking_config_fingerprint" not in chunk.__dict__
+
+
+@pytest.mark.asyncio
+async def test_explicit_token_mode_fails_closed_without_character_fallback(tmp_path: Path) -> None:
+    policy_file = _write_policy(tmp_path, "# 退款规则\n\n变更后内容")
+    assembler = _FailClosedAssembler()
+    embedder = _FakeEmbedder()
+    chunk_repo = _FakeChunkRepo()
+    service = IngestionService(
+        session=_FakeSession(),
+        embedder=embedder,
+        tenant_id=uuid4(),
+        assembly_mode=IngestionAssemblyMode.TOKEN_AWARE,
+        input_assembler=assembler,
+    )
+    service.parser_registry = _FakeParserRegistry(block_text="变更后内容")
+    service.doc_repo = _FakeDocumentRepo(None)
+    service.chunk_repo = chunk_repo
+    service.block_repo = _FakeBlockRepo()
+    service.job_repo = _FakeJobRepo()
+
+    report = await service.ingest_document(policy_file, _doc_meta())
+
+    assert report.status == "failed"
+    assert assembler.calls == 1
+    assert embedder.texts == []
+    assert chunk_repo.inserted == []
+
+
+def test_dry_run_uses_token_assembler_and_never_constructs_provider_or_database_clients(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts import ingest_policies
+
+    policy_file = _write_policy(tmp_path, "# 退款规则\n\n变更后内容")
+    counter = EmbeddingTokenCounter(load_embedding_tokenizer_config())
+    recording = _RecordingAssembler(PolicyEmbeddingInputAssembler(counter=counter))
+    manifest = [{**_doc_meta(), "file": policy_file.name}]
+
+    def forbidden_side_effect(*args, **kwargs):
+        raise AssertionError("dry_run_side_effect")
+
+    monkeypatch.setattr(ingest_policies, "EmbeddingService", forbidden_side_effect)
+    monkeypatch.setattr(ingest_policies, "SessionLocal", forbidden_side_effect)
+
+    reports = ingest_policies._dry_run(tmp_path, manifest=manifest, input_assembler=recording)
+
+    assert [(report.status, report.chunks_created) for report in reports] == [("success", len(recording.results))]
+    assert len(recording.calls) == 1
+    assert all(dto.embedding_input for dto in recording.results)
 
 
 @pytest.mark.asyncio
