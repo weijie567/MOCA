@@ -16,6 +16,8 @@ import time
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+from sqlalchemy import text
+
 from src.config import settings
 from src.db.models import EvidenceIdentityRollout
 from src.db.session import SessionLocal
@@ -425,7 +427,7 @@ async def _validate_corpus_pair(
     if identity.tenant_id != FORMAT_PARITY_TENANT_ID or identity.state != "complete":
         raise ValueError("candidate_identity_invalid")
     async with SessionLocal() as session:
-        missing = await _database_prerequisites(
+        missing = await _ab_database_prerequisites(
             session,
             expected_rollout_version=identity.expected_evidence_rollout_version,
         )
@@ -476,6 +478,40 @@ async def _validate_corpus_pair(
         )
         await session.rollback()
         return snapshot
+
+
+async def _ab_database_prerequisites(
+    session: Any,
+    *,
+    expected_rollout_version: int,
+) -> tuple[str, ...]:
+    """Accept the Phase64.3 floor when the stricter Phase64.4 schema is live."""
+
+    missing = list(
+        await _database_prerequisites(
+            session,
+            expected_rollout_version=expected_rollout_version,
+        )
+    )
+    if "database_schema" in missing and await _phase64_4_schema_available(session):
+        missing.remove("database_schema")
+    return tuple(missing)
+
+
+async def _phase64_4_schema_available(session: Any) -> bool:
+    row = (
+        await session.execute(
+            text(
+                "SELECT to_regclass('public.rag_evaluation_rounds') IS NOT NULL, "
+                "to_regclass('public.policy_corpus_rollouts') IS NOT NULL, "
+                "to_regclass('public.corpus_chunk_bindings') IS NOT NULL, "
+                "to_regclass('public.policy_corpus_activation_history') IS NOT NULL, "
+                "EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector'), "
+                "(SELECT version_num FROM alembic_version LIMIT 1)"
+            )
+        )
+    ).one()
+    return all(bool(value) for value in row[:5]) and row[5] == "031_phase64_4_policy_corpus_cow"
 
 
 def _hard_proofs(snapshot: CandidateProofSnapshot, *, role_runs: tuple[Any, ...]) -> ABHardProofsV1:

@@ -23608,3 +23608,14 @@ Task 2 scoped gate 已到 `118 passed` 后，提交前沿真实 production inges
 
 **已做处理 / 剩余入口**
 rollback owner 改为独占 `AsyncConnection` 的外层 transaction，并把 evaluator 使用的 `AsyncSession` 以 `join_transaction_mode="create_savepoint"` 绑定该 connection；production 内部 commit 只结束 session savepoint，最终 connection transaction 无条件 rollback。回归测试显式模拟内部 commit，并断言 create-savepoint 配置、session close 与外层 rollback 均发生。随后依次执行 `make format`、完整 `make lint` 与三文件 scoped gate，结果为 `118 passed, 1 warning`。Plan10 live drill 仍须从真实 pointer/history 前后快照验证零漂移，不能把单元 seam 当作 live selected evidence。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 空库初始化、source provision 与 A/B attempt 1 事故
+
+**问题现象 / 如何检测**
+Plan10 live preflight/初始化连续发现：首次临时 `uv run python -c` 把 `async def` 放在分号后触发 `SyntaxError`；随后确认本地 eval DB 的 `alembic current` 为空且查询 `tenants` 报 `UndefinedTableError`。直接 `alembic upgrade head` 又按设计在 migration 026 因 `dual_write_enabled_at` 为空 fail closed。建立固定 eval tenant/corpus 的第一版临时 ORM 脚本未先 flush tenant，manifest FK 失败；source provision 第一文档已成功提交后，脚本读取不存在的 `IngestionReport.chunk_count` 报 `AttributeError`。幂等续跑时第二文档曾由 ingestion broad catch 返回 `parse_failed`。完整 candidate 建成后，full-provider A/B attempt 1 在数秒内写出 immutable `execution_error` run，而非进入 quality gate。
+
+**关键证据 / 当前判断 / 根因**
+所有命令均通过项目入口与主仓 `.env` 安全注入，未打印 secret/DSN。DB 错误发生在空的 evaluation-only DB，未接触生产 tenant。migration 026 要求先在 revision 025 写入新鲜 dual-write healthy proof；显式完成该 CAS 后成功迁移至 `031_phase64_4_policy_corpus_cow`。tenant FK 与 report 字段错误均为一次性本地辅助脚本顺序/字段误用，失败 transaction 已回滚；读回 DB 证明首文档 epoch2 已提交，因此续跑按 exact doc_key 跳过。第二文档 direct Markdown parse/character assembly 均成功，真实 provider usage probe 也 `reported` 且 4/4 vector，证明前次是瞬态 provider 调用被 ingestion 的 broad catch 归类成 `parse_failed`，单次重试后余下两文档均成功。A/B attempt 1 的直接 prerequisite probe 只返回 `database_schema`：Plan09 错误复用了 Phase64.3 对 Alembic revision **恰等于 029** 的旧 gate，mandatory Phase64.4 head031 因而必然被拒绝；attempt 前后 active corpus、epoch4、history4 完全不变。
+
+**已做处理 / 剩余入口**
+以 `alembic upgrade 025` → evaluation singleton healthy CAS → `upgrade head` 的受控顺序完成空库；固定 tenant `643…0001` 最终为唯一 `evaluation_only` tenant，sealed Markdown source 为 3 docs / 158 blocks / 13 character chunks。新增 RED regression 后，A/B 自己的 preflight 保留 Phase64.3 tenant/evidence gate，并仅在 `rag_evaluation_rounds`、rollout/binding/history tables、pgvector 与 exact revision031 全部存在时消除旧 `database_schema` false negative；`make format`、完整 `make lint` 与 scoped gate `94 passed, 1 warning`，live probe 为 missing `[]`。attempt 1 immutable error artifact 保留，不覆盖；只因该已验证实现缺陷允许 attempt 2。后续若 source ingestion 再出现 broad `parse_failed`，应改进 stage-preserving error taxonomy，当前不为完成 live drill 扩 scope。
