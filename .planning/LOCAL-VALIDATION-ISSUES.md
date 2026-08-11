@@ -23437,3 +23437,17 @@ Task 2 首次 GREEN 后精确测试得到 `1 failed, 40 passed, 1 warning`：`te
 
 **剩余问题和下次继续排查入口**
 当前无产品侧剩余问题。后续 golden seam fixture 若包含 Markdown heading，应按 parsed-block 结构断言稳定 id，不应仅凭总 token 数推断 chunk 数量。
+
+## 2026-08-11 — Phase 64.4 Plan 05 executor 空转重启与迁移 fixture 参数类型歧义
+
+**问题现象 / 如何检测**
+Plan 05 首个 executor turn 在已经完成强制前读后长时间没有产生可见命令或文件修改，上层 watchdog 因而中断并重新派发；这是执行编排状态，不是 MOCA 产品失败。恢复后 Task 1 首次真实 PostgreSQL gate 又在 legacy fixture 写入 immutable document/chunk version 时失败，asyncpg 报 `AmbiguousParameterError: inconsistent types deduced for parameter $2 (character varying versus uuid)`。
+
+**关键证据 / 当前判断**
+恢复 turn 先确认共享 worktree 保留了 Wave-0 tests、migration、ORM 和 repository 修改，随后使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/knowledge/test_token_corpus_migration.py tests/test_rag_migration.py`。失败 SQL 在同一个 `:tenant_id` 参数上同时绑定 UUID 列和 `CAST(... AS varchar)` scope_id，属于测试 fixture 的 asyncpg 参数推断歧义；migration bootstrap 尚未开始，因此不能据此判定产品迁移失败。另在同轮静态核对发现 bootstrap tenant 枚举使用 `SELECT DISTINCT ... FOR UPDATE`，该 PostgreSQL 组合不合法，属于迁移实现的可预防缺陷。
+
+**已做处理**
+恢复后立即从已存在的 Wave-0 RED 继续，没有重复覆盖前序 plan 修改；fixture 改为独立传入字符串 `scope_id`，migration tenant 枚举移除无效的 DISTINCT row lock，同时仍对每租户实际 document/block/chunk rows 加锁。完整重跑真实 PostgreSQL/pgvector migration、bootstrap、visibility 与 downgrade refusal gate 为 `5 passed, 7 warnings`；没有运行裸 pytest/Python。
+
+**剩余问题和下次继续排查入口**
+产品侧当前无已知 blocker。若 executor 再次长时间无可见进度，应先用 `git status --short` 与最近 gate log 核对共享 worktree；若 fixture 再出现 asyncpg 参数歧义，优先检查同一 named bind 是否跨 UUID/varchar 上下文复用。
