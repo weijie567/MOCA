@@ -9,15 +9,17 @@ schema/bootstrap facts established by migration 030.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import (
     CorpusBlockBinding,
     CorpusChunkBinding,
     CorpusDocumentBinding,
+    PolicyCorpusManifestRevision,
     PolicyCorpusRollout,
     PolicyCorpusVersion,
 )
@@ -50,7 +52,7 @@ class PolicyCorpusBootstrapView:
 
 
 class PolicyCorpusRepository:
-    """Read migration-030 corpus/bootstrap state without selecting candidates."""
+    """Persistence owner for corpus bootstrap and tenant-scoped candidates."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -74,6 +76,100 @@ class PolicyCorpusRepository:
         return (
             await self.session.execute(select(PolicyCorpusRollout).where(PolicyCorpusRollout.tenant_id == tenant_id))
         ).scalar_one_or_none()
+
+    async def acquire_tenant_rollout_lock(self, *, tenant_id: UUID) -> PolicyCorpusRollout:
+        """Serialize claims, then lock the one tenant pointer row."""
+
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(CAST(:tenant_id AS text), 0))"),
+            {"tenant_id": str(tenant_id)},
+        )
+        rollout = (
+            await self.session.execute(
+                select(PolicyCorpusRollout)
+                .where(PolicyCorpusRollout.tenant_id == tenant_id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if rollout is None:
+            raise PolicyCorpusUnavailable("policy corpus rollout is unavailable")
+        return rollout
+
+    async def lock_latest_manifest(self, *, tenant_id: UUID) -> PolicyCorpusManifestRevision:
+        manifest = (
+            await self.session.execute(
+                select(PolicyCorpusManifestRevision)
+                .where(PolicyCorpusManifestRevision.tenant_id == tenant_id)
+                .order_by(PolicyCorpusManifestRevision.revision.desc(), PolicyCorpusManifestRevision.id.desc())
+                .limit(1)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if manifest is None:
+            raise PolicyCorpusUnavailable("policy corpus manifest is unavailable")
+        return manifest
+
+    async def get_candidate_by_run(
+        self,
+        *,
+        tenant_id: UUID,
+        run_token: UUID,
+    ) -> PolicyCorpusVersion | None:
+        rows = list(
+            (
+                await self.session.execute(
+                    select(PolicyCorpusVersion)
+                    .where(
+                        PolicyCorpusVersion.tenant_id == tenant_id,
+                        PolicyCorpusVersion.run_token == run_token,
+                    )
+                    .order_by(PolicyCorpusVersion.created_at, PolicyCorpusVersion.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        if len(rows) > 1:
+            raise PolicyCorpusUnavailable("policy corpus run identity is ambiguous")
+        return rows[0] if rows else None
+
+    async def lock_candidate(self, *, corpus_version_id: UUID) -> PolicyCorpusVersion | None:
+        return (
+            await self.session.execute(
+                select(PolicyCorpusVersion)
+                .where(PolicyCorpusVersion.id == corpus_version_id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+    async def cas_candidate(
+        self,
+        row: PolicyCorpusVersion,
+        *,
+        expected_state_version: int,
+        expected_next_document_index: int,
+        values: dict[str, Any],
+    ) -> PolicyCorpusVersion | None:
+        """CAS one exact tenant/run/owner/cursor without changing the pointer."""
+
+        result = await self.session.execute(
+            update(PolicyCorpusVersion)
+            .where(
+                PolicyCorpusVersion.id == row.id,
+                PolicyCorpusVersion.tenant_id == row.tenant_id,
+                PolicyCorpusVersion.run_token == row.run_token,
+                PolicyCorpusVersion.owner_marker == row.owner_marker,
+                PolicyCorpusVersion.state_version == expected_state_version,
+                PolicyCorpusVersion.next_document_index == expected_next_document_index,
+            )
+            .values(**values, state_version=expected_state_version + 1, updated_at=func.now())
+            .execution_options(synchronize_session=False)
+        )
+        if (result.rowcount or 0) != 1:
+            return None
+        return await self.lock_candidate(corpus_version_id=row.id)
 
     async def get_projection_counts(
         self,

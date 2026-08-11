@@ -23476,3 +23476,14 @@ ORM canonical JSON 列改用 `JSONB(none_as_null=True)`，legacy append 继续�
 
 **已做处理 / 剩余入口**
 恢复 `_CallCollector` 完整类边界，并让 `_CurrentSqlCollector` 独立维护 scope/source stack；随后 `make format`、两次完整 `make lint`、Task 2 精确 gate `65 passed, 1 warning` 与受影响 Task 1 回归 gate `41 passed, 1 warning` 全部通过。没有使用裸 pytest/Python。当前无产品侧剩余问题；以后修改 AST visitor 时先运行 `make format`，再运行 architecture test 单文件定位 collector 自身错误。
+
+## 2026-08-11 — Phase 64.4 Plan 07 Task 1 PostgreSQL corpus fixture flush 顺序违反复合外键
+
+**问题现象 / 如何检测**
+Task 1 首次 GREEN 使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_policy_reindex.py`，5 个用例均在 setup 阶段失败；PostgreSQL 报 `policy_corpus_rollouts(active_corpus_version_id, tenant_id)` 找不到对应 `policy_corpus_versions(id, tenant_id)`。
+
+**关键证据 / 当前判断 / 根因**
+fixture 将 manifest、source corpus、rollout 三个没有 ORM relationship 的对象一次性 `add_all + flush`。SQLAlchemy 无法从 Python 对象关系推导 migration 030 的 manifest → corpus → rollout 复合外键顺序，实际先插入 rollout。失败发生在 `PolicyReindexService.claim()` 之前，属于新测试 setup 顺序错误，不是 claim/lease/CAS 产品实现或数据库 schema 缺陷。
+
+**已做处理 / 剩余入口**
+fixture 改为 tenant 后依次 flush manifest、source corpus、rollout，保留真实 PostgreSQL/pgvector schema 与复合外键，不绕过约束。相同项目入口重跑为 `5 passed, 1 warning`；随后 `make format`、完整 `make lint` 与精确 gate 继续通过。当前无产品侧剩余问题；后续构造 inactive candidate projection fixture 时仍须显式按 tenant → manifest → corpus → current/immutable row → binding 顺序 flush。
