@@ -65,6 +65,7 @@ class _AssemblyUnit:
     content: str
     source_block_refs: tuple[dict[str, Any], ...]
     metadata: dict[str, Any]
+    joiner: str = "\n"
     force_boundary: bool = False
 
 
@@ -150,8 +151,9 @@ class PolicyEmbeddingInputAssembler:
                     content=piece,
                     source_block_refs=(ref,),
                     metadata=metadata,
+                    joiner="\n" if piece_index == 0 else "",
                 )
-                for piece in pieces
+                for piece_index, piece in enumerate(pieces)
                 if piece
             )
         return tuple(units)
@@ -181,9 +183,10 @@ class PolicyEmbeddingInputAssembler:
                     content=piece,
                     source_block_refs=(ref,),
                     metadata=chunk_metadata((ref,)),
+                    joiner="\n" if piece_index == 0 else "",
                     force_boundary=True,
                 )
-                for piece in pieces
+                for piece_index, piece in enumerate(pieces)
             )
 
         header_line = " | ".join(headers)
@@ -229,6 +232,7 @@ class PolicyEmbeddingInputAssembler:
                     content=content,
                     source_block_refs=(ref,),
                     metadata=metadata,
+                    joiner="\n",
                     force_boundary=True,
                 )
             )
@@ -433,7 +437,7 @@ class PolicyEmbeddingInputAssembler:
             _fail(PolicyEmbeddingInputFailureCode.NO_PROGRESS)
         return _BaseChunk(
             section=units[0].section,
-            primary_content="\n".join(unit.content for unit in units),
+            primary_content=units[0].content + "".join(f"{unit.joiner}{unit.content}" for unit in units[1:]),
             source_block_refs=_dedupe_refs(ref for unit in units for ref in unit.source_block_refs),
             metadata=_merge_metadata(units),
         )

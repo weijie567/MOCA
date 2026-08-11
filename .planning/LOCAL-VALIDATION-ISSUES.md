@@ -23386,3 +23386,20 @@ Plan01 完成后按 execute-phase pre-wave gate 调用 `gsd-sdk query verify.key
 
 **已做处理 / 剩余入口**
 从已核验的官方 cache blob vendor 固定 bytes，并保留 pinned source URL、revision、size、SHA、Apache-2.0 许可证据；执行 `UV_CACHE_DIR=/tmp/uv-cache uv sync --extra dev` 后确认 `uv run which pytest` 指向当前 worktree `.venv/bin/pytest`，再重跑得到预期 Wave-0 RED，随后 Task 1 的 `make lint` 与 scoped pytest 为 5 passed。orchestrator 在 Plan01 完成后的只读 spot-check 也曾再次复用 zsh 特殊数组名 `path`，导致同一 subshell 后续 `git`/`rg` 无法从 PATH 查找；改用 `asset_file` 后已完整重跑并确认 summary key files、提交和 clean worktree。后续新 worktree 在测试前先同步 dev extra，资产获取优先核验 pinned cache、网络可用时再按同一 SHA 复核；zsh 临时变量继续避开 `path` / `status`。当前无产品侧 blocker。
+
+## 2026-08-11 — Phase 64.4 Plan 02 structural split 首版插入非源换行
+
+**问题现象**
+Task 2 新增中英混合、OCR-like、combining Unicode、emoji、URL/number 和 sentence/clause 重建属性测试后，8 个用例证明 `"".join(item.primary_content)` 与原始单 block 文本不相等；差异是在 sentence/clause/whitespace 拆出的 piece 之间多了 `\n`。同轮 overlap 测试还因测试代码对错位长度序列使用 `zip(..., strict=True)` 产生 1 个测试自身错误。
+
+**如何检测/复现与关键证据**
+使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_token_aware_chunker.py tests/rag/test_block_chunker.py`，结果为 `9 failed, 18 passed, 1 warning`。8 个产品失败共同指向 `_base_from_units()` 无条件用换行拼接同一 source block 的 structural pieces；第 9 个失败在断言循环启动前直接抛出 `ValueError: zip() argument 2 is shorter`，属于测试边界写错而非 overlap 实现结论。
+
+**当前判断/根因**
+assembler 需要区分“不同 parser block 的 canonical 换行”和“同一 block 内为满足 token budget 产生的无损 split”；首版 `_AssemblyUnit` 没有携带该关系，packing 因而把所有 unit 都当成 block 边界。token count 与 512 hard bound 本身仍正确，但 citation bytes 被额外装饰，不满足 D-08/D-10 的无截断、byte-identical rebuild 语义。
+
+**已做处理**
+为 `_AssemblyUnit` 增加显式 `joiner`：每个 parser block 首 piece 使用 block 换行，后续 structural/token-window pieces 使用空连接；chunk 起始 piece 忽略前置 joiner，确保跨 chunk 的同 block source 可直接重组。测试循环改为等长的 `zip(assembled[:-1], assembled[1:], strict=True)`。原命令完整重跑为 `27 passed, 1 warning`，覆盖 Unicode unsafe boundary、exact recount、token overlap、oversized table cell/header 与 tokenizer failure。
+
+**剩余问题和下次继续排查入口**
+assembler 本体当前无已知重建缺口；Plan 04 仍需把 production/dry-run/golden/parity/A-B 接到同一 DTO，届时必须再次证明 embedder 收到的 bytes 与本 assembler 返回值完全一致。若后续改变 structural unit packing，优先从 `tests/rag/test_token_aware_chunker.py` 的 multilingual rebuild 与 sentence/clause exact-source 用例继续排查。
