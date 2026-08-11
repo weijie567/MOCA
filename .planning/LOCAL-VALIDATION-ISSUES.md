@@ -23283,3 +23283,20 @@ GitHub Actions run `31448121999` 的 lint 日志列出 `parser_parity.py`、`rep
 ### Hook 验证补充：新 worktree 未同步 dev extra
 
 首次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pre-commit validate-config` 与 `pre-commit run --all-files` 时，uv 报 `Failed to spawn: pre-commit`。根因是新 worktree 只完成 lock 更新和默认环境创建，尚未把 dev extra 同步进 `.venv`；该失败不能作为 hook 配置结论。已把 `make hooks` 以及 hook 内的 Ruff entry 显式改为 `uv run --extra dev ...`，使首次克隆/新 worktree 不依赖预先手工 `uv sync --extra dev`。后续以带 `--extra dev` 的重跑结果为准。
+
+## 2026-08-11 — Phase 64.3 PR 的 Linux CI 缺少 CJK fixture 字体
+
+**问题现象**
+PR #5 在 Ruff 修复后的 GitHub Actions run `31449869596` 中，lint 已通过，但 test job 在 63% 处停止：`test_fixture_builder_is_byte_deterministic_across_wall_clock_gap` 报 `No CJK font found`。失败汇总为 `1 failed, 2911 passed, 1 skipped`。
+
+**如何检测/复现与关键证据**
+失败调用链是 `tests/eval/test_rag_format_parity_contract.py` 调用 `build_fixture_family()`，再由 `evaluation/rag_sources/build_fixtures.py::_font_path()` 检查 `MOCA_CJK_FONT`、macOS 系统字体和 Linux Noto CJK 标准路径。GitHub `ubuntu-latest` runner 未预装候选字体，原 CI 也没有字体安装/preflight 步骤，因此在生成中文 PDF fixture 前按契约 fail closed。
+
+**当前判断/根因**
+这是 Phase 64.3 中文 PDF 评测工具的 CI 环境依赖缺口，不是生产 API、parser 逻辑或 2911 个已通过测试的失败。字体会影响字形、换行、分页和 PDF bytes；静默换成无 CJK 字体会污染确定性和 parser/OCR 基线，因此测试主动失败是正确行为。
+
+**已做处理**
+在 CI test job 中显式安装 Ubuntu `fonts-noto-cjk`，从安装目录解析 `NotoSansCJK-Regular.ttc`，在文件存在后写入 `MOCA_CJK_FONT`，并输出 SHA-256 供日志审计。fixture generator 已把 `cjk_font_sha256` 纳入 generator identity，因此 CI 字体身份不会被静默忽略。
+
+**剩余问题和下次继续排查入口**
+以 PR #5 新一轮 GitHub Actions 为最终 Linux 证明；本地继续使用仓库已支持的 macOS CJK 字体路径。若未来 Ubuntu 包路径变化，CI 的 exact-name preflight 会在测试前明确失败，入口为该 workflow 安装步骤，而不是让 PDF fixture 生成产生模糊错误。

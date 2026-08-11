@@ -43,4 +43,12 @@ jobs:
         with:
           version: "latest"
       - run: uv sync --extra dev
+      - name: Install CJK font for deterministic PDF fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends fonts-noto-cjk
+          cjk_font_path=$(find /usr/share/fonts -type f -name 'NotoSansCJK-Regular.ttc' -print -quit)
+          test -n "$cjk_font_path"
+          echo "MOCA_CJK_FONT=$cjk_font_path" >> "$GITHUB_ENV"
+          sha256sum "$cjk_font_path"
       - run: uv run pytest tests/ -x --ignore=tests/integration -q --tb=short
