@@ -16,7 +16,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Any, Literal, Mapping
+from typing import Any, Callable, Literal, Mapping
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -26,6 +26,8 @@ from src.rag.evaluation.reporting import canonical_report_json_bytes, validate_s
 
 RUN_SCHEMA_VERSION = "rag_token_chunk_ab.v1"
 SELECTION_SCHEMA_VERSION = "rag_token_chunk_selection.v1"
+EXECUTION_DIAGNOSTIC_SCHEMA_VERSION = "rag_token_chunk_execution_diagnostic.v1"
+EXECUTION_BUNDLE_SCHEMA_VERSION = "rag_token_chunk_execution_bundle.v1"
 GATE_PROFILE_VERSION = "rag_token_chunk_ab.v1"
 SEALED_MANIFEST_HASH = "e5544b20ecdf05c2eaf3325b4e5f89a4ef752c0b8c0d23b8bac224f006fdd53b"
 SEALED_GOLD_HASH = "c6dc12536270fa9b9532ec4595e0a91d2b4ebddf83754a0f1ec107caabb64b8e"
@@ -414,12 +416,107 @@ class ABSelectionDecisionV1(_FrozenModel):
         return self
 
 
+DiagnosticRole = Literal["character_incumbent", "token_candidate", "shared_preflight"]
+DiagnosticRound = Literal["markdown", "digital_pdf", "scanned_pdf"]
+DiagnosticStage = Literal[
+    "shared_preflight",
+    "role_setup",
+    "format_ingestion",
+    "retrieval_resource_proof",
+    "post_rollback_baseline_verification",
+]
+DiagnosticReasonCode = Literal[
+    "candidate_state_invalid",
+    "sealed_input_invalid",
+    "candidate_pair_invalid",
+    "role_setup_failed",
+    "format_ingestion_failed",
+    "provider_request_failed",
+    "resource_proof_failed",
+    "rollback_proof_failed",
+    "provider_execution_failed",
+]
+
+
+class ABExecutionDiagnosticV1(_FrozenModel):
+    """Strict disclosure-safe provenance for one terminal execution error."""
+
+    schema_version: Literal["rag_token_chunk_execution_diagnostic.v1"] = EXECUTION_DIAGNOSTIC_SCHEMA_VERSION
+    run_id: UUID
+    terminal_run_sha256: str = Field(pattern=_SHA256_PATTERN)
+    occurred_at: datetime
+    failing_role: DiagnosticRole
+    round_format: DiagnosticRound | None = None
+    stage: DiagnosticStage
+    reason_code: DiagnosticReasonCode
+    provider_availability: Literal["available", "unavailable", "not_checked"]
+    provider_request_classification: Literal[
+        "not_attempted",
+        "request_started",
+        "request_completed",
+        "request_failed",
+    ]
+    outer_rollback_attempted: bool
+    outer_rollback_proved: bool
+    completed_round_count: int = Field(ge=0, le=3)
+    provider_request_count: int = Field(ge=0)
+    safe_context_sha256: str | None = Field(default=None, pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_diagnostic(self) -> ABExecutionDiagnosticV1:
+        if self.occurred_at.tzinfo is None:
+            raise ValueError("diagnostic_time_invalid")
+        if self.outer_rollback_proved and not self.outer_rollback_attempted:
+            raise ValueError("rollback_proof_invalid")
+        if self.provider_request_classification in {"request_started", "request_completed"}:
+            if self.provider_availability != "available":
+                raise ValueError("provider_classification_invalid")
+        if self.provider_request_classification == "not_attempted" and self.provider_request_count:
+            raise ValueError("provider_request_count_invalid")
+        validate_safe_report_payload(self.model_dump(mode="json"))
+        return self
+
+
+class ABExecutionBundleManifestV1(_FrozenModel):
+    """The sole reader-visible commit point for an execution-error bundle."""
+
+    schema_version: Literal["rag_token_chunk_execution_bundle.v1"] = EXECUTION_BUNDLE_SCHEMA_VERSION
+    run_id: UUID
+    terminal_run_sha256: str = Field(pattern=_SHA256_PATTERN)
+    run_markdown_sha256: str = Field(pattern=_SHA256_PATTERN)
+    diagnostic_json_sha256: str = Field(pattern=_SHA256_PATTERN)
+    diagnostic_markdown_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_manifest(self) -> ABExecutionBundleManifestV1:
+        validate_safe_report_payload(self.model_dump(mode="json"))
+        return self
+
+
 @dataclass(frozen=True, slots=True)
 class ImmutableArtifactPairV1:
     json_path: Path
     markdown_path: Path
     json_sha256: str
     markdown_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class ImmutableExecutionBundleV1:
+    manifest: ABExecutionBundleManifestV1
+    manifest_path: Path
+    run: ImmutableArtifactPairV1
+    diagnostic: ImmutableArtifactPairV1
+
+
+@dataclass(frozen=True, slots=True)
+class LoadedExecutionBundleV1:
+    manifest: ABExecutionBundleManifestV1
+    report: TerminalABRunV1
+    diagnostic: ABExecutionDiagnosticV1
+
+
+ExecutionBundleFaultInjector = Callable[[str], None]
 
 
 def build_candidate_observation_from_retrieval(
@@ -783,6 +880,31 @@ def render_selection_markdown(payload: Mapping[str, Any]) -> str:
     )
 
 
+def render_execution_diagnostic_markdown(payload: Mapping[str, Any]) -> str:
+    diagnostic = ABExecutionDiagnosticV1.model_validate(payload)
+    return "\n".join(
+        (
+            "# RAG Token Chunk Execution Diagnostic",
+            "",
+            f"Schema: `{diagnostic.schema_version}`",
+            f"Run: `{diagnostic.run_id}`",
+            f"Terminal run SHA-256: `{diagnostic.terminal_run_sha256}`",
+            f"Failing role: `{diagnostic.failing_role}`",
+            f"Round: `{diagnostic.round_format or 'none'}`",
+            f"Stage: `{diagnostic.stage}`",
+            f"Reason: `{diagnostic.reason_code}`",
+            f"Provider availability: `{diagnostic.provider_availability}`",
+            f"Provider request: `{diagnostic.provider_request_classification}`",
+            f"Outer rollback attempted: `{'true' if diagnostic.outer_rollback_attempted else 'false'}`",
+            f"Outer rollback proved: `{'true' if diagnostic.outer_rollback_proved else 'false'}`",
+            f"Completed rounds: `{diagnostic.completed_round_count}`",
+            f"Provider requests: `{diagnostic.provider_request_count}`",
+            f"Safe context SHA-256: `{diagnostic.safe_context_sha256 or 'none'}`",
+            "",
+        )
+    )
+
+
 def write_terminal_run_create_only(report: TerminalABRunV1, *, root: Path) -> ImmutableArtifactPairV1:
     validated = TerminalABRunV1.model_validate(report.model_dump(mode="json"))
     return _write_create_only_pair(
@@ -802,6 +924,188 @@ def load_terminal_ab_run(path: Path) -> TerminalABRunV1:
         return TerminalABRunV1.model_validate(payload)
     except ValidationError:
         raise
+
+
+def write_execution_error_bundle_create_only(
+    report: TerminalABRunV1,
+    *,
+    diagnostic: ABExecutionDiagnosticV1,
+    root: Path,
+    fault_injector: ExecutionBundleFaultInjector | None = None,
+) -> ImmutableExecutionBundleV1:
+    """Crash-consistently publish one immutable execution-error evidence bundle.
+
+    The four legacy/diagnostic files may exist before commit, but readers ignore
+    them until the create-only commit directory is atomically renamed into
+    place. A retry accepts only the exact canonical bytes from the first try.
+    """
+
+    validated_report = TerminalABRunV1.model_validate(report.model_dump(mode="json"))
+    validated_diagnostic = ABExecutionDiagnosticV1.model_validate(diagnostic.model_dump(mode="json"))
+    if validated_report.outcome != "execution_error":
+        raise ValueError("execution_error_required")
+    if validated_diagnostic.run_id != validated_report.run_id:
+        raise ValueError("bundle_identity_mismatch")
+
+    run_json = canonical_report_json_bytes(validated_report.model_dump(mode="json"))
+    run_markdown = render_terminal_markdown(validated_report.model_dump(mode="json")).encode()
+    run_sha256 = _sha256_bytes(run_json)
+    if validated_diagnostic.terminal_run_sha256 != run_sha256:
+        raise ValueError("terminal_run_hash_mismatch")
+    diagnostic_json = canonical_report_json_bytes(validated_diagnostic.model_dump(mode="json"))
+    diagnostic_markdown = render_execution_diagnostic_markdown(validated_diagnostic.model_dump(mode="json")).encode()
+
+    run_id = str(validated_report.run_id)
+    staged_root = root / ".staging" / run_id
+    staged_payloads = {
+        "run_json": (staged_root / "run.json", run_json),
+        "run_markdown": (staged_root / "run.md", run_markdown),
+        "diagnostic_json": (staged_root / "diagnostic.json", diagnostic_json),
+        "diagnostic_markdown": (staged_root / "diagnostic.md", diagnostic_markdown),
+    }
+    try:
+        staged_root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        raise ValueError("write_failed") from None
+    for name, (path, payload) in staged_payloads.items():
+        _stage_bundle_payload(
+            path,
+            payload,
+            write_boundary=f"stage_write:{name}",
+            fsync_boundary=f"stage_fsync:{name}",
+            fault_injector=fault_injector,
+        )
+    _fsync_directory(staged_root)
+    _inject_fault(fault_injector, "stage_dir_fsync")
+
+    final_payloads = {
+        "run_json": (root / "runs" / f"{run_id}.json", run_json),
+        "run_markdown": (root / "runs" / f"{run_id}.md", run_markdown),
+        "diagnostic_json": (root / "diagnostics" / f"{run_id}.json", diagnostic_json),
+        "diagnostic_markdown": (root / "diagnostics" / f"{run_id}.md", diagnostic_markdown),
+    }
+    for name, (target, payload) in final_payloads.items():
+        _publish_bundle_link(
+            source=staged_payloads[name][0],
+            target=target,
+            payload=payload,
+        )
+        _inject_fault(fault_injector, f"publish_link:{name}")
+        _fsync_directory(target.parent)
+        _inject_fault(fault_injector, f"publish_fsync:{name}")
+
+    manifest = ABExecutionBundleManifestV1(
+        run_id=validated_report.run_id,
+        terminal_run_sha256=run_sha256,
+        run_markdown_sha256=_sha256_bytes(run_markdown),
+        diagnostic_json_sha256=_sha256_bytes(diagnostic_json),
+        diagnostic_markdown_sha256=_sha256_bytes(diagnostic_markdown),
+    )
+    manifest_payload = canonical_report_json_bytes(manifest.model_dump(mode="json"))
+    commit_stage_dir = staged_root / "commit"
+    try:
+        commit_stage_dir.mkdir(exist_ok=True)
+    except OSError:
+        raise ValueError("write_failed") from None
+    _stage_bundle_payload(
+        commit_stage_dir / "manifest.json",
+        manifest_payload,
+        write_boundary="manifest_stage_write",
+        fsync_boundary="manifest_stage_fsync",
+        fault_injector=fault_injector,
+    )
+    _fsync_directory(commit_stage_dir)
+    _inject_fault(fault_injector, "manifest_dir_fsync")
+
+    commits_root = root / "commits"
+    final_commit_dir = commits_root / run_id
+    try:
+        commits_root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        raise ValueError("write_failed") from None
+    final_manifest_path = final_commit_dir / "manifest.json"
+    if final_commit_dir.exists():
+        if not final_commit_dir.is_dir() or _read_bytes_or_conflict(final_manifest_path) != manifest_payload:
+            raise ValueError("bundle_conflict")
+    else:
+        _inject_fault(fault_injector, "manifest_rename")
+        try:
+            os.rename(commit_stage_dir, final_commit_dir)
+        except OSError:
+            if not final_commit_dir.is_dir() or _read_bytes_or_conflict(final_manifest_path) != manifest_payload:
+                raise ValueError("bundle_conflict") from None
+    _fsync_directory(commits_root)
+    loaded = load_execution_error_bundle(root=root, run_id=validated_report.run_id)
+    if loaded.manifest != manifest:
+        raise ValueError("bundle_conflict")
+    return ImmutableExecutionBundleV1(
+        manifest=manifest,
+        manifest_path=final_manifest_path,
+        run=ImmutableArtifactPairV1(
+            json_path=final_payloads["run_json"][0],
+            markdown_path=final_payloads["run_markdown"][0],
+            json_sha256=manifest.terminal_run_sha256,
+            markdown_sha256=manifest.run_markdown_sha256,
+        ),
+        diagnostic=ImmutableArtifactPairV1(
+            json_path=final_payloads["diagnostic_json"][0],
+            markdown_path=final_payloads["diagnostic_markdown"][0],
+            json_sha256=manifest.diagnostic_json_sha256,
+            markdown_sha256=manifest.diagnostic_markdown_sha256,
+        ),
+    )
+
+
+def load_execution_error_bundle(*, root: Path, run_id: UUID) -> LoadedExecutionBundleV1:
+    """Load only a hash-valid, manifest-committed four-file bundle."""
+
+    manifest_path = root / "commits" / str(run_id) / "manifest.json"
+    if not manifest_path.is_file():
+        raise ValueError("bundle_uncommitted")
+    try:
+        manifest = ABExecutionBundleManifestV1.model_validate_json(manifest_path.read_bytes())
+    except (OSError, ValidationError, ValueError):
+        raise ValueError("bundle_invalid") from None
+    if manifest.run_id != run_id:
+        raise ValueError("bundle_invalid")
+    paths = {
+        "run_json": root / "runs" / f"{run_id}.json",
+        "run_markdown": root / "runs" / f"{run_id}.md",
+        "diagnostic_json": root / "diagnostics" / f"{run_id}.json",
+        "diagnostic_markdown": root / "diagnostics" / f"{run_id}.md",
+    }
+    try:
+        payloads = {name: path.read_bytes() for name, path in paths.items()}
+    except OSError:
+        raise ValueError("bundle_invalid") from None
+    expected_hashes = {
+        "run_json": manifest.terminal_run_sha256,
+        "run_markdown": manifest.run_markdown_sha256,
+        "diagnostic_json": manifest.diagnostic_json_sha256,
+        "diagnostic_markdown": manifest.diagnostic_markdown_sha256,
+    }
+    if any(_sha256_bytes(payloads[name]) != digest for name, digest in expected_hashes.items()):
+        raise ValueError("bundle_invalid")
+    try:
+        report = TerminalABRunV1.model_validate_json(payloads["run_json"])
+        diagnostic = ABExecutionDiagnosticV1.model_validate_json(payloads["diagnostic_json"])
+    except (ValidationError, ValueError):
+        raise ValueError("bundle_invalid") from None
+    if (
+        report.outcome != "execution_error"
+        or report.run_id != run_id
+        or diagnostic.run_id != run_id
+        or diagnostic.terminal_run_sha256 != manifest.terminal_run_sha256
+        or payloads["run_markdown"] != render_terminal_markdown(report.model_dump(mode="json")).encode()
+        or payloads["diagnostic_markdown"]
+        != render_execution_diagnostic_markdown(diagnostic.model_dump(mode="json")).encode()
+    ):
+        raise ValueError("bundle_invalid")
+    return LoadedExecutionBundleV1(
+        manifest=manifest,
+        report=report,
+        diagnostic=diagnostic,
+    )
 
 
 def write_selection_create_only(
@@ -926,6 +1230,73 @@ def _write_create_only_pair(
         json_sha256=_sha256_bytes(json_payload),
         markdown_sha256=_sha256_bytes(markdown_payload),
     )
+
+
+def _stage_bundle_payload(
+    path: Path,
+    payload: bytes,
+    *,
+    write_boundary: str,
+    fsync_boundary: str,
+    fault_injector: ExecutionBundleFaultInjector | None,
+) -> None:
+    try:
+        if path.exists():
+            with path.open("rb") as stream:
+                if stream.read() != payload:
+                    raise ValueError("bundle_conflict")
+                os.fsync(stream.fileno())
+        else:
+            with path.open("xb") as stream:
+                stream.write(payload)
+                stream.flush()
+                _inject_fault(fault_injector, write_boundary)
+                os.fsync(stream.fileno())
+        _inject_fault(fault_injector, fsync_boundary)
+    except ValueError:
+        raise
+    except OSError:
+        raise ValueError("write_failed") from None
+
+
+def _publish_bundle_link(*, source: Path, target: Path, payload: bytes) -> None:
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            if _read_bytes_or_conflict(target) != payload:
+                raise ValueError("bundle_conflict")
+            return
+        os.link(source, target)
+    except FileExistsError:
+        if _read_bytes_or_conflict(target) != payload:
+            raise ValueError("bundle_conflict") from None
+    except ValueError:
+        raise
+    except OSError:
+        raise ValueError("write_failed") from None
+
+
+def _read_bytes_or_conflict(path: Path) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError:
+        raise ValueError("bundle_conflict") from None
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        raise ValueError("write_failed") from None
+
+
+def _inject_fault(fault_injector: ExecutionBundleFaultInjector | None, boundary: str) -> None:
+    if fault_injector is not None:
+        fault_injector(boundary)
 
 
 def _sha256_bytes(payload: bytes) -> str:

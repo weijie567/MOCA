@@ -691,7 +691,9 @@ def test_execution_error_bundle_has_one_manifest_visibility_point_and_preserves_
     report = _execution_error_run()
     expected_run_json = canonical_report_json_bytes(report.model_dump(mode="json"))
     expected_run_markdown = api["render_terminal_markdown"](report.model_dump(mode="json")).encode()
-    diagnostic = _execution_diagnostic(terminal_run_sha256="sha256:" + __import__("hashlib").sha256(expected_run_json).hexdigest())
+    diagnostic = _execution_diagnostic(
+        terminal_run_sha256="sha256:" + __import__("hashlib").sha256(expected_run_json).hexdigest()
+    )
 
     bundle = api["write_execution_error_bundle_create_only"](report, diagnostic=diagnostic, root=tmp_path)
     manifest_path = tmp_path / "commits" / str(RUN_ID) / "manifest.json"
@@ -742,9 +744,10 @@ def test_execution_bundle_fault_boundaries_are_invisible_then_byte_identically_r
     report = _execution_error_run()
     from src.rag.evaluation.reporting import canonical_report_json_bytes
 
-    run_sha = "sha256:" + __import__("hashlib").sha256(
-        canonical_report_json_bytes(report.model_dump(mode="json"))
-    ).hexdigest()
+    run_sha = (
+        "sha256:"
+        + __import__("hashlib").sha256(canonical_report_json_bytes(report.model_dump(mode="json"))).hexdigest()
+    )
     diagnostic = _execution_diagnostic(terminal_run_sha256=run_sha)
 
     def crash(observed: str) -> None:
@@ -773,9 +776,10 @@ def test_execution_bundle_partial_conflict_fails_closed_without_manifest(tmp_pat
     from src.rag.evaluation.reporting import canonical_report_json_bytes
 
     report = _execution_error_run()
-    run_sha = "sha256:" + __import__("hashlib").sha256(
-        canonical_report_json_bytes(report.model_dump(mode="json"))
-    ).hexdigest()
+    run_sha = (
+        "sha256:"
+        + __import__("hashlib").sha256(canonical_report_json_bytes(report.model_dump(mode="json"))).hexdigest()
+    )
     diagnostic = _execution_diagnostic(terminal_run_sha256=run_sha)
 
     def crash(observed: str) -> None:

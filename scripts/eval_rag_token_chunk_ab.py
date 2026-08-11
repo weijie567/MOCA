@@ -49,6 +49,7 @@ from src.rag.evaluation.token_chunk_ab import (
     SEALED_MANIFEST_HASH,
     SEALED_TOTAL_CASE_COUNT,
     ABHardProofsV1,
+    ABExecutionDiagnosticV1,
     ABInputIdentityV1,
     ABNamespaceV1,
     ABParityEvidenceV1,
@@ -57,9 +58,11 @@ from src.rag.evaluation.token_chunk_ab import (
     TerminalABRunV1,
     build_candidate_observation_from_retrieval,
     build_terminal_ab_run,
+    write_execution_error_bundle_create_only,
     write_selection_create_only,
     write_terminal_run_create_only,
 )
+from src.rag.evaluation.reporting import canonical_report_json_bytes
 from src.rag.ingestion import (
     CHARACTER_COMPATIBILITY_CONFIG_VERSION,
     CharacterCompatibilityAssembler,
@@ -615,7 +618,15 @@ async def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     report, binding = await run_full_provider_ab(args)
     try:
-        run_pair = write_terminal_run_create_only(report, root=args.output_root)
+        if report.outcome == "execution_error":
+            bundle = write_execution_error_bundle_create_only(
+                report,
+                diagnostic=_fallback_execution_diagnostic(report),
+                root=args.output_root,
+            )
+            run_pair = bundle.run
+        else:
+            run_pair = write_terminal_run_create_only(report, root=args.output_root)
         if report.outcome == "selected_pass":
             if binding is None:
                 raise ValueError("selected_binding_missing")
@@ -640,6 +651,35 @@ async def main(argv: list[str] | None = None) -> int:
         )
     )
     return 0 if report.outcome == "selected_pass" else 2
+
+
+def _fallback_execution_diagnostic(report: TerminalABRunV1) -> ABExecutionDiagnosticV1:
+    """Build a safe preflight diagnostic until role execution supplies richer provenance."""
+
+    run_payload = canonical_report_json_bytes(report.model_dump(mode="json"))
+    safe_reason = report.safe_reason_codes[0] if report.safe_reason_codes else "provider_execution_failed"
+    reason_code = (
+        safe_reason
+        if safe_reason in {"candidate_state_invalid", "sealed_input_invalid", "provider_execution_failed"}
+        else "candidate_pair_invalid"
+    )
+    provider_attempted = reason_code == "provider_execution_failed"
+    return ABExecutionDiagnosticV1(
+        run_id=report.run_id,
+        terminal_run_sha256="sha256:" + hashlib.sha256(run_payload).hexdigest(),
+        occurred_at=report.generated_at,
+        failing_role="shared_preflight",
+        round_format=None,
+        stage="shared_preflight",
+        reason_code=reason_code,
+        provider_availability="available" if provider_attempted else "not_checked",
+        provider_request_classification="request_failed" if provider_attempted else "not_attempted",
+        outer_rollback_attempted=False,
+        outer_rollback_proved=False,
+        completed_round_count=0,
+        provider_request_count=1 if provider_attempted else 0,
+        safe_context_sha256=_sha256_json(report.runtime.model_dump(mode="json")),
+    )
 
 
 if __name__ == "__main__":
