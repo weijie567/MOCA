@@ -19,6 +19,7 @@ from src.db.models import (
     CorpusBlockBinding,
     CorpusChunkBinding,
     CorpusDocumentBinding,
+    PolicyCorpusActivationHistory,
     PolicyCorpusManifestRevision,
     PolicyCorpusRollout,
     PolicyCorpusVersion,
@@ -49,6 +50,14 @@ class PolicyCorpusBootstrapView:
     config_fingerprint: str
     rollout_epoch: int
     counts: PolicyCorpusProjectionCounts
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyCorpusActivationView:
+    tenant_id: UUID
+    active_corpus_version_id: UUID
+    previous_corpus_version_id: UUID | None
+    rollout_epoch: int
 
 
 class PolicyCorpusRepository:
@@ -170,6 +179,59 @@ class PolicyCorpusRepository:
         if (result.rowcount or 0) != 1:
             return None
         return await self.lock_candidate(corpus_version_id=row.id)
+
+    async def activate_rollout_cas(
+        self,
+        rollout: PolicyCorpusRollout,
+        *,
+        expected_active_corpus_version_id: UUID,
+        expected_rollout_epoch: int,
+        target_corpus_version_id: UUID,
+        reason_code: str,
+        actor: str,
+        selection_decision_hash: str | None,
+    ) -> PolicyCorpusActivationView | None:
+        """Flip one exact pointer and append its audit row in this transaction."""
+
+        new_epoch = expected_rollout_epoch + 1
+        result = await self.session.execute(
+            update(PolicyCorpusRollout)
+            .where(
+                PolicyCorpusRollout.id == rollout.id,
+                PolicyCorpusRollout.tenant_id == rollout.tenant_id,
+                PolicyCorpusRollout.active_corpus_version_id == expected_active_corpus_version_id,
+                PolicyCorpusRollout.rollout_epoch == expected_rollout_epoch,
+            )
+            .values(
+                active_corpus_version_id=target_corpus_version_id,
+                previous_corpus_version_id=expected_active_corpus_version_id,
+                rollout_epoch=new_epoch,
+                updated_at=func.now(),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if (result.rowcount or 0) != 1:
+            return None
+        self.session.add(
+            PolicyCorpusActivationHistory(
+                tenant_id=rollout.tenant_id,
+                from_corpus_version_id=expected_active_corpus_version_id,
+                to_corpus_version_id=target_corpus_version_id,
+                prior_rollout_epoch=expected_rollout_epoch,
+                rollout_epoch=new_epoch,
+                reason_code=reason_code,
+                actor=actor,
+                selection_decision_hash=selection_decision_hash,
+                receipt_hash=None,
+            )
+        )
+        await self.session.flush()
+        return PolicyCorpusActivationView(
+            tenant_id=rollout.tenant_id,
+            active_corpus_version_id=target_corpus_version_id,
+            previous_corpus_version_id=expected_active_corpus_version_id,
+            rollout_epoch=new_epoch,
+        )
 
     async def get_projection_counts(
         self,

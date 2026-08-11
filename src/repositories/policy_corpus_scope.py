@@ -140,7 +140,7 @@ def join_active_chunk_projection(statement, *, tenant_id: UUID):
             and_(
                 CorpusDocumentBinding.tenant_id == tenant_id,
                 CorpusDocumentBinding.corpus_version_id == PolicyCorpusRollout.active_corpus_version_id,
-                CorpusDocumentBinding.policy_document_id == PolicyDocument.id,
+                CorpusDocumentBinding.policy_document_id == PolicyChunk.doc_id,
             ),
         )
         .where(PolicyCorpusRollout.quarantine_reason.is_(None))

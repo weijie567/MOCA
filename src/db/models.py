@@ -228,12 +228,6 @@ class DocumentBlock(TimestampMixin, Base):
     __tablename__ = "document_blocks"
     __table_args__ = (
         UniqueConstraint("id", "tenant_id", name="uq_document_blocks_id_tenant"),
-        UniqueConstraint(
-            "tenant_id",
-            "doc_id",
-            "source_block_id",
-            name="uq_document_blocks_tenant_doc_source_block",
-        ),
         CheckConstraint("block_index >= 0", name="ck_document_blocks_block_index_nonnegative"),
         CheckConstraint("char_length(text) <= 20000", name="ck_document_blocks_text_max_length"),
         Index("ix_document_blocks_tenant_doc_index", "tenant_id", "doc_id", "block_index"),
@@ -624,6 +618,10 @@ class PolicyCorpusActivationHistory(Base):
             name="uq_policy_corpus_activation_history_tenant_epoch",
         ),
         CheckConstraint("rollout_epoch > 0", name="ck_policy_corpus_activation_history_epoch_positive"),
+        CheckConstraint(
+            "prior_rollout_epoch >= 0",
+            name="ck_policy_corpus_activation_history_prior_epoch_nonnegative",
+        ),
         Index("ix_policy_corpus_activation_history_tenant_created", "tenant_id", "created_at"),
     )
 
@@ -633,8 +631,10 @@ class PolicyCorpusActivationHistory(Base):
     )
     from_corpus_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     to_corpus_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    prior_rollout_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False)
     rollout_epoch: Mapped[int] = mapped_column(nullable=False)
     reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor: Mapped[str] = mapped_column(String(128), nullable=False)
     selection_decision_hash: Mapped[str | None] = mapped_column(String(71))
     receipt_hash: Mapped[str | None] = mapped_column(String(71))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

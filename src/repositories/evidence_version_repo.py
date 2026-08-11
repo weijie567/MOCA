@@ -95,7 +95,14 @@ def canonical_document_version_matches_source(
             persisted_checksum = locator.get("source_checksum")
         return source_checksum is None or persisted_checksum is None or persisted_checksum == source_checksum
     if canonical_source is None:
-        return False
+        return bool(
+            schema_version == "canonical_document_content.v2"
+            and getattr(document_version, "source_checksum", None) == source_checksum
+            and getattr(document_version, "content_hash", None)
+            == evidence_text_hash(str(getattr(document_version, "content", "")))
+            and isinstance(getattr(document_version, "canonical_blocks_json", None), list)
+            and getattr(document_version, "canonical_blocks_hash", None) is not None
+        )
     return bool(
         schema_version == canonical_source.schema_version
         and getattr(document_version, "source_checksum", None) == source_checksum
@@ -570,6 +577,12 @@ class EvidenceVersionRepository:
             document_version,
             source_checksum=document.source_checksum,
             canonical_source=canonical_source,
+        ) or (
+            canonical_source is None
+            and (
+                document_version.content != document.content
+                or document_version.content_hash != evidence_text_hash(document.content)
+            )
         ):
             raise ImmutableBindingMismatch("immutable document hash mismatch")
         if fingerprint != document.policy_version_fingerprint:

@@ -38,10 +38,15 @@ from src.repositories.document_block_repo import (
     DocumentBlockRepository,
 )
 from src.repositories.evidence_version_repo import (
+    EvidenceRolloutError,
     EvidenceVersionRepository,
     canonical_chunk_version_matches_projection,
 )
-from src.repositories.policy_corpus_repo import PolicyCorpusRepository, PolicyCorpusUnavailable
+from src.repositories.policy_corpus_repo import (
+    PolicyCorpusActivationView,
+    PolicyCorpusRepository,
+    PolicyCorpusUnavailable,
+)
 
 
 POLICY_REINDEX_OWNER_MARKER = "moca.policy_reindex.v1"
@@ -69,6 +74,8 @@ class PolicyReindexFailureCode(StrEnum):
     SOURCE_SNAPSHOT_DRIFT = "source_snapshot_drift"
     CANDIDATE_PROJECTION_MISMATCH = "candidate_projection_mismatch"
     EMBEDDING_PROOF_FAILED = "embedding_proof_failed"
+    SELECTION_PROOF_INVALID = "selection_proof_invalid"
+    OBSOLETE_SOURCE = "obsolete_source"
 
 
 class PolicyReindexError(RuntimeError):
@@ -131,6 +138,41 @@ class PolicyReindexRunIdentity:
     parity_expires_at: datetime
 
 
+class PolicyCorpusActivationReason(StrEnum):
+    SELECTED_CUTOVER = "selected_cutover"
+    ROLLBACK_PRIOR = "rollback_prior"
+    RESTORE_SELECTED = "restore_selected"
+
+
+@dataclass(frozen=True, slots=True)
+class ImmutableSelectionDecisionFixtureV1:
+    """Plan08-only immutable contract fixture; Plan09 owns real artifacts."""
+
+    schema_version: str
+    selection_decision_sha256: str
+    outcome: str
+    tenant_id: UUID
+    candidate_corpus_version_id: UUID
+    run_token: UUID
+    lease_owner: str
+    config_fingerprint: str
+    provider_parity_report_hash: str
+    source_manifest_hash: str
+    expected_evidence_rollout_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyCorpusActivationRequest:
+    tenant_id: UUID
+    target_corpus_version_id: UUID
+    expected_active_corpus_version_id: UUID
+    expected_rollout_epoch: int
+    expected_evidence_rollout_version: int
+    actor: str
+    reason: PolicyCorpusActivationReason
+    selection: ImmutableSelectionDecisionFixtureV1 | None
+
+
 class PolicyCandidateEmbedder(Protocol):
     async def embed_documents(self, texts: list[str]) -> list[list[float]]: ...
 
@@ -143,6 +185,113 @@ class PolicyReindexService:
         self.corpora = PolicyCorpusRepository(session)
         self.blocks = DocumentBlockRepository(session)
         self.evidence = EvidenceVersionRepository(session)
+
+    async def activate_corpus(
+        self,
+        request: PolicyCorpusActivationRequest,
+        *,
+        now: datetime | None = None,
+    ) -> PolicyCorpusActivationView:
+        """CAS the sole pointer from a complete Plan08 fixture-authorized target."""
+
+        _ = _as_utc(now or datetime.now(UTC))
+        self._validate_activation_request(request)
+        try:
+            await self.evidence.lock_rollout(
+                expected_rollout_version=request.expected_evidence_rollout_version,
+                require_dual_write=True,
+            )
+            rollout = await self.corpora.acquire_tenant_rollout_lock(tenant_id=request.tenant_id)
+            manifest = await self.corpora.lock_latest_manifest(tenant_id=request.tenant_id)
+        except EvidenceRolloutError:
+            _fail(PolicyReindexFailureCode.CAS_CONFLICT)
+        except PolicyCorpusUnavailable:
+            _fail(PolicyReindexFailureCode.AUTHORITY_UNAVAILABLE)
+        if (
+            rollout.active_corpus_version_id != request.expected_active_corpus_version_id
+            or rollout.rollout_epoch != request.expected_rollout_epoch
+        ):
+            _fail(PolicyReindexFailureCode.CAS_CONFLICT)
+        target = await self.corpora.get_corpus(
+            tenant_id=request.tenant_id,
+            corpus_version_id=request.target_corpus_version_id,
+        )
+        if target is None:
+            _fail(PolicyReindexFailureCode.RUN_IDENTITY_MISMATCH)
+        if target.state != "complete":
+            _fail(PolicyReindexFailureCode.OBSOLETE_SOURCE)
+        if target.source_manifest_revision_id != manifest.id or target.source_manifest_hash != manifest.manifest_hash:
+            _fail(PolicyReindexFailureCode.OBSOLETE_SOURCE)
+
+        selection_hash: str | None = None
+        if request.reason is PolicyCorpusActivationReason.ROLLBACK_PRIOR:
+            if request.selection is not None:
+                _fail(PolicyReindexFailureCode.SELECTION_PROOF_INVALID)
+            if rollout.previous_corpus_version_id != target.id:
+                _fail(PolicyReindexFailureCode.CAS_CONFLICT)
+        else:
+            if request.reason is PolicyCorpusActivationReason.RESTORE_SELECTED:
+                if rollout.previous_corpus_version_id != target.id:
+                    _fail(PolicyReindexFailureCode.CAS_CONFLICT)
+            self._validate_selection_fixture(
+                request,
+                target=target,
+                manifest=manifest,
+                require_current_source_epoch=request.reason is PolicyCorpusActivationReason.SELECTED_CUTOVER,
+            )
+            await self._require_complete_candidate_projection(target)
+            assert request.selection is not None
+            selection_hash = request.selection.selection_decision_sha256
+
+        activated = await self.corpora.activate_rollout_cas(
+            rollout,
+            expected_active_corpus_version_id=request.expected_active_corpus_version_id,
+            expected_rollout_epoch=request.expected_rollout_epoch,
+            target_corpus_version_id=request.target_corpus_version_id,
+            reason_code=request.reason.value,
+            actor=request.actor.strip(),
+            selection_decision_hash=selection_hash,
+        )
+        if activated is None:
+            _fail(PolicyReindexFailureCode.CAS_CONFLICT)
+        return activated
+
+    async def cleanup_candidate(
+        self,
+        owner: PolicyReindexRunIdentity,
+        *,
+        actor: str,
+        now: datetime | None = None,
+    ) -> PolicyReindexRunIdentity:
+        """Logically terminate one exact candidate without deleting retained rows."""
+
+        checked_at = _as_utc(now or datetime.now(UTC))
+        if not actor.strip() or len(actor.strip()) > 128:
+            _fail(PolicyReindexFailureCode.INVALID_CLAIM)
+        row, manifest = await self._lock_validated(owner, now=checked_at, allow_terminal=False)
+        if row.state not in {"claimed", "building", "built", "validating"}:
+            _fail(PolicyReindexFailureCode.STATE_MISMATCH)
+        proof = dict(row.validation_proof_json or {})
+        proof["cleanup"] = {
+            "schema_version": "policy_candidate_cleanup.v1",
+            "actor": actor.strip(),
+            "retention": "all_projection_and_immutable_rows_retained",
+        }
+        updated = await self.corpora.cas_candidate(
+            row,
+            expected_state_version=owner.state_version,
+            expected_next_document_index=owner.next_document_index,
+            values={
+                "state": "failed",
+                "validation_proof_json": proof,
+                "failure_code": "operator_cleanup",
+                "safe_message": "candidate logically cleaned with retained evidence",
+                "terminal_at": checked_at,
+            },
+        )
+        if updated is None:
+            _fail(PolicyReindexFailureCode.CAS_CONFLICT)
+        return self._identity_from_row(updated, manifest=manifest)
 
     async def claim(
         self,
@@ -761,6 +910,94 @@ class PolicyReindexService:
         )
         if updated is None:
             _fail(PolicyReindexFailureCode.CAS_CONFLICT)
+
+    @staticmethod
+    def _validate_activation_request(request: PolicyCorpusActivationRequest) -> None:
+        actor = request.actor.strip()
+        if (
+            request.tenant_id.int == 0
+            or request.target_corpus_version_id.int == 0
+            or request.expected_active_corpus_version_id.int == 0
+            or request.target_corpus_version_id == request.expected_active_corpus_version_id
+            or request.expected_rollout_epoch <= 0
+            or request.expected_evidence_rollout_version < 0
+            or not actor
+            or len(actor) > 128
+            or not isinstance(request.reason, PolicyCorpusActivationReason)
+        ):
+            _fail(PolicyReindexFailureCode.INVALID_CLAIM)
+
+    @staticmethod
+    def _validate_selection_fixture(
+        request: PolicyCorpusActivationRequest,
+        *,
+        target: PolicyCorpusVersion,
+        manifest: PolicyCorpusManifestRevision,
+        require_current_source_epoch: bool,
+    ) -> None:
+        selection = request.selection
+        if (
+            selection is None
+            or selection.schema_version != "rag_token_chunk_selection_fixture.v1"
+            or selection.outcome != "selected_pass"
+            or not _valid_sha256(selection.selection_decision_sha256)
+            or selection.tenant_id != request.tenant_id
+            or selection.candidate_corpus_version_id != target.id
+            or selection.run_token != target.run_token
+            or selection.lease_owner != target.lease_owner
+            or selection.config_fingerprint != target.config_fingerprint
+            or selection.provider_parity_report_hash != target.provider_parity_report_hash
+            or selection.source_manifest_hash != target.source_manifest_hash
+            or selection.source_manifest_hash != manifest.manifest_hash
+            or selection.expected_evidence_rollout_version != request.expected_evidence_rollout_version
+            or selection.expected_evidence_rollout_version != target.expected_evidence_rollout_version
+            or target.owner_marker != POLICY_REINDEX_OWNER_MARKER
+            or target.run_token is None
+            or target.lease_owner is None
+        ):
+            _fail(PolicyReindexFailureCode.SELECTION_PROOF_INVALID)
+        if require_current_source_epoch and (
+            target.source_active_corpus_version_id != request.expected_active_corpus_version_id
+            or target.source_rollout_epoch != request.expected_rollout_epoch
+        ):
+            _fail(PolicyReindexFailureCode.SOURCE_POINTER_DRIFT)
+
+    async def _require_complete_candidate_projection(self, target: PolicyCorpusVersion) -> None:
+        proof = (
+            target.validation_proof_json.get("candidate_validation")
+            if isinstance(target.validation_proof_json, dict)
+            else None
+        )
+        if not isinstance(proof, dict):
+            _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+        required_truths = (
+            "complete_document_coverage",
+            "complete_block_coverage",
+            "immutable_binding_replay",
+            "all_embedding_inputs_within_512_tokens",
+            "no_mixed_source",
+        )
+        if (
+            any(proof.get(key) is not True for key in required_truths)
+            or proof.get("deterministic_rebuild_hash") != target.deterministic_rebuild_hash
+            or proof.get("config_fingerprint") != target.config_fingerprint
+            or proof.get("provider_parity_report_hash") != target.provider_parity_report_hash
+            or proof.get("source_manifest_hash") != target.source_manifest_hash
+            or proof.get("source_active_corpus_version_id") != str(target.source_active_corpus_version_id)
+            or proof.get("source_rollout_epoch") != target.source_rollout_epoch
+        ):
+            _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+        counts = await self.corpora.get_projection_counts(
+            tenant_id=target.tenant_id,
+            corpus_version_id=target.id,
+        )
+        expected = dict(target.bootstrap_counts_json or {})
+        if (
+            counts.documents != expected.get("bound_document_count")
+            or counts.blocks != expected.get("bound_block_count")
+            or counts.chunks != expected.get("bound_chunk_count")
+        ):
+            _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
 
     @staticmethod
     def _validate_claim(
