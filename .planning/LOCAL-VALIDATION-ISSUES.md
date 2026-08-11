@@ -23323,3 +23323,20 @@ Phase 64.4 auto discuss 提交 context 后调用 `gsd-sdk query state.record-ses
 
 **剩余问题和下次继续排查入口**
 产品侧无剩余问题。GSD SDK 需统一 query handler 的 positional/flag 参数契约，并让进度同步区分“已规划 plan 完成率”和“当前里程碑 phase 完成率”；修复前不直接信任 handler 生成的 decimal phase transition/progress metadata。
+
+## 2026-08-11 — Phase 64.4 tokenizer parity 探针首次被 uv 镜像 403 阻断
+
+**问题现象**
+为验证 Qwen 官方 tokenizer 与 DashScope `text-embedding-v4` usage 的实证一致性，首次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run --with tokenizers --with huggingface-hub ...` 时依赖解析失败；uv 报当前清华镜像对 `filetype` 返回 403，并据此判定项目依赖不可满足。
+
+**如何检测/复现与关键证据**
+失败发生在创建隔离 worktree `.venv` 后、任何 provider 请求之前，输出包含 `No solution found`、`filetype was not found` 和 `https://pypi.tuna.tsinghua.edu.cn/simple` 403。使用相同 lock/worktree 并显式设置 `UV_DEFAULT_INDEX=https://pypi.org/simple UV_CACHE_DIR=/tmp/uv-cache` 后成功安装项目与临时 `tokenizers`/`huggingface-hub` 依赖，随后 10 组安全合成文本逐条 provider parity 探针正常完成。
+
+**当前判断/根因**
+这是本机 uv 默认镜像的访问/同步环境问题，不是 MOCA 依赖冲突、tokenizer 实现失败或 DashScope provider 失败。首次失败没有产生 token 计数结论，也没有发出 provider 请求。
+
+**已做处理**
+保留项目标准 `uv run` 入口并仅为本次依赖拉取显式选择官方 PyPI；未打印、复制或写入 API key。成功探针确认官方 Qwen3-Embedding tokenizer 固定 revision/asset SHA、启用 special token（EOS）时，在中文、英文、混合文本、表格、URL、数字、emoji、组合字符、空白 envelope 与长无标点文本上 10/10 精确匹配 provider `prompt_tokens`。
+
+**剩余问题和下次继续排查入口**
+产品实现仍需把 tokenizer asset、revision/SHA 与 provider parity gate 正式版本化，并在架构债务台账记录阿里云未公开服务 tokenizer 映射这一事实和实证启用策略。后续新 worktree 若默认镜像再次 403，应先显式 `UV_DEFAULT_INDEX=https://pypi.org/simple` 重跑，不能把镜像失败误判为项目依赖失败。
