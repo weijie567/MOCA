@@ -36,6 +36,7 @@ from src.repositories.rag_evaluation_round_repo import (
     ProjectionState,
     RecordedChunkLocatorProof,
     RecordedSourceLocatorProof,
+    RollbackBaselineProof,
     RagEvaluationRoundRepository,
     validate_run_sequence,
 )
@@ -257,41 +258,94 @@ async def run_rollback_only_retrieval_parity(
     expected_rollout_version: int,
     input_assembler: PolicyInputAssembler,
 ) -> RetrievalParityRunV1:
-    """Run production commits inside a connection-owned rollback boundary."""
+    """Run each format inside a rollback boundary proved against one baseline."""
 
     bind = session.bind
     if bind is None or not hasattr(bind, "connect"):
         raise EvaluationIsolationError("rollback_boundary_unavailable")
-    async with bind.connect() as connection:
-        transaction = await connection.begin()
-        rollback_session = AsyncSession(
-            bind=connection,
-            expire_on_commit=False,
-            join_transaction_mode="create_savepoint",
-        )
-        try:
-            async with rollback_session.begin():
-                repository = RagEvaluationRoundRepository(rollback_session)
-                owner = await repository.create_round(
-                    run_token=namespace.run_token,
-                    round_token=uuid5(NAMESPACE_URL, f"{namespace.run_token}:{ROUND_FORMATS[0]}"),
-                    round_format=ROUND_FORMATS[0],
-                    run_identity_hash=run_identity_hash,
-                    lease_expires_at=datetime.now(UTC) + timedelta(hours=2),
-                    expected_rollout_version=expected_rollout_version,
-                )
-            return await run_retrieval_parity(
-                dataset,
-                session=rollback_session,
-                embedder=embedder,
-                owner=owner,
-                generated_at=generated_at,
-                input_assembler=input_assembler,
+    baseline = await _capture_rollback_baseline(bind)
+    proved_rounds: list[RetrievalRoundResultV1] = []
+    first_run: RetrievalParityRunV1 | None = None
+    for round_format in ROUND_FORMATS:
+        isolated_run: RetrievalParityRunV1 | None = None
+        execution_error: Exception | None = None
+        async with bind.connect() as connection:
+            transaction = await connection.begin()
+            rollback_session = AsyncSession(
+                bind=connection,
+                expire_on_commit=False,
+                join_transaction_mode="create_savepoint",
             )
+            try:
+                async with rollback_session.begin():
+                    repository = RagEvaluationRoundRepository(rollback_session)
+                    owner = await repository.create_round(
+                        run_token=namespace.run_token,
+                        round_token=uuid5(NAMESPACE_URL, f"{namespace.run_token}:{round_format}"),
+                        round_format=round_format,
+                        run_identity_hash=run_identity_hash,
+                        lease_expires_at=datetime.now(UTC) + timedelta(hours=2),
+                        expected_rollout_version=expected_rollout_version,
+                    )
+                isolated_run = await run_retrieval_parity(
+                    dataset,
+                    session=rollback_session,
+                    embedder=embedder,
+                    owner=owner,
+                    generated_at=generated_at,
+                    input_assembler=input_assembler,
+                    rollback_only=True,
+                    rollback_baseline=baseline,
+                    stop_after_current_round=True,
+                )
+            except Exception as exc:  # The post-rollback proof must still run.
+                execution_error = exc
+            finally:
+                await rollback_session.close()
+                if transaction.is_active:
+                    await transaction.rollback()
+        after = await _capture_rollback_baseline(bind)
+        _require_rollback_baseline_unchanged(baseline, after)
+        if execution_error is not None:
+            raise execution_error
+        if isolated_run is None or len(isolated_run.rounds) != 1:
+            raise EvaluationIsolationError("rollback_round_result_invalid")
+        if first_run is None:
+            first_run = isolated_run
+        proved_round = isolated_run.rounds[0].model_copy(
+            update={"post_state_proved": True, "immutable_history_preserved": True}
+        )
+        proved_rounds.append(proved_round)
+        if proved_round.outcome is EvaluationOutcome.EXECUTION_ERROR:
+            break
+
+    if first_run is None:
+        raise EvaluationIsolationError("rollback_round_result_invalid")
+    overall = _overall_outcome(proved_rounds)
+    return first_run.model_copy(
+        update={
+            "baseline_eligible": overall
+            in {EvaluationOutcome.COMPLETED_PASS, EvaluationOutcome.COMPLETED_QUALITY_FAIL},
+            "outcome": overall,
+            "rounds": tuple(proved_rounds),
+        }
+    )
+
+
+async def _capture_rollback_baseline(bind: object) -> RollbackBaselineProof:
+    async with AsyncSession(bind=bind, expire_on_commit=False) as read_session:
+        try:
+            return await RagEvaluationRoundRepository(read_session).capture_rollback_baseline()
         finally:
-            await rollback_session.close()
-            if transaction.is_active:
-                await transaction.rollback()
+            await read_session.rollback()
+
+
+def _require_rollback_baseline_unchanged(
+    before: RollbackBaselineProof,
+    after: RollbackBaselineProof,
+) -> None:
+    if before != after:
+        raise EvaluationIsolationError("rollback_baseline_mismatch")
 
 
 async def run_retrieval_parity(
@@ -303,6 +357,8 @@ async def run_retrieval_parity(
     generated_at: str,
     input_assembler: PolicyInputAssembler | None = None,
     rollback_only: bool = False,
+    rollback_baseline: RollbackBaselineProof | None = None,
+    stop_after_current_round: bool = False,
 ) -> RetrievalParityRunV1:
     """Run the real production ingestion and knowledge facade in three rounds."""
 
@@ -310,6 +366,8 @@ async def run_retrieval_parity(
         raise EvaluationIsolationError("identity_mismatch")
     if owner.round_format not in ROUND_FORMATS:
         raise EvaluationIsolationError("initial_round_mismatch")
+    if rollback_only != (rollback_baseline is not None) or (stop_after_current_round and not rollback_only):
+        raise EvaluationIsolationError("rollback_baseline_invalid")
     ingestion_service = IngestionService(
         session,
         embedder,
@@ -323,7 +381,7 @@ async def run_retrieval_parity(
     current_owner = owner
     start_index = ROUND_FORMATS.index(owner.round_format)
     round_results: list[RetrievalRoundResultV1] = []
-    if start_index:
+    if start_index and not stop_after_current_round:
         async with _round_transaction(session, rollback_only=rollback_only):
             sequence = validate_run_sequence(
                 await round_repo.lock_run_rows(owner.run_token),
@@ -360,7 +418,13 @@ async def run_retrieval_parity(
                 if current_owner.next_document_index != 0 or progress.has_attempt_reservation:
                     raise EvaluationIsolationError("claimed_progress_malformed")
                 async with _round_transaction(session, rollback_only=rollback_only):
-                    current_owner = await round_repo.prove_compatible_pre_state(current_owner)
+                    if rollback_baseline is None:
+                        current_owner = await round_repo.prove_compatible_pre_state(current_owner)
+                    else:
+                        current_owner = await round_repo.prove_compatible_pre_state(
+                            current_owner,
+                            rollback_baseline=rollback_baseline,
+                        )
                 progress_state = "ingesting"
             elif progress.state in {"ingesting", "retrieving"}:
                 progress_state = progress.state
@@ -455,7 +519,13 @@ async def run_retrieval_parity(
                 terminal_outcome = EvaluationOutcome.COMPLETED_QUALITY_FAIL
             else:
                 async with _round_transaction(session, rollback_only=rollback_only):
-                    current_owner = await round_repo.prove_retrieval_ready(current_owner)
+                    if rollback_baseline is None:
+                        current_owner = await round_repo.prove_retrieval_ready(current_owner)
+                    else:
+                        current_owner = await round_repo.prove_retrieval_ready(
+                            current_owner,
+                            rollback_baseline=rollback_baseline,
+                        )
                 for policy in dataset.policies:
                     anchors_by_id = {anchor.anchor_id: anchor for anchor in policy.gold.anchors}
                     for case in policy.gold.cases:
@@ -512,17 +582,25 @@ async def run_retrieval_parity(
                 pre_state_proved=pre_state_proved,
                 exactly_three_current_proved=len(ingestions) == 3
                 and all(observation.status == "success" for observation in ingestions),
-                post_state_proved=True,
-                immutable_history_preserved=True,
+                post_state_proved=not rollback_only,
+                immutable_history_preserved=not rollback_only,
             )
             async with _round_transaction(session, rollback_only=rollback_only):
-                current_owner = await round_repo.cleanup_current_projection(
-                    current_owner,
-                    terminal_state="completed",
-                    round_result=successful_round.model_dump(mode="json"),
-                )
-            post_state_proved = True
-            immutable_preserved = True
+                if rollback_baseline is None:
+                    current_owner = await round_repo.cleanup_current_projection(
+                        current_owner,
+                        terminal_state="completed",
+                        round_result=successful_round.model_dump(mode="json"),
+                    )
+                else:
+                    current_owner = await round_repo.cleanup_current_projection(
+                        current_owner,
+                        terminal_state="completed",
+                        round_result=successful_round.model_dump(mode="json"),
+                        rollback_baseline=rollback_baseline,
+                    )
+            post_state_proved = not rollback_only
+            immutable_preserved = not rollback_only
         except Exception as exc:
             terminal_outcome = EvaluationOutcome.EXECUTION_ERROR
             failure_reason = (
@@ -530,13 +608,21 @@ async def run_retrieval_parity(
             )
             try:
                 async with _round_transaction(session, rollback_only=rollback_only):
-                    current_owner = await round_repo.cleanup_current_projection(
-                        current_owner,
-                        terminal_state="abandoned",
-                        failure_code=failure_reason,
-                    )
-                post_state_proved = True
-                immutable_preserved = True
+                    if rollback_baseline is None:
+                        current_owner = await round_repo.cleanup_current_projection(
+                            current_owner,
+                            terminal_state="abandoned",
+                            failure_code=failure_reason,
+                        )
+                    else:
+                        current_owner = await round_repo.cleanup_current_projection(
+                            current_owner,
+                            terminal_state="abandoned",
+                            failure_code=failure_reason,
+                            rollback_baseline=rollback_baseline,
+                        )
+                post_state_proved = not rollback_only
+                immutable_preserved = not rollback_only
             except Exception:
                 failure_reason = "cleanup_proof_failed"
 
@@ -558,6 +644,8 @@ async def run_retrieval_parity(
             )
         )
         if terminal_outcome is EvaluationOutcome.EXECUTION_ERROR:
+            break
+        if stop_after_current_round:
             break
         if format_index + 1 < len(ROUND_FORMATS):
             next_format = ROUND_FORMATS[format_index + 1]

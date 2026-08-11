@@ -109,21 +109,31 @@ def _rollback_baseline(**overrides: object) -> RollbackBaselineProof:
         "active_corpus_version_id": UUID("64300000-0000-4000-8000-000000000011"),
         "previous_corpus_version_id": None,
         "rollout_epoch": 4,
+        "rollout_sha256": "sha256:" + "0" * 64,
         "activation_history_count": 4,
-        "activation_history_hashes": ("sha256:" + "1" * 64,),
+        "activation_history_hashes": tuple(f"sha256:{value * 64}" for value in "1234"),
         "active_config_schema_version": "character_compatibility.v1",
-        "active_config_fingerprint": "sha256:" + "2" * 64,
+        "active_config_fingerprint": "sha256:" + "5" * 64,
+        "active_corpus_sha256": "sha256:" + "6" * 64,
         "source_manifest_revision_id": UUID("64300000-0000-4000-8000-000000000015"),
-        "source_manifest_hash": "sha256:" + "3" * 64,
+        "source_manifest_hash": "sha256:" + "7" * 64,
+        "source_manifest_sha256": "sha256:" + "8" * 64,
         "current_document_count": 3,
         "current_block_count": 158,
         "current_chunk_count": 13,
-        "current_view_sha256": "sha256:" + "4" * 64,
+        "current_job_count": 4,
+        "current_view_sha256": "sha256:" + "9" * 64,
+        "current_jobs_sha256": "sha256:" + "a" * 64,
         "evidence_rollout_version": 1,
-        "evidence_rollout_sha256": "sha256:" + "5" * 64,
+        "evidence_rollout_sha256": "sha256:" + "b" * 64,
         "immutable_document_count": 3,
         "immutable_chunk_count": 13,
-        "proof_sha256": "sha256:" + "6" * 64,
+        "immutable_counts": (
+            ("policy_chunk_versions", 13),
+            ("policy_document_versions", 3),
+        ),
+        "immutable_counts_sha256": "sha256:" + "d" * 64,
+        "proof_sha256": "sha256:" + "c" * 64,
     }
     values.update(overrides)
     return RollbackBaselineProof(**values)
@@ -491,10 +501,24 @@ async def test_rollback_only_ab_wrapper_always_rolls_back_root_transaction(
         del args
         assert kwargs["rollback_only"] is True
         assert kwargs["rollback_baseline"] == _rollback_baseline()
+        assert kwargs["stop_after_current_round"] is True
         rollback_session = kwargs["session"]
         assert isinstance(rollback_session, _RollbackSession)
         await rollback_session.commit()
-        return sentinel
+        owner = kwargs["owner"]
+        assert isinstance(owner, EvaluationRoundIdentity)
+        return sentinel.model_copy(
+            update={
+                "rounds": (
+                    sentinel.rounds[0].model_copy(
+                        update={
+                            "round_format": owner.round_format,
+                            "round_token": str(owner.round_token),
+                        }
+                    ),
+                )
+            }
+        )
 
     monkeypatch.setattr(retrieval_rounds_module, "AsyncSession", _isolated_session)
     monkeypatch.setattr(retrieval_rounds_module, "RagEvaluationRoundRepository", _RoundRepository)
@@ -515,21 +539,34 @@ async def test_rollback_only_ab_wrapper_always_rolls_back_root_transaction(
         input_assembler=object(),  # type: ignore[arg-type]
     )
 
-    assert result.rounds[0].post_state_proved is True
-    assert result.rounds[0].immutable_history_preserved is True
-    assert len(constructors) == 3
-    assert constructors[1]["join_transaction_mode"] == "create_savepoint"
-    assert constructors[1]["expire_on_commit"] is False
-    assert _RollbackSession.commits == 1
-    assert _RollbackSession.closes == 1
-    assert _RootTransaction.rollbacks == 1
-    assert _RoundRepository.captures == 2
-    assert events.index("capture_1") < events.index("root_rollback") < events.index("capture_2")
+    assert tuple(item.round_format for item in result.rounds) == ROUND_FORMATS
+    assert all(item.post_state_proved for item in result.rounds)
+    assert all(item.immutable_history_preserved for item in result.rounds)
+    assert len(constructors) == 7
+    assert all(constructors[index]["join_transaction_mode"] == "create_savepoint" for index in (1, 3, 5))
+    assert all(constructors[index]["expire_on_commit"] is False for index in (1, 3, 5))
+    assert _RollbackSession.commits == 3
+    assert _RollbackSession.closes == 3
+    assert _RootTransaction.rollbacks == 3
+    assert _RoundRepository.captures == 4
+    assert events == [
+        "capture_1",
+        "read_session_rollback",
+        "root_rollback",
+        "capture_2",
+        "read_session_rollback",
+        "root_rollback",
+        "capture_3",
+        "read_session_rollback",
+        "root_rollback",
+        "capture_4",
+        "read_session_rollback",
+    ]
 
 
 def test_rollback_only_ab_wrapper_rejects_any_post_rollback_baseline_drift() -> None:
     before = _rollback_baseline()
-    after = _rollback_baseline(current_view_sha256="sha256:" + "9" * 64)
+    after = _rollback_baseline(current_view_sha256="sha256:" + "f" * 64)
 
     with pytest.raises(EvaluationIsolationError) as caught:
         retrieval_rounds_module._require_rollback_baseline_unchanged(before, after)  # noqa: SLF001
@@ -969,6 +1006,12 @@ async def test_rollback_pre_state_accepts_only_the_exact_nonempty_baseline(
     async def capture() -> RollbackBaselineProof:
         return baseline
 
+    async def current_counts(_heads: object) -> dict[str, int]:
+        return {"documents": 3, "blocks": 158, "chunks": 13, "jobs": 4}
+
+    async def immutable_counts() -> dict[str, int]:
+        return {"document_versions": 3, "chunk_versions": 13}
+
     async def cas(_row: object, _owner: object, **values: object) -> EvaluationRoundIdentity:
         assert _row is row
         assert _owner is owner
@@ -978,6 +1021,8 @@ async def test_rollback_pre_state_accepts_only_the_exact_nonempty_baseline(
     monkeypatch.setattr(repo, "lock_owned", lock_owned)
     monkeypatch.setattr(repo, "_lock_tenant_heads", lock_heads)
     monkeypatch.setattr(repo, "capture_rollback_baseline", capture, raising=False)
+    monkeypatch.setattr(repo, "_current_counts", current_counts)
+    monkeypatch.setattr(repo, "_immutable_counts", immutable_counts)
     monkeypatch.setattr(repo, "_cas", cas)
 
     assert await repo.prove_compatible_pre_state(owner, rollback_baseline=baseline) is owner
@@ -988,7 +1033,7 @@ async def test_rollback_pre_state_accepts_only_the_exact_nonempty_baseline(
         "documents": 3,
         "blocks": 158,
         "chunks": 13,
-        "jobs": 0,
+        "jobs": 4,
     }
 
 
@@ -1020,10 +1065,13 @@ async def test_rollback_cleanup_never_deletes_append_only_bound_projection(
         return heads
 
     async def current_counts(_heads: object) -> dict[str, int]:
-        return {"documents": 3, "blocks": 165, "chunks": 60, "jobs": 0}
+        return {"documents": 3, "blocks": 165, "chunks": 60, "jobs": 4}
 
     async def immutable_counts() -> dict[str, int]:
         return {"document_versions": 6, "chunk_versions": 73}
+
+    async def current_job_proof() -> tuple[int, str]:
+        return baseline.current_job_count, baseline.current_jobs_sha256
 
     async def delete_block(*args: object, **kwargs: object) -> int:
         del args, kwargs
@@ -1045,6 +1093,7 @@ async def test_rollback_cleanup_never_deletes_append_only_bound_projection(
     monkeypatch.setattr(repo, "_lock_tenant_heads", lock_heads)
     monkeypatch.setattr(repo, "_prove_recorded_projection", prove)
     monkeypatch.setattr(repo, "_current_counts", current_counts)
+    monkeypatch.setattr(repo, "_current_job_proof", current_job_proof)
     monkeypatch.setattr(repo, "_immutable_counts", immutable_counts)
     monkeypatch.setattr(repo.block_repo, "delete_by_document_id", delete_block)
     monkeypatch.setattr(repo.chunk_repo, "delete_by_document_id", delete_chunk)
