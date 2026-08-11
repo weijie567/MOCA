@@ -486,7 +486,7 @@ def test_character_compatibility_assembler_returns_auditable_exact_input_dto() -
 
 
 @pytest.mark.asyncio
-async def test_explicit_token_mode_submits_exact_assembler_dto_without_persisting_audit_fields(
+async def test_explicit_token_mode_persists_exact_assembler_audit_fields(
     tmp_path: Path,
 ) -> None:
     policy_file = _write_policy(tmp_path, "# 退款规则\n\n变更后内容")
@@ -495,6 +495,7 @@ async def test_explicit_token_mode_submits_exact_assembler_dto_without_persistin
     recording = _RecordingAssembler(PolicyEmbeddingInputAssembler(counter=counter))
     embedder = _FakeEmbedder()
     chunk_repo = _FakeChunkRepo()
+    job_repo = _FakeJobRepo()
     service = IngestionService(
         session=_FakeSession(),
         embedder=embedder,
@@ -506,7 +507,7 @@ async def test_explicit_token_mode_submits_exact_assembler_dto_without_persistin
     service.doc_repo = _FakeDocumentRepo(None)
     service.chunk_repo = chunk_repo
     service.block_repo = _FakeBlockRepo()
-    service.job_repo = _FakeJobRepo()
+    service.job_repo = job_repo
 
     report = await service.ingest_document(policy_file, _doc_meta())
 
@@ -515,10 +516,18 @@ async def test_explicit_token_mode_submits_exact_assembler_dto_without_persistin
     assert embedder.texts == [dto.embedding_input for dto in recording.results]
     assert [chunk.content for chunk in chunk_repo.inserted] == [dto.citation_content for dto in recording.results]
     assert [chunk.search_text for chunk in chunk_repo.inserted] == [dto.search_text for dto in recording.results]
-    for chunk in chunk_repo.inserted:
-        assert "embedding_token_count" not in chunk.__dict__
-        assert "embedding_input_hash" not in chunk.__dict__
-        assert "chunking_config_fingerprint" not in chunk.__dict__
+    for chunk, dto in zip(chunk_repo.inserted, recording.results, strict=True):
+        assert chunk.embedding_token_count == dto.embedding_token_count
+        assert chunk.embedding_input_hash == dto.embedding_input_hash
+        assert chunk.chunking_config_fingerprint == dto.chunking_config_fingerprint
+    job = job_repo.created[-1]
+    token_counts = [dto.embedding_token_count for dto in recording.results]
+    assert job.chunking_config_fingerprint == recording.results[0].chunking_config_fingerprint
+    assert job.chunk_count == len(recording.results)
+    assert job.embedding_token_count_min == min(token_counts)
+    assert job.embedding_token_count_max == max(token_counts)
+    assert job.embedding_token_count_total == sum(token_counts)
+    assert job.provider_usage_status == "unavailable"
 
 
 @pytest.mark.asyncio

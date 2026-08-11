@@ -23,13 +23,16 @@ from src.db.models import DocumentBlock, PolicyChunk, PolicyDocument, RagIngesti
 from src.knowledge.text_hash import evidence_text_hash
 from src.rag.chunker import BlockChunkResult, chunk_blocks
 from src.rag.embedding_tokenizer import EmbeddingTokenCounter, load_embedding_tokenizer_config
-from src.rag.embedder import EmbeddingService
+from src.rag.embedder import EmbeddingBatchResultV1, EmbeddingService, EmbeddingUsageStatus
 from src.rag.parsers.base import ParsedBlock, ParseResult, is_valid_doc_key
 from src.rag.parsers.registry import ParserRegistry
 from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler, PolicyEmbeddingInputV1
 from src.rag.search_text import build_policy_chunk_search_text
 from src.rag.versioning import build_policy_version_fingerprint
-from src.repositories.document_block_repo import DocumentBlockRepository
+from src.repositories.document_block_repo import (
+    DocumentBlockRepository,
+    build_canonical_document_content,
+)
 from src.repositories.evidence_version_repo import EvidenceVersionRepository
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 from src.repositories.policy_document_repo import PolicyDocumentRepository
@@ -330,6 +333,7 @@ class IngestionService:
                 )
 
             blocks = tuple(block for block in parse_result.blocks if block.text.strip())
+            canonical_source = build_canonical_document_content(blocks)
             assembled_inputs = assemble_policy_embedding_inputs(
                 blocks=blocks,
                 doc_key=doc_key,
@@ -350,7 +354,7 @@ class IngestionService:
                 )
 
             texts = [dto.embedding_input for dto in assembled_inputs]
-            embeddings = await self.embedder.embed_documents(texts)
+            embeddings, embedding_usage = await _embed_with_usage_audit(self.embedder, texts)
             if len(embeddings) != len(assembled_inputs):
                 msg = f"Embedding count mismatch: expected {len(assembled_inputs)}, got {len(embeddings)}"
                 return await self._finish_preflight_failure(
@@ -396,7 +400,7 @@ class IngestionService:
             if use_immutable_writer and existing_doc is not None:
                 locked_chunks = await self.chunk_repo.list_by_document_id_for_update(existing_doc.id, self.tenant_id)
 
-            content = _document_citation_text(assembled_inputs)
+            content = canonical_source.content
             effective_date = (
                 effective_date or (existing_doc.effective_date if existing_doc is not None else None) or date.today()
             )
@@ -488,6 +492,7 @@ class IngestionService:
                     document=doc,
                     chunks=db_chunks,
                     fingerprint=fingerprint,
+                    canonical_source=canonical_source,
                 )
 
             if reused_binding is not None:
@@ -511,6 +516,7 @@ class IngestionService:
                         document=doc,
                         chunks=persisted_chunks,
                         write_sequence=write_sequence,
+                        canonical_source=canonical_source,
                         correction_of_document_version_id=doc_meta.get("correction_of_document_version_id"),
                     )
             if job is not None:
@@ -520,6 +526,8 @@ class IngestionService:
                     parse_result=parse_result,
                     blocks=len(blocks),
                     chunks=len(persisted_chunks),
+                    assembled_inputs=assembled_inputs,
+                    embedding_usage=embedding_usage,
                 )
             await self.session.commit()
 
@@ -853,8 +861,15 @@ def _character_compatibility_config_fingerprint(counter: EmbeddingTokenCounter) 
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _document_citation_text(chunks: Sequence[PolicyEmbeddingInputV1]) -> str:
-    return "\n\n".join(chunk.citation_content for chunk in chunks).strip()
+async def _embed_with_usage_audit(
+    embedder: EmbeddingService,
+    texts: list[str],
+) -> tuple[list[list[float]], EmbeddingBatchResultV1 | None]:
+    embed_with_usage = getattr(embedder, "embed_documents_with_usage", None)
+    if callable(embed_with_usage):
+        result = await embed_with_usage(texts)
+        return [list(vector) for vector in result.embeddings], result
+    return await embedder.embed_documents(texts), None
 
 
 def _render_character_compatibility_input(*, title: str, chunk: BlockChunkResult) -> str:
@@ -941,6 +956,9 @@ def _policy_chunks_from_embedding_inputs(
                 risk_level=risk_level,
                 effective_date=effective_date,
                 embedding=embeddings[index],
+                chunking_config_fingerprint=assembled.chunking_config_fingerprint,
+                embedding_input_hash=assembled.embedding_input_hash,
+                embedding_token_count=assembled.embedding_token_count,
             )
         )
     return db_chunks
@@ -982,7 +1000,13 @@ def _mark_job_success(
     parse_result: ParseResult,
     blocks: int,
     chunks: int,
+    assembled_inputs: Sequence[PolicyEmbeddingInputV1],
+    embedding_usage: EmbeddingBatchResultV1 | None,
 ) -> None:
+    config_fingerprints = {item.chunking_config_fingerprint for item in assembled_inputs}
+    if len(config_fingerprints) != 1:
+        raise ValueError("mixed_chunking_config_fingerprints")
+    token_counts = [item.embedding_token_count for item in assembled_inputs]
     job.doc_id = doc_id
     job.parser_name = _safe_trace_scalar(parse_result.parser_name, default="unknown_parser")
     job.parser_version = _safe_trace_scalar(parse_result.parser_version, default="unknown")
@@ -993,6 +1017,18 @@ def _mark_job_success(
     job.safe_message = None
     job.warnings_json = [{"code": warning.code} for warning in parse_result.warnings]
     job.counts_json = {"blocks": blocks, "chunks": chunks, "chunks_created": chunks}
+    job.chunking_config_fingerprint = next(iter(config_fingerprints))
+    job.chunk_count = len(assembled_inputs)
+    job.embedding_token_count_min = min(token_counts)
+    job.embedding_token_count_max = max(token_counts)
+    job.embedding_token_count_total = sum(token_counts)
+    job.provider_prompt_tokens = embedding_usage.prompt_tokens if embedding_usage is not None else None
+    job.provider_total_tokens = embedding_usage.total_tokens if embedding_usage is not None else None
+    job.provider_usage_status = (
+        "available"
+        if embedding_usage is not None and embedding_usage.usage_status is EmbeddingUsageStatus.REPORTED
+        else "unavailable"
+    )
     job.completed_at = _utc_now()
     validate_rag_ingestion_job(job)
 

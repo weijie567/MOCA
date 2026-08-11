@@ -23451,3 +23451,17 @@ Plan 05 首个 executor turn 在已经完成强制前读后长时间没有产生
 
 **剩余问题和下次继续排查入口**
 产品侧当前无已知 blocker。若 executor 再次长时间无可见进度，应先用 `git status --short` 与最近 gate log 核对共享 worktree；若 fixture 再出现 asyncpg 参数歧义，优先检查同一 named bind 是否跨 UUID/varchar 上下文复用。
+
+## 2026-08-11 — Phase 64.4 Plan 05 canonical source/replay 验证暴露 legacy JSON NULL 与旧 staging 断言
+
+**问题现象 / 如何检测**
+Task 2 首次 replay 精确 gate 为 `1 failed, 12 passed`：旧路径调用 `append_immutable_version(..., canonical_source=None)` 时，`policy_document_versions` 的 canonical completeness check 拒绝插入。新增真实 PostgreSQL source/config versioning fixture 首轮又因同一 flush 中 tenant 与 document 无显式 ORM relationship 依赖而先写 document，触发 tenant FK。额外 ingestion 回归首次为 `7 failed, 34 passed`；其中 6 条是 canonical source 首版使用双换行导致既有 policy fingerprint 漂移，另 1 条仍断言 Plan04 的 count/hash/config “不得持久化”。
+
+**关键证据 / 当前判断**
+replay failing row 显示 `canonical_blocks_json` 为 JSON `null` 而非 SQL NULL；SQLAlchemy `JSONB` 默认把 Python `None` 编码成 JSON null，违反 migration 030 为 legacy v1 定义的四字段全 SQL NULL 分支。这是产品 ORM/schema 边界 bug。fixture FK 是测试 setup 顺序问题。双换行会改变已有 authoritative block rendering，属于 canonical renderer 首版缺陷；改为稳定的 ordered-block 单换行后 6 条 version/fingerprint 回归全部恢复。剩余旧测试 `test_explicit_token_mode_submits_exact_assembler_dto_without_persisting_audit_fields` 的语义只适用于 Plan04 schema 前 staging，Plan05 action 明确要求迁移 030 后在同一事务持久化这些字段，因此是已过期负断言，不是产品回归，且该文件不在 Plan05 ownership 中未修改。
+
+**已做处理**
+ORM canonical JSON 列改用 `JSONB(none_as_null=True)`，legacy append 继续写 SQL NULL 且不回写历史；PostgreSQL fixture 显式先 flush tenant；canonical document content 改为按 block 顺序单换行，仍完全不依赖 chunks/overlap。重跑 Task 2 replay gate 为 `13 passed, 1 warning`，真实 source/config test 为 `7 passed, 3 warnings`；额外 ingestion 回归缩减为仅上述 1 条过期 staging 断言，其余 `40 passed`。没有运行裸 pytest/Python。
+
+**剩余问题和下次继续排查入口**
+上层按 Rule 2 确认该 staging 断言必须由 Plan05 一并收敛，已最小改为精确验证 current chunk 与 ingestion job 的 DTO count/hash/config audit；immutable audit 由同 plan 的真实 PostgreSQL source/config versioning test 覆盖。对应 ingestion gate 随后完整通过。Plan06/07 继续分别验证 candidate current-head isolation 与 reindex，不在本 plan 提前实现。

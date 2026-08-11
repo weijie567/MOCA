@@ -2486,14 +2486,14 @@
 - **验证**：两条新增负向与既有 exact resolver 正/负向定向回归通过；生命周期测试文件与 scoped Ruff 通过。
 - **剩余风险**：当前无已知缺口；后续必须保留原始 ref 容器成员完整性检查，不能在 typed validation 前用通用 mapping filter 丢弃非法成员。
 
-## 2026-08-11 — Phase 64.4 planning — policy document 身份被 chunk 边界反向污染 🔴待立项内修复
+## 2026-08-11 — Phase 64.4 Plan 05 — policy document 身份被 chunk 边界反向污染 ✅已修复验证
 
 - **子系统**：RAG ingestion / policy chunking / immutable evidence identity / replay。
 - **问题现象 / 根因**：当前 ingestion 先按字符切块，再用 `_document_citation_text(chunks)` 拼接 chunk body 写入 `PolicyDocument.content` 并参与 policy fingerprint。由于 chunk overlap 和切分边界会改变拼接结果，同一 authoritative source 在 character/token 配置间可能被误判为不同 document content/version；同时最终 embedding envelope 在 chunk 之后才追加，实际 provider 输入不受 chunk budget 约束。
 - **影响**：Phase 64.4 若只替换 chunk 算法，同一源文档可能因 rollout/config 而漂移 immutable document identity，进而错误新建或错误拒绝 Phase 64.2 evidence binding；历史 replay 与 current projection 的职责也会混在一起。
-- **处理状态**：🔴 已在 Phase 64.4 plan 修订中锁定：canonical document citation content 必须从有序 `ParsedBlock`/authoritative block snapshot 产生并与 chunk boundary/overlap 解耦；rollout corpus 只控制可见性，不能进入 `evidence_identity.v1`；chunk compatibility 另行绑定 config fingerprint。代码尚未实现，不能标记已修复。
-- **证据**：Phase 64.4 GSD plan-checker `64.4-PC-01` 与 Codex 独立源码核对；`src/rag/ingestion.py:213-227,305-325,705-716`；`src/repositories/evidence_version_repo.py:390-445,474-515`；`src/repositories/policy_chunk_repo.py:35-145`。
-- **剩余风险**：实现必须覆盖 legacy fingerprint 兼容/迁移、相同 source 跨 corpus 的 immutable reuse、不同 config 的 chunk-version 分流、active current lookup 与历史 immutable replay；在 PostgreSQL、focused tests、完整回归和 provider-backed A/B 均通过前保持本条为待修复。
+- **处理状态**：✅ 已实现 `canonical_document_content.v2`：new writes 在 chunking 前从按 `block_index` 排序的 authoritative `ParsedBlock` snapshot 生成 citation content、content hash 与 blocks hash；duplicate order/source block fail closed。immutable document compatibility 比较 tenant/source checksum/schema/block content+provenance，忽略 chunk config/corpus；chunk compatibility 独立比较 citation/search/final-input hash/count/config/provenance，忽略 corpus。相同 source 的 character/token 写入复用同一个 document-version row，配置不兼容才追加 chunk version，兼容配置再次复用；legacy 四个 canonical 字段保持 SQL NULL 且 replay 可读，不回写历史。
+- **证据**：Phase 64.4 Plan 05 Task 2；`src/repositories/document_block_repo.py`、`src/rag/ingestion.py`、`src/repositories/evidence_version_repo.py`、`tests/knowledge/test_document_source_identity.py`、`tests/test_ingestion.py`、`tests/replay/test_production_evidence_binding.py`；真实 PostgreSQL source/config versioning test `7 passed, 3 warnings`，Task 2 replay gate `14 passed, 3 warnings`，ingestion audit 回归 `41 passed, 1 warning`。
+- **剩余风险**：Plan 06 仍负责 active-scope routing 与 candidate shared-head isolation，Plan 07 负责 resumable reindex；Plan 09/10 仍需完成 A/B selection 与真实 provider-backed activation。本 plan 未提前实现这些行为。
 
 ## 2026-08-11 — Phase 64.4 Plan 01 — DashScope offline tokenizer 映射缺少厂商保证 🟡有意妥协
 

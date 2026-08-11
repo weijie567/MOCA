@@ -881,7 +881,7 @@ class PolicyDocumentVersion(TimestampMixin, Base):
     content_hash: Mapped[str] = mapped_column(String(71), nullable=False)
     source_checksum: Mapped[str | None] = mapped_column(String(128))
     canonical_content_schema_version: Mapped[str | None] = mapped_column(String(64))
-    canonical_blocks_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    canonical_blocks_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB(none_as_null=True))
     canonical_blocks_hash: Mapped[str | None] = mapped_column(String(71))
     source_locator_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     lifecycle_status: Mapped[str] = mapped_column(String(32), default="active", server_default="active", nullable=False)

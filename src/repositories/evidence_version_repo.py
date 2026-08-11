@@ -43,6 +43,7 @@ from src.knowledge.evidence_identity import (
 )
 from src.knowledge.text_hash import evidence_text_hash
 from src.rag.versioning import build_policy_version_fingerprint
+from src.repositories.document_block_repo import CanonicalDocumentContentV2
 
 ROLLOUT_ID = 1
 DEFAULT_EVIDENCE_RETENTION = timedelta(days=3650)
@@ -63,6 +64,63 @@ class DualWriteUnavailable(EvidenceRolloutError):
 
 class ImmutableBindingMismatch(EvidenceRolloutError):
     pass
+
+
+def canonical_document_version_matches_source(
+    document_version: object,
+    *,
+    source_checksum: str | None,
+    canonical_source: CanonicalDocumentContentV2 | None,
+) -> bool:
+    """Compare source identity without consulting chunk config or corpus."""
+
+    schema_version = getattr(document_version, "canonical_content_schema_version", None)
+    if schema_version is None:
+        expected_content = (
+            canonical_source.content if canonical_source is not None else getattr(document_version, "content", "")
+        )
+        if getattr(document_version, "content_hash", None) != evidence_text_hash(expected_content):
+            return False
+        persisted_checksum = getattr(document_version, "source_checksum", None)
+        locator = getattr(document_version, "source_locator_json", None)
+        if persisted_checksum is None and isinstance(locator, Mapping):
+            persisted_checksum = locator.get("source_checksum")
+        return source_checksum is None or persisted_checksum is None or persisted_checksum == source_checksum
+    if canonical_source is None:
+        return False
+    return bool(
+        schema_version == canonical_source.schema_version
+        and getattr(document_version, "source_checksum", None) == source_checksum
+        and getattr(document_version, "content", None) == canonical_source.content
+        and getattr(document_version, "content_hash", None) == canonical_source.content_hash
+        and getattr(document_version, "canonical_blocks_hash", None) == canonical_source.blocks_hash
+        and list(getattr(document_version, "canonical_blocks_json", []) or []) == list(canonical_source.blocks_json)
+    )
+
+
+def canonical_chunk_version_matches_projection(chunk_version: object, chunk: PolicyChunk) -> bool:
+    """Compare replay material and assembly audit; corpus visibility is external."""
+
+    if getattr(chunk_version, "chunk_id", None) != chunk.chunk_id:
+        return False
+    if getattr(chunk_version, "text_hash", None) != evidence_text_hash(chunk.content):
+        return False
+    locator = getattr(chunk_version, "source_locator_json", None)
+    persisted_refs = locator.get("source_block_refs") if isinstance(locator, Mapping) else None
+    if list(persisted_refs or []) != list(chunk.source_block_refs_json or []):
+        return False
+    persisted_config = getattr(chunk_version, "chunking_config_fingerprint", None)
+    persisted_input_hash = getattr(chunk_version, "embedding_input_hash", None)
+    persisted_token_count = getattr(chunk_version, "embedding_token_count", None)
+    if persisted_config is None and persisted_input_hash is None and persisted_token_count is None:
+        return True
+    return bool(
+        getattr(chunk_version, "content", None) == chunk.content
+        and getattr(chunk_version, "search_text", None) == chunk.search_text
+        and persisted_config == chunk.chunking_config_fingerprint
+        and persisted_input_hash == chunk.embedding_input_hash
+        and persisted_token_count == chunk.embedding_token_count
+    )
 
 
 class CanonicalReadCutoverBlocked(EvidenceRolloutError):
@@ -471,6 +529,7 @@ class EvidenceVersionRepository:
         document: PolicyDocument,
         chunks: Sequence[PolicyChunk],
         fingerprint: str,
+        canonical_source: CanonicalDocumentContentV2 | None = None,
     ) -> tuple[PolicyDocumentVersion, list[PolicyChunkVersion]] | None:
         scope_id = str(tenant_id)
         document_rows = list(
@@ -491,7 +550,11 @@ class EvidenceVersionRepository:
         if len(document_rows) != 1:
             raise ImmutableBindingMismatch("ambiguous immutable document binding")
         document_version = document_rows[0]
-        if document_version.content_hash != evidence_text_hash(document.content):
+        if not canonical_document_version_matches_source(
+            document_version,
+            source_checksum=document.source_checksum,
+            canonical_source=canonical_source,
+        ):
             raise ImmutableBindingMismatch("immutable document hash mismatch")
         if fingerprint != document.policy_version_fingerprint:
             raise ImmutableBindingMismatch("immutable document fingerprint mismatch")
@@ -508,11 +571,15 @@ class EvidenceVersionRepository:
                 )
             ).scalars()
         )
-        expected = {(chunk.chunk_id, evidence_text_hash(chunk.content)) for chunk in chunks}
-        actual = {(chunk.chunk_id, chunk.text_hash) for chunk in immutable_chunks}
-        if len(expected) != len(chunks) or expected != actual:
-            raise ImmutableBindingMismatch("immutable chunk binding mismatch")
-        return document_version, immutable_chunks
+        if len({chunk.chunk_id for chunk in chunks}) != len(chunks):
+            raise ImmutableBindingMismatch("ambiguous current chunk binding")
+        compatible_chunks: list[PolicyChunkVersion] = []
+        for chunk in chunks:
+            matches = [row for row in immutable_chunks if canonical_chunk_version_matches_projection(row, chunk)]
+            if not matches:
+                return None
+            compatible_chunks.append(max(matches, key=lambda row: row.chunk_version))
+        return document_version, compatible_chunks
 
     async def append_immutable_version(
         self,
@@ -521,6 +588,7 @@ class EvidenceVersionRepository:
         document: PolicyDocument,
         chunks: Sequence[PolicyChunk],
         write_sequence: int,
+        canonical_source: CanonicalDocumentContentV2 | None = None,
         correction_of_document_version_id: str | UUID | None = None,
         retention_until: datetime | None = None,
     ) -> tuple[PolicyDocumentVersion, list[PolicyChunkVersion]]:
@@ -528,6 +596,17 @@ class EvidenceVersionRepository:
 
         scope_id = str(tenant_id)
         document_version_number = int(document.version or 1)
+        existing_document = (
+            await self.session.execute(
+                select(PolicyDocumentVersion).where(
+                    PolicyDocumentVersion.tenant_id == tenant_id,
+                    PolicyDocumentVersion.scope_type == ACCEPTED_POLICY_SCOPE_TYPE,
+                    PolicyDocumentVersion.scope_id == scope_id,
+                    PolicyDocumentVersion.doc_key == document.doc_key,
+                    PolicyDocumentVersion.document_version == document_version_number,
+                )
+            )
+        ).scalar_one_or_none()
         previous_document = (
             await self.session.execute(
                 select(PolicyDocumentVersion)
@@ -553,46 +632,64 @@ class EvidenceVersionRepository:
                 raise ImmutableBindingMismatch("correction target is unavailable")
 
         retained_until = retention_until or (datetime.now(UTC) + DEFAULT_EVIDENCE_RETENTION)
-        document_row = PolicyDocumentVersion(
-            id=uuid4(),
-            tenant_id=tenant_id,
-            policy_document_id=document.id,
-            scope_type=ACCEPTED_POLICY_SCOPE_TYPE,
-            scope_id=scope_id,
-            doc_key=document.doc_key,
-            document_version=document_version_number,
-            content=document.content,
-            content_hash=evidence_text_hash(document.content),
-            source_locator_json=_document_source_locator(document),
-            lifecycle_status="corrected" if correction_id is not None else "active",
-            retention_until=retained_until,
-            supersedes_version_id=previous_document.id if previous_document is not None else None,
-            corrects_version_id=correction_id,
-        )
-        self.session.add(document_row)
-        await self.session.flush()
+        if existing_document is not None:
+            if correction_id is not None or not canonical_document_version_matches_source(
+                existing_document,
+                source_checksum=document.source_checksum,
+                canonical_source=canonical_source,
+            ):
+                raise ImmutableBindingMismatch("immutable document source mismatch")
+            document_row = existing_document
+        else:
+            document_row = PolicyDocumentVersion(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                policy_document_id=document.id,
+                scope_type=ACCEPTED_POLICY_SCOPE_TYPE,
+                scope_id=scope_id,
+                doc_key=document.doc_key,
+                document_version=document_version_number,
+                content=document.content,
+                content_hash=evidence_text_hash(document.content),
+                source_checksum=document.source_checksum if canonical_source is not None else None,
+                canonical_content_schema_version=(canonical_source.schema_version if canonical_source else None),
+                canonical_blocks_json=(list(canonical_source.blocks_json) if canonical_source else None),
+                canonical_blocks_hash=(canonical_source.blocks_hash if canonical_source else None),
+                source_locator_json=_document_source_locator(document),
+                lifecycle_status="corrected" if correction_id is not None else "active",
+                retention_until=retained_until,
+                supersedes_version_id=previous_document.id if previous_document is not None else None,
+                corrects_version_id=correction_id,
+            )
+            self.session.add(document_row)
+            await self.session.flush()
 
-        previous_chunks: dict[str, PolicyChunkVersion] = {}
-        if previous_document is not None:
-            previous_chunks = {
-                row.chunk_id: row
-                for row in (
-                    (
-                        await self.session.execute(
-                            select(PolicyChunkVersion).where(
-                                PolicyChunkVersion.tenant_id == tenant_id,
-                                PolicyChunkVersion.policy_document_version_id == previous_document.id,
-                            )
-                        )
+        prior_chunk_rows = list(
+            (
+                await self.session.execute(
+                    select(PolicyChunkVersion).where(
+                        PolicyChunkVersion.tenant_id == tenant_id,
+                        PolicyChunkVersion.policy_document_version_id == document_row.id,
                     )
-                    .scalars()
-                    .all()
                 )
-            }
+            ).scalars()
+        )
 
         chunk_rows: list[PolicyChunkVersion] = []
         for chunk in sorted(chunks, key=lambda item: (str(item.chunk_id), str(item.id))):
-            previous_chunk = previous_chunks.get(chunk.chunk_id)
+            same_logical_chunk = [row for row in prior_chunk_rows if row.chunk_id == chunk.chunk_id]
+            compatible_chunk = next(
+                (
+                    row
+                    for row in sorted(same_logical_chunk, key=lambda item: item.chunk_version, reverse=True)
+                    if canonical_chunk_version_matches_projection(row, chunk)
+                ),
+                None,
+            )
+            if compatible_chunk is not None:
+                chunk_rows.append(compatible_chunk)
+                continue
+            previous_chunk = max(same_logical_chunk, key=lambda item: item.chunk_version, default=None)
             row = PolicyChunkVersion(
                 id=uuid4(),
                 tenant_id=tenant_id,
@@ -605,6 +702,11 @@ class EvidenceVersionRepository:
                 chunk_version=(previous_chunk.chunk_version + 1) if previous_chunk is not None else 1,
                 content=chunk.content,
                 text_hash=evidence_text_hash(chunk.content),
+                search_text=chunk.search_text,
+                embedding=chunk.embedding,
+                chunking_config_fingerprint=chunk.chunking_config_fingerprint,
+                embedding_input_hash=chunk.embedding_input_hash,
+                embedding_token_count=chunk.embedding_token_count,
                 source_locator_json=_chunk_source_locator(document, chunk),
                 lifecycle_status="corrected" if correction_id is not None else "active",
                 retention_until=retained_until,
@@ -612,7 +714,7 @@ class EvidenceVersionRepository:
                 corrects_version_id=previous_chunk.id if correction_id is not None and previous_chunk else None,
             )
             chunk_rows.append(row)
-        self.session.add_all(chunk_rows)
+        self.session.add_all([row for row in chunk_rows if row not in prior_chunk_rows])
         await self.session.flush()
         await self.project_write_sequence(document=document, chunks=chunks, write_sequence=write_sequence)
         return document_row, chunk_rows
