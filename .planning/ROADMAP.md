@@ -247,9 +247,9 @@ Plans:
 ### Phase 64.5: Database-Backed Provider Budget And Token Rollout Completion (INSERTED)
 
 **Goal:** Replace file-backed provider/build attempt authority with a database-backed globally unique budget, then safely re-enable the reviewed live reindex and A/B paths and complete the selected-candidate activation, rollback/restore, receipt, and closeout evidence left by Phase 64.4.
-**Requirements**: SC-64.4-5, SC-64.4-6 (carryover; final Phase 64.5 requirement IDs are defined during planning)
+**Requirements**: SC-64.4-5, SC-64.4-6 (final carried requirement IDs; Phase 64.5 does not invent duplicate IDs)
 **Depends on:** Phase 64.4 partial delivery
-**Plans:** 0 plans
+**Plans:** 8 plans
 
 **Mandatory scope boundary:** Provider-capable production dispatch stays hard-disabled until a separately reviewed DB-backed authority serializes reservations across processes/worktrees and binds tenant, run, candidate, parity, source/evidence epochs, absolute expiry, and provider execution. Phase 64.5 must use fresh reviewed authority; it may not renew or reinterpret the expired Phase 64.4 lease.
 
@@ -260,7 +260,16 @@ Plans:
 4. Cutover, rollback to the prior corpus, restore of the selected corpus, hash-chained receipts, and fail-closed closeout checks prove SC-64.4-5/6 without mixed tenant visibility.
 
 Plans:
-- [ ] TBD (run `$gsd-phase-autopilot 64.5`; plan count stays unset until research and dual review)
+- [ ] 64.5-01-PLAN.md — Migration 032 authority/reservation/result/activation-lineage schema and guarded downgrade
+- [ ] 64.5-02-PLAN.md — DB-time exact authority domain/repository, capped reservations, results, and reconciliation
+- [ ] 64.5-03-PLAN.md — Reviewed candidate build integrated behind the unchanged production hard-disable
+- [ ] 64.5-04-PLAN.md — Canonical A/B envelope, DB promotion barrier, checker, and dispatch integrated behind hard-disable
+- [ ] 64.5-05-PLAN.md — Clean-C0 validation and unpromoted gate-only C1 candidate with full no-promotion proof
+- [ ] 64.5-06-PLAN.md — Standard-reviewed C0→C1 DB promotion, then fresh authority and one live inactive token candidate
+- [ ] 64.5-07-PLAN.md — Fresh canonical live A/B with selected-pass-only continuation
+- [ ] 64.5-08-PLAN.md — Cutover→rollback→restore, DB-linked receipts, closeout docs, and full regression
+
+**This run's active Phase 64.5 Autopilot-root orchestration (not default GSD behavior):** the root invokes `$gsd-execute-phase 64.5 --wave 1` through `--wave 4` individually (or uses an equivalent supported wave filter), records the boundary in `.planning/autopilot/phase-64.5.md`, actually invokes standard `$gsd-code-review` and `$gsd-secure-phase`, and only after those agents return clean calls the phase checker to create-only seal the two C0 attestations. It then invokes wave 5 alone, repeats the standard independent review/security agents and root-owned sealing for C1, and only then invokes waves 6, 7, and 8 serially; wave 6 first creates/read-backs the immutable DB promotion. A standalone operator/orchestrator must reproduce this exact sequence and must never run an unparameterized execute-all. No plan-local checkpoint or user approval substitutes for either review boundary, attestation, or DB promotion.
 
 ### Phase 65: Trace Event And Console Label Consistency
 

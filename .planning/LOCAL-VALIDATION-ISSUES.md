@@ -24039,3 +24039,25 @@ Autopilot 进入自动讨论阶段时，首次执行 `sed -n '1,330p' /Users/min
 
 **已做处理 / 剩余入口**
 未直接编辑 `STATE.md`。已使用 `gsd-sdk query state.begin-phase 64.5 ... 0` 恢复 executing/current phase，再以位置参数正确记录 Phase 64.5 CONTEXT resume file。当前 phase/status/resume truth已恢复；frontmatter 95% 与正文旧进度条的不一致将由 Phase 64.5 规划落盘及后续 GSD progress 更新统一，不把该数值作为完成证据。
+
+## 2026-08-13 — Phase 64.5 计划审核时误触发 worktree 依赖安装
+
+**问题现象 / 如何检测**
+为只读核对 sealed Gold 的基础问题数量，误用了 `uv run python -c ...`。当前隔离 worktree 尚无自己的 `.venv`，`uv` 因而开始创建虚拟环境并下载 `reportlab`、`hf-xet`、`tokenizers` 等依赖；进程在完成前仍可由 `ps` 看到。
+
+**关键证据 / 当前判断 / 根因**
+该检查只需 Python 标准库 `json`，不需要项目依赖或项目解释器。误用项目入口把一次本应毫秒级的只读数据检查扩大成环境安装，属于本地验证编排错误，不是 MOCA 产品、测试、数据库或 provider 失败。进程未运行测试、未访问 live DB/provider，也未修改源码；worktree 的 `.venv` 仅为未跟踪忽略目录。
+
+**已做处理 / 剩余入口**
+已精确终止该 `uv run python` 进程，并改用系统 `python3` 的标准库只读检查，确认 Gold 有 18 个基础问题、三格式展开为 54 cases。后续只有执行仓库脚本/测试时才使用 `uv run`；纯标准库的一次性只读数据检查不触发 worktree 依赖安装。
+
+## 2026-08-13 — Phase 64.5 外部审阅 CLI 探测与 GSD SDK 路径误判
+
+**问题现象 / 如何检测**
+首次探测外部审阅 CLI 时，zsh 将未加花括号的 `$cli:available` 按参数修饰语解析，输出了误导性的绝对路径文本；随后又把 `gsd-sdk` 误写成 `/Users/ming/.codex/get-shit-done/bin/gsd-sdk`，命令返回 `No such file or directory`。
+
+**关键证据 / 当前判断 / 根因**
+`command -v claude` 正确返回 `/Users/ming/.local/bin/claude`；`command -v gsd-sdk` 正确返回 `/opt/homebrew/bin/gsd-sdk`。GSD 安装目录的 `bin/` 只有 `gsd-tools.cjs`，并没有名为 `gsd-sdk` 的文件。这两次均为只读工具发现/路径拼写错误，没有修改源码、数据库、provider 或 live artifact。
+
+**已做处理 / 剩余入口**
+CLI 状态输出改用 `${review_cli}:available`，后续一律通过 PATH 中的 `gsd-sdk` 调用，不再假定 skill 安装目录含同名二进制。当前 `claude` 与 `gsd-sdk` 均可调用；外部计划审阅仍须在 plan-checker 通过后按 GSD review workflow 执行。
