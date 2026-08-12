@@ -24061,3 +24061,14 @@ Autopilot 进入自动讨论阶段时，首次执行 `sed -n '1,330p' /Users/min
 
 **已做处理 / 剩余入口**
 CLI 状态输出改用 `${review_cli}:available`，后续一律通过 PATH 中的 `gsd-sdk` 调用，不再假定 skill 安装目录含同名二进制。当前 `claude` 与 `gsd-sdk` 均可调用；外部计划审阅仍须在 plan-checker 通过后按 GSD review workflow 执行。
+
+## 2026-08-13 — Phase 64.5 Claude 独立计划审阅额度阻塞
+
+**问题现象 / 如何检测**
+在最终 GSD plan-checker 通过并提交 8 个计划后，按 Autopilot 强制步骤执行 Claude CLI 独立计划审阅。CLI 在生成任何评审内容前返回 `403 用户额度不足`，显示剩余额度 `-$0.052272`，request id 为 `20260813010946591619664nw7Wr1mM`。
+
+**关键证据 / 当前判断 / 根因**
+`claude` 可执行文件与 prompt 输入均正常，失败来自外部服务额度而非仓库、计划、认证路径或模型输出。未生成 `64.5-REVIEWS.md`，未运行实现测试、数据库、provider 或 live 命令。根据 `gsd-phase-autopilot` 的 quota protocol，Claude 不可用/额度受限时不得自行用其他 reviewer 替代，除非用户明确授权。
+
+**已做处理 / 剩余入口**
+Autopilot checkpoint 已置为 `waiting_for_quota`，`quota_waits: 1`，精确重试命令为 `$gsd-review 64.5 --claude`。恢复额度后用 `$gsd-phase-autopilot --resume` 从该 gate 继续；若用户明确允许非 Claude 替代，可使用可用的独立 CLI 完成同一只读计划审阅。实现尚未开始，生产 provider dispatch 仍保持硬禁用。
