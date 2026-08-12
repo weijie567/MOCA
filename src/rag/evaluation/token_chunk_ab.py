@@ -17,14 +17,24 @@ import os
 from pathlib import Path
 import tempfile
 from typing import Any, Callable, Literal, Mapping, TypeVar
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from src.rag.embedding_tokenizer import ProviderParityStatus
 from src.rag.evaluation.reporting import canonical_report_json_bytes, validate_safe_report_payload
 from src.rag.policy_reindex import PolicyReindexRunIdentity
-from src.rag.provider_execution_authority import ProviderRequestEnvelopeV1
+from src.rag.provider_execution_authority import (
+    ProviderExecutionPurpose,
+    ProviderExecutionReservationRequestV1,
+    ProviderExecutionReservationViewV1,
+    ProviderExecutionResultCode,
+    ProviderExecutionResultRequestV1,
+    ProviderExecutionResultViewV1,
+    ProviderRequestEnvelopeV1,
+    ProjectionReconciliationViewV1,
+    canonical_sha256,
+)
 from src.rag.policy_reindex_artifacts import (
     PolicyReindexArtifactError,
     load_policy_reindex_recovery_descriptor,
@@ -41,6 +51,7 @@ EXECUTION_BUNDLE_SCHEMA_VERSION = "rag_token_chunk_execution_bundle.v1"
 RECOVERY_BUDGET_SCHEMA_VERSION = "rag_token_chunk_recovery_budget.v1"
 RECOVERY_ATTEMPT_SCHEMA_VERSION = "rag_token_chunk_recovery_attempt.v1"
 RECOVERY_AUTHORIZATION_SCHEMA_VERSION = "rag_token_chunk_recovery_authorization.v1"
+DB_ACTIVATION_AUTHORIZATION_SCHEMA_VERSION = "rag_token_chunk_db_activation_authorization.v1"
 GATE_PROFILE_VERSION = "rag_token_chunk_ab.v1"
 SEALED_MANIFEST_HASH = "e5544b20ecdf05c2eaf3325b4e5f89a4ef752c0b8c0d23b8bac224f006fdd53b"
 SEALED_GOLD_HASH = "c6dc12536270fa9b9532ec4595e0a91d2b4ebddf83754a0f1ec107caabb64b8e"
@@ -693,6 +704,194 @@ class TerminalABRunV1(_FrozenModel):
         return self
 
 
+def canonical_ab_result_code(report: TerminalABRunV1) -> ProviderExecutionResultCode:
+    """Map one truthful terminal A/B outcome to the committed DB result class."""
+
+    if report.outcome == "selected_pass":
+        return ProviderExecutionResultCode.SUCCESS
+    if report.outcome == "candidate_failed":
+        return (
+            ProviderExecutionResultCode.SAFETY_FAIL
+            if report.failure_class == "safety_fail"
+            else ProviderExecutionResultCode.QUALITY_FAIL
+        )
+    if report.outcome == "unavailable":
+        return ProviderExecutionResultCode.PROVIDER_UNAVAILABLE
+    return ProviderExecutionResultCode.UNKNOWN_ERROR
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalABExecutionOutcomeV1:
+    report: TerminalABRunV1
+    binding: ABSelectionBindingV1 | None
+    reservation: ProviderExecutionReservationViewV1
+    result: ProviderExecutionResultViewV1
+    projection: ProjectionReconciliationViewV1
+
+
+def canonical_ab_subject_hash(
+    *,
+    owner: PolicyReindexRunIdentity,
+    inputs: ABInputIdentityV1,
+    envelope: CanonicalABRequestEnvelopeV1,
+) -> str:
+    """Bind the A/B reservation to one exact shared-root comparison."""
+
+    return canonical_sha256(
+        {
+            "schema_version": "canonical_ab_subject.v1",
+            "tenant_id": owner.tenant_id,
+            "run_token": owner.run_token,
+            "candidate_corpus_version_id": owner.corpus_version_id,
+            "incumbent_corpus_version_id": owner.source_active_corpus_version_id,
+            "candidate_state_version": owner.state_version,
+            "candidate_config_fingerprint": owner.config_fingerprint,
+            "candidate_parity_report_hash": owner.provider_parity_report_hash,
+            "candidate_source_manifest_revision_id": owner.source_manifest_revision_id,
+            "candidate_source_manifest_hash": owner.source_manifest_hash,
+            "candidate_source_rollout_epoch": owner.source_rollout_epoch,
+            "candidate_evidence_rollout_version": owner.expected_evidence_rollout_version,
+            "candidate_lease_expires_at": owner.lease_expires_at,
+            "inputs": inputs.model_dump(mode="json"),
+            "request_envelope_hash": envelope.canonical_hash,
+        }
+    )
+
+
+class CanonicalABExecutionService:
+    """Reserve and persist one canonical A/B beneath the shared DB root."""
+
+    def __init__(self, *, authority_service: Any, require_shared_root: Callable[..., Any]) -> None:
+        self._authority = authority_service
+        self._require_shared_root = require_shared_root
+
+    async def execute(
+        self,
+        *,
+        authority_id: UUID,
+        owner: PolicyReindexRunIdentity,
+        inputs: ABInputIdentityV1,
+        envelope: CanonicalABRequestEnvelopeV1,
+        ordinal: int,
+        run: Callable[[], Any],
+        projection_path: Path,
+        persist_terminal: Callable[
+            [
+                TerminalABRunV1,
+                ABSelectionBindingV1 | None,
+                ProviderExecutionReservationViewV1,
+                UUID,
+            ],
+            Mapping[str, Any],
+        ],
+        construct_provider: Callable[[], Any] | None = None,
+    ) -> CanonicalABExecutionOutcomeV1:
+        await self._authority.require_current_promotion()
+        await self._require_shared_root(authority_id=authority_id, owner=owner, envelope=envelope)
+        request = ProviderExecutionReservationRequestV1(
+            authority_id=authority_id,
+            purpose=ProviderExecutionPurpose.CANONICAL_AB,
+            subject_kind="canonical_ab_run",
+            subject_index=0,
+            subject_hash=canonical_ab_subject_hash(owner=owner, inputs=inputs, envelope=envelope),
+            ordinal=ordinal,
+            request_envelope=envelope.provider_request_envelope,
+            explicit_retry=ordinal == 2,
+        )
+        reservation = await self._authority.reserve_and_commit(request)
+        await self._authority.recheck_dispatch(reservation)
+
+        try:
+            provider = construct_provider() if construct_provider is not None else None
+            report, binding, actual_request_count, result_code = await run(provider)
+        except BaseException:
+            # A committed reservation is deliberately spent; process crashes
+            # cannot be converted into fabricated terminal evidence.
+            raise
+        if not isinstance(report, TerminalABRunV1):
+            raise ValueError("canonical_ab_terminal_result_invalid")
+        if report.inputs != inputs or report.runtime.tenant_id != owner.tenant_id:
+            raise ValueError("canonical_ab_terminal_identity_mismatch")
+        if (
+            type(actual_request_count) is not int
+            or not 0 <= actual_request_count <= envelope.provider_request_envelope.maximum_request_count
+        ):
+            raise ValueError("canonical_ab_request_count_invalid")
+
+        if report.outcome == "selected_pass" and binding is None:
+            raise ValueError("canonical_ab_selected_lineage_missing")
+        if report.outcome != "selected_pass" and binding is not None:
+            raise ValueError("canonical_ab_nonselected_binding_forbidden")
+        result_id = uuid4()
+        persisted_lineage = persist_terminal(report, binding, reservation, result_id)
+        terminal_run_hash = persisted_lineage.get("terminal_run_hash")
+        terminal_report_hash = persisted_lineage.get("terminal_report_hash")
+        if not isinstance(terminal_run_hash, str) or not isinstance(terminal_report_hash, str):
+            raise ValueError("canonical_ab_terminal_lineage_missing")
+        selected_lineage: Mapping[str, Any] = {}
+        if report.outcome == "selected_pass":
+            selected_lineage = persisted_lineage
+            if any(
+                not isinstance(selected_lineage.get(field), str)
+                for field in ("selection_decision_hash", "activation_authorization_hash")
+            ):
+                raise ValueError("canonical_ab_selected_lineage_missing")
+        elif any(
+            persisted_lineage.get(field) is not None
+            for field in ("selection_decision_hash", "activation_authorization_hash")
+        ):
+            raise ValueError("canonical_ab_nonselected_lineage_forbidden")
+
+        expected_result_code = canonical_ab_result_code(report)
+        if report.outcome == "execution_error":
+            if result_code not in {
+                ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR,
+                ProviderExecutionResultCode.CONFIGURATION_ERROR,
+                ProviderExecutionResultCode.SOURCE_DRIFT,
+                ProviderExecutionResultCode.RESPONSE_ERROR,
+                ProviderExecutionResultCode.PROJECTION_ERROR,
+                ProviderExecutionResultCode.UNKNOWN_ERROR,
+            }:
+                raise ValueError("canonical_ab_result_code_invalid")
+        elif result_code is not expected_result_code:
+            raise ValueError("canonical_ab_result_code_invalid")
+        result = await self._authority.record_result(
+            ProviderExecutionResultRequestV1.seal(
+                result_id=result_id,
+                reservation_id=reservation.reservation_id,
+                result_code=result_code,
+                actual_request_count=actual_request_count,
+                result_json={
+                    "schema_version": "canonical_ab_db_result.v1",
+                    "run_id": str(report.run_id),
+                    "outcome": report.outcome,
+                    "terminal_stage": report.terminal_stage,
+                    "terminal_run_hash": terminal_run_hash,
+                    "terminal_report_hash": terminal_report_hash,
+                    "selection_decision_hash": selected_lineage.get("selection_decision_hash"),
+                    "activation_authorization_hash": selected_lineage.get("activation_authorization_hash"),
+                },
+                output_candidate_id=owner.corpus_version_id if report.outcome == "selected_pass" else None,
+                terminal_run_hash=terminal_run_hash,
+                terminal_report_hash=terminal_report_hash,
+                selection_id=binding.selection_id if binding is not None else None,
+                selection_decision_hash=selected_lineage.get("selection_decision_hash"),
+                activation_authorization_hash=selected_lineage.get("activation_authorization_hash"),
+            )
+        )
+        projection = await self._authority.reconcile_projection(
+            authority_id=authority_id,
+            projection_path=projection_path,
+        )
+        return CanonicalABExecutionOutcomeV1(
+            report=report,
+            binding=binding,
+            reservation=reservation,
+            result=result,
+            projection=projection,
+        )
+
+
 class ABSelectionBindingV1(_FrozenModel):
     selection_id: UUID
     tenant_id: UUID
@@ -1035,6 +1234,36 @@ class ABRecoveryAuthorizationV1(_FrozenModel):
         return self
 
 
+class CanonicalABActivationAuthorizationV1(_FrozenModel):
+    """DB-lineage authorization emitted only for one selected-pass result."""
+
+    schema_version: Literal["rag_token_chunk_db_activation_authorization.v1"] = (
+        DB_ACTIVATION_AUTHORIZATION_SCHEMA_VERSION
+    )
+    authorized_at: datetime
+    authority_id: UUID
+    reservation_id: UUID
+    result_id: UUID
+    tenant_id: UUID
+    candidate_corpus_version_id: UUID
+    candidate_run_token: UUID
+    terminal_run_id: UUID
+    terminal_run_sha256: str = Field(pattern=_SHA256_PATTERN)
+    selection_id: UUID
+    selection_sha256: str = Field(pattern=_SHA256_PATTERN)
+    authorization_payload_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_authorization(self) -> CanonicalABActivationAuthorizationV1:
+        if self.authorized_at.tzinfo is None:
+            raise ValueError("db_activation_authorization_time_invalid")
+        expected = _sha256_payload(self.model_dump(mode="json", exclude={"authorization_payload_sha256"}))
+        if expected != self.authorization_payload_sha256:
+            raise ValueError("db_activation_authorization_hash_mismatch")
+        validate_safe_report_payload(self.model_dump(mode="json"))
+        return self
+
+
 @dataclass(frozen=True, slots=True)
 class ImmutableRecoveryBudgetManifestV1:
     path: Path
@@ -1045,6 +1274,54 @@ class ImmutableRecoveryBudgetManifestV1:
 class ImmutableRecoveryAuthorizationV1:
     path: Path
     sha256: str
+
+
+def write_db_activation_authorization_create_only(
+    *,
+    root: Path,
+    report: TerminalABRunV1,
+    binding: ABSelectionBindingV1,
+    authority_id: UUID,
+    reservation_id: UUID,
+    result_id: UUID,
+    terminal_run_sha256: str,
+    selection_sha256: str,
+) -> ImmutableRecoveryAuthorizationV1:
+    """Create the additive DB-backed activation proof for selected-pass only."""
+
+    if (
+        report.outcome != "selected_pass"
+        or binding.tenant_id != report.runtime.tenant_id
+        or binding.candidate_corpus_version_id != report.runtime.candidate.corpus_version_id
+    ):
+        raise ValueError("selected_pass_required")
+    base: dict[str, Any] = {
+        "schema_version": DB_ACTIVATION_AUTHORIZATION_SCHEMA_VERSION,
+        "authorized_at": report.generated_at,
+        "authority_id": authority_id,
+        "reservation_id": reservation_id,
+        "result_id": result_id,
+        "tenant_id": binding.tenant_id,
+        "candidate_corpus_version_id": binding.candidate_corpus_version_id,
+        "candidate_run_token": binding.candidate_run_token,
+        "terminal_run_id": report.run_id,
+        "terminal_run_sha256": terminal_run_sha256,
+        "selection_id": binding.selection_id,
+        "selection_sha256": selection_sha256,
+    }
+    authorization = CanonicalABActivationAuthorizationV1(
+        **base,
+        authorization_payload_sha256=_sha256_payload(
+            CanonicalABActivationAuthorizationV1.model_construct(
+                **base,
+                authorization_payload_sha256="sha256:" + "0" * 64,
+            ).model_dump(mode="json", exclude={"authorization_payload_sha256"})
+        ),
+    )
+    payload = canonical_report_json_bytes(authorization.model_dump(mode="json"))
+    path = root / "db-activation-authorizations" / f"{binding.selection_id}.json"
+    _write_create_only_bytes(path, payload)
+    return ImmutableRecoveryAuthorizationV1(path=path, sha256=_sha256_bytes(payload))
 
 
 class RecoveryLiveAuthorityProofV1(_FrozenModel):
