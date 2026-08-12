@@ -2728,3 +2728,12 @@
 - **处理状态**：✅ 已修复验证。按 Plan13 执行裁决的 Rule 2 correctness deviation，将 `AsyncOpenAI(..., max_retries=0)` 固定为无 SDK 隐式 retry，保留 MOCA 外层默认 `max_retries=3` 生产语义；reviewed build 显式使用外层 `max_retries=1`。新增真实 client 可观察断言 `client.max_retries == 0`，并用 fake client 证明外层 3 次行为及 `request_attempt_count` 不变。
 - **证据**：Phase64.4 Plan13 Task2；`src/rag/embedder.py`、`tests/test_embedder.py`；openai-python 官方文档确认默认 retry 与 `max_retries=0` 禁用方式；本条所在 GREEN 提交，format/full lint/精确三文件 gate通过。
 - **剩余风险 / 继续入口**：该修复不新增配置或阈值；未来若替换 provider SDK，仍须在 client 层显式关闭隐式 retry，并由 MOCA 单一 authority 计数。真实 provider 行为只能由后续获批 live plan 验证。
+
+## 2026-08-12 — Phase 64.4 Plan 14 Task 1 — A-B recovery budget root 与 candidate state 仅受 caller 参数约束 ⚠️修复进行中
+
+- **子系统**：RAG token-chunk A-B recovery authority / candidate lineage。
+- **问题现象 / 根因**：仓库核对确认 production `eval_rag_token_chunk_ab.py` 直接接受任意 `--output-root`，而 `reserve_recovery_attempt` 只检查 manifest 位于 caller 所给 root 下；复制整个 manifest 到另一个 root 后可重新得到 `01/02` namespace。reservation 同时只信任 caller 给出的 `prerequisite_state_sha256`，没有重新哈希并 strict-load Plan13 canonical candidate state，也没有逐字段核对 corpus/run/owner/config/parity/source/evidence identity。
+- **影响**：攻击者或误操作可通过 alternate/copied/symlink root 重置 cap=2，或把 unrelated/stale candidate state 与一个合法 manifest 组合后进入 provider-capable路径；现有 selection 也尚未携带该 ordinal/candidate authority。
+- **处理状态**：⚠️ 已完成 Task1 tests-first RED，正在加入 repository canonical resolved root、production preflight refusal、manifest 完整 candidate identity 与 reserve-time exact state/fresh parity revalidation。Task2 将另建 create-only recovery authorization 并把它带到 activation pre-CAS gate；本条在完整 GREEN gate 通过后升级为 ✅。
+- **证据**：Phase64.4 Plan14 Task1；`src/rag/evaluation/token_chunk_ab.py`、`scripts/eval_rag_token_chunk_ab.py` 当前实现与新增 `tests/eval/test_rag_token_chunk_ab.py` adversarial tests；RED 用有效入口 collection 失败于缺少 `canonical_recovery_root`，未调用 provider、DB、live candidate/A-B slot 或 pointer/history。
+- **剩余风险 / 继续入口**：Task1 必须保持 temporary roots 仅供 unit store API 注入，production CLI只能接受仓库唯一 canonical root；Task2 前 selection/activation authority仍未闭合，不能据此执行 live selection 或 activation。

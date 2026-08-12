@@ -23773,3 +23773,14 @@ RED 原子提交为 `8d5d6cc4`；随后实现 descriptor-bound cap=2、create-on
 
 **已做处理 / 剩余入口**
 将断言修正为仓库既有 UTF-8 SHA 规范值，随后重跑 `make format`、完整 `make lint` 与精确三文件套件转绿。后续 doc-key authority 继续复用同一 `_sha256_text` 语义，不引入第二种 canonicalization。
+
+## 2026-08-12 — Phase 64.4 Plan 14 Task 1 canonical root/candidate binding 预期 RED
+
+**问题现象 / 如何检测**
+先添加 production copied/symlink root、actual candidate state strict rehash/load、fresh parity tamper 与 reserve-before-provider adversarial tests，再执行 `make format`、完整 `make lint` 和 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_token_chunk_ab.py tests/eval/test_rag_retrieval_round_isolation.py`。lint 通过，pytest 在 collection 阶段报 `ImportError: cannot import name 'canonical_recovery_root'`。
+
+**关键证据 / 当前判断 / 根因**
+失败精确来自 Plan14 新 canonical authority 尚未实现，属于 tests-first 预期 RED，不是 Python 版本、PATH、PostgreSQL fixture 或 provider failure。新增测试只在 `tmp_path` 构造 Plan13 descriptor/state/parity 与 copied budget；未调用 production provider、claim/build candidate、写 live DB、保留 A-B slot、修改既有 v1 run/selection bytes或 pointer/history。
+
+**已做处理 / 剩余入口**
+RED 将作为 Task1 原子测试提交保留；下一步实现仓库唯一 resolved root、manifest 完整 candidate identity 与 reservation 时 strict state/parity revalidation，并重跑同一 format/full lint/scoped gate。只有 GREEN 后才可进入 Task2 recovery authorization；本次失败不代表任何 live recovery 已执行。

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor
@@ -49,6 +50,7 @@ def _api():
         TerminalABRunV1,
         build_plan12_recovery_budget_manifest,
         build_terminal_ab_run,
+        canonical_recovery_root,
         evaluate_exact_gates,
         evaluate_recovery_retry_authority,
         load_execution_error_bundle,
@@ -58,6 +60,7 @@ def _api():
         load_terminal_ab_run,
         reserve_recovery_attempt,
         reserve_then_create_provider,
+        require_canonical_recovery_root,
         render_selection_markdown,
         render_terminal_markdown,
         validate_fixed_plan10_evidence,
@@ -93,6 +96,7 @@ def _api():
         "TerminalABRunV1": TerminalABRunV1,
         "build_plan12_recovery_budget_manifest": build_plan12_recovery_budget_manifest,
         "build_terminal_ab_run": build_terminal_ab_run,
+        "canonical_recovery_root": canonical_recovery_root,
         "evaluate_exact_gates": evaluate_exact_gates,
         "evaluate_recovery_retry_authority": evaluate_recovery_retry_authority,
         "load_execution_error_bundle": load_execution_error_bundle,
@@ -102,6 +106,7 @@ def _api():
         "load_terminal_ab_run": load_terminal_ab_run,
         "reserve_recovery_attempt": reserve_recovery_attempt,
         "reserve_then_create_provider": reserve_then_create_provider,
+        "require_canonical_recovery_root": require_canonical_recovery_root,
         "render_selection_markdown": render_selection_markdown,
         "render_terminal_markdown": render_terminal_markdown,
         "validate_fixed_plan10_evidence": validate_fixed_plan10_evidence,
@@ -272,14 +277,14 @@ def _proofs(**updates):
     return _api()["ABHardProofsV1"](**values)
 
 
-def _selected_run(*, execution_kind: str = "full_provider"):
+def _selected_run(*, execution_kind: str = "full_provider", parity=None):
     api = _api()
     return api["build_terminal_ab_run"](
         run_id=RUN_ID,
         generated_at=GENERATED_AT,
         inputs=_inputs(),
         runtime=_runtime(execution_kind=execution_kind),
-        parity=_parity(),
+        parity=parity or _parity(),
         incumbent=_observation(candidate=False),
         candidate=_observation(candidate=True),
         hard_proofs=_proofs(),
@@ -584,7 +589,7 @@ def test_raw_retrieval_rows_build_exact_quality_and_truthful_resource_status() -
 
 
 @pytest.mark.asyncio
-async def test_cli_early_execution_error_still_writes_one_create_only_terminal_pair(tmp_path: Path) -> None:
+async def test_cli_invalid_noncanonical_preflight_writes_no_terminal_or_selection(tmp_path: Path) -> None:
     import scripts.eval_rag_token_chunk_ab as ab_cli
 
     candidate_state = tmp_path / "candidate.json"
@@ -613,21 +618,13 @@ async def test_cli_early_execution_error_still_writes_one_create_only_terminal_p
         str(output_root),
     ]
 
-    assert await ab_cli.main(argv) == 2
+    assert await ab_cli.main(argv) == 4
     json_path = output_root / "runs" / f"{RUN_ID}.json"
     markdown_path = output_root / "runs" / f"{RUN_ID}.md"
-    before = (json_path.read_bytes(), markdown_path.read_bytes())
-    terminal = _api()["load_terminal_ab_run"](json_path)
-    assert terminal.outcome == "execution_error"
-    assert terminal.safe_reason_codes == ("candidate_state_invalid",)
-    committed = _api()["load_execution_error_bundle"](root=output_root, run_id=RUN_ID)
-    assert committed.diagnostic.failing_role == "shared_preflight"
-    assert committed.diagnostic.stage == "shared_preflight"
-    assert committed.diagnostic.reason_code == "candidate_state_invalid"
-    assert committed.diagnostic.provider_request_classification == "not_attempted"
+    assert not json_path.exists()
+    assert not markdown_path.exists()
     assert not (output_root / "selections").exists()
-    assert await ab_cli.main(argv) == 2
-    assert before == (json_path.read_bytes(), markdown_path.read_bytes())
+    assert await ab_cli.main(argv) == 4
 
 
 @pytest.mark.asyncio
@@ -647,7 +644,7 @@ async def test_phase64_4_head_satisfies_ab_database_prerequisite(monkeypatch: py
     assert await ab_cli._ab_database_prerequisites(object(), expected_rollout_version=1) == ()
 
 
-def _execution_error_run():
+def _execution_error_run(*, parity=None):
     return _api()["TerminalABRunV1"](
         run_id=RUN_ID,
         generated_at=GENERATED_AT,
@@ -657,7 +654,7 @@ def _execution_error_run():
         safe_reason_codes=("provider_execution_failed",),
         inputs=_inputs(),
         runtime=_runtime(),
-        parity=_parity(),
+        parity=parity or _parity(),
         incumbent=None,
         candidate=None,
         hard_proofs=None,
@@ -940,49 +937,227 @@ def test_diagnostic_cli_has_no_selection_activation_or_pointer_write_surface() -
     assert "write_execution_error_bundle_create_only" in main_source
 
 
-def _recovery_budget_manifest():
+def _recovery_budget_manifest(
+    *,
+    candidate_state_sha256: str = "sha256:" + "4" * 64,
+    candidate_state_relative_path: str = (
+        "candidates/tenants/64300000-0000-4000-8000-000000000001/runs/"
+        "64300000-0000-4000-8000-000000000014/states/00000007.json"
+    ),
+    candidate_descriptor_sha256: str = "sha256:" + "5" * 64,
+    parity_report_sha256: str | None = None,
+    parity_run_id: UUID | None = None,
+    parity_probe_fixture_sha256: str | None = None,
+    parity_submitted_content_sha256: str | None = None,
+):
     return _api()["build_plan12_recovery_budget_manifest"](
         created_at=GENERATED_AT,
         tenant_id=TENANT_ID,
         incumbent_corpus_version_id=INCUMBENT_CORPUS_ID,
         candidate_corpus_version_id=CANDIDATE_CORPUS_ID,
         candidate_run_token=UUID("64300000-0000-4000-8000-000000000014"),
-        candidate_state_sha256="sha256:" + "4" * 64,
+        candidate_lease_owner="phase64.4-plan13",
+        candidate_state_version=7,
+        candidate_state_relative_path=candidate_state_relative_path,
+        candidate_state_sha256=candidate_state_sha256,
+        candidate_recovery_descriptor_sha256=candidate_descriptor_sha256,
+        candidate_config_schema_version="embedding_tokenizer.v1",
         candidate_config_fingerprint="sha256:" + "c" * 64,
-        provider_parity_run_id=_parity().run_id,
-        provider_parity_report_sha256=_parity().report_sha256,
+        candidate_source_manifest_revision_id=UUID("64300000-0000-4000-8000-000000000015"),
+        candidate_source_manifest_revision=7,
+        candidate_source_manifest_hash="sha256:" + "4" * 64,
+        candidate_source_active_corpus_version_id=INCUMBENT_CORPUS_ID,
+        candidate_source_rollout_epoch=11,
+        candidate_expected_evidence_rollout_version=13,
+        provider_parity_run_id=parity_run_id or _parity().run_id,
+        provider_parity_report_sha256=parity_report_sha256 or _parity().report_sha256,
         provider_parity_config_fingerprint=_parity().config_fingerprint,
-        provider_parity_probe_fixture_sha256=_parity().probe_fixture_sha256,
-        provider_parity_submitted_content_sha256=_parity().submitted_content_sha256,
+        provider_parity_probe_fixture_sha256=parity_probe_fixture_sha256 or _parity().probe_fixture_sha256,
+        provider_parity_submitted_content_sha256=(
+            parity_submitted_content_sha256 or _parity().submitted_content_sha256
+        ),
     )
 
 
 def _write_recovery_budget(tmp_path: Path):
     api = _api()
+    candidate_state, parity_path, parity_report = _write_recovery_candidate_authority(tmp_path)
+    manifest_value = _recovery_budget_manifest(
+        candidate_state_sha256=_file_sha256(candidate_state.path),
+        candidate_state_relative_path=candidate_state.path.relative_to(tmp_path).as_posix(),
+        candidate_descriptor_sha256=candidate_state.descriptor_sha256,
+        parity_report_sha256=_file_sha256(parity_path),
+        parity_run_id=parity_report.run_id,
+        parity_probe_fixture_sha256=parity_report.probe_fixture_sha256,
+        parity_submitted_content_sha256=parity_report.submitted_content_sha256,
+    )
     artifact = api["write_recovery_budget_manifest_create_only"](
-        _recovery_budget_manifest(),
+        manifest_value,
         root=tmp_path,
     )
     loaded = api["load_recovery_budget_manifest"](artifact.path)
-    assert loaded == _recovery_budget_manifest()
-    return loaded, artifact
+    assert loaded == manifest_value
+    return loaded, artifact, candidate_state.path, parity_path
 
 
 def _reserve_first(tmp_path: Path, *, prerequisite_hash: str = "sha256:" + "5" * 64):
     api = _api()
-    manifest, artifact = _write_recovery_budget(tmp_path)
+    manifest, artifact, candidate_state_path, parity_path = _write_recovery_budget(tmp_path)
     reservation = api["reserve_recovery_attempt"](
         manifest_path=artifact.path,
         root=tmp_path,
+        candidate_state_path=candidate_state_path,
+        provider_parity_report_path=parity_path,
         run_id=RUN_ID,
         selection_id=SELECTION_ID,
         reserved_at=GENERATED_AT,
         prerequisite_state_sha256=prerequisite_hash,
     )
-    return manifest, artifact, reservation
+    return manifest, artifact, reservation, candidate_state_path, parity_path
 
 
-def _unavailable_run(*, reason_code: str = "provider_request_unavailable"):
+@dataclass(frozen=True, slots=True)
+class _CandidateStateArtifact:
+    path: Path
+    descriptor_sha256: str
+
+
+def _write_recovery_candidate_authority(
+    tmp_path: Path,
+) -> tuple[_CandidateStateArtifact, Path, object]:
+    from datetime import timedelta
+
+    from src.rag.policy_reindex import PolicyReindexRunIdentity
+    from src.rag.policy_reindex_artifacts import (
+        build_policy_reindex_recovery_descriptor,
+        write_policy_reindex_recovery_descriptor_create_only,
+        write_policy_reindex_state_create_only,
+    )
+    from src.rag.tokenizer_parity import (
+        EmbeddingTokenizerParityReportV1,
+        ParityProbeResultV1,
+        parity_content_sha256,
+        write_parity_report_create_only,
+    )
+    from src.rag.embedding_tokenizer import ProviderParityStatus
+
+    run_token = UUID("64300000-0000-4000-8000-000000000014")
+    manifest_id = UUID("64300000-0000-4000-8000-000000000015")
+    probes = tuple(
+        ParityProbeResultV1(
+            probe_id=f"probe-{index:02d}",
+            category="safe_synthetic",
+            embedding_input_sha256=f"sha256:{index:064x}",
+            offline_tokens=20 + index,
+            provider_prompt_tokens=20 + index,
+            provider_total_tokens=20 + index,
+            exact_match=True,
+        )
+        for index in range(10)
+    )
+    submitted_content_sha256 = parity_content_sha256(probes)
+    aggregate_tokens = sum(probe.offline_tokens for probe in probes)
+    parity_report = EmbeddingTokenizerParityReportV1(
+        schema_version="embedding_tokenizer_parity.v1",
+        run_id=_parity().run_id,
+        captured_at=_parity().captured_at,
+        region_class="dashscope_public",
+        provider="dashscope",
+        model="text-embedding-v4",
+        dimensions=1024,
+        tokenizer_contract_version="embedding_tokenizer.v1",
+        config_fingerprint="sha256:" + "c" * 64,
+        assembly_schema_version="policy_embedding_input.v1",
+        probe_fixture_sha256=_parity().probe_fixture_sha256,
+        submitted_content_sha256=submitted_content_sha256,
+        provider_parity_status=ProviderParityStatus.PASSED,
+        reason_code="exact_match",
+        probes=probes,
+        aggregate_input_count=10,
+        aggregate_offline_tokens=aggregate_tokens,
+        aggregate_provider_prompt_tokens=aggregate_tokens,
+        aggregate_provider_total_tokens=aggregate_tokens,
+        aggregate_exact_match=True,
+    )
+    parity_path = write_parity_report_create_only(parity_report, root=tmp_path / "parity")
+    descriptor = build_policy_reindex_recovery_descriptor(
+        sealed_at=GENERATED_AT - timedelta(minutes=15),
+        tenant_id=TENANT_ID,
+        run_token=run_token,
+        generation_name=f"token.v1:{run_token.hex}",
+        lease_owner="phase64.4-plan13",
+        lease_expires_at=GENERATED_AT + timedelta(hours=1),
+        config_schema_version="embedding_tokenizer.v1",
+        config_json={
+            "dimensions": 1024,
+            "max_embedding_tokens": 512,
+            "overlap_tokens": 48,
+            "target_embedding_tokens": 384,
+        },
+        config_fingerprint="sha256:" + "c" * 64,
+        parity_report_sha256=_file_sha256(parity_path),
+        parity_config_fingerprint="sha256:" + "c" * 64,
+        parity_probe_fixture_sha256=parity_report.probe_fixture_sha256,
+        parity_submitted_content_sha256=parity_report.submitted_content_sha256,
+        parity_captured_at=parity_report.captured_at,
+        parity_expires_at=parity_report.captured_at + timedelta(hours=24),
+        source_manifest_revision_id=manifest_id,
+        source_manifest_revision=7,
+        source_manifest_hash="sha256:" + "4" * 64,
+        source_active_corpus_version_id=INCUMBENT_CORPUS_ID,
+        source_rollout_epoch=11,
+        expected_evidence_rollout_version=13,
+    )
+    candidates_root = tmp_path / "candidates"
+    descriptor_artifact = write_policy_reindex_recovery_descriptor_create_only(descriptor, root=candidates_root)
+    state = PolicyReindexRunIdentity(
+        corpus_version_id=CANDIDATE_CORPUS_ID,
+        tenant_id=TENANT_ID,
+        run_token=run_token,
+        generation_name=descriptor.generation_name,
+        lease_owner=descriptor.lease_owner,
+        lease_expires_at=descriptor.lease_expires_at,
+        state="complete",
+        state_version=7,
+        next_document_index=3,
+        ordered_doc_keys=("policy-a", "policy-b", "policy-c"),
+        config_schema_version=descriptor.config_schema_version,
+        config_fingerprint=descriptor.config_fingerprint,
+        provider_parity_report_hash=descriptor.parity_report_sha256,
+        source_manifest_revision_id=descriptor.source_manifest_revision_id,
+        source_manifest_revision=descriptor.source_manifest_revision,
+        source_manifest_hash=descriptor.source_manifest_hash,
+        source_active_corpus_version_id=descriptor.source_active_corpus_version_id,
+        source_rollout_epoch=descriptor.source_rollout_epoch,
+        expected_evidence_rollout_version=descriptor.expected_evidence_rollout_version,
+        parity_captured_at=descriptor.parity_captured_at,
+        parity_expires_at=descriptor.parity_expires_at,
+    )
+    state_artifact = write_policy_reindex_state_create_only(state, descriptor=descriptor, root=candidates_root)
+    return (
+        _CandidateStateArtifact(path=state_artifact.path, descriptor_sha256=descriptor_artifact.sha256),
+        parity_path,
+        parity_report,
+    )
+
+
+def _file_sha256(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _recovery_parity(manifest):
+    return _parity().model_copy(
+        update={
+            "report_sha256": manifest.provider_parity_report_sha256,
+            "run_id": manifest.provider_parity_run_id,
+            "config_fingerprint": manifest.provider_parity_config_fingerprint,
+            "probe_fixture_sha256": manifest.provider_parity_probe_fixture_sha256,
+            "submitted_content_sha256": manifest.provider_parity_submitted_content_sha256,
+        }
+    )
+
+
+def _unavailable_run(*, reason_code: str = "provider_request_unavailable", parity=None):
     return _api()["TerminalABRunV1"](
         run_id=RUN_ID,
         generated_at=GENERATED_AT,
@@ -992,7 +1167,7 @@ def _unavailable_run(*, reason_code: str = "provider_request_unavailable"):
         safe_reason_codes=(reason_code,),
         inputs=_inputs(),
         runtime=_runtime(),
-        parity=_parity(),
+        parity=parity or _parity(),
         incumbent=None,
         candidate=None,
         hard_proofs=None,
@@ -1016,6 +1191,12 @@ def test_plan12_recovery_budget_is_frozen_fixed_and_binds_exact_plan10_evidence(
         "sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3"
     )
     assert manifest.provider_parity_config_fingerprint == manifest.candidate_config_fingerprint
+    assert manifest.candidate_state_version == 7
+    assert manifest.candidate_lease_owner == "phase64.4-plan13"
+    assert manifest.candidate_source_manifest_revision == 7
+    assert manifest.candidate_source_active_corpus_version_id == INCUMBENT_CORPUS_ID
+    assert manifest.candidate_expected_evidence_rollout_version == 13
+    assert manifest.candidate_state_relative_path.startswith("candidates/tenants/")
     assert manifest.manifest_payload_sha256.startswith("sha256:")
     with pytest.raises((ValidationError, ValueError)):
         api["ABRecoveryBudgetManifestV1"].model_validate({**manifest.model_dump(mode="json"), "max_attempts": 3})
@@ -1026,12 +1207,13 @@ def test_plan12_recovery_budget_is_frozen_fixed_and_binds_exact_plan10_evidence(
 
 def test_recovery_budget_manifest_and_reservations_are_create_only(tmp_path: Path) -> None:
     api = _api()
-    manifest, artifact, reservation = _reserve_first(tmp_path)
+    manifest, artifact, reservation, candidate_state_path, parity_path = _reserve_first(tmp_path)
     before = artifact.path.read_bytes()
     assert reservation.ordinal == 1
     assert reservation.run_id == RUN_ID
     assert reservation.selection_id == SELECTION_ID
     assert reservation.budget_manifest_sha256 == artifact.sha256
+    assert reservation.candidate_state_sha256 == manifest.candidate_state_sha256
     assert (
         api["load_recovery_attempt_reservation"](
             tmp_path / "recovery-budgets" / manifest.budget_id / "attempts" / "01.json",
@@ -1044,6 +1226,8 @@ def test_recovery_budget_manifest_and_reservations_are_create_only(tmp_path: Pat
         api["reserve_recovery_attempt"](
             manifest_path=artifact.path,
             root=tmp_path,
+            candidate_state_path=candidate_state_path,
+            provider_parity_report_path=parity_path,
             run_id=uuid4(),
             selection_id=uuid4(),
             reserved_at=GENERATED_AT,
@@ -1053,14 +1237,130 @@ def test_recovery_budget_manifest_and_reservations_are_create_only(tmp_path: Pat
     assert len(tuple((artifact.path.parent / "attempts").glob("*.json"))) == 1
 
 
+def test_canonical_recovery_root_is_repository_relative_resolved_and_rejects_aliases(tmp_path: Path) -> None:
+    api = _api()
+    repository_root = tmp_path / "repo"
+    repository_root.mkdir()
+    canonical = repository_root / "evaluation" / "reports" / "rag_token_chunk_ab" / "v1"
+    canonical.mkdir(parents=True)
+
+    assert api["canonical_recovery_root"](repository_root=repository_root) == canonical.resolve()
+    assert (
+        api["require_canonical_recovery_root"](
+            canonical,
+            repository_root=repository_root,
+        )
+        == canonical.resolve()
+    )
+
+    copied_root = tmp_path / "copied-v1"
+    copied_root.mkdir()
+    with pytest.raises(api["RecoveryAttemptRefused"], match="recovery_root_not_canonical"):
+        api["require_canonical_recovery_root"](copied_root, repository_root=repository_root)
+
+    alias = tmp_path / "canonical-alias"
+    alias.symlink_to(canonical, target_is_directory=True)
+    with pytest.raises(api["RecoveryAttemptRefused"], match="recovery_root_not_canonical"):
+        api["require_canonical_recovery_root"](alias, repository_root=repository_root)
+
+
+@pytest.mark.asyncio
+async def test_production_cli_refuses_copied_budget_root_before_run_or_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+
+    copied_root = tmp_path / "copied-v1"
+    _, artifact, candidate_state_path, parity_path = _write_recovery_budget(copied_root)
+    run_calls = 0
+
+    async def forbidden_run(*_args, **_kwargs):
+        nonlocal run_calls
+        run_calls += 1
+        raise AssertionError("provider-capable run must not start")
+
+    monkeypatch.setattr(ab_cli, "run_full_provider_ab", forbidden_run)
+    result = await ab_cli.main(
+        [
+            "--candidate-state",
+            str(candidate_state_path),
+            "--parity-report",
+            str(parity_path),
+            "--probe-fixture-hash",
+            "sha256:" + "2" * 64,
+            "--submitted-content-hash",
+            "sha256:" + "3" * 64,
+            "--recovery-budget-manifest",
+            str(artifact.path),
+            "--prerequisite-state-sha256",
+            "sha256:" + "6" * 64,
+            "--run-id",
+            str(uuid4()),
+            "--selection-id",
+            str(uuid4()),
+            "--generated-at",
+            GENERATED_AT.isoformat(),
+            "--output-root",
+            str(copied_root),
+        ]
+    )
+
+    assert result == 4
+    assert run_calls == 0
+    assert not (artifact.path.parent / "attempts").exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_reason"),
+    [
+        ("candidate_state_bytes", "recovery_candidate_state_invalid"),
+        ("candidate_state_path", "recovery_candidate_state_identity_mismatch"),
+        ("parity_bytes", "recovery_parity_invalid"),
+    ],
+)
+def test_reservation_rehashes_strict_candidate_and_fresh_parity_before_ordinal(
+    tmp_path: Path,
+    mutation: str,
+    expected_reason: str,
+) -> None:
+    api = _api()
+    _, artifact, candidate_state_path, parity_path = _write_recovery_budget(tmp_path)
+    selected_candidate_path = candidate_state_path
+    if mutation == "candidate_state_bytes":
+        payload = json.loads(candidate_state_path.read_text(encoding="utf-8"))
+        payload["identity"]["lease_owner"] = "copied-owner"
+        candidate_state_path.write_text(json.dumps(payload), encoding="utf-8")
+    elif mutation == "candidate_state_path":
+        selected_candidate_path = tmp_path / "copied-state.json"
+        selected_candidate_path.write_bytes(candidate_state_path.read_bytes())
+    else:
+        parity_path.write_bytes(parity_path.read_bytes()[:-1] + b" ")
+
+    with pytest.raises(api["RecoveryAttemptRefused"], match=expected_reason):
+        api["reserve_recovery_attempt"](
+            manifest_path=artifact.path,
+            root=tmp_path,
+            candidate_state_path=selected_candidate_path,
+            provider_parity_report_path=parity_path,
+            run_id=uuid4(),
+            selection_id=uuid4(),
+            reserved_at=GENERATED_AT,
+            prerequisite_state_sha256="sha256:" + "6" * 64,
+        )
+    assert not (artifact.path.parent / "attempts").exists()
+
+
 def test_crash_consumes_slot_and_concurrent_first_reservation_has_exactly_one_winner(tmp_path: Path) -> None:
     api = _api()
-    manifest, artifact = _write_recovery_budget(tmp_path)
+    manifest, artifact, candidate_state_path, parity_path = _write_recovery_budget(tmp_path)
 
     def reserve(index: int):
         return api["reserve_recovery_attempt"](
             manifest_path=artifact.path,
             root=tmp_path,
+            candidate_state_path=candidate_state_path,
+            provider_parity_report_path=parity_path,
             run_id=UUID(int=100 + index),
             selection_id=UUID(int=200 + index),
             reserved_at=GENERATED_AT,
@@ -1106,16 +1406,17 @@ def test_retry_matrix_always_stops_for_selected_or_candidate_failed(
     expected_reason: str,
 ) -> None:
     api = _api()
-    manifest, _, reservation = _reserve_first(tmp_path)
+    manifest, _, reservation, _, _ = _reserve_first(tmp_path)
+    parity = _recovery_parity(manifest)
     if outcome == "selected_pass":
-        report = _selected_run()
+        report = _selected_run(parity=parity)
     elif outcome == "candidate_failed_quality":
         report = api["build_terminal_ab_run"](
             run_id=RUN_ID,
             generated_at=GENERATED_AT,
             inputs=_inputs(),
             runtime=_runtime(),
-            parity=_parity(),
+            parity=parity,
             incumbent=_observation(candidate=False),
             candidate=_observation(candidate=True, quality=_quality(hit_5=(40, 45))),
             hard_proofs=_proofs(),
@@ -1126,7 +1427,7 @@ def test_retry_matrix_always_stops_for_selected_or_candidate_failed(
             generated_at=GENERATED_AT,
             inputs=_inputs(),
             runtime=_runtime(),
-            parity=_parity(),
+            parity=parity,
             incumbent=_observation(candidate=False),
             candidate=_observation(candidate=True),
             hard_proofs=_proofs(stale_cas_safe=False),
@@ -1171,8 +1472,8 @@ def test_execution_error_retry_requires_committed_allowlisted_transient_bundle_a
     expected_reason: str,
 ) -> None:
     api = _api()
-    manifest, _, reservation = _reserve_first(tmp_path)
-    report = _execution_error_run()
+    manifest, _, reservation, _, _ = _reserve_first(tmp_path)
+    report = _execution_error_run(parity=_recovery_parity(manifest))
     payload = canonical_run_bytes(report)
     diagnostic_values: dict[str, object] = {
         "terminal_run_sha256": "sha256:" + hashlib.sha256(payload).hexdigest(),
@@ -1205,8 +1506,8 @@ def canonical_run_bytes(report) -> bytes:
 
 def test_execution_error_missing_uncommitted_or_mismatched_bundle_stops(tmp_path: Path) -> None:
     api = _api()
-    manifest, _, reservation = _reserve_first(tmp_path)
-    report = _execution_error_run()
+    manifest, _, reservation, _, _ = _reserve_first(tmp_path)
+    report = _execution_error_run(parity=_recovery_parity(manifest))
     api["write_terminal_run_create_only"](report, root=tmp_path)
     authority = api["evaluate_recovery_retry_authority"](
         manifest=manifest,
@@ -1260,8 +1561,8 @@ def test_unavailable_retry_requires_allowlisted_terminal_no_sidecar_and_prerequi
     expected_reason: str,
 ) -> None:
     api = _api()
-    manifest, _, reservation = _reserve_first(tmp_path)
-    report = _unavailable_run(reason_code=reason_code)
+    manifest, _, reservation, _, _ = _reserve_first(tmp_path)
+    report = _unavailable_run(reason_code=reason_code, parity=_recovery_parity(manifest))
     api["write_terminal_run_create_only"](report, root=tmp_path)
     if sidecar:
         diagnostic_path = tmp_path / "diagnostics" / f"{RUN_ID}.json"
@@ -1279,8 +1580,8 @@ def test_unavailable_retry_requires_allowlisted_terminal_no_sidecar_and_prerequi
 
 def test_second_valid_slot_then_third_or_plan10_identity_reuse_refuses_before_provider(tmp_path: Path) -> None:
     api = _api()
-    manifest, artifact, reservation = _reserve_first(tmp_path)
-    report = _execution_error_run()
+    manifest, artifact, reservation, candidate_state_path, parity_path = _reserve_first(tmp_path)
+    report = _execution_error_run(parity=_recovery_parity(manifest))
     diagnostic = _execution_diagnostic(
         terminal_run_sha256="sha256:" + hashlib.sha256(canonical_run_bytes(report)).hexdigest(),
         stage="retrieval_resource_proof",
@@ -1291,6 +1592,8 @@ def test_second_valid_slot_then_third_or_plan10_identity_reuse_refuses_before_pr
     second = api["reserve_recovery_attempt"](
         manifest_path=artifact.path,
         root=tmp_path,
+        candidate_state_path=candidate_state_path,
+        provider_parity_report_path=parity_path,
         run_id=UUID("64300000-0000-4000-8000-000000000020"),
         selection_id=UUID("64300000-0000-4000-8000-000000000021"),
         reserved_at=GENERATED_AT,
@@ -1309,6 +1612,8 @@ def test_second_valid_slot_then_third_or_plan10_identity_reuse_refuses_before_pr
             reserve=lambda: api["reserve_recovery_attempt"](
                 manifest_path=artifact.path,
                 root=tmp_path,
+                candidate_state_path=candidate_state_path,
+                provider_parity_report_path=parity_path,
                 run_id=uuid4(),
                 selection_id=uuid4(),
                 reserved_at=GENERATED_AT,
@@ -1319,13 +1624,15 @@ def test_second_valid_slot_then_third_or_plan10_identity_reuse_refuses_before_pr
     assert provider_calls == 0
 
     other_root = tmp_path / "plan10-reuse"
-    _, other_artifact = _write_recovery_budget(other_root)
+    _, other_artifact, other_state_path, other_parity_path = _write_recovery_budget(other_root)
     plan10_run_id = api["PLAN10_TERMINAL_RUNS"][0].run_id
     with pytest.raises(api["RecoveryAttemptRefused"], match="plan10_identity_reuse_forbidden"):
         api["reserve_then_create_provider"](
             reserve=lambda: api["reserve_recovery_attempt"](
                 manifest_path=other_artifact.path,
                 root=other_root,
+                candidate_state_path=other_state_path,
+                provider_parity_report_path=other_parity_path,
                 run_id=plan10_run_id,
                 selection_id=uuid4(),
                 reserved_at=GENERATED_AT,
