@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 import math
 import re
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
@@ -48,6 +48,9 @@ from src.repositories.policy_corpus_repo import (
     PolicyCorpusRepository,
     PolicyCorpusUnavailable,
 )
+
+if TYPE_CHECKING:
+    from src.rag.policy_reindex_artifacts import PolicyReindexRecoveryDescriptorV1
 
 
 POLICY_REINDEX_OWNER_MARKER = "moca.policy_reindex.v1"
@@ -112,6 +115,9 @@ class PolicyReindexClaimRequest:
     source_active_corpus_version_id: UUID
     source_rollout_epoch: int
     expected_evidence_rollout_version: int
+    recovery_descriptor_payload_sha256: str | None = None
+    parity_probe_fixture_sha256: str | None = None
+    parity_submitted_content_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,9 +351,27 @@ class PolicyReindexService:
         if existing is not None:
             owner = self._identity_from_row(existing, manifest=manifest)
             self._assert_claim_matches(request, owner)
+            self._assert_recovery_request_binding(existing, request)
             if owner.lease_expires_at <= checked_at:
                 _fail(PolicyReindexFailureCode.LEASE_EXPIRED)
             return owner
+
+        validation_proof: dict[str, Any] = {
+            "claim": {
+                "schema_version": POLICY_REINDEX_CLAIM_SCHEMA_VERSION,
+                "ordered_doc_keys": list(ordered_doc_keys),
+                "source_manifest_revision": manifest.revision,
+                "parity_captured_at": _as_utc(request.parity.captured_at).isoformat(),
+                "parity_expires_at": parity_expires_at.isoformat(),
+            }
+        }
+        if request.recovery_descriptor_payload_sha256 is not None:
+            validation_proof["recovery_descriptor"] = {
+                "schema_version": "policy_reindex_recovery_descriptor_binding.v1",
+                "descriptor_payload_sha256": request.recovery_descriptor_payload_sha256,
+                "parity_probe_fixture_sha256": request.parity_probe_fixture_sha256,
+                "parity_submitted_content_sha256": request.parity_submitted_content_sha256,
+            }
 
         candidate = PolicyCorpusVersion(
             id=uuid4(),
@@ -377,15 +401,7 @@ class PolicyReindexService:
                 "candidate_block_count": 0,
                 "candidate_chunk_count": 0,
             },
-            validation_proof_json={
-                "claim": {
-                    "schema_version": POLICY_REINDEX_CLAIM_SCHEMA_VERSION,
-                    "ordered_doc_keys": list(ordered_doc_keys),
-                    "source_manifest_revision": manifest.revision,
-                    "parity_captured_at": _as_utc(request.parity.captured_at).isoformat(),
-                    "parity_expires_at": parity_expires_at.isoformat(),
-                }
-            },
+            validation_proof_json=validation_proof,
             failure_code=None,
             safe_message=None,
             terminal_at=None,
@@ -393,6 +409,67 @@ class PolicyReindexService:
         self.session.add(candidate)
         await self.session.flush()
         return self._identity_from_row(candidate, manifest=manifest)
+
+    async def claim_from_descriptor(
+        self,
+        descriptor: PolicyReindexRecoveryDescriptorV1,
+        *,
+        now: datetime | None = None,
+    ) -> PolicyReindexRunIdentity:
+        """Claim only the UUID, lease, parity, config, and source sealed pre-claim."""
+
+        parity_maximum_age = descriptor.parity_expires_at - descriptor.parity_captured_at
+        try:
+            await self.evidence.lock_rollout(
+                expected_rollout_version=descriptor.expected_evidence_rollout_version,
+                require_dual_write=True,
+            )
+        except EvidenceRolloutError:
+            _fail(PolicyReindexFailureCode.SOURCE_POINTER_DRIFT)
+        owner = await self.claim(
+            self._claim_request_from_descriptor(descriptor),
+            now=now,
+            parity_maximum_age=parity_maximum_age,
+        )
+        row = await self.corpora.lock_candidate(corpus_version_id=owner.corpus_version_id)
+        if row is None or dict(row.config_json or {}) != descriptor.config_json:
+            _fail(PolicyReindexFailureCode.CONFIG_DRIFT)
+        return owner
+
+    async def recover_identity(
+        self,
+        descriptor: PolicyReindexRecoveryDescriptorV1,
+        *,
+        now: datetime | None = None,
+    ) -> PolicyReindexRunIdentity:
+        """Recover one exact current row without renewal, transition, or creation."""
+
+        _ = _as_utc(now or datetime.now(UTC))
+        try:
+            await self.evidence.lock_rollout(
+                expected_rollout_version=descriptor.expected_evidence_rollout_version,
+                require_dual_write=True,
+            )
+            rollout = await self.corpora.acquire_tenant_rollout_lock(tenant_id=descriptor.tenant_id)
+            manifest = await self.corpora.lock_latest_manifest(tenant_id=descriptor.tenant_id)
+            row = await self.corpora.get_candidate_by_run(
+                tenant_id=descriptor.tenant_id,
+                run_token=descriptor.run_token,
+            )
+        except EvidenceRolloutError:
+            _fail(PolicyReindexFailureCode.SOURCE_POINTER_DRIFT)
+        except PolicyCorpusUnavailable:
+            _fail(PolicyReindexFailureCode.AUTHORITY_UNAVAILABLE)
+        if row is None:
+            _fail(PolicyReindexFailureCode.RUN_IDENTITY_MISMATCH)
+        request = self._claim_request_from_descriptor(descriptor)
+        self._assert_requested_source_authority(request, manifest=manifest, rollout=rollout)
+        owner = self._identity_from_row(row, manifest=manifest)
+        self._assert_claim_matches(request, owner)
+        self._assert_recovery_request_binding(row, request)
+        if dict(row.config_json or {}) != descriptor.config_json:
+            _fail(PolicyReindexFailureCode.CONFIG_DRIFT)
+        return owner
 
     async def resume(
         self,
@@ -1020,6 +1097,61 @@ class PolicyReindexService:
             _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
 
     @staticmethod
+    def _claim_request_from_descriptor(
+        descriptor: PolicyReindexRecoveryDescriptorV1,
+    ) -> PolicyReindexClaimRequest:
+        return PolicyReindexClaimRequest(
+            tenant_id=descriptor.tenant_id,
+            run_token=descriptor.run_token,
+            generation_name=descriptor.generation_name,
+            lease_owner=descriptor.lease_owner,
+            lease_expires_at=descriptor.lease_expires_at,
+            config_schema_version=descriptor.config_schema_version,
+            config_json=dict(descriptor.config_json),
+            config_fingerprint=descriptor.config_fingerprint,
+            parity=FreshProviderParityClaimV1(
+                report_hash=descriptor.parity_report_sha256,
+                config_fingerprint=descriptor.parity_config_fingerprint,
+                captured_at=descriptor.parity_captured_at,
+                status="passed",
+            ),
+            source_manifest_revision_id=descriptor.source_manifest_revision_id,
+            source_manifest_revision=descriptor.source_manifest_revision,
+            source_manifest_hash=descriptor.source_manifest_hash,
+            source_active_corpus_version_id=descriptor.source_active_corpus_version_id,
+            source_rollout_epoch=descriptor.source_rollout_epoch,
+            expected_evidence_rollout_version=descriptor.expected_evidence_rollout_version,
+            recovery_descriptor_payload_sha256=descriptor.descriptor_payload_sha256,
+            parity_probe_fixture_sha256=descriptor.parity_probe_fixture_sha256,
+            parity_submitted_content_sha256=descriptor.parity_submitted_content_sha256,
+        )
+
+    @staticmethod
+    def _assert_recovery_request_binding(
+        row: PolicyCorpusVersion,
+        request: PolicyReindexClaimRequest,
+    ) -> None:
+        expected_values = (
+            request.recovery_descriptor_payload_sha256,
+            request.parity_probe_fixture_sha256,
+            request.parity_submitted_content_sha256,
+        )
+        if all(value is None for value in expected_values):
+            return
+        binding = (
+            row.validation_proof_json.get("recovery_descriptor")
+            if isinstance(row.validation_proof_json, dict)
+            else None
+        )
+        if binding != {
+            "schema_version": "policy_reindex_recovery_descriptor_binding.v1",
+            "descriptor_payload_sha256": request.recovery_descriptor_payload_sha256,
+            "parity_probe_fixture_sha256": request.parity_probe_fixture_sha256,
+            "parity_submitted_content_sha256": request.parity_submitted_content_sha256,
+        }:
+            _fail(PolicyReindexFailureCode.RUN_IDENTITY_MISMATCH)
+
+    @staticmethod
     def _validate_claim(
         request: PolicyReindexClaimRequest,
         *,
@@ -1053,6 +1185,15 @@ class PolicyReindexService:
             or captured_at > now
             or now - captured_at > parity_maximum_age
             or lease_expires_at <= now
+        ):
+            _fail(PolicyReindexFailureCode.INVALID_CLAIM)
+        recovery_values = (
+            request.recovery_descriptor_payload_sha256,
+            request.parity_probe_fixture_sha256,
+            request.parity_submitted_content_sha256,
+        )
+        if any(value is not None for value in recovery_values) and (
+            any(not _valid_sha256(value) for value in recovery_values) or request.config_json == {}
         ):
             _fail(PolicyReindexFailureCode.INVALID_CLAIM)
         return captured_at + parity_maximum_age

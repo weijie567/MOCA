@@ -23729,3 +23729,25 @@ Plan10 三份 run SHA 均通过 strict loader，selection 仍不存在；evaluat
 
 **已做处理 / 剩余入口**
 严格按 Plan12 stop：未创建 `rag_token_chunk_recovery_budget.v1` live manifest，未 reserve ordinal（`0/2` 已用，`2/2` 剩余），未调用 full-provider A/B，也未修改 Python、DB、旧 candidate/parity/run artifact、阈值、参数、pointer/history。新 fresh parity artifact原样保留。下一入口是单独 reviewed bounded repair plan，选择“新增独立 fresh runtime parity binding”或“构建绑定 fresh parity 的全新 candidate generation”并补 RED/identity regression；未评审前 Plans13/14 继续 blocked。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 1 descriptor/state recovery 预期 RED
+
+**问题现象 / 如何检测**
+先写 descriptor、atomic state 与 exact DB recover 的 Wave-0 tests，再用有效项目入口执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_policy_reindex_artifacts.py tests/rag/test_policy_reindex.py`；两个测试文件在 collection 阶段均报 `ModuleNotFoundError: No module named 'src.rag.policy_reindex_artifacts'`。
+
+**关键证据 / 当前判断 / 根因**
+RED 前 `make format` 与完整 `make lint` 均通过，失败精确来自 Plan13 新 artifacts owner 尚不存在，不是 Python/PATH/旧虚拟环境或 PostgreSQL fixture 失败。该结果符合 tests-first 预期；没有调用 live provider、claim live candidate、修改 evaluation DB、pointer/history 或占用 candidate/A-B budget。
+
+**已做处理 / 剩余入口**
+RED 已原子提交为 `8b2551e7`。随后实现 create-only descriptor、staged/fsynced/atomic state writer、descriptor-bound claim、exact `recover_identity` 与 reviewed CLI，重新执行 format/full lint/scoped deterministic PostgreSQL/fault gate并转绿。Task2 继续在同一 deterministic boundary补 per-document provider execution budget，不把本次预期 RED 当 live candidate 成功证据。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 1 commit/publication fault test 误用 assembler 属性
+
+**问题现象 / 如何检测**
+Task1 GREEN 的完整 `make lint` 已通过，scoped gate 首轮得到 `1 failed, 25 passed, 1 warning`；新增 claim/build/validate DB-commit-before-state-publish 覆盖在构造 descriptor 时抛出 `AttributeError: 'PolicyEmbeddingInputAssembler' object has no attribute 'config_fingerprint'`。
+
+**关键证据 / 当前判断 / 根因**
+测试夹具将既有 `PolicyEmbeddingInputAssembler` 的嵌套 config 字段误写成 assembler 顶层字段；真实 API 是 `assembler.config.config_fingerprint`，同文件既有 helper 也使用该形态。失败发生在 descriptor 构造前，没有进入 DB claim/build/validate，也没有 provider、live artifact或外部状态副作用；这是新增测试代码错误，不是 recovery implementation defect。
+
+**已做处理 / 剩余入口**
+把两处属性引用修正为 `assembler.config.config_fingerprint`，随后重新执行 `make format`、完整 `make lint` 与 scoped PostgreSQL/fault gate。只采用修正后的结果作为 Task1 GREEN 结论；若后续 DB commit/publication 断点仍失败，则从对应 state_version 与 descriptor binding继续排查。

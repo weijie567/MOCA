@@ -30,6 +30,15 @@ from src.rag.policy_reindex import (
     PolicyReindexRunIdentity,
     PolicyReindexService,
 )
+from src.rag.policy_reindex_artifacts import (
+    build_policy_reindex_recovery_descriptor,
+    load_policy_reindex_recovery_descriptor,
+    load_policy_reindex_state,
+    policy_reindex_descriptor_path,
+    write_policy_reindex_compat_identity_create_only,
+    write_policy_reindex_recovery_descriptor_create_only,
+    write_policy_reindex_state_create_only,
+)
 from src.rag.tokenizer_parity import require_fresh_provider_parity
 from src.repositories.policy_corpus_repo import PolicyCorpusRepository
 
@@ -50,6 +59,24 @@ def _parse_args() -> argparse.Namespace:
     claim.add_argument("--probe-fixture-hash", required=True)
     claim.add_argument("--submitted-content-hash", required=True)
     claim.add_argument("--state-path", type=Path, required=True)
+
+    seal_descriptor = subcommands.add_parser("seal-descriptor")
+    seal_descriptor.add_argument("--tenant-id", type=UUID, required=True)
+    seal_descriptor.add_argument("--run-token", type=UUID, required=True)
+    seal_descriptor.add_argument("--generation-name", required=True)
+    seal_descriptor.add_argument("--lease-owner", required=True)
+    seal_descriptor.add_argument("--lease-minutes", type=int, default=120)
+    seal_descriptor.add_argument("--parity-report", type=Path, required=True)
+    seal_descriptor.add_argument("--probe-fixture-hash", required=True)
+    seal_descriptor.add_argument("--submitted-content-hash", required=True)
+    seal_descriptor.add_argument("--artifact-root", type=Path, required=True)
+
+    claim_reviewed = subcommands.add_parser("claim-reviewed")
+    _add_reviewed_identity_args(claim_reviewed)
+    recover_state = subcommands.add_parser("recover-state")
+    _add_reviewed_identity_args(recover_state)
+    validate_reviewed = subcommands.add_parser("validate-reviewed")
+    _add_reviewed_identity_args(validate_reviewed)
 
     resume = subcommands.add_parser("resume")
     resume.add_argument("--state-path", type=Path, required=True)
@@ -84,6 +111,12 @@ def _add_activation_artifact_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--terminal-run", type=Path, required=True)
     parser.add_argument("--parity-report", type=Path, required=True)
     parser.add_argument("--activation-root", type=Path, default=DEFAULT_ACTIVATION_ROOT)
+
+
+def _add_reviewed_identity_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--artifact-root", type=Path, required=True)
+    parser.add_argument("--tenant-id", type=UUID, required=True)
+    parser.add_argument("--run-token", type=UUID, required=True)
 
 
 async def _claim(args: argparse.Namespace) -> PolicyReindexRunIdentity:
@@ -132,6 +165,110 @@ async def _claim(args: argparse.Namespace) -> PolicyReindexRunIdentity:
                 expected_evidence_rollout_version=evidence_rollout.rollout_version,
             )
             return await PolicyReindexService(session).claim(request, now=now)
+
+
+async def _seal_descriptor(args: argparse.Namespace):
+    now = datetime.now(UTC)
+    if type(args.lease_minutes) is not int or not 0 < args.lease_minutes <= 120:
+        raise RuntimeError("descriptor_lease_window_invalid")
+    config = load_embedding_tokenizer_config()
+    parity = require_fresh_provider_parity(
+        args.parity_report,
+        config=config,
+        expected_probe_fixture_sha256=args.probe_fixture_hash,
+        expected_submitted_content_sha256=args.submitted_content_hash,
+        now=now,
+    )
+    config_payload = asdict(config)
+    config_payload.pop("config_fingerprint")
+    config_payload.pop("_asset_root")
+    async with SessionLocal() as session:
+        async with session.begin():
+            corpora = PolicyCorpusRepository(session)
+            rollout = await corpora.acquire_tenant_rollout_lock(tenant_id=args.tenant_id)
+            manifest = await corpora.lock_latest_manifest(tenant_id=args.tenant_id)
+            evidence_rollout = (
+                await session.execute(select(EvidenceIdentityRollout).where(EvidenceIdentityRollout.id == 1))
+            ).scalar_one()
+    descriptor = build_policy_reindex_recovery_descriptor(
+        sealed_at=now,
+        tenant_id=args.tenant_id,
+        run_token=args.run_token,
+        generation_name=args.generation_name,
+        lease_owner=args.lease_owner,
+        lease_expires_at=now + timedelta(minutes=args.lease_minutes),
+        config_schema_version=config.schema_version,
+        config_json=config_payload,
+        config_fingerprint=config.config_fingerprint,
+        parity_report_sha256="sha256:" + hashlib.sha256(args.parity_report.read_bytes()).hexdigest(),
+        parity_config_fingerprint=parity.config_fingerprint,
+        parity_probe_fixture_sha256=parity.probe_fixture_sha256,
+        parity_submitted_content_sha256=parity.submitted_content_sha256,
+        parity_captured_at=parity.captured_at,
+        parity_expires_at=parity.captured_at + timedelta(hours=24),
+        source_manifest_revision_id=manifest.id,
+        source_manifest_revision=manifest.revision,
+        source_manifest_hash=manifest.manifest_hash,
+        source_active_corpus_version_id=rollout.active_corpus_version_id,
+        source_rollout_epoch=rollout.rollout_epoch,
+        expected_evidence_rollout_version=evidence_rollout.rollout_version,
+    )
+    return write_policy_reindex_recovery_descriptor_create_only(descriptor, root=args.artifact_root)
+
+
+def _reviewed_descriptor(args: argparse.Namespace):
+    path = policy_reindex_descriptor_path(
+        args.artifact_root,
+        tenant_id=args.tenant_id,
+        run_token=args.run_token,
+    )
+    return load_policy_reindex_recovery_descriptor(path, root=args.artifact_root)
+
+
+async def _claim_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
+    descriptor = _reviewed_descriptor(args)
+    async with SessionLocal() as session:
+        async with session.begin():
+            owner = await PolicyReindexService(session).claim_from_descriptor(descriptor)
+    write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=args.artifact_root)
+    return owner
+
+
+async def _recover_state(args: argparse.Namespace) -> PolicyReindexRunIdentity:
+    descriptor = _reviewed_descriptor(args)
+    async with SessionLocal() as session:
+        async with session.begin():
+            owner = await PolicyReindexService(session).recover_identity(descriptor)
+    write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=args.artifact_root)
+    return owner
+
+
+def _load_latest_reviewed_state(args: argparse.Namespace, *, descriptor):
+    state_root = (
+        args.artifact_root / "tenants" / str(descriptor.tenant_id) / "runs" / str(descriptor.run_token) / "states"
+    )
+    paths = sorted(state_root.glob("*.json")) if state_root.is_dir() else []
+    expected_names = [f"{ordinal:08d}.json" for ordinal in range(1, len(paths) + 1)]
+    if [path.name for path in paths] != expected_names or not paths:
+        raise RuntimeError("reindex_state_invalid")
+    return load_policy_reindex_state(paths[-1], descriptor=descriptor, root=args.artifact_root)
+
+
+async def _validate_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
+    descriptor = _reviewed_descriptor(args)
+    state_owner = _load_latest_reviewed_state(args, descriptor=descriptor)
+    async with SessionLocal() as session:
+        async with session.begin():
+            service = PolicyReindexService(session)
+            current = await service.recover_identity(descriptor)
+            if current != state_owner:
+                raise RuntimeError("reindex_state_db_mismatch")
+            owner = await service.validate_candidate(
+                current,
+                assembler=PolicyEmbeddingInputAssembler(),
+            )
+    write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=args.artifact_root)
+    return owner
 
 
 async def _resume(args: argparse.Namespace) -> PolicyReindexRunIdentity:
@@ -247,11 +384,7 @@ def _identity_payload(owner: PolicyReindexRunIdentity) -> dict[str, Any]:
 
 
 def _write_identity_create_only(path: Path, owner: PolicyReindexRunIdentity) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(_identity_payload(owner), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    with path.open("x", encoding="utf-8") as handle:
-        handle.write(encoded)
-        handle.write("\n")
+    write_policy_reindex_compat_identity_create_only(path, owner)
 
 
 def _load_identity(path: Path) -> PolicyReindexRunIdentity:
@@ -283,6 +416,16 @@ async def _main() -> int:
     if args.command == "claim":
         owner = await _claim(args)
         _write_identity_create_only(args.state_path, owner)
+    elif args.command == "seal-descriptor":
+        artifact = await _seal_descriptor(args)
+        print(json.dumps({"descriptor": str(artifact.path), "sha256": artifact.sha256}, sort_keys=True))
+        return 0
+    elif args.command == "claim-reviewed":
+        owner = await _claim_reviewed(args)
+    elif args.command == "recover-state":
+        owner = await _recover_state(args)
+    elif args.command == "validate-reviewed":
+        owner = await _validate_reviewed(args)
     elif args.command == "resume":
         owner = await _resume(args)
         _write_identity_create_only(args.output_state_path, owner)

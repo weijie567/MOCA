@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -28,7 +28,11 @@ from src.db.models import (
 )
 from src.rag.parsers.base import ParsedBlock
 from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
-from src.rag.policy_reindex_artifacts import build_policy_reindex_recovery_descriptor
+from src.rag.policy_reindex_artifacts import (
+    build_policy_reindex_recovery_descriptor,
+    write_policy_reindex_recovery_descriptor_create_only,
+    write_policy_reindex_state_create_only,
+)
 from src.rag.policy_reindex import (
     POLICY_REINDEX_STATES,
     FreshProviderParityClaimV1,
@@ -574,6 +578,7 @@ async def test_claim_seals_fixed_identity_and_keeps_active_authority_pointer_onl
 async def test_descriptor_bound_claim_recovers_exact_committed_identity_without_renewal_or_second_run(
     session: AsyncSession,
 ) -> None:
+    await _seed_evidence_rollout(session)
     tenant_id, manifest, source, rollout = await _seed_source_authority(session)
     run_token = uuid4()
     descriptor = build_policy_reindex_recovery_descriptor(
@@ -630,7 +635,79 @@ async def test_descriptor_bound_claim_recovers_exact_committed_identity_without_
 
 
 @pytest.mark.asyncio
+async def test_recover_state_closes_every_claim_build_validate_commit_publication_gap(
+    session: AsyncSession,
+    tmp_path,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout, _ = await _seed_bound_source_authority(session)
+    assembler = PolicyEmbeddingInputAssembler()
+    config_payload = asdict(assembler.config)
+    config_payload.pop("config_fingerprint")
+    config_payload.pop("_asset_root")
+    run_token = uuid4()
+    descriptor = build_policy_reindex_recovery_descriptor(
+        sealed_at=NOW,
+        tenant_id=tenant_id,
+        run_token=run_token,
+        generation_name=f"token.v1:{run_token.hex}",
+        lease_owner="reviewed-worker",
+        lease_expires_at=NOW + timedelta(hours=2),
+        config_schema_version=assembler.config.schema_version,
+        config_json=config_payload,
+        config_fingerprint=assembler.config.config_fingerprint,
+        parity_report_sha256=PARITY_REPORT_HASH,
+        parity_config_fingerprint=assembler.config.config_fingerprint,
+        parity_probe_fixture_sha256="sha256:" + "4" * 64,
+        parity_submitted_content_sha256="sha256:" + "5" * 64,
+        parity_captured_at=NOW - timedelta(minutes=5),
+        parity_expires_at=NOW + timedelta(hours=23, minutes=55),
+        source_manifest_revision_id=manifest.id,
+        source_manifest_revision=manifest.revision,
+        source_manifest_hash=manifest.manifest_hash,
+        source_active_corpus_version_id=source.id,
+        source_rollout_epoch=rollout.rollout_epoch,
+        expected_evidence_rollout_version=11,
+    )
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    service = PolicyReindexService(session)
+
+    claimed = await service.claim_from_descriptor(descriptor, now=NOW)
+    await session.commit()
+    recovered_claim = await service.recover_identity(descriptor, now=NOW)
+    assert recovered_claim == claimed
+    write_policy_reindex_state_create_only(recovered_claim, descriptor=descriptor, root=tmp_path)
+
+    building = await service.resume(recovered_claim, now=NOW)
+    await session.commit()
+    recovered_building = await service.recover_identity(descriptor, now=NOW)
+    assert recovered_building == building
+    write_policy_reindex_state_create_only(recovered_building, descriptor=descriptor, root=tmp_path)
+
+    built = await service.build_next_document(
+        recovered_building,
+        assembler=assembler,
+        embedder=_RecordingEmbedder(),
+        now=NOW,
+    )
+    await session.commit()
+    recovered_built = await service.recover_identity(descriptor, now=NOW)
+    assert recovered_built == built
+    write_policy_reindex_state_create_only(recovered_built, descriptor=descriptor, root=tmp_path)
+
+    complete = await service.validate_candidate(recovered_built, assembler=assembler, now=NOW)
+    await session.commit()
+    recovered_complete = await service.recover_identity(descriptor, now=NOW)
+    assert recovered_complete == complete
+    write_policy_reindex_state_create_only(recovered_complete, descriptor=descriptor, root=tmp_path)
+    assert recovered_complete.corpus_version_id == claimed.corpus_version_id
+    assert recovered_complete.run_token == claimed.run_token
+    assert recovered_complete.state_version == 5
+
+
+@pytest.mark.asyncio
 async def test_recover_identity_refuses_foreign_run_and_ambiguous_rows_without_mutation(session: AsyncSession) -> None:
+    await _seed_evidence_rollout(session)
     tenant_id, manifest, source, rollout = await _seed_source_authority(session)
     run_token = uuid4()
     descriptor = build_policy_reindex_recovery_descriptor(
