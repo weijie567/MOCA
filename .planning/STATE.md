@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: executing
-last_updated: "2026-08-11T23:05:01Z"
-last_activity: 2026-08-12 -- Phase 64.4 Plan 11 safe diagnostic bundle and typed failure provenance complete
+last_updated: "2026-08-12T00:44:46Z"
+last_activity: 2026-08-12 -- Phase 64.4 recovery authority repairs passed clean GSD/Claude/Codex review
 progress:
   total_phases: 15
   completed_phases: 7
-  total_plans: 57
-  completed_plans: 54
+  total_plans: 60
+  completed_plans: 55
   percent: 47
 ---
 
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 ## Current Position
 
 Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — EXECUTING
-Plan: 12 of 14 — Plan 64.4-12 guarded live selection recovery
-Status: Plans 01-11 complete; Plan 12 machine budget guard and live selection recovery pending.
-Last activity: 2026-08-12 -- Phase 64.4 Plan 11 safe diagnostic bundle and typed failure provenance complete
-Next: Execute `64.4-12-PLAN.md` dependency-first; reserve no live attempt before Task1 gates pass.
+Plan: 13 of 17 — Plan 64.4-13 crash-safe candidate recovery and build budget
+Status: Plans 01-12 complete; Plans 13-17 clean-reviewed and authorized for dependency-first execution.
+Last activity: 2026-08-12 -- Phase 64.4 recovery authority repairs passed clean GSD/Claude/Codex review
+Next: Execute deterministic Plan13 crash-safe candidate recovery and build-budget contracts; no live provider work before Plan15.
 After: Phase 65 follows Phase 64.4.
 
 Resume file: `.planning/autopilot/phase-64.4.md`
@@ -93,7 +93,7 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 **Completed Phase:** 64.1 (Runtime Safety And Approval Contract Repair) — 6/6 plans complete, review/UAT/security/validation clean
 **Completed Phase:** 64.2 (Evidence Identity Immutable Replay And Memory Provenance) — 11/11 plans and 26/26 tasks complete; final review/UAT/security/validation clean
 **Completed Phase:** 64.3 (RAG Format Parity And Document Quality Evaluation) — 5/5 plans and 12/12 tasks complete; final review/UAT/security/validation clean; canonical baseline truthfully quality-red
-**Executing Phase:** 64.4 (Token-Aware Policy Chunking And Reindex Validation) — reviewed recovery is 14 plans / 28 executable tasks; Plans 01-11 complete, Plan 12 next
+**Executing Phase:** 64.4 (Token-Aware Policy Chunking And Reindex Validation) — repaired recovery is 17 plans / 34 executable tasks; Plans 01-12 complete, Plans 13-17 clean-reviewed and Plan13 next
 **Registered Phase:** 65 (Trace Event And Console Label Consistency) — depends on 64.4, pending `$gsd-plan-phase 65`
 **Registered Phase:** 66 (Unified Operation Contract And Tool Gateway) — pending `$gsd-plan-phase 66`
 **Registered Phase:** 67 (Dev Test And Config Hygiene) — pending `$gsd-plan-phase 67`

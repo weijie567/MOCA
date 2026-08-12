@@ -2,10 +2,10 @@
 phase: "64.4"
 status: running
 current_step: execute
-plan_review_loop: 4
+plan_review_loop: 6
 quota_waits: 0
-updated_at: "2026-08-12T08:05:00+08:00"
-next_command: "execute Phase 64.4 Plan 12; Task1 machine budget gates before any live attempt"
+updated_at: "2026-08-12T08:44:46+08:00"
+next_command: "execute Plan13 deterministic crash-safe candidate recovery and build budget"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -39,6 +39,10 @@ next_command: "execute Phase 64.4 Plan 12; Task1 machine budget gates before any
 - The repaired recovery expands the phase from 11 plans/22 tasks to 14 plans/28 tasks: Plan11 uses a single commit manifest as the diagnostic bundle visibility point without provider calls; Plan12 machine-enforces a two-slot selection budget and never repairs unknown defects; Plan13 owns the reversible activation drill plus live closeout guard; Plan14 owns final docs/regression closeout. Plan10 failure evidence remains untouched.
 - Clean recovery re-review passed: fresh GSD checker closed all five blockers/two warnings with no new finding; external Claude returned PASS with no actionable blocker or warning; Codex final coverage/order/scope adjudication is clean.
 - Stage 5 recovery Plan 11 complete: crash-consistent manifest-committed execution diagnostics, strict redaction, typed role/round/stage/rollback provenance and fault-injection coverage committed in five atomic commits; format/lint and 166 focused tests passed with no live provider, selection or pointer mutation.
+- Stage 5 recovery Plan 12 complete under its fail-closed checkpoint revision: cap=2 reserve-before-provider ledger and closed retry matrix passed 183 tests; fresh parity passed but the old complete candidate bound the previous report SHA, so exact readiness refused before budget creation with slots still 0/2 and pointer/history unchanged.
+- Fresh review rejected the first rebuild draft on three repository-backed blockers: DB-commit-before-state-publish could lose the candidate identity, build provider retries lacked a machine cap, and cap=2 A-B attempts could be reset through an alternate output root while activation lacked pre-CAS budget lineage.
+- The repaired recovery expands to 17 plans/34 tasks: Plan13 adds descriptor/recover-state/atomic state and per-document build budgets without live calls; Plan14 canonicalizes A-B root/candidate reservation and adds recovery authorization enforced before CAS; Plan15 performs bounded live rebuild/selection; Plan16 activation/guard; Plan17 closeout.
+- Clean authority repair re-review passed: fresh GSD checker and external Claude both returned no blocker or warning; Codex independently accepted the repository-backed results and authorized execution from Plan13.
 
 ## Evidence
 
@@ -48,12 +52,12 @@ next_command: "execute Phase 64.4 Plan 12; Task1 machine budget gates before any
 - Production must fail closed on unknown tokenizer/count failures and may keep character sizing only as an explicit A/B baseline, never a silent fallback.
 - Phase completion requires a token-aware candidate that passes hard safety and fixed same-run non-regression gates; a truthful red candidate report alone is not completion.
 - Planning must split tokenizer/parity, assembly/path convergence, persistence/reindex, and A/B/cutover into separate dependency-ordered plans.
-- Original granularity was 11 plans/22 tasks; the reviewed recovery is 14 plans/28 tasks, still 2 tasks and at most 12 files per plan, with clean GSD/Claude/Codex re-review.
+- Original granularity was 11 plans/22 tasks; the repaired recovery is 17 plans/34 tasks, still 2 tasks and at most 12 files per plan, with clean GSD/Claude/Codex re-review.
 - `evidence_identity.v1` remains corpus-free; canonical document source content comes from ordered blocks, chunk compatibility is config-aware, and corpus projections control visibility only.
 - Provider parity, all-outcome terminal A/B reports, passing-only selection decisions, and hash-chained activation receipts are separate immutable stages.
 - External review's highest-priority inference is that Plan 04 must keep token-aware production activation default-off until active-corpus routing exists in Plan 06; no external finding has been accepted before repository-backed adjudication.
-- The original plan review closed clean after two loops; the material Plans11-14 recovery repair also passed a clean GSD/Claude/Codex re-review and may execute dependency-first.
+- Plans11-12 executed. Plans13-14 now own the reviewed deterministic repairs for the three GSD blockers; Plans15-17 remain gated on their passing evidence.
 
 ## Last Failure
 
-Plan10 exhausted its initial three-attempt provider budget without selected_pass. Plan11 closed the safe provenance gap; Plan12 must now prove its create-only two-slot ledger and retry matrix before reserving any live provider attempt.
+No A-B slot was consumed. Plans13-14 are clean-reviewed and must pass their deterministic gates before Plan15 may rebuild or invoke the provider.
