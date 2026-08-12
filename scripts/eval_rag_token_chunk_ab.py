@@ -843,5 +843,3 @@ def _execution_diagnostic_from_failure(
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
-    (reserve_recovery_attempt,)
-    (reserve_then_create_provider,)

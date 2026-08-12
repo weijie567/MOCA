@@ -23696,3 +23696,14 @@ Task1 前置只读核对三份 Plan10 immutable run JSON 时调用 `sha256sum ev
 
 **已做处理 / 剩余入口**
 废弃失败的 `sha256sum` 结果，后续本机哈希核对使用 `LC_ALL=C shasum -a 256` 或项目 `uv run` 内的标准库 helper，避免 locale 噪音；本事故不占 provider attempt，也没有剩余产品缺陷。
+
+## 2026-08-12 — Phase 64.4 Plan 12 Task 1 GREEN import patch 留下不可达表达式
+
+**问题现象 / 如何检测**
+Task1 GREEN 已通过 `make lint` 与 prescribed `183 passed` 后，进入 Task2 mandatory `read_first` 重新完整读取当前 A/B 脚本，发现 `if __name__ == "__main__": sys.exit(...)` 之后残留两条不可达的 `(reserve_recovery_attempt,)` / `(reserve_then_create_provider,)` 表达式。
+
+**关键证据 / 当前判断 / 根因**
+这是 Task1 import patch 首次匹配位置错误留下的机械残片；正确 imports 同时已在 module import block 中存在。两条表达式位于 `sys.exit` 之后，不会执行，Ruff 与 pytest 因而均未报错；预算 manifest、ordinal reservation、retry matrix 与 provider guard 行为不受影响。问题在任何 Task2 live preflight/provider 调用前检出，尚未创建 budget manifest 或消耗 slot。
+
+**已做处理 / 剩余入口**
+按 Rule 1 归回 Task1 删除两条不可达表达式，不改变任何运行逻辑、阈值、参数或 evidence；随后重新执行 `make format`、完整 `make lint` 与 Plan12 prescribed 三文件 gate。修复提交后才允许进入 Task2 的 no-Python live evidence 阶段。
