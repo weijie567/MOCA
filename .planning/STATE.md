@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
-status: blocked
-last_updated: "2026-08-12T13:00:00Z"
-last_activity: 2026-08-12 -- Phase 64.4 partial delivery verified and Phase 64.5 inserted to own the DB-backed provider budget and unfinished live rollout
+status: executing
+last_updated: "2026-08-12T15:16:10.497Z"
+last_activity: 2026-08-12 -- Phase 64.5 execution started
 progress:
   total_phases: 16
   completed_phases: 7
   total_plans: 63
   completed_plans: 60
-  percent: 44
+  percent: 95
 ---
 
 # Project State: MOCA
@@ -20,18 +20,18 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-10)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 64.4 — token-aware-policy-chunking-and-reindex-validation
+**Current focus:** Phase 64.5 — Database-Backed Provider Budget And Token Rollout Completion
 
 ## Current Position
 
-Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — BLOCKED
-Plan: 18 of 20 — blocked before same-candidate build and canonical A-B
-Status: Partial delivery ready for PR; Plans 01-17 are complete/checkpointed, Plans18-20 remain unexecuted, and production provider dispatch is hard-disabled.
-Last activity: 2026-08-12 -- clean code review, partial verification/security/Nyquist closeout, and explicit Phase64.5 ownership recorded.
+Phase: 64.5 (Database-Backed Provider Budget And Token Rollout Completion) — EXECUTING
+Plan: 1 of 0
+Status: Executing Phase 64.5
+Last activity: 2026-08-12 -- Phase 64.5 execution started
 Next: Merge the bounded Phase64.4 partial delivery, then run `$gsd-phase-autopilot 64.5`; do not execute old Plan18, renew its authority, or reinterpret the expired lease.
 After: Phase 65 follows Phase 64.5.
 
-Resume file: `.planning/autopilot/phase-64.4.md`
+Resume file: .planning/phases/64.5-database-backed-provider-budget-and-token-rollout-completion/64.5-CONTEXT.md
 
 Progress: [████░░░░░░] 44%
 

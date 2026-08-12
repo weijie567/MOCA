@@ -1,11 +1,11 @@
 ---
 phase: "64.5"
 status: running
-current_step: discuss
+current_step: research
 plan_review_loop: 0
 quota_waits: 0
-updated_at: "2026-08-12T14:57:06Z"
-next_command: "$gsd-discuss-phase 64.5 --auto"
+updated_at: "2026-08-12T15:16:10Z"
+next_command: "$gsd-plan-phase 64.5 --auto"
 ---
 
 # Phase 64.5 Autopilot Checkpoint
@@ -16,6 +16,8 @@ next_command: "$gsd-discuss-phase 64.5 --auto"
 - Created isolated worktree `/private/tmp/moca-phase-64-5.BXnC7m/worktree` on `codex/phase-64-5` from latest `origin/main`; the dirty primary worktree remains untouched.
 - `gsd-sdk query init.phase-op 64.5` resolved the inserted phase and its empty planning directory.
 - Loaded the Phase Autopilot, discuss, and plan workflows plus project instructions.
+- Captured and committed `64.5-CONTEXT.md` plus the auto-mode discussion audit log.
+- Began Phase 64.5 in GSD state using the SDK; provider dispatch remains hard-disabled.
 
 ## Evidence
 
@@ -25,4 +27,4 @@ next_command: "$gsd-discuss-phase 64.5 --auto"
 
 ## Last Failure
 
-None
+`state.record-session` documented flags were parsed positionally by the installed SDK and temporarily corrupted state metadata; `state.begin-phase` plus positional session arguments restored current phase/status/resume truth. The incident is recorded in the Chinese local validation ledger.

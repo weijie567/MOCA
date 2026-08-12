@@ -24028,3 +24028,14 @@ Autopilot 进入自动讨论阶段时，首次执行 `sed -n '1,330p' /Users/min
 
 **已做处理 / 剩余入口**
 已按 `SKILL.md` 指向的真实路径分段补读完整 workflow，并继续 Phase 64.5 自动讨论。后续技能引用先以 `SKILL.md` 的 `execution_context` 为准；当前无剩余产品问题。
+
+## 2026-08-12 — GSD `state.record-session` 参数解析与进度重算异常
+
+**问题现象 / 如何检测**
+按 discuss workflow 文档执行 `gsd-sdk query state.record-session --stopped-at ... --resume-file ...` 后，`STATE.md` 的 resume file 被写成字面量 `--resume-file`，frontmatter 又被重算为 `status: completed`、`percent: 95`，与 Phase 64.5 刚进入 planning 的事实不符。
+
+**关键证据 / 当前判断 / 根因**
+本机 SDK `stateRecordSession` 实现按位置参数读取 `args[0..2]`，并不解析 workflow 文档展示的命名参数；同时每次写入会从磁盘重建 frontmatter，按当前已登记 plan 数得到 `60/63=95%`，而正文仍保留旧的 44% 进度条。该问题是 GSD SDK/workflow 契约不一致，不是 MOCA 产品逻辑失败。
+
+**已做处理 / 剩余入口**
+未直接编辑 `STATE.md`。已使用 `gsd-sdk query state.begin-phase 64.5 ... 0` 恢复 executing/current phase，再以位置参数正确记录 Phase 64.5 CONTEXT resume file。当前 phase/status/resume truth已恢复；frontmatter 95% 与正文旧进度条的不一致将由 Phase 64.5 规划落盘及后续 GSD progress 更新统一，不把该数值作为完成证据。
