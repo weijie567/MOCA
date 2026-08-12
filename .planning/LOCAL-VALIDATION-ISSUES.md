@@ -24083,3 +24083,14 @@ Autopilot checkpoint 已置为 `waiting_for_quota`，`quota_waits: 1`，精确�
 
 **已做处理 / 剩余入口**
 立即改用位置参数 `gsd-sdk query state.begin-phase 64.5 database-backed-provider-budget-and-token-rollout-completion 8`，返回正确 phase/name/plan_count 并恢复 STATE 到 Phase64.5、Plan 1 of 8。后续本阶段所有 state SDK 调用先核对本机 handler 参数形式；错误中间态不提交、不作为进度证据。
+
+## 2026-08-13 — Phase 64.5 Plan 01 新 worktree 未安装 dev extra 导致 pytest 命中系统 Python 3.9
+
+**问题现象 / 如何检测**
+首次按仓库规定执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_provider_execution_authority_migration.py::test_migration032_declares_head_and_orm_parity -q` 时，collection 在导入 `datetime.UTC` 处失败。进一步运行 `uv run which pytest` 发现命中 `/Users/ming/Library/Python/3.9/bin/pytest`，而当前 worktree 的 `.venv/bin/python` 实际为 Python 3.12.13。
+
+**关键证据 / 当前判断 / 根因**
+新建隔离 worktree 的 `.venv` 尚未安装 `pyproject.toml` 的 `dev` extra，因此 `uv run` 找不到虚拟环境内的 pytest 可执行文件并回落到用户 PATH 中的旧 Python 3.9。该次 collection 结果属于测试环境入口污染，不能作为 migration RED 或代码失败证据；真实 RED 必须在仓库 Python 3.12 环境重新取得。
+
+**已做处理 / 剩余入口**
+执行 `UV_CACHE_DIR=/tmp/uv-cache uv sync --extra dev` 补齐当前 worktree 的 pytest/ruff 等开发依赖；随后相同精确命令得到有效 RED（缺少 migration 032），实现后 focused node 与完整真实 PostgreSQL 文件分别得到 `1 passed`、`5 passed, 11 warnings`。未使用裸 `pytest` 或裸 `python -m pytest`。后续新 worktree 若再次出现 `datetime.UTC` collection 错误，先核对 `.venv/bin/python` 与 `uv run which pytest`，不要把旧 Python PATH 污染误判为代码回归。

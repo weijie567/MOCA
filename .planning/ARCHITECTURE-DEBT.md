@@ -2890,3 +2890,12 @@
 - **处理状态**：🟡 当前production暴露面已安全关闭。两个reindex build命令在parse后、A/B `run-ab`在parse/current UTC后统一以`live_provider_execution_disabled`/exit 4拒绝，且发生在DB/root/artifact/reservation/provider之前；没有CLI flag或environment override。deterministic `issue-recovery-budget`与内部算法只保留测试用途，不构成live授权。🔴 live provider能力明确defer到新的post-PR rollout phase，必须使用DB-backed unique budget后重新安全评审。
 - **证据**：Phase64.4 final review CR-01/CR-02；`scripts/reindex_policies.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/rag/test_policy_reindex.py`、`tests/eval/test_rag_token_chunk_ab.py`及三份artifact README；最小RED `3 failed, 1 passed`、最小GREEN `4 passed, 1 warning`、focused两文件`134 passed, 1 warning in 50.98s`，format/full lint PASS。
 - **剩余风险 / 继续入口**：不要通过flag、环境变量或直接包装内部函数恢复production provider可达性；新phase需先设计DB唯一约束、幂等reservation/consumption、crash reconciliation与跨进程并发证明。当前Plans18-20/SC-64.4-5/6仍未完成，本轮未运行live provider/DB/artifact或full suite。
+
+## 2026-08-13 — Phase 64.5 Plan 01 — provider execution authority 已建立 DB schema 基座 ⚠️运行时接线待后续 plans
+
+- **子系统**：RAG reviewed reindex / canonical A-B / provider execution budget authority。
+- **问题现象 / 根因**：Phase 64.4 已确认 file-backed attempt/budget artifacts 可被复制、路径替换或重建 namespace，不能作为跨进程、跨 worktree、crash 后仍不可伪造的全局 provider authority，因此 production provider dispatch 被统一 hard-disable。该长期缺陷已在本台账的“Phase 64.4 review iteration 5”条目记录。
+- **影响**：若没有数据库唯一约束、先提交 reservation、不可变 result 与 DB activation lineage，文件 UUID/路径/环境值可能被误当授权，无法可靠强制每 subject 最多两个 ordinal，也无法从数据库证明 selected cutover/rollback/restore 的真实 lineage。
+- **处理状态**：⚠️ migration/ORM 基座已修复并通过真实 PostgreSQL 验证。Migration 032 新增唯一 production promotion scope、每 tenant/run/candidate 一个共享 authority root、由 child reservation 持有的 purpose/envelope、reservation 对应唯一 terminal result、以 activation history ID 为唯一事件身份的 receipt lineage；五张表均由数据库 trigger 阻止 UPDATE/DELETE，非空 downgrade 在事务内先取得表级排他锁并拒绝。production dispatch 仍保持关闭，本 plan 不宣称 runtime authority 已完成。
+- **证据**：Phase 64.5 Plan 01；commits `3f7a4642`、`db68b668`；`src/db/migrations/versions/032_phase64_5_provider_execution_authority.py`、`src/db/models.py`、`tests/knowledge/test_provider_execution_authority_migration.py`。最终 gate：`make format`、完整 `make lint` 均通过，真实 PostgreSQL scoped suite `5 passed, 11 warnings`；未调用 live provider。
+- **剩余风险 / 继续入口**：Plan 02 必须实现独立 commit-before-provider repository/service、fresh DB-time recheck、ordinal-two predecessor/drift 校验与 crash reconciliation；Plans 03–05 在独立 review/security gate 前继续保持两个 production provider 命令 hard-disabled；Plans 06–08 才能以全新 authority 执行 live candidate、canonical A-B 与三次 activation drill。SC-64.4-5/6 仍未完成。
