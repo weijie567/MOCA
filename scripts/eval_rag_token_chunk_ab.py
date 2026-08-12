@@ -50,6 +50,8 @@ from src.rag.evaluation.token_chunk_ab import (
     SEALED_GOLD_HASH,
     SEALED_MANIFEST_HASH,
     SEALED_TOTAL_CASE_COUNT,
+    CANONICAL_AB_OUTER_ATTEMPTS,
+    CANONICAL_AB_PROVIDER_BATCH_SIZE,
     ABHardProofsV1,
     ABExecutionDiagnosticV1,
     ABInputIdentityV1,
@@ -61,6 +63,8 @@ from src.rag.evaluation.token_chunk_ab import (
     ABSelectionBindingV1,
     RecoveryAttemptRefused,
     TerminalABRunV1,
+    CanonicalABRequestEnvelopeV1,
+    build_canonical_ab_request_envelope,
     build_candidate_observation_from_retrieval,
     build_terminal_ab_run,
     issue_canonical_recovery_budget_manifest,
@@ -274,7 +278,7 @@ def _terminal_without_observations(
 async def run_full_provider_ab(
     args: argparse.Namespace,
     *,
-    before_provider_call: Callable[[], ABRecoveryAttemptReservationV1],
+    before_provider_call: Callable[[CanonicalABRequestEnvelopeV1], ABRecoveryAttemptReservationV1],
 ) -> tuple[TerminalABRunV1, ABSelectionBindingV1 | None, SafeRoleFailureV1 | None]:
     generated_at = datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC)
     authority_checked_at = getattr(args, "_authority_checked_at", datetime.now(UTC))
@@ -300,6 +304,12 @@ async def run_full_provider_ab(
         _require_sealed_baseline(args.baseline)
         questions_hash = _ordered_questions_sha256(ordered_gold_questions(dataset))
         inputs = _inputs(args, ordered_questions_sha256=questions_hash)
+        request_envelope = build_canonical_ab_request_envelope(
+            dataset=dataset,
+            incumbent_assembler=_character_incumbent(),
+            candidate_assembler=_token_candidate(),
+            repository_root=REPOSITORY_ROOT,
+        )
     except (FormatParityContractError, OSError, ValueError):
         return (
             _terminal_without_observations(
@@ -361,7 +371,7 @@ async def run_full_provider_ab(
             candidate_corpus_version_id=candidate_corpus_id,
         )
         _, embedder = reserve_then_create_provider(
-            reserve=before_provider_call,
+            reserve=lambda: before_provider_call(request_envelope),
             require_current_authority=lambda: load_recovery_candidate_state(
                 manifest=load_recovery_budget_manifest(args.recovery_budget_manifest),
                 root=args.output_root,
@@ -369,7 +379,12 @@ async def run_full_provider_ab(
                 provider_parity_report_path=args.parity_report,
                 checked_at=authority_checked_at,
             ),
-            provider_factory=EmbeddingService,
+            provider_factory=lambda: EmbeddingService(
+                model=request_envelope.provider_request_envelope.model_name,
+                dimensions=request_envelope.provider_request_envelope.dimensions,
+                batch_size=CANONICAL_AB_PROVIDER_BATCH_SIZE,
+                max_retries=CANONICAL_AB_OUTER_ATTEMPTS,
+            ),
         )
         missing: list[str] = []
         if not (settings.dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY")):
@@ -938,7 +953,7 @@ async def main(argv: list[str] | None = None) -> int:
             checked_at=authority_checked_at,
         )
 
-        def reserve() -> ABRecoveryAttemptReservationV1:
+        def reserve(_request_envelope: CanonicalABRequestEnvelopeV1) -> ABRecoveryAttemptReservationV1:
             reservation = reserve_recovery_attempt(
                 manifest_path=args.recovery_budget_manifest,
                 root=args.output_root,

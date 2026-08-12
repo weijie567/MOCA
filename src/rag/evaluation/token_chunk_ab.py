@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from src.rag.embedding_tokenizer import ProviderParityStatus
 from src.rag.evaluation.reporting import canonical_report_json_bytes, validate_safe_report_payload
 from src.rag.policy_reindex import PolicyReindexRunIdentity
+from src.rag.provider_execution_authority import ProviderRequestEnvelopeV1
 from src.rag.policy_reindex_artifacts import (
     PolicyReindexArtifactError,
     load_policy_reindex_recovery_descriptor,
@@ -65,6 +66,11 @@ _UNAVAILABLE_RETRY_REASONS = {
     "provider_usage_unavailable",
 }
 _ProviderT = TypeVar("_ProviderT")
+CANONICAL_AB_PROVIDER_BATCH_SIZE = 10
+CANONICAL_AB_SDK_RETRIES = 0
+CANONICAL_AB_OUTER_ATTEMPTS = 1
+CANONICAL_AB_REWRITE_REQUEST_COUNT_PER_ROLE_FORMAT = 3
+CANONICAL_AB_QUERY_REQUEST_COUNT = 126
 
 
 class _FrozenModel(BaseModel):
@@ -251,6 +257,248 @@ class ABInputIdentityV1(_FrozenModel):
     ordered_questions_sha256: str = Field(pattern=_SHA256_PATTERN)
     answerable_case_count: Literal[45] = SEALED_ANSWERABLE_CASE_COUNT
     total_case_count: Literal[54] = SEALED_TOTAL_CASE_COUNT
+
+
+class CanonicalABIngestionInputV1(_FrozenModel):
+    role: Literal["incumbent", "candidate"]
+    round_format: Literal["markdown", "digital_pdf", "scanned_pdf"]
+    doc_key: str = Field(min_length=1, max_length=128)
+    source_sha256: str = Field(pattern=_SHA256_PATTERN)
+    assembler_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    parser_status: Literal["success", "degraded", "failed"]
+    parser_failure_code: str | None = Field(default=None, max_length=128)
+    exact_assembled_input_count: int = Field(ge=0)
+    ordered_input_hashes: tuple[str, ...]
+    ordered_batch_call_sites: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def validate_ingestion_batches(self) -> CanonicalABIngestionInputV1:
+        expected_batches = (
+            self.exact_assembled_input_count + CANONICAL_AB_PROVIDER_BATCH_SIZE - 1
+        ) // CANONICAL_AB_PROVIDER_BATCH_SIZE
+        if (
+            len(self.ordered_input_hashes) != self.exact_assembled_input_count
+            or any(not _valid_sha256(value) for value in self.ordered_input_hashes)
+            or len(self.ordered_batch_call_sites) != expected_batches
+            or len(set(self.ordered_batch_call_sites)) != len(self.ordered_batch_call_sites)
+            or (self.parser_status == "failed") != (self.parser_failure_code is not None)
+        ):
+            raise ValueError("canonical_ab_ingestion_envelope_invalid")
+        return self
+
+
+class CanonicalABRequestEnvelopeV1(_FrozenModel):
+    """Offline-computed, source-bound maximum for one complete canonical A/B."""
+
+    schema_version: Literal["canonical_ab_request_envelope.v1"] = "canonical_ab_request_envelope.v1"
+    provider_batch_size: Literal[10] = CANONICAL_AB_PROVIDER_BATCH_SIZE
+    sdk_retries: Literal[0] = CANONICAL_AB_SDK_RETRIES
+    maximum_outer_attempts: Literal[1] = CANONICAL_AB_OUTER_ATTEMPTS
+    base_question_count: Literal[18]
+    rewrite_request_count_per_role_format: Literal[3] = CANONICAL_AB_REWRITE_REQUEST_COUNT_PER_ROLE_FORMAT
+    query_request_count: Literal[126] = CANONICAL_AB_QUERY_REQUEST_COUNT
+    ingestion_request_count: int = Field(ge=0)
+    ordered_ingestion_inputs: tuple[CanonicalABIngestionInputV1, ...] = Field(min_length=18, max_length=18)
+    ordered_query_call_sites: tuple[str, ...] = Field(min_length=126, max_length=126)
+    provider_request_envelope: ProviderRequestEnvelopeV1
+    canonical_hash: str = Field(pattern=_SHA256_PATTERN)
+
+    @classmethod
+    def seal(cls, **values: Any) -> CanonicalABRequestEnvelopeV1:
+        payload = {"schema_version": "canonical_ab_request_envelope.v1", **values}
+        canonical_payload = cls.model_construct(
+            **payload,
+            canonical_hash="sha256:" + "0" * 64,
+        ).model_dump(mode="json", exclude={"canonical_hash"})
+        return cls(**canonical_payload, canonical_hash=_sha256_payload(canonical_payload))
+
+    @model_validator(mode="after")
+    def validate_complete_call_graph(self) -> CanonicalABRequestEnvelopeV1:
+        ingestion_sites = tuple(
+            site for item in self.ordered_ingestion_inputs for site in item.ordered_batch_call_sites
+        )
+        provider = self.provider_request_envelope
+        if (
+            (self.base_question_count + self.rewrite_request_count_per_role_format) * len(_FORMAT_ORDER) * 2
+            != self.query_request_count
+            or len(self.ordered_query_call_sites) != self.query_request_count
+            or len(ingestion_sites) != self.ingestion_request_count
+            or provider.maximum_request_count != self.query_request_count + self.ingestion_request_count
+            or set(provider.ordered_call_sites) != set((*ingestion_sites, *self.ordered_query_call_sites))
+            or len(provider.ordered_call_sites) != len(set(provider.ordered_call_sites))
+            or provider.maximum_attempts_per_site != (CANONICAL_AB_OUTER_ATTEMPTS,) * len(provider.ordered_call_sites)
+            or _sha256_payload(self.model_dump(mode="json", exclude={"canonical_hash"})) != self.canonical_hash
+        ):
+            raise ValueError("canonical_ab_request_envelope_invalid")
+        return self
+
+
+def build_canonical_ab_request_envelope(
+    *,
+    dataset: Any,
+    incumbent_assembler: Any,
+    candidate_assembler: Any,
+    repository_root: Path | None = None,
+) -> CanonicalABRequestEnvelopeV1:
+    """Enumerate the real two-role ingestion/query call graph without provider work."""
+
+    from src.knowledge.retrieval import QUERY_PREFIX
+    from src.knowledge.rewrite import build_query_rewrite_plan
+    from src.rag.evaluation.retrieval_rounds import build_knowledge_query, ordered_gold_questions
+    from src.rag.ingestion import assemble_policy_embedding_inputs
+    from src.rag.parsers.registry import ParserRegistry
+    from src.repositories.rag_evaluation_round_repo import ROUND_FORMATS
+
+    root = (repository_root or Path.cwd()).resolve(strict=True)
+    questions = ordered_gold_questions(dataset)
+    if len(questions) != 18 or tuple(ROUND_FORMATS) != _FORMAT_ORDER or len(dataset.policies) != 3:
+        raise ValueError("canonical_ab_sealed_call_graph_mismatch")
+
+    candidate_config = candidate_assembler.config
+    incumbent_config = incumbent_assembler.counter.config
+    runtime_identity = (
+        str(candidate_config.provider),
+        str(candidate_config.model),
+        int(candidate_config.dimensions),
+    )
+    if (
+        runtime_identity
+        != (
+            str(incumbent_config.provider),
+            str(incumbent_config.model),
+            int(incumbent_config.dimensions),
+        )
+        or int(candidate_config.provider_max_batch_inputs) != CANONICAL_AB_PROVIDER_BATCH_SIZE
+    ):
+        raise ValueError("canonical_ab_provider_config_mismatch")
+
+    parser_registry = ParserRegistry()
+    all_call_sites: list[str] = []
+    ingestion_inputs: list[CanonicalABIngestionInputV1] = []
+    query_call_sites: list[str] = []
+    roles = (
+        ("incumbent", incumbent_assembler, str(incumbent_assembler.config_fingerprint)),
+        ("candidate", candidate_assembler, str(candidate_config.config_fingerprint)),
+    )
+    for role, assembler, assembler_fingerprint in roles:
+        for round_format in ROUND_FORMATS:
+            for policy in dataset.policies:
+                variant = next((item for item in policy.variants if item.format == round_format), None)
+                if variant is None:
+                    raise ValueError("canonical_ab_variant_missing")
+                source_path = Path(variant.path)
+                if not source_path.is_absolute():
+                    source_path = root / source_path
+                try:
+                    source_payload = source_path.read_bytes()
+                except OSError:
+                    raise ValueError("canonical_ab_source_unavailable") from None
+                if hashlib.sha256(source_payload).hexdigest() != variant.sha256:
+                    raise ValueError("canonical_ab_source_hash_mismatch")
+                metadata = {
+                    "doc_key": policy.doc_key,
+                    "title": policy.title,
+                    "doc_type": "evaluation_policy",
+                    "risk_level": "low",
+                    "source_type": variant.source_type,
+                }
+                parsed = parser_registry.parse(
+                    source_path,
+                    doc_key=policy.doc_key,
+                    source_type=variant.source_type,
+                    metadata=metadata,
+                )
+                blocks = tuple(block for block in parsed.blocks if block.text.strip())
+                assembled = assemble_policy_embedding_inputs(
+                    blocks=blocks,
+                    doc_key=policy.doc_key,
+                    title=policy.title,
+                    doc_type="evaluation_policy",
+                    risk_level="low",
+                    input_assembler=assembler,
+                )
+                ordered_hashes = tuple(item.embedding_input_hash for item in assembled)
+                batch_sites: list[str] = []
+                for batch_index, offset in enumerate(range(0, len(ordered_hashes), CANONICAL_AB_PROVIDER_BATCH_SIZE)):
+                    batch_hashes = ordered_hashes[offset : offset + CANONICAL_AB_PROVIDER_BATCH_SIZE]
+                    batch_hash = _sha256_payload(
+                        {
+                            "schema_version": "canonical_ab_ingestion_batch.v1",
+                            "role": role,
+                            "round_format": round_format,
+                            "doc_key": policy.doc_key,
+                            "batch_index": batch_index,
+                            "input_count": len(batch_hashes),
+                            "ordered_input_hashes": batch_hashes,
+                        }
+                    )
+                    site = (
+                        f"ab/{role}/{round_format}/ingest/{policy.doc_key}/"
+                        f"{batch_index}/{len(batch_hashes)}/{batch_hash}"
+                    )
+                    batch_sites.append(site)
+                    all_call_sites.append(site)
+                ingestion_inputs.append(
+                    CanonicalABIngestionInputV1(
+                        role=role,
+                        round_format=round_format,
+                        doc_key=policy.doc_key,
+                        source_sha256="sha256:" + variant.sha256,
+                        assembler_fingerprint=assembler_fingerprint,
+                        parser_status=parsed.status,
+                        parser_failure_code=parsed.failure_code,
+                        exact_assembled_input_count=len(ordered_hashes),
+                        ordered_input_hashes=ordered_hashes,
+                        ordered_batch_call_sites=tuple(batch_sites),
+                    )
+                )
+            for query_index, (doc_key, case_id, question) in enumerate(questions):
+                _, context = build_knowledge_query(
+                    question=question,
+                    generated_at="1970-01-01T00:00:00Z",
+                )
+                rewrite_plan = build_query_rewrite_plan(question, context)
+                provider_queries = (("original", 0, question),) + tuple(
+                    ("rewrite", rewrite_index, rewritten)
+                    for rewrite_index, rewritten in enumerate(rewrite_plan.rewritten_queries, start=1)
+                )
+                for query_kind, channel_index, provider_query in provider_queries:
+                    input_hash = (
+                        "sha256:" + hashlib.sha256(f"{QUERY_PREFIX}{provider_query}".encode("utf-8")).hexdigest()
+                    )
+                    site = (
+                        f"ab/{role}/{round_format}/query/{query_index}/{query_kind}/"
+                        f"{channel_index}/{doc_key}/{case_id}/1/{input_hash}"
+                    )
+                    query_call_sites.append(site)
+                    all_call_sites.append(site)
+
+    from src.rag.policy_reindex import PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH
+
+    provider_envelope = ProviderRequestEnvelopeV1.seal(
+        schema_version="canonical_ab_provider_request_envelope.v1",
+        contract_hash=PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH,
+        ordered_call_sites=tuple(all_call_sites),
+        maximum_attempts_per_site=(CANONICAL_AB_OUTER_ATTEMPTS,) * len(all_call_sites),
+        maximum_request_count=len(all_call_sites),
+        provider_name=runtime_identity[0],
+        model_name=runtime_identity[1],
+        dimensions=runtime_identity[2],
+    )
+    return CanonicalABRequestEnvelopeV1.seal(
+        provider_batch_size=CANONICAL_AB_PROVIDER_BATCH_SIZE,
+        sdk_retries=CANONICAL_AB_SDK_RETRIES,
+        maximum_outer_attempts=CANONICAL_AB_OUTER_ATTEMPTS,
+        base_question_count=len(questions),
+        rewrite_request_count_per_role_format=(
+            len(query_call_sites) // (len(roles) * len(ROUND_FORMATS)) - len(questions)
+        ),
+        query_request_count=len(query_call_sites),
+        ingestion_request_count=sum(len(item.ordered_batch_call_sites) for item in ingestion_inputs),
+        ordered_ingestion_inputs=tuple(ingestion_inputs),
+        ordered_query_call_sites=tuple(query_call_sites),
+        provider_request_envelope=provider_envelope,
+    )
 
 
 class ABNamespaceV1(_FrozenModel):
