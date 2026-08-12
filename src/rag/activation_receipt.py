@@ -29,10 +29,13 @@ from src.db.models import (
     PolicyCorpusRollout,
 )
 from src.rag.evaluation.token_chunk_ab import (
+    ABRecoveryAuthorizationV1,
     ABSelectionDecisionV1,
     TerminalABRunV1,
+    load_recovery_authorization,
     load_selection_decision,
     load_terminal_ab_run,
+    require_canonical_recovery_root,
 )
 from src.rag.tokenizer_parity import (
     EmbeddingTokenizerParityReportV1,
@@ -74,6 +77,10 @@ class ActivationArtifactPaths:
     selection_path: Path
     terminal_run_path: Path
     parity_report_path: Path
+    recovery_authorization_path: Path
+    recovery_budget_manifest_path: Path
+    recovery_reservation_path: Path
+    candidate_state_path: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,9 +89,11 @@ class ActivationAuthorityV1:
     selection: ABSelectionDecisionV1
     terminal_run: TerminalABRunV1
     parity_report: EmbeddingTokenizerParityReportV1
+    recovery_authorization: ABRecoveryAuthorizationV1
     selection_decision_sha256: str
     terminal_run_sha256: str
     provider_parity_report_sha256: str
+    recovery_authorization_sha256: str
     config_fingerprint: str
 
     def to_selection_proof(
@@ -108,6 +117,7 @@ class ActivationAuthorityV1:
             provider_parity_report_hash=self.provider_parity_report_sha256,
             source_manifest_hash=self.selection.source_manifest_hash,
             expected_evidence_rollout_version=expected_evidence_rollout_version,
+            recovery_authorization_sha256=self.recovery_authorization_sha256,
         )
 
 
@@ -132,6 +142,7 @@ class ActivationReceiptV1(_FrozenModel):
     selection_payload_sha256: str = Field(pattern=_SHA256_PATTERN)
     terminal_run_sha256: str = Field(pattern=_SHA256_PATTERN)
     provider_parity_report_sha256: str = Field(pattern=_SHA256_PATTERN)
+    recovery_authorization_sha256: str = Field(pattern=_SHA256_PATTERN)
     candidate_run_token: UUID
     candidate_lease_owner: str = Field(min_length=1, max_length=128)
     source_manifest_hash: str = Field(pattern=_SHA256_PATTERN)
@@ -166,19 +177,43 @@ class ActivationReceiptArtifactV1:
     receipt: ActivationReceiptV1
 
 
-def load_activation_authority(paths: ActivationArtifactPaths) -> ActivationAuthorityV1:
-    """Strictly load and cross-check the three immutable authorization stages."""
+def load_activation_authority(
+    paths: ActivationArtifactPaths,
+    *,
+    repository_root: Path | None = None,
+) -> ActivationAuthorityV1:
+    """Strictly load and cross-check selection plus its recovery lineage."""
 
     try:
+        recovery_root = paths.recovery_budget_manifest_path.parents[2]
+        if repository_root is not None:
+            require_canonical_recovery_root(
+                output_root=recovery_root,
+                repository_root=repository_root,
+            )
         selection_bytes = paths.selection_path.read_bytes()
         terminal_bytes = paths.terminal_run_path.read_bytes()
         parity_bytes = paths.parity_report_path.read_bytes()
+        authorization_bytes = paths.recovery_authorization_path.read_bytes()
         selection = load_selection_decision(paths.selection_path)
         terminal = load_terminal_ab_run(paths.terminal_run_path)
         parity = load_parity_report(paths.parity_report_path)
+        recovery_authorization = load_recovery_authorization(paths.recovery_authorization_path)
+        load_recovery_authorization(
+            paths.recovery_authorization_path,
+            root=recovery_root,
+            manifest_path=paths.recovery_budget_manifest_path,
+            reservation_path=paths.recovery_reservation_path,
+            candidate_state_path=paths.candidate_state_path,
+            provider_parity_report_path=paths.parity_report_path,
+            terminal_run_path=paths.terminal_run_path,
+            selection_path=paths.selection_path,
+            checked_at=recovery_authorization.authorized_at,
+        )
         selection_sha256 = _sha256_bytes(selection_bytes)
         terminal_sha256 = _sha256_bytes(terminal_bytes)
         parity_sha256 = _sha256_bytes(parity_bytes)
+        authorization_sha256 = _sha256_bytes(authorization_bytes)
         candidate = terminal.candidate
         if (
             terminal.outcome != "selected_pass"
@@ -205,20 +240,26 @@ def load_activation_authority(paths: ActivationArtifactPaths) -> ActivationAutho
             or candidate.config_fingerprint != parity.config_fingerprint
             or terminal.parity.probe_fixture_sha256 != parity.probe_fixture_sha256
             or terminal.parity.submitted_content_sha256 != parity.submitted_content_sha256
+            or recovery_authorization.selection_sha256 != selection_sha256
+            or recovery_authorization.terminal_run_sha256 != terminal_sha256
+            or recovery_authorization.provider_parity_report_sha256 != parity_sha256
+            or recovery_authorization.candidate_config_fingerprint != parity.config_fingerprint
         ):
             _fail(ActivationReceiptFailureCode.ARTIFACT_MISMATCH)
     except ActivationReceiptError:
         raise
-    except (OSError, TokenizerParityError, ValidationError, TypeError, ValueError):
+    except (IndexError, OSError, TokenizerParityError, ValidationError, TypeError, ValueError):
         _fail(ActivationReceiptFailureCode.ARTIFACT_MISMATCH)
     return ActivationAuthorityV1(
         paths=paths,
         selection=selection,
         terminal_run=terminal,
         parity_report=parity,
+        recovery_authorization=recovery_authorization,
         selection_decision_sha256=selection_sha256,
         terminal_run_sha256=terminal_sha256,
         provider_parity_report_sha256=parity_sha256,
+        recovery_authorization_sha256=authorization_sha256,
         config_fingerprint=parity.config_fingerprint,
     )
 
@@ -487,6 +528,7 @@ def _build_receipt(
         "selection_payload_sha256": authority.selection.decision_payload_sha256,
         "terminal_run_sha256": authority.terminal_run_sha256,
         "provider_parity_report_sha256": authority.provider_parity_report_sha256,
+        "recovery_authorization_sha256": authority.recovery_authorization_sha256,
         "candidate_run_token": authority.selection.candidate_run_token,
         "candidate_lease_owner": authority.selection.candidate_lease_owner,
         "source_manifest_hash": authority.selection.source_manifest_hash,

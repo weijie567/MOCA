@@ -192,6 +192,7 @@ class ImmutableSelectionDecisionV1:
     provider_parity_report_hash: str
     source_manifest_hash: str
     expected_evidence_rollout_version: int
+    recovery_authorization_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1106,6 +1107,10 @@ class PolicyReindexService:
             or target.owner_marker != POLICY_REINDEX_OWNER_MARKER
             or target.run_token is None
             or target.lease_owner is None
+        ):
+            _fail(PolicyReindexFailureCode.SELECTION_PROOF_INVALID)
+        if isinstance(selection, ImmutableSelectionDecisionV1) and not _valid_sha256(
+            selection.recovery_authorization_sha256
         ):
             _fail(PolicyReindexFailureCode.SELECTION_PROOF_INVALID)
         if require_current_source_epoch and (

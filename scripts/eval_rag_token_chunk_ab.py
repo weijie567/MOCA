@@ -68,6 +68,7 @@ from src.rag.evaluation.token_chunk_ab import (
     reserve_then_create_provider,
     require_canonical_recovery_root,
     write_execution_error_bundle_create_only,
+    write_recovery_authorization_create_only,
     write_selection_create_only,
     write_terminal_run_create_only,
 )
@@ -757,6 +758,7 @@ def _shared_preflight_failure(
 
 async def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    reservation_holder: dict[str, ABRecoveryAttemptReservationV1] = {}
     try:
         args.output_root = require_canonical_recovery_root(
             output_root=args.output_root,
@@ -773,9 +775,9 @@ async def main(argv: list[str] | None = None) -> int:
             provider_parity_report_path=args.parity_report,
             checked_at=datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC),
         )
-        report, binding, safe_failure = await run_full_provider_ab(
-            args,
-            before_provider_call=lambda: reserve_recovery_attempt(
+
+        def reserve() -> ABRecoveryAttemptReservationV1:
+            reservation = reserve_recovery_attempt(
                 manifest_path=args.recovery_budget_manifest,
                 root=args.output_root,
                 candidate_state_path=args.candidate_state,
@@ -784,7 +786,13 @@ async def main(argv: list[str] | None = None) -> int:
                 selection_id=args.selection_id,
                 reserved_at=datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC),
                 prerequisite_state_sha256=args.prerequisite_state_sha256,
-            ),
+            )
+            reservation_holder["reservation"] = reservation
+            return reservation
+
+        report, binding, safe_failure = await run_full_provider_ab(
+            args,
+            before_provider_call=reserve,
         )
     except RecoveryAttemptRefused as refusal:
         print(
@@ -812,11 +820,26 @@ async def main(argv: list[str] | None = None) -> int:
         if report.outcome == "selected_pass":
             if binding is None:
                 raise ValueError("selected_binding_missing")
-            write_selection_create_only(
+            selection_pair = write_selection_create_only(
                 report,
                 binding=binding,
                 terminal_run_sha256=run_pair.json_sha256,
                 root=args.output_root,
+            )
+            reservation = reservation_holder.get("reservation")
+            if reservation is None:
+                raise ValueError("recovery_reservation_missing")
+            write_recovery_authorization_create_only(
+                root=args.output_root,
+                manifest_path=args.recovery_budget_manifest,
+                reservation_path=(
+                    args.recovery_budget_manifest.parent / "attempts" / f"{reservation.ordinal:02d}.json"
+                ),
+                candidate_state_path=args.candidate_state,
+                provider_parity_report_path=args.parity_report,
+                terminal_run_path=run_pair.json_path,
+                selection_path=selection_pair.json_path,
+                checked_at=report.generated_at,
             )
     except (OSError, ValueError):
         return 2

@@ -39,6 +39,7 @@ EXECUTION_DIAGNOSTIC_SCHEMA_VERSION = "rag_token_chunk_execution_diagnostic.v1"
 EXECUTION_BUNDLE_SCHEMA_VERSION = "rag_token_chunk_execution_bundle.v1"
 RECOVERY_BUDGET_SCHEMA_VERSION = "rag_token_chunk_recovery_budget.v1"
 RECOVERY_ATTEMPT_SCHEMA_VERSION = "rag_token_chunk_recovery_attempt.v1"
+RECOVERY_AUTHORIZATION_SCHEMA_VERSION = "rag_token_chunk_recovery_authorization.v1"
 GATE_PROFILE_VERSION = "rag_token_chunk_ab.v1"
 SEALED_MANIFEST_HASH = "e5544b20ecdf05c2eaf3325b4e5f89a4ef752c0b8c0d23b8bac224f006fdd53b"
 SEALED_GOLD_HASH = "c6dc12536270fa9b9532ec4595e0a91d2b4ebddf83754a0f1ec107caabb64b8e"
@@ -735,8 +736,65 @@ class ABRecoveryAttemptReservationV1(_FrozenModel):
         return self
 
 
+class ABRecoveryAuthorizationV1(_FrozenModel):
+    """Separate immutable proof that one selected pass consumed one fixed slot."""
+
+    schema_version: Literal["rag_token_chunk_recovery_authorization.v1"] = RECOVERY_AUTHORIZATION_SCHEMA_VERSION
+    authorized_at: datetime
+    budget_id: Literal["phase64.4-plan12-live-selection-recovery"] = PLAN12_RECOVERY_BUDGET_ID
+    budget_manifest_relative_path: str = Field(min_length=1, max_length=512)
+    budget_manifest_sha256: str = Field(pattern=_SHA256_PATTERN)
+    reservation_relative_path: str = Field(min_length=1, max_length=512)
+    reservation_ordinal: Literal[1, 2]
+    reservation_sha256: str = Field(pattern=_SHA256_PATTERN)
+    candidate_state_relative_path: str = Field(min_length=1, max_length=512)
+    candidate_state_sha256: str = Field(pattern=_SHA256_PATTERN)
+    candidate_corpus_version_id: UUID
+    candidate_run_token: UUID
+    candidate_lease_owner: str = Field(min_length=1, max_length=128)
+    candidate_config_schema_version: str = Field(min_length=1, max_length=128)
+    candidate_config_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    provider_parity_report_sha256: str = Field(pattern=_SHA256_PATTERN)
+    source_manifest_revision_id: UUID
+    source_manifest_revision: int = Field(gt=0)
+    source_manifest_hash: str = Field(pattern=_SHA256_PATTERN)
+    source_active_corpus_version_id: UUID
+    source_rollout_epoch: int = Field(gt=0)
+    expected_evidence_rollout_version: int = Field(ge=0)
+    terminal_run_id: UUID
+    terminal_run_sha256: str = Field(pattern=_SHA256_PATTERN)
+    selection_id: UUID
+    selection_sha256: str = Field(pattern=_SHA256_PATTERN)
+    authorization_payload_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_authorization(self) -> ABRecoveryAuthorizationV1:
+        if self.authorized_at.tzinfo is None:
+            raise ValueError("recovery_authorization_time_invalid")
+        expected_manifest_path = (Path("recovery-budgets") / self.budget_id / "manifest.json").as_posix()
+        expected_reservation_path = (
+            Path("recovery-budgets") / self.budget_id / "attempts" / f"{self.reservation_ordinal:02d}.json"
+        ).as_posix()
+        if (
+            self.budget_manifest_relative_path != expected_manifest_path
+            or self.reservation_relative_path != expected_reservation_path
+        ):
+            raise ValueError("recovery_authorization_path_invalid")
+        expected = _sha256_payload(self.model_dump(mode="json", exclude={"authorization_payload_sha256"}))
+        if self.authorization_payload_sha256 != expected:
+            raise ValueError("recovery_authorization_hash_mismatch")
+        validate_safe_report_payload(self.model_dump(mode="json"))
+        return self
+
+
 @dataclass(frozen=True, slots=True)
 class ImmutableRecoveryBudgetManifestV1:
+    path: Path
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class ImmutableRecoveryAuthorizationV1:
     path: Path
     sha256: str
 
@@ -858,6 +916,285 @@ def load_recovery_attempt_reservation(
     ):
         raise ValueError("recovery_reservation_invalid")
     return reservation
+
+
+def write_recovery_authorization_create_only(
+    *,
+    root: Path,
+    manifest_path: Path,
+    reservation_path: Path,
+    candidate_state_path: Path,
+    provider_parity_report_path: Path,
+    terminal_run_path: Path,
+    selection_path: Path,
+    checked_at: datetime,
+) -> ImmutableRecoveryAuthorizationV1:
+    """Publish or byte-identically reconcile one selected recovery lineage."""
+
+    lineage = _load_recovery_authorization_lineage(
+        root=root,
+        manifest_path=manifest_path,
+        reservation_path=reservation_path,
+        candidate_state_path=candidate_state_path,
+        provider_parity_report_path=provider_parity_report_path,
+        terminal_run_path=terminal_run_path,
+        selection_path=selection_path,
+        checked_at=checked_at,
+    )
+    (
+        manifest,
+        manifest_sha256,
+        reservation,
+        reservation_sha256,
+        terminal,
+        terminal_sha256,
+        selection,
+        selection_sha256,
+    ) = lineage
+    base: dict[str, Any] = {
+        "schema_version": RECOVERY_AUTHORIZATION_SCHEMA_VERSION,
+        "authorized_at": checked_at,
+        "budget_id": manifest.budget_id,
+        "budget_manifest_relative_path": manifest_path.relative_to(root).as_posix(),
+        "budget_manifest_sha256": manifest_sha256,
+        "reservation_relative_path": reservation_path.relative_to(root).as_posix(),
+        "reservation_ordinal": reservation.ordinal,
+        "reservation_sha256": reservation_sha256,
+        "candidate_state_relative_path": manifest.candidate_state_relative_path,
+        "candidate_state_sha256": manifest.candidate_state_sha256,
+        "candidate_corpus_version_id": manifest.candidate_corpus_version_id,
+        "candidate_run_token": manifest.candidate_run_token,
+        "candidate_lease_owner": manifest.candidate_lease_owner,
+        "candidate_config_schema_version": manifest.candidate_config_schema_version,
+        "candidate_config_fingerprint": manifest.candidate_config_fingerprint,
+        "provider_parity_report_sha256": manifest.provider_parity_report_sha256,
+        "source_manifest_revision_id": manifest.candidate_source_manifest_revision_id,
+        "source_manifest_revision": manifest.candidate_source_manifest_revision,
+        "source_manifest_hash": manifest.candidate_source_manifest_hash,
+        "source_active_corpus_version_id": manifest.candidate_source_active_corpus_version_id,
+        "source_rollout_epoch": manifest.candidate_source_rollout_epoch,
+        "expected_evidence_rollout_version": manifest.candidate_expected_evidence_rollout_version,
+        "terminal_run_id": terminal.run_id,
+        "terminal_run_sha256": terminal_sha256,
+        "selection_id": selection.selection_id,
+        "selection_sha256": selection_sha256,
+    }
+    authorization = ABRecoveryAuthorizationV1(
+        **base,
+        authorization_payload_sha256=_sha256_payload(
+            ABRecoveryAuthorizationV1.model_construct(
+                **base,
+                authorization_payload_sha256="sha256:" + "0" * 64,
+            ).model_dump(mode="json", exclude={"authorization_payload_sha256"})
+        ),
+    )
+    payload = canonical_report_json_bytes(authorization.model_dump(mode="json"))
+    path = root / "recovery-authorizations" / f"{selection.selection_id}.json"
+    if path.exists():
+        try:
+            if path.read_bytes() != payload:
+                raise ValueError("recovery_authorization_conflict")
+        except OSError:
+            raise ValueError("recovery_authorization_conflict") from None
+    else:
+        try:
+            _write_create_only_bytes(path, payload)
+        except ValueError as error:
+            if path.exists() and _read_bytes_or_conflict(path) == payload:
+                pass
+            else:
+                raise ValueError("recovery_authorization_conflict") from error
+    return ImmutableRecoveryAuthorizationV1(path=path, sha256=_sha256_bytes(payload))
+
+
+def load_recovery_authorization(
+    path: Path,
+    *,
+    root: Path | None = None,
+    manifest_path: Path | None = None,
+    reservation_path: Path | None = None,
+    candidate_state_path: Path | None = None,
+    provider_parity_report_path: Path | None = None,
+    terminal_run_path: Path | None = None,
+    selection_path: Path | None = None,
+    checked_at: datetime | None = None,
+) -> ABRecoveryAuthorizationV1:
+    """Load one authorization, optionally proving every referenced immutable byte."""
+
+    try:
+        payload = path.read_bytes()
+        authorization = ABRecoveryAuthorizationV1.model_validate_json(payload)
+    except (OSError, ValidationError, ValueError):
+        raise ValueError("recovery_authorization_invalid") from None
+    strict_values = (
+        root,
+        manifest_path,
+        reservation_path,
+        candidate_state_path,
+        provider_parity_report_path,
+        terminal_run_path,
+        selection_path,
+        checked_at,
+    )
+    if all(value is None for value in strict_values):
+        return authorization
+    if any(value is None for value in strict_values):
+        raise ValueError("recovery_authorization_invalid")
+    assert root is not None
+    assert manifest_path is not None
+    assert reservation_path is not None
+    assert candidate_state_path is not None
+    assert provider_parity_report_path is not None
+    assert terminal_run_path is not None
+    assert selection_path is not None
+    assert checked_at is not None
+    expected_path = root / "recovery-authorizations" / f"{authorization.selection_id}.json"
+    if path.absolute() != expected_path.absolute() or _path_uses_symlink(root=root, path=path):
+        raise ValueError("recovery_authorization_invalid")
+    lineage = _load_recovery_authorization_lineage(
+        root=root,
+        manifest_path=manifest_path,
+        reservation_path=reservation_path,
+        candidate_state_path=candidate_state_path,
+        provider_parity_report_path=provider_parity_report_path,
+        terminal_run_path=terminal_run_path,
+        selection_path=selection_path,
+        checked_at=checked_at,
+    )
+    (
+        manifest,
+        manifest_sha256,
+        reservation,
+        reservation_sha256,
+        terminal,
+        terminal_sha256,
+        selection,
+        selection_sha256,
+    ) = lineage
+    expected = {
+        "authorized_at": checked_at,
+        "budget_id": manifest.budget_id,
+        "budget_manifest_relative_path": manifest_path.relative_to(root).as_posix(),
+        "budget_manifest_sha256": manifest_sha256,
+        "reservation_relative_path": reservation_path.relative_to(root).as_posix(),
+        "reservation_ordinal": reservation.ordinal,
+        "reservation_sha256": reservation_sha256,
+        "candidate_state_relative_path": manifest.candidate_state_relative_path,
+        "candidate_state_sha256": manifest.candidate_state_sha256,
+        "candidate_corpus_version_id": manifest.candidate_corpus_version_id,
+        "candidate_run_token": manifest.candidate_run_token,
+        "candidate_lease_owner": manifest.candidate_lease_owner,
+        "candidate_config_schema_version": manifest.candidate_config_schema_version,
+        "candidate_config_fingerprint": manifest.candidate_config_fingerprint,
+        "provider_parity_report_sha256": manifest.provider_parity_report_sha256,
+        "source_manifest_revision_id": manifest.candidate_source_manifest_revision_id,
+        "source_manifest_revision": manifest.candidate_source_manifest_revision,
+        "source_manifest_hash": manifest.candidate_source_manifest_hash,
+        "source_active_corpus_version_id": manifest.candidate_source_active_corpus_version_id,
+        "source_rollout_epoch": manifest.candidate_source_rollout_epoch,
+        "expected_evidence_rollout_version": manifest.candidate_expected_evidence_rollout_version,
+        "terminal_run_id": terminal.run_id,
+        "terminal_run_sha256": terminal_sha256,
+        "selection_id": selection.selection_id,
+        "selection_sha256": selection_sha256,
+    }
+    if any(getattr(authorization, key) != value for key, value in expected.items()):
+        raise ValueError("recovery_authorization_invalid")
+    return authorization
+
+
+def _load_recovery_authorization_lineage(
+    *,
+    root: Path,
+    manifest_path: Path,
+    reservation_path: Path,
+    candidate_state_path: Path,
+    provider_parity_report_path: Path,
+    terminal_run_path: Path,
+    selection_path: Path,
+    checked_at: datetime,
+) -> tuple[
+    ABRecoveryBudgetManifestV1,
+    str,
+    ABRecoveryAttemptReservationV1,
+    str,
+    TerminalABRunV1,
+    str,
+    ABSelectionDecisionV1,
+    str,
+]:
+    try:
+        manifest_payload = manifest_path.read_bytes()
+        manifest = ABRecoveryBudgetManifestV1.model_validate_json(manifest_payload)
+    except (OSError, ValidationError, ValueError):
+        raise ValueError("recovery_authorization_lineage_invalid") from None
+    expected_manifest_path = root / "recovery-budgets" / manifest.budget_id / "manifest.json"
+    if manifest_path.absolute() != expected_manifest_path.absolute() or _path_uses_symlink(
+        root=root, path=manifest_path
+    ):
+        raise ValueError("recovery_authorization_lineage_invalid")
+    manifest_sha256 = _sha256_bytes(manifest_payload)
+    expected_reservation_path = manifest_path.parent / "attempts" / f"{int(reservation_path.stem):02d}.json"
+    if reservation_path.absolute() != expected_reservation_path.absolute() or _path_uses_symlink(
+        root=root, path=reservation_path
+    ):
+        raise ValueError("recovery_authorization_lineage_invalid")
+    try:
+        reservation_payload = reservation_path.read_bytes()
+        reservation = load_recovery_attempt_reservation(
+            reservation_path,
+            manifest=manifest,
+            manifest_sha256=manifest_sha256,
+        )
+    except (OSError, ValueError):
+        raise ValueError("recovery_authorization_lineage_invalid") from None
+    load_recovery_candidate_state(
+        manifest=manifest,
+        root=root,
+        candidate_state_path=candidate_state_path,
+        provider_parity_report_path=provider_parity_report_path,
+        checked_at=checked_at,
+    )
+    try:
+        terminal_payload = terminal_run_path.read_bytes()
+        terminal = load_terminal_ab_run(terminal_run_path)
+        selection_payload = selection_path.read_bytes()
+        selection = load_selection_decision(selection_path)
+    except (OSError, ValidationError, ValueError):
+        raise ValueError("recovery_authorization_lineage_invalid") from None
+    terminal_sha256 = _sha256_bytes(terminal_payload)
+    selection_sha256 = _sha256_bytes(selection_payload)
+    expected_terminal_path = root / "runs" / f"{reservation.run_id}.json"
+    expected_selection_path = root / "selections" / f"{reservation.selection_id}.json"
+    if (
+        terminal_run_path.absolute() != expected_terminal_path.absolute()
+        or selection_path.absolute() != expected_selection_path.absolute()
+        or _path_uses_symlink(root=root, path=terminal_run_path)
+        or _path_uses_symlink(root=root, path=selection_path)
+        or reservation.candidate_state_sha256 != manifest.candidate_state_sha256
+        or terminal.outcome != "selected_pass"
+        or not _recovery_report_matches_manifest(terminal, manifest=manifest, expected_run_id=reservation.run_id)
+        or selection.selection_id != reservation.selection_id
+        or selection.terminal_run_id != terminal.run_id
+        or selection.terminal_run_sha256 != terminal_sha256
+        or selection.provider_parity_report_sha256 != manifest.provider_parity_report_sha256
+        or selection.tenant_id != manifest.tenant_id
+        or selection.candidate_corpus_version_id != manifest.candidate_corpus_version_id
+        or selection.candidate_run_token != manifest.candidate_run_token
+        or selection.candidate_lease_owner != manifest.candidate_lease_owner
+        or selection.source_manifest_hash != manifest.candidate_source_manifest_hash
+    ):
+        raise ValueError("recovery_authorization_lineage_invalid")
+    return (
+        manifest,
+        manifest_sha256,
+        reservation,
+        _sha256_bytes(reservation_payload),
+        terminal,
+        terminal_sha256,
+        selection,
+        selection_sha256,
+    )
 
 
 def validate_fixed_plan10_evidence(root: Path) -> tuple[RecoveryPriorRunV1, ...]:

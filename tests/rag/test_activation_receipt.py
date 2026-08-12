@@ -204,6 +204,19 @@ def test_activation_authority_requires_complete_recovery_lineage(tmp_path: Path)
     assert fabricated.value.code is ActivationReceiptFailureCode.ARTIFACT_MISMATCH
 
 
+def test_production_activation_authority_rejects_alternate_recovery_root(tmp_path: Path) -> None:
+    repository_root = tmp_path / "repository"
+    repository_root.mkdir()
+    canonical_root = repository_root / "evaluation" / "reports" / "rag_token_chunk_ab" / "v1"
+    canonical_paths = _write_strict_artifacts(canonical_root)
+    assert load_activation_authority(canonical_paths, repository_root=repository_root)
+
+    alternate_paths = _write_strict_artifacts(tmp_path / "alternate-root")
+    with pytest.raises(ActivationReceiptError) as noncanonical:
+        load_activation_authority(alternate_paths, repository_root=repository_root)
+    assert noncanonical.value.code is ActivationReceiptFailureCode.ARTIFACT_MISMATCH
+
+
 @pytest.mark.asyncio
 async def test_committed_event_writes_create_only_receipt_bound_to_live_pointer_and_artifacts(
     session: AsyncSession,

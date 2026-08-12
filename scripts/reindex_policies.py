@@ -59,6 +59,7 @@ from src.repositories.policy_corpus_repo import PolicyCorpusRepository
 
 
 DEFAULT_ACTIVATION_ROOT = Path("evaluation/reports/rag_token_chunk_ab/v1/activations")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _parse_args() -> argparse.Namespace:
@@ -127,6 +128,10 @@ def _add_activation_artifact_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--selection", type=Path, required=True)
     parser.add_argument("--terminal-run", type=Path, required=True)
     parser.add_argument("--parity-report", type=Path, required=True)
+    parser.add_argument("--recovery-authorization", type=Path, required=True)
+    parser.add_argument("--recovery-budget-manifest", type=Path, required=True)
+    parser.add_argument("--recovery-reservation", type=Path, required=True)
+    parser.add_argument("--candidate-state", type=Path, required=True)
     parser.add_argument("--activation-root", type=Path, default=DEFAULT_ACTIVATION_ROOT)
 
 
@@ -546,7 +551,12 @@ def _activation_authority(args: argparse.Namespace):
             selection_path=args.selection,
             terminal_run_path=args.terminal_run,
             parity_report_path=args.parity_report,
-        )
+            recovery_authorization_path=args.recovery_authorization,
+            recovery_budget_manifest_path=args.recovery_budget_manifest,
+            recovery_reservation_path=args.recovery_reservation,
+            candidate_state_path=args.candidate_state,
+        ),
+        repository_root=REPOSITORY_ROOT,
     )
 
 
