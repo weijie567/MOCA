@@ -2861,5 +2861,5 @@
 - **问题现象 / 根因**：architecture test以精确owner集合守护current row访问，但allowlist仍描述旧direct projection seam，遗漏first-corpus bootstrap、explicit source/candidate corpus bindings、evaluation active joins与pre-030 migration seam。
 - **影响**：有效production路径触发3条假红；若简单移除guard则会失去对裸current SQL的架构保护。
 - **处理状态**：✅ 已修复验证。逐条确认owner有active join、显式corpus binding或仅历史schema gate后更新精确集合；mutation断言改为当前`ensure_tenant_character_bootstrap`+`create_ingestion_cow` seam，未降低production authority。
-- **证据**：`tests/architecture/test_rag_chunking_boundaries.py`；RED `3 failed, 5 passed`，GREEN `8 passed, 1 warning`。
+- **证据**：`tests/architecture/test_rag_chunking_boundaries.py`；RED `3 failed, 5 passed`，GREEN `8 passed, 1 warning`；iteration focused union `93 passed, 19 warnings`。
 - **剩余风险 / 继续入口**：allowlist是AST级结构guard，不能替代integration行为验证；本iteration focused union及最终full suite继续覆盖。

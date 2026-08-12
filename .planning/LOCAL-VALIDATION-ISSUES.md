@@ -23960,3 +23960,14 @@ orchestrator 在 iteration 1 fixes后独占运行完整 suite，真实结果为 
 
 **已做处理 / 剩余入口**
 仅更新精确owner allowlist、认可的显式corpus binding/历史schema token，以及current COW seam断言；未改production。目标文件GREEN为`8 passed, 1 warning`。最终需纳入iteration focused union和orchestrator独占full suite。
+
+## 2026-08-12 — Phase 64.4 review-fix iteration 2 最终聚焦验证
+
+**问题现象 / 如何检测**
+本轮修复完成后使用项目入口串行运行review findings与11条full-suite回归的focused union，避免此前并发共享schema造成的无效`3F/4E`。
+
+**关键证据 / 当前判断 / 根因**
+`make format`与全量`make lint`均PASS；聚焦命令覆盖reviewed descendant symlink/TOCTOU、initial parity equality、architecture boundary、两条pre030 migration、六条active-corpus fixture及共享helper原回归，结果为`93 passed, 19 warnings in 105.38s`。warnings为既有LangGraph serializer/node typing与Alembic config弃用提示，本轮未新增失败。
+
+**已做处理 / 剩余入口**
+iteration 2聚焦gate全部通过。本fixer按任务约束没有运行完整suite；最终独占full suite由orchestrator执行并作为全量结论。未调用live provider、未续租/创建live candidate、未写live DB/artifact，Plans18-20未执行。
