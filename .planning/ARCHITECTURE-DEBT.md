@@ -2710,3 +2710,21 @@
 - **处理状态**：✅ 已修复验证。新增 frozen `policy_reindex_recovery_descriptor.v1`，在 claim 前固定 tenant/run/generation/owner、最长两小时绝对 lease、完整 config、fresh parity file/config/probe/content/capture/expiry、source manifest/current corpus/epoch 与 evidence rollout，并用 canonical payload hash自校验。`claim_from_descriptor` 不生成 UUID/lease，DB claim proof封存 descriptor/probe/content hash；`recover_identity` 只锁 exact tenant/run，要求唯一 row、descriptor、config、manifest/pointer/evidence 全匹配，返回 current identity而不 transition/renew/create。descriptor/state/legacy state writer统一使用 staging + file/directory fsync + hard-link no-replace；descriptor existing 必拒绝，state exact bytes幂等，截断或冲突 fail closed。claim/build/validate DB commit 后未发 state 的 fault tests均由同一 descriptor恢复 exact corpus/run/state_version。
 - **证据**：Phase64.4 Plan13 Task1；RED `8b2551e7` 与本条所在 GREEN commit；`src/rag/policy_reindex_artifacts.py`、`src/rag/policy_reindex.py`、`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex_artifacts.py`、`tests/rag/test_policy_reindex.py`、`evaluation/reports/rag_token_chunk_ab/v1/candidates/README.md`。RED 为缺少新 artifacts module 的预期 2 个 collection errors；完成后 full lint 与 deterministic PostgreSQL/fault gate 通过，未调用 live provider或修改 live evaluation DB。
 - **剩余风险 / 继续入口**：Task2 仍须把每文档 provider 执行次数变成 reserve-before-provider 的 create-only 机器预算；Plan13 只实现 deterministic contract，Plan15 之前不得 claim live candidate或调用 provider。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 2 — candidate build provider 执行预算仅靠流程约束 ✅已修复验证
+
+- **子系统**：RAG policy candidate rebuild / crash recovery / provider execution authority。
+- **问题现象 / 根因**：旧 reviewed candidate 流程没有 descriptor-bound per-document machine counter；并发 executor、provider 后崩溃或 DB commit/state publication 之间退出时，人工重跑无法证明本 document 已执行多少次，也没有 closed safe result matrix 决定第二次是否允许。
+- **影响**：同一 document 可能无限重复调用 provider，或在 state/candidate 已前进后再次执行；alternate root、过期 lease/parity 与 config/source/response failure 也可能在 provider 构造后才暴露。
+- **处理状态**：✅ 已修复验证。新增 create-only `policy_candidate_build_budget.v1`，固定 ordered document hashes 与 `max_build_executions_per_document=2`；每个 ordinal 在 provider client 构造前用 staged/fsynced/hard-link no-replace 预留，crash 消耗 ordinal，并发只有一个 winner。第二次只接受同 document/state/artifact/count 未变化且第一结果为 `provider_unavailable` 或 `provider_transient`；config/parity/source/response/projection、缺失 result、state advance、第三次、alternate root 和 expiry 全部 fail closed。success 必须精确前进一个 document 并绑定 post-state artifact；recover-state 可在 DB 已提交但 post-state/result 未发布时确定性补齐 success evidence，validate-reviewed 要求每文档恰一份 success。
+- **证据**：Phase64.4 Plan13 Task2；RED `8d5d6cc4` 与本条所在 GREEN 提交；`src/rag/policy_reindex_artifacts.py`、`src/rag/policy_reindex.py`、`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex_artifacts.py`、`tests/rag/test_policy_reindex.py`。deterministic concurrency/crash/fault/retry/refusal tests 与精确 PostgreSQL gate通过，未调用 live provider或修改 live evaluation DB。
+- **剩余风险 / 继续入口**：本 plan 只建立 deterministic authority；真实 candidate claim/provider build 仍属于后续 reviewed plan，必须使用新 descriptor/root，不能把旧 unreviewed CLI output 或本地 fake test 当成 live success。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 2 — MOCA 外层 retry 与 OpenAI SDK 隐式 retry 嵌套 ✅已修复验证
+
+- **子系统**：RAG embedding provider client / retry ownership。
+- **问题现象 / 根因**：`EmbeddingService.max_retries` 已实现 MOCA 外层重试，但 `_get_client()` 构造 `AsyncOpenAI` 时未传 `max_retries`；openai-python 默认还会进行 SDK 内部重试，因此 `EmbeddingService(max_retries=1)` 不能兑现“每 batch 单次 HTTP request”的 build-budget 语义。
+- **影响**：一次 machine reservation 可能隐式产生多次 provider request，外层计数、per-document cap 与实际调用数失真；provider transient 时风险最高。
+- **处理状态**：✅ 已修复验证。按 Plan13 执行裁决的 Rule 2 correctness deviation，将 `AsyncOpenAI(..., max_retries=0)` 固定为无 SDK 隐式 retry，保留 MOCA 外层默认 `max_retries=3` 生产语义；reviewed build 显式使用外层 `max_retries=1`。新增真实 client 可观察断言 `client.max_retries == 0`，并用 fake client 证明外层 3 次行为及 `request_attempt_count` 不变。
+- **证据**：Phase64.4 Plan13 Task2；`src/rag/embedder.py`、`tests/test_embedder.py`；openai-python 官方文档确认默认 retry 与 `max_retries=0` 禁用方式；本条所在 GREEN 提交，format/full lint/精确三文件 gate通过。
+- **剩余风险 / 继续入口**：该修复不新增配置或阈值；未来若替换 provider SDK，仍须在 client 层显式关闭隐式 retry，并由 MOCA 单一 authority 计数。真实 provider 行为只能由后续获批 live plan 验证。

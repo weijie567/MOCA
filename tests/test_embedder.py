@@ -59,6 +59,7 @@ async def test_embedding_service_owns_retries_outside_sdk(monkeypatch) -> None:
 
     assert await service.embed_documents(["document"]) == [[1.0, 2.0]]
     assert calls == 3
+    assert service.request_attempt_count == 3
 
 
 @pytest.mark.asyncio

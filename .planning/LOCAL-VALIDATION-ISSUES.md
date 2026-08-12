@@ -23751,3 +23751,25 @@ Task1 GREEN 的完整 `make lint` 已通过，scoped gate 首轮得到 `1 failed
 
 **已做处理 / 剩余入口**
 把两处属性引用修正为 `assembler.config.config_fingerprint`，随后重新执行 `make format`、完整 `make lint` 与 scoped PostgreSQL/fault gate。只采用修正后的结果作为 Task1 GREEN 结论；若后续 DB commit/publication 断点仍失败，则从对应 state_version 与 descriptor binding继续排查。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 2 build budget 预期 RED
+
+**问题现象 / 如何检测**
+先补 per-document budget、reservation/result safe matrix、deterministic prepare 与 SDK retry authority 测试，再用有效项目入口执行三文件 gate；collection 在导入 `CandidateBuildResultCode` 时失败，证明新 budget contract 尚不存在。
+
+**关键证据 / 当前判断 / 根因**
+命令为 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_policy_reindex_artifacts.py tests/rag/test_policy_reindex.py tests/test_embedder.py`，失败是 tests-first 的预期 RED，不是 PATH、Python 版本、PostgreSQL fixture 或 provider failure。期间未构造 live provider、未 claim candidate、未写 evaluation DB，也未消耗 candidate/A-B slot。
+
+**已做处理 / 剩余入口**
+RED 原子提交为 `8d5d6cc4`；随后实现 descriptor-bound cap=2、create-only ordinal/result、canonical root 与 reviewed build entry，并把 OpenAI SDK 隐式 retry 归零。最终只采用 format/full lint/精确 gate 的 GREEN 结果作为结论。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 2 首轮 GREEN 的 doc-key SHA 测试 oracle 错误
+
+**问题现象 / 如何检测**
+首轮 `make format` 与完整 `make lint` 通过，精确三文件 gate 得到 `1 failed, 40 passed, 1 warning`；唯一失败是 `policy-a` 的 `doc_key_sha256` 断言，测试硬编码 `a2ad5e…6abc`，实现按 UTF-8 原文计算得到 `c1f727…e4d8`。
+
+**关键证据 / 当前判断 / 根因**
+仓库 `src/rag/policy_reindex.py::_sha256_text` 的既有语义是 `sha256(value.encode("utf-8"))`；用有效项目入口复算 `policy-a` 也得到完整值 `sha256:c1f7278b77bb9eb3977b9d5373b60680c8bf81ae32ab0aebd7c16b4b9884e4d8`。这是新增 RED 测试的错误 oracle，不是 budget hash 实现漂移或 artifact tampering；失败发生于 deterministic temp root，没有外部状态副作用。
+
+**已做处理 / 剩余入口**
+将断言修正为仓库既有 UTF-8 SHA 规范值，随后重跑 `make format`、完整 `make lint` 与精确三文件套件转绿。后续 doc-key authority 继续复用同一 `_sha256_text` 语义，不引入第二种 canonicalization。

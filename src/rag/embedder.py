@@ -64,6 +64,11 @@ class EmbeddingService:
         self.batch_size = min(effective_batch_size, 10)
         self.max_retries = max_retries
         self._client: AsyncOpenAI | None = None
+        self._request_attempt_count = 0
+
+    @property
+    def request_attempt_count(self) -> int:
+        return self._request_attempt_count
 
     def _get_client(self) -> AsyncOpenAI:
         if self._client is None:
@@ -72,7 +77,7 @@ class EmbeddingService:
                 raise RuntimeError(
                     "DASHSCOPE_API_KEY not set. Provide api_key parameter or set the environment variable."
                 )
-            self._client = AsyncOpenAI(api_key=api_key, base_url=self._base_url)
+            self._client = AsyncOpenAI(api_key=api_key, base_url=self._base_url, max_retries=0)
         return self._client
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -134,6 +139,7 @@ class EmbeddingService:
         client = self._get_client()
         for attempt in range(self.max_retries):
             try:
+                self._request_attempt_count += 1
                 response = await client.embeddings.create(
                     model=self.model,
                     input=texts,

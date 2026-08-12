@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from sqlalchemy import select
 
 from src.db.models import EvidenceIdentityRollout
@@ -27,14 +28,28 @@ from src.rag.policy_reindex import (
     PolicyCorpusActivationReason,
     PolicyCorpusActivationRequest,
     PolicyReindexClaimRequest,
+    PolicyReindexError,
+    PolicyReindexFailureCode,
     PolicyReindexRunIdentity,
     PolicyReindexService,
 )
 from src.rag.policy_reindex_artifacts import (
+    CandidateBuildResultCode,
+    PolicyReindexImmutableArtifactV1,
+    build_policy_candidate_build_budget,
     build_policy_reindex_recovery_descriptor,
+    load_candidate_build_attempt,
+    load_policy_candidate_build_budget,
     load_policy_reindex_recovery_descriptor,
     load_policy_reindex_state,
+    policy_candidate_build_attempt_path,
+    policy_candidate_build_budget_path,
+    policy_candidate_build_result_path,
     policy_reindex_descriptor_path,
+    record_candidate_build_result_create_only,
+    require_candidate_build_budget_complete,
+    reserve_candidate_build_attempt,
+    write_policy_candidate_build_budget_create_only,
     write_policy_reindex_compat_identity_create_only,
     write_policy_reindex_recovery_descriptor_create_only,
     write_policy_reindex_state_create_only,
@@ -75,6 +90,8 @@ def _parse_args() -> argparse.Namespace:
     _add_reviewed_identity_args(claim_reviewed)
     recover_state = subcommands.add_parser("recover-state")
     _add_reviewed_identity_args(recover_state)
+    build_next_reviewed = subcommands.add_parser("build-next-reviewed")
+    _add_reviewed_identity_args(build_next_reviewed)
     validate_reviewed = subcommands.add_parser("validate-reviewed")
     _add_reviewed_identity_args(validate_reviewed)
 
@@ -225,12 +242,44 @@ def _reviewed_descriptor(args: argparse.Namespace):
     return load_policy_reindex_recovery_descriptor(path, root=args.artifact_root)
 
 
+def _ensure_reviewed_budget(args: argparse.Namespace, *, descriptor, owner):
+    budget = build_policy_candidate_build_budget(
+        descriptor=descriptor,
+        ordered_doc_keys=owner.ordered_doc_keys,
+        created_at=descriptor.sealed_at,
+    )
+    artifact = write_policy_candidate_build_budget_create_only(
+        budget,
+        descriptor=descriptor,
+        root=args.artifact_root,
+    )
+    return budget, artifact
+
+
+def _load_reviewed_budget(args: argparse.Namespace, *, descriptor):
+    path = policy_candidate_build_budget_path(
+        args.artifact_root,
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+    )
+    budget = load_policy_candidate_build_budget(
+        path,
+        descriptor=descriptor,
+        root=args.artifact_root,
+    )
+    return budget, PolicyReindexImmutableArtifactV1(path=path, sha256=budget.budget_payload_sha256)
+
+
 async def _claim_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     descriptor = _reviewed_descriptor(args)
     async with SessionLocal() as session:
         async with session.begin():
-            owner = await PolicyReindexService(session).claim_from_descriptor(descriptor)
+            service = PolicyReindexService(session)
+            owner = await service.claim_from_descriptor(descriptor)
+            if owner.state == "claimed":
+                owner = await service.resume(owner, now=descriptor.sealed_at)
     write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=args.artifact_root)
+    _ensure_reviewed_budget(args, descriptor=descriptor, owner=owner)
     return owner
 
 
@@ -239,11 +288,20 @@ async def _recover_state(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     async with SessionLocal() as session:
         async with session.begin():
             owner = await PolicyReindexService(session).recover_identity(descriptor)
-    write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=args.artifact_root)
+    state_artifact = write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=args.artifact_root)
+    budget, budget_artifact = _ensure_reviewed_budget(args, descriptor=descriptor, owner=owner)
+    _reconcile_committed_build(
+        args,
+        descriptor=descriptor,
+        owner=owner,
+        state_artifact=state_artifact,
+        budget=budget,
+        budget_artifact=budget_artifact,
+    )
     return owner
 
 
-def _load_latest_reviewed_state(args: argparse.Namespace, *, descriptor):
+def _latest_reviewed_state_artifact(args: argparse.Namespace, *, descriptor):
     state_root = (
         args.artifact_root / "tenants" / str(descriptor.tenant_id) / "runs" / str(descriptor.run_token) / "states"
     )
@@ -251,12 +309,195 @@ def _load_latest_reviewed_state(args: argparse.Namespace, *, descriptor):
     expected_names = [f"{ordinal:08d}.json" for ordinal in range(1, len(paths) + 1)]
     if [path.name for path in paths] != expected_names or not paths:
         raise RuntimeError("reindex_state_invalid")
-    return load_policy_reindex_state(paths[-1], descriptor=descriptor, root=args.artifact_root)
+    path = paths[-1]
+    owner = load_policy_reindex_state(path, descriptor=descriptor, root=args.artifact_root)
+    artifact = PolicyReindexImmutableArtifactV1(
+        path=path,
+        sha256="sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+    )
+    return owner, artifact
+
+
+def _load_latest_reviewed_state(args: argparse.Namespace, *, descriptor):
+    return _latest_reviewed_state_artifact(args, descriptor=descriptor)[0]
+
+
+def _reconcile_committed_build(
+    args: argparse.Namespace,
+    *,
+    descriptor,
+    owner: PolicyReindexRunIdentity,
+    state_artifact: PolicyReindexImmutableArtifactV1,
+    budget,
+    budget_artifact: PolicyReindexImmutableArtifactV1,
+) -> None:
+    if owner.next_document_index == 0:
+        return
+    document_index = owner.next_document_index - 1
+    for ordinal in range(budget.max_build_executions_per_document, 0, -1):
+        attempt_path = policy_candidate_build_attempt_path(
+            args.artifact_root,
+            tenant_id=descriptor.tenant_id,
+            run_token=descriptor.run_token,
+            document_index=document_index,
+            ordinal=ordinal,
+        )
+        if not attempt_path.exists():
+            continue
+        result_path = policy_candidate_build_result_path(
+            args.artifact_root,
+            tenant_id=descriptor.tenant_id,
+            run_token=descriptor.run_token,
+            document_index=document_index,
+            ordinal=ordinal,
+        )
+        if result_path.exists():
+            return
+        reservation = load_candidate_build_attempt(
+            attempt_path,
+            descriptor=descriptor,
+            budget=budget,
+            budget_artifact=budget_artifact,
+            root=args.artifact_root,
+        )
+        if (
+            reservation.document_index != document_index
+            or reservation.state_version + 1 != owner.state_version
+            or reservation.next_document_index + 1 != owner.next_document_index
+        ):
+            raise RuntimeError("build_recovery_state_mismatch")
+        record_candidate_build_result_create_only(
+            descriptor=descriptor,
+            owner=owner,
+            budget=budget,
+            budget_artifact=budget_artifact,
+            reservation=reservation,
+            root=args.artifact_root,
+            recorded_at=datetime.now(UTC),
+            result_code=CandidateBuildResultCode.SUCCESS,
+            provider_request_count=reservation.expected_batch_count,
+            post_state_artifact=state_artifact,
+        )
+        return
+
+
+def _safe_build_result_code(error: Exception) -> CandidateBuildResultCode:
+    if isinstance(error, (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError)):
+        return CandidateBuildResultCode.PROVIDER_TRANSIENT
+    if isinstance(error, PolicyReindexError):
+        if error.code is PolicyReindexFailureCode.CONFIG_DRIFT:
+            return CandidateBuildResultCode.CONFIG_ERROR
+        if error.code in {PolicyReindexFailureCode.PARITY_DRIFT, PolicyReindexFailureCode.PARITY_STALE}:
+            return CandidateBuildResultCode.PARITY_ERROR
+        if error.code in {
+            PolicyReindexFailureCode.SOURCE_MANIFEST_DRIFT,
+            PolicyReindexFailureCode.SOURCE_POINTER_DRIFT,
+            PolicyReindexFailureCode.SOURCE_SNAPSHOT_DRIFT,
+            PolicyReindexFailureCode.OBSOLETE_SOURCE,
+        }:
+            return CandidateBuildResultCode.SOURCE_ERROR
+        if error.code is PolicyReindexFailureCode.EMBEDDING_PROOF_FAILED:
+            return CandidateBuildResultCode.RESPONSE_ERROR
+        return CandidateBuildResultCode.PROJECTION_ERROR
+    if isinstance(error, RuntimeError) and str(error) == "embedding_response_invalid":
+        return CandidateBuildResultCode.RESPONSE_ERROR
+    if isinstance(error, RuntimeError) and str(error).startswith("DASHSCOPE_API_KEY not set"):
+        return CandidateBuildResultCode.PROVIDER_UNAVAILABLE
+    return CandidateBuildResultCode.PROJECTION_ERROR
+
+
+async def _build_next_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
+    descriptor = _reviewed_descriptor(args)
+    state_owner, state_artifact = _latest_reviewed_state_artifact(args, descriptor=descriptor)
+    budget, budget_artifact = _load_reviewed_budget(args, descriptor=descriptor)
+    reservation = None
+    embedder: EmbeddingService | None = None
+    assembler = PolicyEmbeddingInputAssembler()
+    now = datetime.now(UTC)
+    try:
+        async with SessionLocal() as session:
+            async with session.begin():
+                service = PolicyReindexService(session)
+                current = await service.recover_identity(descriptor, now=now)
+                if current != state_owner:
+                    raise RuntimeError("reindex_state_db_mismatch")
+                prepared = await service.prepare_candidate_build(
+                    current,
+                    assembler=assembler,
+                    provider_batch_size=int(descriptor.config_json["provider_max_batch_inputs"]),
+                    now=now,
+                )
+                reservation = reserve_candidate_build_attempt(
+                    descriptor=descriptor,
+                    owner=current,
+                    state_artifact=state_artifact,
+                    budget=budget,
+                    budget_artifact=budget_artifact,
+                    root=args.artifact_root,
+                    reserved_at=now,
+                    expected_input_count=prepared.expected_input_count,
+                    expected_batch_count=prepared.expected_batch_count,
+                )
+                embedder = EmbeddingService(
+                    model=str(descriptor.config_json["model"]),
+                    dimensions=int(descriptor.config_json["dimensions"]),
+                    batch_size=int(descriptor.config_json["provider_max_batch_inputs"]),
+                    max_retries=1,
+                )
+                owner = await service.build_next_document(
+                    current,
+                    assembler=assembler,
+                    embedder=embedder,
+                    now=now,
+                )
+    except Exception as error:
+        if reservation is not None:
+            result_code = _safe_build_result_code(error)
+            record_candidate_build_result_create_only(
+                descriptor=descriptor,
+                owner=state_owner,
+                budget=budget,
+                budget_artifact=budget_artifact,
+                reservation=reservation,
+                root=args.artifact_root,
+                recorded_at=datetime.now(UTC),
+                result_code=result_code,
+                provider_request_count=embedder.request_attempt_count if embedder is not None else 0,
+            )
+            raise RuntimeError(result_code.value) from None
+        raise
+    post_state_artifact = write_policy_reindex_state_create_only(
+        owner,
+        descriptor=descriptor,
+        root=args.artifact_root,
+    )
+    assert reservation is not None and embedder is not None
+    record_candidate_build_result_create_only(
+        descriptor=descriptor,
+        owner=owner,
+        budget=budget,
+        budget_artifact=budget_artifact,
+        reservation=reservation,
+        root=args.artifact_root,
+        recorded_at=datetime.now(UTC),
+        result_code=CandidateBuildResultCode.SUCCESS,
+        provider_request_count=embedder.request_attempt_count,
+        post_state_artifact=post_state_artifact,
+    )
+    return owner
 
 
 async def _validate_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     descriptor = _reviewed_descriptor(args)
     state_owner = _load_latest_reviewed_state(args, descriptor=descriptor)
+    budget, budget_artifact = _load_reviewed_budget(args, descriptor=descriptor)
+    require_candidate_build_budget_complete(
+        descriptor=descriptor,
+        owner=state_owner,
+        budget=budget,
+        budget_artifact=budget_artifact,
+        root=args.artifact_root,
+    )
     async with SessionLocal() as session:
         async with session.begin():
             service = PolicyReindexService(session)
@@ -424,6 +665,8 @@ async def _main() -> int:
         owner = await _claim_reviewed(args)
     elif args.command == "recover-state":
         owner = await _recover_state(args)
+    elif args.command == "build-next-reviewed":
+        owner = await _build_next_reviewed(args)
     elif args.command == "validate-reviewed":
         owner = await _validate_reviewed(args)
     elif args.command == "resume":

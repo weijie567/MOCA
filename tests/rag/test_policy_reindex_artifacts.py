@@ -236,7 +236,7 @@ def test_build_budget_is_descriptor_bound_fixed_at_two_and_reserves_before_execu
     assert budget.max_build_executions_per_document == 2
     assert first.ordinal == 1
     assert first.document_index == 0
-    assert first.doc_key_sha256 == "sha256:" + "a2ad5efbcf57f500e0bc5609fd96104d6251ff95660cadde5d0fe4b427ce6abc"
+    assert first.doc_key_sha256 == "sha256:" + "c1f7278b77bb9eb3977b9d5373b60680c8bf81ae32ab0aebd7c16b4b9884e4d8"
     assert first.state_version == owner.state_version
     assert first.expected_input_count == 15
     assert first.expected_batch_count == 2
@@ -296,6 +296,59 @@ def test_concurrent_first_reservation_has_one_winner_and_crash_consumes_ordinal(
             expected_input_count=1,
             expected_batch_count=1,
         )
+
+
+@pytest.mark.parametrize("boundary", ["stage_written", "stage_fsynced", "published", "parent_fsynced"])
+def test_reservation_fault_boundaries_never_publish_partial_bytes(tmp_path: Path, boundary: str) -> None:
+    descriptor, owner, state, budget, artifact = _write_budget(tmp_path)
+
+    def fail_at(current: str) -> None:
+        if current == boundary:
+            raise RuntimeError("fault")
+
+    with pytest.raises(RuntimeError, match="fault"):
+        reserve_candidate_build_attempt(
+            descriptor=descriptor,
+            owner=owner,
+            state_artifact=state,
+            budget=budget,
+            budget_artifact=artifact,
+            root=tmp_path,
+            reserved_at=NOW,
+            expected_input_count=1,
+            expected_batch_count=1,
+            fault_injector=fail_at,
+        )
+
+    path = policy_candidate_build_attempt_path(
+        tmp_path,
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+        document_index=0,
+        ordinal=1,
+    )
+    if path.exists():
+        loaded = load_candidate_build_attempt(
+            path,
+            descriptor=descriptor,
+            budget=budget,
+            budget_artifact=artifact,
+            root=tmp_path,
+        )
+        assert loaded.ordinal == 1
+    else:
+        recovered = reserve_candidate_build_attempt(
+            descriptor=descriptor,
+            owner=owner,
+            state_artifact=state,
+            budget=budget,
+            budget_artifact=artifact,
+            root=tmp_path,
+            reserved_at=NOW,
+            expected_input_count=1,
+            expected_batch_count=1,
+        )
+        assert recovered.ordinal == 1
 
 
 @pytest.mark.parametrize(

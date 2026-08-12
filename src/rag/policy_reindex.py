@@ -145,6 +145,15 @@ class PolicyReindexRunIdentity:
     parity_expires_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class PolicyCandidateBuildPreparation:
+    document_index: int
+    doc_key: str
+    state_version: int
+    expected_input_count: int
+    expected_batch_count: int
+
+
 class PolicyCorpusActivationReason(StrEnum):
     SELECTED_CUTOVER = "selected_cutover"
     ROLLBACK_PRIOR = "rollback_prior"
@@ -647,6 +656,52 @@ class PolicyReindexService:
             doc_key=doc_key,
             now=checked_at,
             bootstrap_counts=counts,
+        )
+
+    async def prepare_candidate_build(
+        self,
+        owner: PolicyReindexRunIdentity,
+        *,
+        assembler: Any,
+        provider_batch_size: int,
+        now: datetime | None = None,
+    ) -> PolicyCandidateBuildPreparation:
+        """Fix one document's input and provider-batch counts without provider access."""
+
+        checked_at = _as_utc(now or datetime.now(UTC))
+        row, manifest = await self._lock_validated(owner, now=checked_at)
+        if row.state != "building" or owner.next_document_index >= len(owner.ordered_doc_keys):
+            _fail(PolicyReindexFailureCode.STATE_MISMATCH)
+        if _assembler_fingerprint(assembler) != owner.config_fingerprint:
+            _fail(PolicyReindexFailureCode.CONFIG_DRIFT)
+        runtime_config = _assembler_runtime_config(assembler)
+        if (
+            type(provider_batch_size) is not int
+            or provider_batch_size <= 0
+            or provider_batch_size > int(runtime_config.provider_max_batch_inputs)
+        ):
+            _fail(PolicyReindexFailureCode.CONFIG_DRIFT)
+        document_index = owner.next_document_index
+        doc_key = owner.ordered_doc_keys[document_index]
+        manifest_document = _manifest_document(manifest, doc_key=doc_key)
+        snapshot = await self._load_snapshot(owner, manifest_document=manifest_document)
+        await self._assert_candidate_document_absent(owner, snapshot=snapshot)
+        assembled = assembler.assemble(
+            blocks=snapshot.blocks,
+            doc_key=snapshot.doc_key,
+            title=snapshot.title,
+            doc_type=snapshot.doc_type,
+            risk_level=snapshot.risk_level,
+        )
+        if not assembled:
+            _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+        self._verify_assembled_inputs(owner, assembler=assembler, assembled=assembled)
+        return PolicyCandidateBuildPreparation(
+            document_index=document_index,
+            doc_key=doc_key,
+            state_version=owner.state_version,
+            expected_input_count=len(assembled),
+            expected_batch_count=math.ceil(len(assembled) / provider_batch_size),
         )
 
     async def validate_candidate(
