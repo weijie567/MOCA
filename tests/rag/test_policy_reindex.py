@@ -959,6 +959,45 @@ async def test_recover_state_derives_only_v1_then_replays_exact_v2_without_db_mu
 
 
 @pytest.mark.asyncio
+async def test_recover_state_publishes_current_when_all_prior_states_are_contiguous(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout = await _seed_source_authority(session)
+    descriptor = _reviewed_descriptor(
+        tenant_id=tenant_id,
+        manifest=manifest,
+        source=source,
+        rollout=rollout,
+    )
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    service = PolicyReindexService(session)
+    claimed = await service.claim_from_descriptor(descriptor, now=descriptor.sealed_at)
+    building = await service.resume(claimed, now=descriptor.sealed_at)
+    await session.commit()
+    write_policy_reindex_state_create_only(claimed, descriptor=descriptor, root=tmp_path)
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
+
+    recovered = await reindex_cli._recover_state(_reviewed_args(tmp_path, descriptor=descriptor))
+
+    assert recovered == building
+    state_root = policy_reindex_state_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=descriptor.run_token,
+        state_version=1,
+    ).parent
+    assert [path.name for path in sorted(state_root.glob("*.json"))] == [
+        "00000001.json",
+        "00000002.json",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_claim_reviewed_refuses_historical_building_v2_without_v1(
     session: AsyncSession,
     test_engine,

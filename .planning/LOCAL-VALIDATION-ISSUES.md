@@ -23839,3 +23839,14 @@ fixture 改为直接对 descriptor file bytes 计算 SHA，canonical-root 调用
 
 **已做处理 / 剩余入口**
 已保留真实失败结论并继续使用 fresh GSD plan-checker与 Codex repository-backed adjudication核对修订。外部 clean verdict 标为 unavailable；若外部额度恢复，可重新执行同一只读 prompt补录。未因此放宽计划、跳过 blocker、执行 recover-state、调用 provider/A-B、修改 DB/pointer/history或写 live evidence。
+
+## 2026-08-12 — Phase 64.4 Plan 16 ordered claim-state recovery RED 与首轮 GREEN 错误码不一致
+
+**问题现象 / 如何检测**
+使用有效项目入口执行 Task1 Wave0，`make format` 与完整 `make lint` 通过，精确 suite 得到 `11 failed, 41 passed, 1 warning`；失败全部命中计划缺口：两个 identical-replay parent fsync、四个 claim v1/v2 publication boundary、受限 predecessor helper、历史 v2-only recover、claim拒绝缺 v1、lease/parity expiry。首轮实现后 gate 为 `1 failed, 51 passed`，唯一失败是实现 safe code `reindex_state_predecessor_invalid` 与 RED 锁定的 `reindex_initial_predecessor_invalid` 不一致。
+
+**关键证据 / 当前判断 / 根因**
+RED 失败来自计划 owner 尚未实现，不是 Python/PATH/PostgreSQL/provider 假失败；没有触碰 live artifact 或外部状态。首轮 GREEN 的单一失败是新实现错误码命名不一致，不影响拒绝行为，但会破坏 operator/test 的稳定 safe-code contract。补充自审又发现 v1 已连续、DB 已提交 v2但 v2 file 尚未发布的合法 crash 边界需要允许发布当前版本，不能把“当前文件缺失”误判成历史 gap。
+
+**已做处理 / 剩余入口**
+统一 safe code 为 `reindex_initial_predecessor_invalid`，并让 recover-state 在所有既有前驱连续时发布缺失的 current version，同时新增真实回归。最终 `make format`、完整 `make lint` 与精确 suite `53 passed, 1 warning`。下一入口是 Task2 fresh read-only preflight；只有 descriptor lease/parity 与 DB/zero-budget facts仍精确时才可补 live v1，否则必须零写入停止。

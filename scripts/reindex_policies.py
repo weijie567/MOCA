@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
@@ -46,6 +46,7 @@ from src.rag.policy_reindex_artifacts import (
     policy_candidate_build_budget_path,
     policy_candidate_build_result_path,
     policy_reindex_descriptor_path,
+    policy_reindex_state_path,
     record_candidate_build_result_create_only,
     require_candidate_build_budget_complete,
     reserve_candidate_build_attempt,
@@ -280,19 +281,96 @@ async def _claim_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     async with SessionLocal() as session:
         async with session.begin():
             service = PolicyReindexService(session)
-            owner = await service.claim_from_descriptor(descriptor)
-            if owner.state == "claimed":
-                owner = await service.resume(owner, now=descriptor.sealed_at)
+            claimed = await service.claim_from_descriptor(descriptor)
+    v1_path = policy_reindex_state_path(
+        args.artifact_root,
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+        state_version=1,
+    )
+    if claimed.state == "claimed" and claimed.state_version == 1 and claimed.next_document_index == 0:
+        write_policy_reindex_state_create_only(claimed, descriptor=descriptor, root=args.artifact_root)
+    elif not v1_path.exists():
+        raise RuntimeError("reindex_state_predecessor_missing")
+
+    async with SessionLocal() as session:
+        async with session.begin():
+            service = PolicyReindexService(session)
+            current = await service.recover_identity(descriptor, now=descriptor.sealed_at)
+            owner = await service.resume(current, now=descriptor.sealed_at)
     write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=args.artifact_root)
     _ensure_reviewed_budget(args, descriptor=descriptor, owner=owner)
     return owner
 
 
+def _derive_exact_initial_claim_predecessor(
+    current: PolicyReindexRunIdentity,
+    *,
+    canonical_v2: PolicyReindexRunIdentity,
+    descriptor,
+) -> PolicyReindexRunIdentity:
+    if (
+        current != canonical_v2
+        or current.tenant_id != descriptor.tenant_id
+        or current.run_token != descriptor.run_token
+        or current.state != "building"
+        or current.state_version != 2
+        or current.next_document_index != 0
+    ):
+        raise RuntimeError("reindex_initial_predecessor_invalid")
+    return replace(current, state="claimed", state_version=1)
+
+
 async def _recover_state(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     descriptor = _reviewed_descriptor(args)
+    checked_at = datetime.now(UTC)
+    if checked_at >= descriptor.lease_expires_at or checked_at >= descriptor.parity_expires_at:
+        raise RuntimeError("reindex_recovery_authority_expired")
     async with SessionLocal() as session:
         async with session.begin():
-            owner = await PolicyReindexService(session).recover_identity(descriptor)
+            owner = await PolicyReindexService(session).recover_identity(descriptor, now=checked_at)
+    v1_path = policy_reindex_state_path(
+        args.artifact_root,
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+        state_version=1,
+    )
+    v2_path = policy_reindex_state_path(
+        args.artifact_root,
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+        state_version=2,
+    )
+    if not v1_path.exists():
+        if v2_path.exists():
+            canonical_v2 = load_policy_reindex_state(
+                v2_path,
+                descriptor=descriptor,
+                root=args.artifact_root,
+            )
+            predecessor = _derive_exact_initial_claim_predecessor(
+                owner,
+                canonical_v2=canonical_v2,
+                descriptor=descriptor,
+            )
+            write_policy_reindex_state_create_only(
+                predecessor,
+                descriptor=descriptor,
+                root=args.artifact_root,
+            )
+        elif owner.state_version != 1:
+            raise RuntimeError("reindex_state_invalid")
+    elif owner.state_version > 1:
+        current_path = policy_reindex_state_path(
+            args.artifact_root,
+            tenant_id=descriptor.tenant_id,
+            run_token=descriptor.run_token,
+            state_version=owner.state_version,
+        )
+        last_existing_version = owner.state_version if current_path.exists() else owner.state_version - 1
+        expected = [f"{version:08d}.json" for version in range(1, last_existing_version + 1)]
+        if [path.name for path in sorted(v1_path.parent.glob("*.json"))] != expected:
+            raise RuntimeError("reindex_state_invalid")
     state_artifact = write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=args.artifact_root)
     budget, budget_artifact = _ensure_reviewed_budget(args, descriptor=descriptor, owner=owner)
     _reconcile_committed_build(

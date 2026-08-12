@@ -1212,6 +1212,7 @@ def _publish_canonical_bytes(
         staging_root.mkdir(exist_ok=True)
         if path.exists():
             if identical_replay and path.read_bytes() == payload:
+                _fsync_directory(path.parent)
                 return
             raise PolicyReindexArtifactError(conflict_code)
         descriptor, staging_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=staging_root)
@@ -1231,6 +1232,7 @@ def _publish_canonical_bytes(
         if identical_replay:
             try:
                 if path.read_bytes() == payload:
+                    _fsync_directory(path.parent)
                     return
             except OSError:
                 pass

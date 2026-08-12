@@ -29,11 +29,17 @@ state replay is idempotent; truncated or different bytes refuse.
    parity report. This is read-only against DB authority and does not claim a
    candidate.
 2. Run `claim-reviewed` with that root, tenant, and run token. It consumes the
-   descriptor verbatim; it cannot generate a replacement UUID or lease.
+   descriptor verbatim; it cannot generate a replacement UUID or lease. The
+   command commits and durably publishes exact `claimed/v1/index0`, then uses a
+   separate transaction to recover/resume and publish exact
+   `building/v2/index0`. A crash at either boundary re-enters the same run.
 3. If a process exits after a DB commit and before state publication, run
    `recover-state`. It locks only the exact tenant/run, requires one matching
    row plus all current source/evidence authority, and publishes the exact
-   current state without mutation or renewal.
+   current state without mutation or renewal. The one historical Plan 15 shape
+   (`building/v2/index0` with only canonical v2 present) may derive only its
+   field-identical `claimed/v1/index0` predecessor; no other missing history is
+   inferred. Lease or parity expiry refuses before any artifact write.
 4. `build-next-reviewed` requires the canonical descriptor, current state, and
    build budget. It reserves a per-document ordinal before constructing
    `EmbeddingService(max_retries=1)`. A crash consumes the ordinal. Ordinal 2
