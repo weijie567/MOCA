@@ -32,6 +32,33 @@ def test_embedding_service_uses_settings_api_key_before_environment(monkeypatch)
     client = service._get_client()
 
     assert client.api_key == "settings-key"
+    assert client.max_retries == 0
+
+
+@pytest.mark.asyncio
+async def test_embedding_service_owns_retries_outside_sdk(monkeypatch) -> None:
+    calls = 0
+
+    class _Embeddings:
+        async def create(self, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                raise RuntimeError("safe test failure")
+            return SimpleNamespace(
+                data=[SimpleNamespace(index=0, embedding=[1.0, 2.0])],
+                usage=SimpleNamespace(prompt_tokens=2, total_tokens=2),
+            )
+
+    async def no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("src.rag.embedder.asyncio.sleep", no_sleep)
+    service = EmbeddingService(api_key="test-key", dimensions=2, max_retries=3)
+    service._client = SimpleNamespace(embeddings=_Embeddings())  # type: ignore[assignment]
+
+    assert await service.embed_documents(["document"]) == [[1.0, 2.0]]
+    assert calls == 3
 
 
 @pytest.mark.asyncio

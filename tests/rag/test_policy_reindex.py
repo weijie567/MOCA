@@ -1031,6 +1031,26 @@ async def test_candidate_build_uses_only_sealed_database_snapshot_and_stays_invi
 
 
 @pytest.mark.asyncio
+async def test_reviewed_build_preparation_fixes_input_and_batch_counts_without_provider(
+    session: AsyncSession,
+) -> None:
+    service, assembler, owner, _, _, _ = await _claim_bound_candidate(session)
+
+    prepared = await service.prepare_candidate_build(
+        owner,
+        assembler=assembler,
+        provider_batch_size=10,
+        now=NOW,
+    )
+
+    assert prepared.document_index == 0
+    assert prepared.doc_key == "policy-a"
+    assert prepared.state_version == owner.state_version
+    assert prepared.expected_input_count == 1
+    assert prepared.expected_batch_count == 1
+
+
+@pytest.mark.asyncio
 async def test_interrupted_candidate_build_rolls_back_then_retries_without_duplicates(
     session: AsyncSession,
 ) -> None:

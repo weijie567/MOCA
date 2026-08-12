@@ -3,13 +3,20 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from uuid import UUID
 
 import pytest
 
 from src.rag.policy_reindex import PolicyReindexRunIdentity
 from src.rag.policy_reindex_artifacts import (
+    CandidateBuildResultCode,
     PolicyReindexArtifactError,
+    build_policy_candidate_build_budget,
+    load_candidate_build_attempt,
+    policy_candidate_build_attempt_path,
+    record_candidate_build_result_create_only,
+    reserve_candidate_build_attempt,
     build_policy_reindex_recovery_descriptor,
     load_policy_reindex_recovery_descriptor,
     load_policy_reindex_state,
@@ -17,6 +24,7 @@ from src.rag.policy_reindex_artifacts import (
     policy_reindex_state_path,
     write_policy_reindex_recovery_descriptor_create_only,
     write_policy_reindex_state_create_only,
+    write_policy_candidate_build_budget_create_only,
 )
 
 
@@ -189,3 +197,222 @@ def test_state_refuses_descriptor_or_identity_drift_before_publication(tmp_path:
         run_token=RUN_TOKEN,
         state_version=2,
     ).exists()
+
+
+def _write_budget(tmp_path: Path, *, owner: PolicyReindexRunIdentity | None = None):
+    descriptor = _descriptor()
+    resolved_owner = owner or _identity()
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    state = write_policy_reindex_state_create_only(resolved_owner, descriptor=descriptor, root=tmp_path)
+    budget = build_policy_candidate_build_budget(
+        descriptor=descriptor,
+        ordered_doc_keys=resolved_owner.ordered_doc_keys,
+        created_at=NOW,
+    )
+    artifact = write_policy_candidate_build_budget_create_only(
+        budget,
+        descriptor=descriptor,
+        root=tmp_path,
+    )
+    return descriptor, resolved_owner, state, budget, artifact
+
+
+def test_build_budget_is_descriptor_bound_fixed_at_two_and_reserves_before_execution(tmp_path: Path) -> None:
+    descriptor, owner, state, budget, artifact = _write_budget(tmp_path)
+
+    first = reserve_candidate_build_attempt(
+        descriptor=descriptor,
+        owner=owner,
+        state_artifact=state,
+        budget=budget,
+        budget_artifact=artifact,
+        root=tmp_path,
+        reserved_at=NOW,
+        expected_input_count=15,
+        expected_batch_count=2,
+    )
+
+    assert budget.schema_version == "policy_candidate_build_budget.v1"
+    assert budget.max_build_executions_per_document == 2
+    assert first.ordinal == 1
+    assert first.document_index == 0
+    assert first.doc_key_sha256 == "sha256:" + "a2ad5efbcf57f500e0bc5609fd96104d6251ff95660cadde5d0fe4b427ce6abc"
+    assert first.state_version == owner.state_version
+    assert first.expected_input_count == 15
+    assert first.expected_batch_count == 2
+    assert (
+        load_candidate_build_attempt(
+            policy_candidate_build_attempt_path(
+                tmp_path,
+                tenant_id=descriptor.tenant_id,
+                run_token=descriptor.run_token,
+                document_index=0,
+                ordinal=1,
+            ),
+            descriptor=descriptor,
+            budget=budget,
+            budget_artifact=artifact,
+            root=tmp_path,
+        )
+        == first
+    )
+
+
+def test_concurrent_first_reservation_has_one_winner_and_crash_consumes_ordinal(tmp_path: Path) -> None:
+    descriptor, owner, state, budget, artifact = _write_budget(tmp_path)
+
+    def reserve() -> object:
+        try:
+            return reserve_candidate_build_attempt(
+                descriptor=descriptor,
+                owner=owner,
+                state_artifact=state,
+                budget=budget,
+                budget_artifact=artifact,
+                root=tmp_path,
+                reserved_at=NOW,
+                expected_input_count=1,
+                expected_batch_count=1,
+            )
+        except PolicyReindexArtifactError as error:
+            return str(error)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: reserve(), range(2)))
+    winners = [item for item in outcomes if not isinstance(item, str)]
+    refusals = [item for item in outcomes if isinstance(item, str)]
+
+    assert len(winners) == 1
+    assert refusals == ["build_reservation_conflict"]
+    with pytest.raises(PolicyReindexArtifactError, match="build_retry_evidence_missing"):
+        reserve_candidate_build_attempt(
+            descriptor=descriptor,
+            owner=owner,
+            state_artifact=state,
+            budget=budget,
+            budget_artifact=artifact,
+            root=tmp_path,
+            reserved_at=NOW + timedelta(seconds=1),
+            expected_input_count=1,
+            expected_batch_count=1,
+        )
+
+
+@pytest.mark.parametrize(
+    ("result_code", "retry_allowed"),
+    [
+        (CandidateBuildResultCode.PROVIDER_UNAVAILABLE, True),
+        (CandidateBuildResultCode.PROVIDER_TRANSIENT, True),
+        (CandidateBuildResultCode.CONFIG_ERROR, False),
+        (CandidateBuildResultCode.PARITY_ERROR, False),
+        (CandidateBuildResultCode.SOURCE_ERROR, False),
+        (CandidateBuildResultCode.RESPONSE_ERROR, False),
+        (CandidateBuildResultCode.PROJECTION_ERROR, False),
+    ],
+)
+def test_second_ordinal_has_closed_safe_result_matrix(
+    tmp_path: Path,
+    result_code: CandidateBuildResultCode,
+    retry_allowed: bool,
+) -> None:
+    descriptor, owner, state, budget, artifact = _write_budget(tmp_path)
+    first = reserve_candidate_build_attempt(
+        descriptor=descriptor,
+        owner=owner,
+        state_artifact=state,
+        budget=budget,
+        budget_artifact=artifact,
+        root=tmp_path,
+        reserved_at=NOW,
+        expected_input_count=1,
+        expected_batch_count=1,
+    )
+    record_candidate_build_result_create_only(
+        descriptor=descriptor,
+        owner=owner,
+        budget=budget,
+        budget_artifact=artifact,
+        reservation=first,
+        root=tmp_path,
+        recorded_at=NOW + timedelta(seconds=1),
+        result_code=result_code,
+        provider_request_count=1 if "provider" in result_code.value else 0,
+    )
+
+    if retry_allowed:
+        second = reserve_candidate_build_attempt(
+            descriptor=descriptor,
+            owner=owner,
+            state_artifact=state,
+            budget=budget,
+            budget_artifact=artifact,
+            root=tmp_path,
+            reserved_at=NOW + timedelta(seconds=2),
+            expected_input_count=1,
+            expected_batch_count=1,
+        )
+        assert second.ordinal == 2
+        with pytest.raises(PolicyReindexArtifactError, match="build_budget_exhausted"):
+            reserve_candidate_build_attempt(
+                descriptor=descriptor,
+                owner=owner,
+                state_artifact=state,
+                budget=budget,
+                budget_artifact=artifact,
+                root=tmp_path,
+                reserved_at=NOW + timedelta(seconds=3),
+                expected_input_count=1,
+                expected_batch_count=1,
+            )
+    else:
+        with pytest.raises(PolicyReindexArtifactError, match="build_retry_not_allowed"):
+            reserve_candidate_build_attempt(
+                descriptor=descriptor,
+                owner=owner,
+                state_artifact=state,
+                budget=budget,
+                budget_artifact=artifact,
+                root=tmp_path,
+                reserved_at=NOW + timedelta(seconds=2),
+                expected_input_count=1,
+                expected_batch_count=1,
+            )
+
+
+def test_advanced_state_and_alternate_root_or_expiry_refuse_before_reservation(tmp_path: Path) -> None:
+    descriptor, owner, state, budget, artifact = _write_budget(tmp_path)
+    advanced = replace(owner, state_version=3, next_document_index=1)
+
+    refusals = (
+        (
+            {"owner": advanced},
+            "build_state_descriptor_mismatch",
+        ),
+        (
+            {"root": tmp_path / "alternate"},
+            "build_artifact_root_mismatch",
+        ),
+        (
+            {"reserved_at": descriptor.lease_expires_at},
+            "build_authority_expired",
+        ),
+        (
+            {"reserved_at": descriptor.parity_expires_at},
+            "build_authority_expired",
+        ),
+    )
+    for changes, code in refusals:
+        arguments = {
+            "descriptor": descriptor,
+            "owner": owner,
+            "state_artifact": state,
+            "budget": budget,
+            "budget_artifact": artifact,
+            "root": tmp_path,
+            "reserved_at": NOW,
+            "expected_input_count": 1,
+            "expected_batch_count": 1,
+        }
+        arguments.update(changes)
+        with pytest.raises(PolicyReindexArtifactError, match=code):
+            reserve_candidate_build_attempt(**arguments)
