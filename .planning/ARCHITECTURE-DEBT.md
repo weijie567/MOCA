@@ -2791,3 +2791,12 @@
 - **处理状态**：✅ 已修复验证。migration 改为遍历全部既有 tenant并把完整性核对从 `policy_documents` 驱动改为 `tenants LEFT JOIN`。runtime repository 新增 tenant advisory transaction lock 下的 idempotent empty bootstrap：仅在 manifest/corpus/rollout 全空时创建 revision-1 empty manifest、complete character corpus、epoch-1 rollout 与唯一 bootstrap history；已有 rollout原样保留，残缺 authority拒绝。ordinary ingestion在 parser/provider前调用，seed_demo复用同一 owner且允许 empty active projection。
 - **证据**：Phase64.4 review WR-01；`src/db/migrations/versions/030_phase64_4_token_corpora.py`、`src/repositories/policy_corpus_repo.py`、`src/rag/ingestion.py`、`scripts/seed_demo.py`、三组对应测试；static migration、真实 PostgreSQL migration、clean seed、empty first-ingest、concurrent first-ingest gates分别通过。
 - **剩余风险 / 继续入口**：initializer只创建 character-compatible empty authority，不改变已有 active config，也不推断/修补残缺历史。未运行 live ingestion、provider或 live DB mutation；Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 WR-02 — reviewed claim transaction B 使用 descriptor seal time 回填授权 ✅已修复验证
+
+- **子系统**：RAG policy reindex / recovery identity / lease-parity authorization。
+- **问题现象 / 根因**：`claim-reviewed` 的 transaction A 用当前时间 claim/commit，但 transaction B 把 `descriptor.sealed_at` 同时传给 `recover_identity` 与 `resume`；`recover_identity` 又只规范化后丢弃 `now`。authority 若在 A/B 之间到期，backdated timestamp仍可把 DB row推进 building/v2并发布 budget。
+- **影响**：不可续租的 lease或 provider parity 已失效后，reviewed composition仍能完成，后续 provider budget artifacts看似获合法授权。
+- **处理状态**：✅ 已修复验证。transaction A 及 v1 publication完成后，CLI重新采一个 current UTC instant；必须严格早于 lease/parity expiry才允许打开 transaction B，并把同一 instant传给 recovery/resume。`PolicyReindexService.recover_identity` 自身也对 lease/parity执行 `checked_at >= expiry`拒绝，不依赖 CLI防线。
+- **证据**：Phase64.4 review WR-02；`scripts/reindex_policies.py`、`src/rag/policy_reindex.py`、`tests/rag/test_policy_reindex.py`；A/B 间 lease equality fault证明 DB 保持 claimed/v1、仅 v1存在、v2/budget不存在、resume调用为0；service lease/parity expiry两条 gate均返回对应 safe code。
+- **剩余风险 / 继续入口**：该修复不续租、不改变 descriptor、不构造 provider，也未作用于已过期 live candidate。Plans18-20 仍未执行。

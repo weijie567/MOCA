@@ -454,7 +454,11 @@ class PolicyReindexService:
     ) -> PolicyReindexRunIdentity:
         """Recover one exact current row without renewal, transition, or creation."""
 
-        _ = _as_utc(now or datetime.now(UTC))
+        checked_at = _as_utc(now or datetime.now(UTC))
+        if checked_at >= _as_utc(descriptor.lease_expires_at):
+            _fail(PolicyReindexFailureCode.LEASE_EXPIRED)
+        if checked_at >= _as_utc(descriptor.parity_expires_at):
+            _fail(PolicyReindexFailureCode.PARITY_STALE)
         try:
             await self.evidence.lock_rollout(
                 expected_rollout_version=descriptor.expected_evidence_rollout_version,

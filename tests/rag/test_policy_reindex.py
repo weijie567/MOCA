@@ -911,6 +911,107 @@ async def test_reviewed_claim_fault_reentry_converges_to_one_row_and_contiguous_
         )
 
 
+@pytest.mark.asyncio
+async def test_reviewed_claim_expiry_between_transactions_stops_before_resume_v2_and_budget(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout = await _seed_source_authority(session)
+    checked_at = datetime.now(UTC)
+    descriptor = _reviewed_descriptor(
+        tenant_id=tenant_id,
+        manifest=manifest,
+        source=source,
+        rollout=rollout,
+        sealed_at=checked_at,
+        lease_expires_at=checked_at + timedelta(minutes=2),
+        parity_expires_at=checked_at + timedelta(hours=1),
+    )
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    await session.commit()
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
+    monkeypatch.setattr(reindex_cli, "_utc_now", lambda: descriptor.lease_expires_at)
+    resume_calls = 0
+    original_resume = PolicyReindexService.resume
+
+    async def record_resume(self, *args, **kwargs):
+        nonlocal resume_calls
+        resume_calls += 1
+        return await original_resume(self, *args, **kwargs)
+
+    monkeypatch.setattr(PolicyReindexService, "resume", record_resume)
+
+    with pytest.raises(RuntimeError, match="reindex_claim_authority_expired"):
+        await reindex_cli._claim_reviewed(_reviewed_args(tmp_path, descriptor=descriptor))
+
+    assert resume_calls == 0
+    assert policy_reindex_state_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=descriptor.run_token,
+        state_version=1,
+    ).exists()
+    assert not policy_reindex_state_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=descriptor.run_token,
+        state_version=2,
+    ).exists()
+    assert not policy_candidate_build_budget_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=descriptor.run_token,
+    ).exists()
+    async with session_factory() as verifier:
+        candidate = (
+            await verifier.execute(
+                select(PolicyCorpusVersion).where(
+                    PolicyCorpusVersion.tenant_id == tenant_id,
+                    PolicyCorpusVersion.run_token == descriptor.run_token,
+                )
+            )
+        ).scalar_one()
+        assert (candidate.state, candidate.state_version) == ("claimed", 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("expired_authority", "expected_code"),
+    [
+        ("lease", PolicyReindexFailureCode.LEASE_EXPIRED),
+        ("parity", PolicyReindexFailureCode.PARITY_STALE),
+    ],
+)
+async def test_recover_identity_enforces_current_lease_and_parity_authority(
+    session: AsyncSession,
+    expired_authority: str,
+    expected_code: PolicyReindexFailureCode,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout = await _seed_source_authority(session)
+    descriptor = _reviewed_descriptor(
+        tenant_id=tenant_id,
+        manifest=manifest,
+        source=source,
+        rollout=rollout,
+        sealed_at=NOW,
+        lease_expires_at=NOW + timedelta(minutes=5 if expired_authority == "parity" else 2),
+        parity_expires_at=NOW + timedelta(minutes=3),
+    )
+    service = PolicyReindexService(session)
+    await service.claim_from_descriptor(descriptor, now=NOW)
+    checked_at = descriptor.lease_expires_at if expired_authority == "lease" else descriptor.parity_expires_at
+
+    with pytest.raises(PolicyReindexError) as denied:
+        await service.recover_identity(descriptor, now=checked_at)
+
+    assert denied.value.code is expected_code
+
+
 def test_exact_initial_claim_predecessor_accepts_only_identical_building_v2_index0() -> None:
     descriptor = _reviewed_descriptor(
         tenant_id=uuid4(),

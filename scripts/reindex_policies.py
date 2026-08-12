@@ -174,6 +174,10 @@ def _require_canonical_reviewed_root(args: argparse.Namespace) -> Path:
     return canonical
 
 
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 async def _claim(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     now = datetime.now(UTC)
     config = load_embedding_tokenizer_config()
@@ -327,11 +331,14 @@ async def _claim_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     elif not v1_path.exists():
         raise RuntimeError("reindex_state_predecessor_missing")
 
+    checked_at = _utc_now()
+    if checked_at >= descriptor.lease_expires_at or checked_at >= descriptor.parity_expires_at:
+        raise RuntimeError("reindex_claim_authority_expired")
     async with SessionLocal() as session:
         async with session.begin():
             service = PolicyReindexService(session)
-            current = await service.recover_identity(descriptor, now=descriptor.sealed_at)
-            owner = await service.resume(current, now=descriptor.sealed_at)
+            current = await service.recover_identity(descriptor, now=checked_at)
+            owner = await service.resume(current, now=checked_at)
     write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=args.artifact_root)
     _ensure_reviewed_budget(args, descriptor=descriptor, owner=owner)
     return owner
