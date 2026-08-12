@@ -23938,3 +23938,14 @@ orchestrator 在 iteration 1 fixes后独占运行完整 suite，真实结果为 
 
 **已做处理 / 剩余入口**
 只在 `to_regclass('policy_corpus_rollouts') IS NULL` 的 staged migration seam启用revision025已有列的窄ORM projection，覆盖该历史 ingestion/backfill必需的job/current chunk/document version/chunk version；migration030存在时仍强制bootstrap、active scope与COW，current schema路径不变。目标两条最终 `2 passed, 11 warnings`，format/full lint PASS。其余9个失败按原分类继续修复；本code-fixer不再运行full suite，最终独占全量由orchestrator执行。
+
+## 2026-08-12 — Phase 64.4 iteration 2 — 六条检索/审批集成fixture缺少active corpus authority
+
+**问题现象 / 如何检测**
+独占full suite中的3条approval integration、1条Phase64.1 runtime safety、1条knowledge service与1条search回归可被精确复现：approval文件为`3 failed, 2 passed`，其余三条为`3 failed`。前四条chat payload缺少`approval_id`，knowledge canonical detail返回`canonical_content_missing`，search从`strong_evidence`退化为`no_evidence`。
+
+**关键证据 / 当前判断 / 根因**
+六条测试都只seed current `policy_documents`/`policy_chunks`（部分另有immutable versions），没有`policy_corpus_rollouts`指向的active character corpus及document/chunk bindings；Phase64.4 active projection正确fail closed，因此应修fixture而非放宽production authority。`tests/knowledge/test_hybrid_retrieval.py`已有正确的character corpus helper，但此前仅为文件私有且总是新建immutable version，无法直接复用已有binding的approval/search fixture。
+
+**已做处理 / 剩余入口**
+把既有helper提取为`tests/policy_corpus_helpers.py`共享fixture，并在建新immutable version前复用exact binding；mock graph、knowledge目标test与search seed完成后均建立active character corpus及tenant-scoped bindings。六条精确GREEN为`6 passed, 9 warnings`，原helper两条回归为`2 passed, 1 warning`。未修改production查询或authority规则；最终仍需由orchestrator独占full suite确认无遗漏。

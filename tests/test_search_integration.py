@@ -14,6 +14,7 @@ from src.platform.context_projections import project_to_knowledge_context
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.rag.versioning import build_policy_version_fingerprint
 from src.repositories.evidence_version_repo import EvidenceVersionRepository
+from tests.policy_corpus_helpers import bind_character_corpus
 
 
 SEARCH_EFFECTIVE_AT = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
@@ -100,6 +101,7 @@ async def _seed_policy_chunks(session: AsyncSession, tenant_id: uuid.UUID) -> No
     enabled = await repository.reconcile_and_enable_canonical_reads(
         expected_rollout_version=activated.rollout_version,
     )
+    await bind_character_corpus(session, tenant_id=tenant_id)
     await session.commit()
     assert enabled.canonical_reads_enabled is True
 

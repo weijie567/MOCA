@@ -2845,3 +2845,12 @@
 - **处理状态**：✅ 已修复验证。table existence为false时只启用包含revision025已有列的窄四表projection与Phase64.2全tenant head路径；table存在时仍走bootstrap、active scope、bindings/COW，未弱化当前active-config authority或tenant isolation。
 - **证据**：full suite `11 failed, 4864 passed, 4 skipped`中的两条Phase64.2 failures；`src/db/pre_token_corpus_models.py`、`src/rag/ingestion.py`、`src/repositories/evidence_version_repo.py`、`src/repositories/policy_corpus_repo.py`、目标integration test；精确GREEN `2 passed, 11 warnings`，full lint PASS。
 - **剩余风险 / 继续入口**：compat seam仅支持测试覆盖的revision025/028 ingestion/evidence rollout，不扩展delete/search或其他历史revision；current migration030+仍是唯一production authority。未运行live migration或写live DB，Plans18-20仍未执行。
+
+## 2026-08-12 — Phase 64.4 full-suite repair — legacy检索fixture未表达active corpus authority ✅已修复验证
+
+- **子系统**：RAG retrieval / canonical evidence / approval graph test fixtures。
+- **问题现象 / 根因**：六条真实DB集成测试只建立current document/chunk与部分immutable identity，未建立Phase64.4要求的active character corpus及bindings；active-scoped repository因此正确返回无evidence，连带高风险approval graph不再进入approval。
+- **影响**：测试fixture仍假设裸current rows具有读authority，无法验证当前active-corpus契约，并在full suite造成6条有效回归失败。
+- **处理状态**：✅ 已修复验证。提取既有character corpus test helper为共享fixture，exact immutable binding存在时复用，否则创建；三个seed入口显式建立tenant active rollout和document/chunk bindings，production fail-closed authority保持不变。
+- **证据**：Phase64.4 review iteration 2 full-suite repair；`tests/policy_corpus_helpers.py`、`tests/conftest.py`、`tests/knowledge/test_service.py`、`tests/test_search_integration.py`、`tests/knowledge/test_hybrid_retrieval.py`；六条精确GREEN `6 passed, 9 warnings`，helper原两条回归 `2 passed, 1 warning`。
+- **剩余风险 / 继续入口**：共享helper仅用于测试且一次建立一个tenant rollout；未向argparse/production注入绕过入口。最终独占full suite由orchestrator执行。
