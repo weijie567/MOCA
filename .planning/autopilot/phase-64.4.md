@@ -2,11 +2,11 @@
 phase: "64.4"
 status: running
 current_step: execute
-current_plan: "16"
+current_plan: "17"
 plan_review_loop: 6
 quota_waits: 0
-updated_at: "2026-08-12T11:13:35+08:00"
-next_command: "execute Plan16 deterministic ordered claim-state publication and exact candidate reconciliation"
+updated_at: "2026-08-12T11:52:00+08:00"
+next_command: "execute Plan17 deterministic manifest issuance and lease gate"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -48,7 +48,8 @@ next_command: "execute Plan16 deterministic ordered claim-state publication and 
 - Stage 5 recovery Plan 14 complete: canonical production recovery root, actual candidate-state/parity rehash, separate create-only recovery authorization and real pre-CAS enforcement committed in five atomic commits; full lint and 202 scoped tests passed with no live provider, DB, A-B slot/evidence or pointer/history side effect.
 - Stage 5 recovery Plan 15 stopped truthfully before its first build reservation/provider construction: the sole retained descriptor/run/candidate reached DB `building`, state version 2, document index 0, but only `states/00000002.json` was published while the canonical reader requires contiguous v1 first. Candidate attempts/results remain 0/0; canonical A-B manifest remains absent at 0/2; selection, authorization, activation, pointer/history and requirement completion remain zero.
 - A bounded 20-plan / 40-task recovery draft preserves Plan15 as the checked blocked checkpoint, keeps Plan16 only for deterministic future v1->v2 claim publication plus exact same-candidate v1 predecessor recovery, adds Plan17 for deterministic manifest issuance/current lease gating and a zero-side-effect refusal on the still-building candidate, moves same-candidate build/issuance/A-B to Plan18, activation/guard to Plan19 and docs/full regression to Plan20.
-- The Plan16-20 draft is not execution authority. Fresh GSD checker, external Claude review and Codex repository-backed adjudication are pending; no recovery command may run merely to race the remaining lease window.
+- Stage 5 recovery Plan16 complete: future claim publication is ordered v1 then v2 across separate transactions, exact predecessor recovery is building/v2/index0-only, identical replay fsyncs parent, and the retained candidate gained only canonical v1 with all budgets and DB authority unchanged.
+- Plans16-20 passed the fresh GSD checker and repository-backed Codex adjudication; external clean-review retries were unavailable because both providers returned quota errors and are recorded as unavailable, not as PASS. The reviewed plans are execution authority, while every absolute lease and zero-side-effect stop gate remains binding.
 
 ## Evidence
 

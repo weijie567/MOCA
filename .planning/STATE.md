@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: executing
-last_updated: "2026-08-12T03:13:35Z"
-last_activity: 2026-08-12 -- Phase 64.4 Plans16-20 passed clean GSD/Codex review after external repairs
+last_updated: "2026-08-12T03:52:00Z"
+last_activity: 2026-08-12 -- Phase 64.4 Plan 16 completed ordered claim-state recovery for the retained candidate
 progress:
   total_phases: 15
   completed_phases: 7
   total_plans: 63
-  completed_plans: 58
+  completed_plans: 59
   percent: 47
 ---
 
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 ## Current Position
 
 Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — EXECUTING
-Plan: 16 of 20 — deterministic claim-state publication and exact same-candidate recovery
-Status: Plans 01-14 complete; Plan 15 is a checked truthful blocked checkpoint with 0/2 tasks and no requirements completed; Plans16-20 are clean-reviewed and Plan16 is authorized.
-Last activity: 2026-08-12 -- Plans16-20 passed clean GSD/Codex review; external clean retry was unavailable due quota and is not represented as PASS.
-Next: Execute deterministic Plan16 ordered v1->v2 publication and exact same-candidate state reconciliation with zero provider/reservation/A-B/persistent-DB mutation.
+Plan: 17 of 20 — canonical live recovery manifest issuance and lease gate
+Status: Plans 01-16 complete/checkpointed; Plans17-20 are clean-reviewed and Plan17 is authorized.
+Last activity: 2026-08-12 -- Plan16 added exact v1 for the retained building/v2 candidate with zero provider/budget/DB side effect.
+Next: Implement deterministic canonical manifest issuance and current-time lease/parity gates, then prove the incomplete candidate cannot issue authority.
 After: Phase 65 follows Phase 64.4.
 
 Resume file: `.planning/autopilot/phase-64.4.md`

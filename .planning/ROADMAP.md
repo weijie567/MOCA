@@ -236,7 +236,7 @@ Plans:
 - [x] 64.4-13-PLAN.md — Crash-Safe Candidate Recovery And Build Budget (`depends_on: [64.4-12]`).
 - [x] 64.4-14-PLAN.md — Canonical Recovery Budget And Pre-CAS Authority (`depends_on: [64.4-13]`).
 - [x] 64.4-15-PLAN.md — Truthful blocked fresh-candidate checkpoint: one descriptor/candidate, state v2 only, zero provider/build/A-B attempts, and no requirements completed (`depends_on: [64.4-14]`).
-- [ ] 64.4-16-PLAN.md — Deterministic Claim-State Publication And Exact Candidate Recovery (`depends_on: [64.4-15]`).
+- [x] 64.4-16-PLAN.md — Deterministic Claim-State Publication And Exact Candidate Recovery (`depends_on: [64.4-15]`).
 - [ ] 64.4-17-PLAN.md — Canonical Live Recovery Manifest Issuance And Lease Gate (`depends_on: [64.4-16]`).
 - [ ] 64.4-18-PLAN.md — Resumed Same-Candidate Build And Canonical A-B Selection (`depends_on: [64.4-17]`).
 - [ ] 64.4-19-PLAN.md — Reversible Activation Drill And Closeout Guard (`depends_on: [64.4-18]`).
