@@ -8,11 +8,23 @@ run hashes, the unchanged live baseline proof, sealed Phase 64.3 inputs, the
 inactive candidate identity, the fresh tokenizer-parity identity, provider
 and model identity, and locked `512/384/48` chunk parameters.
 
-The manifest is written once at
-`recovery-budgets/phase64.4-plan12-live-selection-recovery/manifest.json`.
+Production has one authority namespace only: the checked repository's resolved
+`evaluation/reports/rag_token_chunk_ab/v1` root. The CLI rejects alternate,
+copied, outside, or symlinked `--output-root` values before loading a candidate
+or constructing a provider. Injectable temporary roots remain available only
+to unit-level store APIs.
+
+The manifest is written once at the canonical
+`recovery-budgets/phase64.4-plan12-live-selection-recovery/manifest.json`. It
+also binds the canonical repository-relative Plan 13 state path and exact state
+file/descriptor hashes, corpus/run/lease owner/state version/config identity,
+source manifest/current corpus/epoch, evidence rollout, and fresh parity
+run/file/config/probe/content identity.
 Immediately before a provider is constructed, the entry point atomically
-publishes `attempts/01.json` or `attempts/02.json` with the new run and
-selection UUIDs. The create-only hard-link is the reservation commit point.
+re-hashes and strict-loads that exact candidate state plus the fresh parity
+report, then publishes `attempts/01.json` or `attempts/02.json` with the new run
+and selection UUIDs and candidate-state SHA. The create-only hard-link is the
+reservation commit point.
 A crash after reservation consumes that ordinal; missing terminal evidence
 does not authorize the next ordinal. Concurrent writers get one winner and a
 refusal, never two attempts for one ordinal.

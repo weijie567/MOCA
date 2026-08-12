@@ -23784,3 +23784,14 @@ RED 原子提交为 `8d5d6cc4`；随后实现 descriptor-bound cap=2、create-on
 
 **已做处理 / 剩余入口**
 RED 将作为 Task1 原子测试提交保留；下一步实现仓库唯一 resolved root、manifest 完整 candidate identity 与 reservation 时 strict state/parity revalidation，并重跑同一 format/full lint/scoped gate。只有 GREEN 后才可进入 Task2 recovery authorization；本次失败不代表任何 live recovery 已执行。
+
+## 2026-08-12 — Phase 64.4 Plan 14 Task 1 首轮 GREEN fixture 混淆 descriptor payload hash 与文件 SHA
+
+**问题现象 / 如何检测**
+首轮 `make format` 与完整 `make lint` 通过，精确两文件 gate 得到 `17 failed, 146 passed, 1 warning`。16 个 reservation/retry 用例在 fresh parity 前统一报 `recovery_candidate_state_invalid`；另一个 canonical-root 用例因把 keyword-only `output_root` 当位置参数调用而报 `TypeError`。
+
+**关键证据 / 当前判断 / 根因**
+Plan13 descriptor artifact 的 `artifact.sha256` 是 descriptor 自校验 payload identity，不是整个 canonical descriptor 文件 bytes 的 SHA；Plan14 manifest 设计绑定的是实际 descriptor file SHA，但新增 fixture 错把前者传入，导致正确的 reserve-time rehash 全部 fail closed。keyword-only 失败同样是新增 test caller 误用。两项均发生于 `tmp_path` deterministic tests，未访问 provider/DB/live artifact；production实现没有放宽 hash或 path gate。
+
+**已做处理 / 剩余入口**
+fixture 改为直接对 descriptor file bytes 计算 SHA，canonical-root 调用显式传 `output_root=`；随后重跑 `make format`、完整 `make lint` 与相同 scoped gate，结果 `163 passed, 1 warning`。后续 authority artifact 测试须明确区分 schema self-hash 与 file-byte hash，不能用字段名相似代替真实 rehash oracle。

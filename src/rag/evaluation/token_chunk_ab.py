@@ -21,7 +21,16 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from src.rag.embedding_tokenizer import ProviderParityStatus
 from src.rag.evaluation.reporting import canonical_report_json_bytes, validate_safe_report_payload
+from src.rag.policy_reindex import PolicyReindexRunIdentity
+from src.rag.policy_reindex_artifacts import (
+    PolicyReindexArtifactError,
+    load_policy_reindex_recovery_descriptor,
+    load_policy_reindex_state,
+    policy_reindex_descriptor_path,
+)
+from src.rag.tokenizer_parity import TokenizerParityError, load_parity_report
 
 
 RUN_SCHEMA_VERSION = "rag_token_chunk_ab.v1"
@@ -47,6 +56,7 @@ _PLAN12_MAX_ATTEMPTS = 2
 _PLAN12_MAX_EMBEDDING_TOKENS = 512
 _PLAN12_TARGET_EMBEDDING_TOKENS = 384
 _PLAN12_OVERLAP_TOKENS = 48
+_CANONICAL_RECOVERY_RELATIVE_ROOT = Path("evaluation/reports/rag_token_chunk_ab/v1")
 _TRANSIENT_EXECUTION_RETRY = ("retrieval_resource_proof", "provider_request_failed")
 _UNAVAILABLE_RETRY_REASONS = {
     "provider_credentials_unavailable",
@@ -62,6 +72,45 @@ class _FrozenModel(BaseModel):
 
 class RecoveryAttemptRefused(ValueError):
     """A fail-closed refusal raised before provider construction or invocation."""
+
+
+def canonical_recovery_root(*, repository_root: Path) -> Path:
+    """Return the sole repository-owned production A-B authority root."""
+
+    try:
+        resolved_repository = repository_root.resolve(strict=True)
+    except OSError:
+        raise RecoveryAttemptRefused("repository_root_invalid") from None
+    if not resolved_repository.is_dir():
+        raise RecoveryAttemptRefused("repository_root_invalid")
+    return (resolved_repository / _CANONICAL_RECOVERY_RELATIVE_ROOT).resolve(strict=False)
+
+
+def require_canonical_recovery_root(*, output_root: Path, repository_root: Path) -> Path:
+    """Reject alternate, copied, outside, or symlinked production roots."""
+
+    try:
+        resolved_repository = repository_root.resolve(strict=True)
+    except OSError:
+        raise RecoveryAttemptRefused("repository_root_invalid") from None
+    expected_lexical = resolved_repository / _CANONICAL_RECOVERY_RELATIVE_ROOT
+    selected_lexical = output_root if output_root.is_absolute() else resolved_repository / output_root
+    selected_lexical = Path(os.path.abspath(selected_lexical))
+    if selected_lexical != expected_lexical:
+        raise RecoveryAttemptRefused("recovery_root_not_canonical")
+    try:
+        relative = selected_lexical.relative_to(resolved_repository)
+        current = resolved_repository
+        for part in relative.parts:
+            current = current / part
+            if current.exists() and current.is_symlink():
+                raise RecoveryAttemptRefused("recovery_root_not_canonical")
+        resolved = selected_lexical.resolve(strict=False)
+    except (OSError, ValueError):
+        raise RecoveryAttemptRefused("recovery_root_not_canonical") from None
+    if resolved != canonical_recovery_root(repository_root=resolved_repository):
+        raise RecoveryAttemptRefused("recovery_root_not_canonical")
+    return resolved
 
 
 class ExactRatioV1(_FrozenModel):
@@ -574,8 +623,19 @@ class ABRecoveryBudgetManifestV1(_FrozenModel):
     incumbent_corpus_version_id: UUID
     candidate_corpus_version_id: UUID
     candidate_run_token: UUID
+    candidate_lease_owner: str = Field(min_length=1, max_length=128)
+    candidate_state_version: int = Field(gt=0)
+    candidate_state_relative_path: str = Field(min_length=1, max_length=512)
     candidate_state_sha256: str = Field(pattern=_SHA256_PATTERN)
+    candidate_recovery_descriptor_sha256: str = Field(pattern=_SHA256_PATTERN)
+    candidate_config_schema_version: str = Field(min_length=1, max_length=128)
     candidate_config_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    candidate_source_manifest_revision_id: UUID
+    candidate_source_manifest_revision: int = Field(gt=0)
+    candidate_source_manifest_hash: str = Field(pattern=_SHA256_PATTERN)
+    candidate_source_active_corpus_version_id: UUID
+    candidate_source_rollout_epoch: int = Field(gt=0)
+    candidate_expected_evidence_rollout_version: int = Field(ge=0)
     provider_parity_run_id: UUID
     provider_parity_report_sha256: str = Field(pattern=_SHA256_PATTERN)
     provider_parity_config_fingerprint: str = Field(pattern=_SHA256_PATTERN)
@@ -602,6 +662,17 @@ class ABRecoveryBudgetManifestV1(_FrozenModel):
             raise ValueError("plan10_terminal_identity_mismatch")
         if self.incumbent_corpus_version_id == self.candidate_corpus_version_id:
             raise ValueError("recovery_candidate_not_isolated")
+        expected_state_path = (
+            Path("candidates")
+            / "tenants"
+            / str(self.tenant_id)
+            / "runs"
+            / str(self.candidate_run_token)
+            / "states"
+            / f"{self.candidate_state_version:08d}.json"
+        ).as_posix()
+        if self.candidate_state_relative_path != expected_state_path:
+            raise ValueError("recovery_candidate_state_path_invalid")
         if self.provider_parity_config_fingerprint != self.candidate_config_fingerprint:
             raise ValueError("recovery_parity_candidate_mismatch")
         expected = _sha256_payload(self.model_dump(mode="json", exclude={"manifest_payload_sha256"}))
@@ -644,6 +715,7 @@ class ABRecoveryAttemptReservationV1(_FrozenModel):
     reserved_at: datetime
     run_id: UUID
     selection_id: UUID
+    candidate_state_sha256: str = Field(pattern=_SHA256_PATTERN)
     prerequisite_state_sha256: str = Field(pattern=_SHA256_PATTERN)
     authority_reason_code: Literal[
         "initial_attempt_allowed",
@@ -679,8 +751,19 @@ def build_plan12_recovery_budget_manifest(
     incumbent_corpus_version_id: UUID,
     candidate_corpus_version_id: UUID,
     candidate_run_token: UUID,
+    candidate_lease_owner: str,
+    candidate_state_version: int,
+    candidate_state_relative_path: str,
     candidate_state_sha256: str,
+    candidate_recovery_descriptor_sha256: str,
+    candidate_config_schema_version: str,
     candidate_config_fingerprint: str,
+    candidate_source_manifest_revision_id: UUID,
+    candidate_source_manifest_revision: int,
+    candidate_source_manifest_hash: str,
+    candidate_source_active_corpus_version_id: UUID,
+    candidate_source_rollout_epoch: int,
+    candidate_expected_evidence_rollout_version: int,
     provider_parity_run_id: UUID,
     provider_parity_report_sha256: str,
     provider_parity_config_fingerprint: str,
@@ -700,8 +783,19 @@ def build_plan12_recovery_budget_manifest(
         "incumbent_corpus_version_id": incumbent_corpus_version_id,
         "candidate_corpus_version_id": candidate_corpus_version_id,
         "candidate_run_token": candidate_run_token,
+        "candidate_lease_owner": candidate_lease_owner,
+        "candidate_state_version": candidate_state_version,
+        "candidate_state_relative_path": candidate_state_relative_path,
         "candidate_state_sha256": candidate_state_sha256,
+        "candidate_recovery_descriptor_sha256": candidate_recovery_descriptor_sha256,
+        "candidate_config_schema_version": candidate_config_schema_version,
         "candidate_config_fingerprint": candidate_config_fingerprint,
+        "candidate_source_manifest_revision_id": candidate_source_manifest_revision_id,
+        "candidate_source_manifest_revision": candidate_source_manifest_revision,
+        "candidate_source_manifest_hash": candidate_source_manifest_hash,
+        "candidate_source_active_corpus_version_id": candidate_source_active_corpus_version_id,
+        "candidate_source_rollout_epoch": candidate_source_rollout_epoch,
+        "candidate_expected_evidence_rollout_version": candidate_expected_evidence_rollout_version,
         "provider_parity_run_id": provider_parity_run_id,
         "provider_parity_report_sha256": provider_parity_report_sha256,
         "provider_parity_config_fingerprint": provider_parity_config_fingerprint,
@@ -847,10 +941,120 @@ def evaluate_recovery_retry_authority(
     return _recovery_authority(True, "unavailable_prerequisite_change_retry_allowed", report.outcome)
 
 
+def load_recovery_candidate_state(
+    *,
+    manifest: ABRecoveryBudgetManifestV1,
+    root: Path,
+    candidate_state_path: Path,
+    provider_parity_report_path: Path,
+    checked_at: datetime,
+) -> PolicyReindexRunIdentity:
+    """Strict-load the exact candidate and fresh parity bound by a budget."""
+
+    expected_state_path = root / manifest.candidate_state_relative_path
+    if candidate_state_path.absolute() != expected_state_path.absolute() or _path_uses_symlink(
+        root=root, path=candidate_state_path
+    ):
+        raise RecoveryAttemptRefused("recovery_candidate_state_identity_mismatch")
+    try:
+        candidate_payload = candidate_state_path.read_bytes()
+    except OSError:
+        raise RecoveryAttemptRefused("recovery_candidate_state_invalid") from None
+    if _sha256_bytes(candidate_payload) != manifest.candidate_state_sha256:
+        raise RecoveryAttemptRefused("recovery_candidate_state_invalid")
+
+    candidates_root = root / "candidates"
+    descriptor_path = policy_reindex_descriptor_path(
+        candidates_root,
+        tenant_id=manifest.tenant_id,
+        run_token=manifest.candidate_run_token,
+    )
+    if _path_uses_symlink(root=root, path=descriptor_path):
+        raise RecoveryAttemptRefused("recovery_candidate_state_invalid")
+    try:
+        descriptor_payload = descriptor_path.read_bytes()
+        descriptor = load_policy_reindex_recovery_descriptor(descriptor_path, root=candidates_root)
+        identity = load_policy_reindex_state(
+            candidate_state_path,
+            descriptor=descriptor,
+            root=candidates_root,
+        )
+    except (OSError, PolicyReindexArtifactError):
+        raise RecoveryAttemptRefused("recovery_candidate_state_invalid") from None
+    if _sha256_bytes(descriptor_payload) != manifest.candidate_recovery_descriptor_sha256:
+        raise RecoveryAttemptRefused("recovery_candidate_state_invalid")
+    if not _candidate_identity_matches_manifest(identity, manifest=manifest):
+        raise RecoveryAttemptRefused("recovery_candidate_state_identity_mismatch")
+
+    if provider_parity_report_path.is_symlink():
+        raise RecoveryAttemptRefused("recovery_parity_invalid")
+    try:
+        parity_payload = provider_parity_report_path.read_bytes()
+        parity = load_parity_report(provider_parity_report_path)
+    except (OSError, TokenizerParityError):
+        raise RecoveryAttemptRefused("recovery_parity_invalid") from None
+    age = checked_at.astimezone(UTC) - parity.captured_at.astimezone(UTC)
+    if (
+        _sha256_bytes(parity_payload) != manifest.provider_parity_report_sha256
+        or parity.provider_parity_status is not ProviderParityStatus.PASSED
+        or parity.reason_code != "exact_match"
+        or not timedelta(0) <= age <= _FRESH_PARITY_MAXIMUM_AGE
+        or parity.run_id != manifest.provider_parity_run_id
+        or parity.config_fingerprint != manifest.provider_parity_config_fingerprint
+        or parity.probe_fixture_sha256 != manifest.provider_parity_probe_fixture_sha256
+        or parity.submitted_content_sha256 != manifest.provider_parity_submitted_content_sha256
+        or parity.provider != manifest.provider
+        or parity.model != manifest.embedding_model
+        or parity.dimensions != manifest.embedding_dimensions
+    ):
+        raise RecoveryAttemptRefused("recovery_parity_invalid")
+    return identity
+
+
+def _candidate_identity_matches_manifest(
+    identity: PolicyReindexRunIdentity,
+    *,
+    manifest: ABRecoveryBudgetManifestV1,
+) -> bool:
+    return (
+        identity.state == "complete"
+        and identity.tenant_id == manifest.tenant_id
+        and identity.corpus_version_id == manifest.candidate_corpus_version_id
+        and identity.run_token == manifest.candidate_run_token
+        and identity.lease_owner == manifest.candidate_lease_owner
+        and identity.state_version == manifest.candidate_state_version
+        and identity.config_schema_version == manifest.candidate_config_schema_version
+        and identity.config_fingerprint == manifest.candidate_config_fingerprint
+        and identity.provider_parity_report_hash == manifest.provider_parity_report_sha256
+        and identity.source_manifest_revision_id == manifest.candidate_source_manifest_revision_id
+        and identity.source_manifest_revision == manifest.candidate_source_manifest_revision
+        and identity.source_manifest_hash == manifest.candidate_source_manifest_hash
+        and identity.source_active_corpus_version_id == manifest.candidate_source_active_corpus_version_id
+        and identity.source_active_corpus_version_id == manifest.incumbent_corpus_version_id
+        and identity.source_rollout_epoch == manifest.candidate_source_rollout_epoch
+        and identity.expected_evidence_rollout_version == manifest.candidate_expected_evidence_rollout_version
+    )
+
+
+def _path_uses_symlink(*, root: Path, path: Path) -> bool:
+    try:
+        relative = path.absolute().relative_to(root.absolute())
+    except ValueError:
+        return True
+    current = root.absolute()
+    for part in relative.parts:
+        current = current / part
+        if current.exists() and current.is_symlink():
+            return True
+    return False
+
+
 def reserve_recovery_attempt(
     *,
     manifest_path: Path,
     root: Path,
+    candidate_state_path: Path,
+    provider_parity_report_path: Path,
     run_id: UUID,
     selection_id: UUID,
     reserved_at: datetime,
@@ -864,8 +1068,17 @@ def reserve_recovery_attempt(
     except (OSError, ValidationError, ValueError):
         raise RecoveryAttemptRefused("recovery_budget_invalid") from None
     expected_manifest_path = root / "recovery-budgets" / manifest.budget_id / "manifest.json"
-    if manifest_path.absolute() != expected_manifest_path.absolute():
+    if manifest_path.absolute() != expected_manifest_path.absolute() or _path_uses_symlink(
+        root=root, path=manifest_path
+    ):
         raise RecoveryAttemptRefused("recovery_budget_identity_mismatch")
+    load_recovery_candidate_state(
+        manifest=manifest,
+        root=root,
+        candidate_state_path=candidate_state_path,
+        provider_parity_report_path=provider_parity_report_path,
+        checked_at=reserved_at,
+    )
     if run_id in {item.run_id for item in PLAN10_TERMINAL_RUNS} or selection_id == PLAN10_FORBIDDEN_SELECTION_ID:
         raise RecoveryAttemptRefused("plan10_identity_reuse_forbidden")
     if not _valid_sha256(prerequisite_state_sha256):
@@ -873,6 +1086,8 @@ def reserve_recovery_attempt(
 
     manifest_sha256 = _sha256_bytes(manifest_payload)
     attempts_root = manifest_path.parent / "attempts"
+    if _path_uses_symlink(root=root, path=attempts_root):
+        raise RecoveryAttemptRefused("recovery_reservation_invalid")
     try:
         paths = sorted(attempts_root.glob("*.json")) if attempts_root.exists() else []
     except OSError:
@@ -918,6 +1133,7 @@ def reserve_recovery_attempt(
         "reserved_at": reserved_at,
         "run_id": run_id,
         "selection_id": selection_id,
+        "candidate_state_sha256": manifest.candidate_state_sha256,
         "prerequisite_state_sha256": prerequisite_state_sha256,
         "authority_reason_code": authority_reason,
     }

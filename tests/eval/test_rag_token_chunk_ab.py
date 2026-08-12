@@ -1135,7 +1135,7 @@ def _write_recovery_candidate_authority(
     )
     state_artifact = write_policy_reindex_state_create_only(state, descriptor=descriptor, root=candidates_root)
     return (
-        _CandidateStateArtifact(path=state_artifact.path, descriptor_sha256=descriptor_artifact.sha256),
+        _CandidateStateArtifact(path=state_artifact.path, descriptor_sha256=_file_sha256(descriptor_artifact.path)),
         parity_path,
         parity_report,
     )
@@ -1247,7 +1247,7 @@ def test_canonical_recovery_root_is_repository_relative_resolved_and_rejects_ali
     assert api["canonical_recovery_root"](repository_root=repository_root) == canonical.resolve()
     assert (
         api["require_canonical_recovery_root"](
-            canonical,
+            output_root=canonical,
             repository_root=repository_root,
         )
         == canonical.resolve()
@@ -1256,12 +1256,12 @@ def test_canonical_recovery_root_is_repository_relative_resolved_and_rejects_ali
     copied_root = tmp_path / "copied-v1"
     copied_root.mkdir()
     with pytest.raises(api["RecoveryAttemptRefused"], match="recovery_root_not_canonical"):
-        api["require_canonical_recovery_root"](copied_root, repository_root=repository_root)
+        api["require_canonical_recovery_root"](output_root=copied_root, repository_root=repository_root)
 
     alias = tmp_path / "canonical-alias"
     alias.symlink_to(canonical, target_is_directory=True)
     with pytest.raises(api["RecoveryAttemptRefused"], match="recovery_root_not_canonical"):
-        api["require_canonical_recovery_root"](alias, repository_root=repository_root)
+        api["require_canonical_recovery_root"](output_root=alias, repository_root=repository_root)
 
 
 @pytest.mark.asyncio

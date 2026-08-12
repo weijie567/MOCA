@@ -62,8 +62,11 @@ from src.rag.evaluation.token_chunk_ab import (
     TerminalABRunV1,
     build_candidate_observation_from_retrieval,
     build_terminal_ab_run,
+    load_recovery_budget_manifest,
+    load_recovery_candidate_state,
     reserve_recovery_attempt,
     reserve_then_create_provider,
+    require_canonical_recovery_root,
     write_execution_error_bundle_create_only,
     write_selection_create_only,
     write_terminal_run_create_only,
@@ -80,13 +83,13 @@ from src.rag.tokenizer_parity import TokenizerParityError, require_fresh_provide
 from src.repositories.policy_corpus_repo import PolicyCorpusRepository, PolicyCorpusUnavailable
 from src.repositories.rag_evaluation_round_repo import FORMAT_PARITY_TENANT_ID
 from scripts.eval_rag_format_parity import _database_prerequisites
-from scripts.reindex_policies import _load_identity as _load_reindex_identity
 
 
 DEFAULT_MANIFEST = Path("evaluation/rag_sources/format_parity_manifest.jsonl")
 DEFAULT_GOLD = Path("evaluation/golden/rag_format_parity_gold.json")
 DEFAULT_BASELINE = Path("evaluation/reports/rag_format_parity/v1/baseline.json")
 DEFAULT_OUTPUT_ROOT = Path("evaluation/reports/rag_token_chunk_ab/v1")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 OWNER_MARKER = "moca.rag_token_chunk_ab.v1"
 PROVIDER_RUNTIME_IDENTITY = "dashscope_openai_compatible.v1"
 COST_BASIS_VERSION = "dashscope_text_embedding_v4_cost.v1"
@@ -238,20 +241,19 @@ async def run_full_provider_ab(
     before_provider_call: Callable[[], ABRecoveryAttemptReservationV1],
 ) -> tuple[TerminalABRunV1, ABSelectionBindingV1 | None, SafeRoleFailureV1 | None]:
     generated_at = datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC)
-    candidate_identity: PolicyReindexRunIdentity | None = None
+    candidate_identity: PolicyReindexRunIdentity | None = getattr(args, "_verified_candidate_identity", None)
     try:
-        candidate_identity = _load_reindex_identity(args.candidate_state)
-    except Exception:
-        return (
-            _terminal_without_observations(
-                args,
-                outcome="execution_error",
-                stage="execution",
-                reason_code="candidate_state_invalid",
-            ),
-            None,
-            _shared_preflight_failure(args, reason_code="candidate_state_invalid"),
-        )
+        if candidate_identity is None:
+            manifest = load_recovery_budget_manifest(args.recovery_budget_manifest)
+            candidate_identity = load_recovery_candidate_state(
+                manifest=manifest,
+                root=args.output_root,
+                candidate_state_path=args.candidate_state,
+                provider_parity_report_path=args.parity_report,
+                checked_at=generated_at,
+            )
+    except (OSError, RecoveryAttemptRefused, ValueError):
+        raise RecoveryAttemptRefused("recovery_candidate_state_invalid") from None
 
     incumbent_corpus_id = candidate_identity.source_active_corpus_version_id
     candidate_corpus_id = candidate_identity.corpus_version_id
@@ -756,11 +758,28 @@ def _shared_preflight_failure(
 async def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
+        args.output_root = require_canonical_recovery_root(
+            output_root=args.output_root,
+            repository_root=REPOSITORY_ROOT,
+        )
+        manifest = load_recovery_budget_manifest(args.recovery_budget_manifest)
+        expected_manifest_path = args.output_root / "recovery-budgets" / manifest.budget_id / "manifest.json"
+        if args.recovery_budget_manifest.absolute() != expected_manifest_path.absolute():
+            raise RecoveryAttemptRefused("recovery_budget_identity_mismatch")
+        args._verified_candidate_identity = load_recovery_candidate_state(
+            manifest=manifest,
+            root=args.output_root,
+            candidate_state_path=args.candidate_state,
+            provider_parity_report_path=args.parity_report,
+            checked_at=datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC),
+        )
         report, binding, safe_failure = await run_full_provider_ab(
             args,
             before_provider_call=lambda: reserve_recovery_attempt(
                 manifest_path=args.recovery_budget_manifest,
                 root=args.output_root,
+                candidate_state_path=args.candidate_state,
+                provider_parity_report_path=args.parity_report,
                 run_id=args.run_id,
                 selection_id=args.selection_id,
                 reserved_at=datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC),
