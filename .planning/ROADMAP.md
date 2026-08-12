@@ -234,7 +234,7 @@ Plans:
 - [x] 64.4-11-PLAN.md — Role Failure Provenance And Safe Diagnostic Artifacts (`depends_on: [64.4-10]`).
 - [x] 64.4-12-PLAN.md — Guarded Recovery Budget And Fresh-Parity Checkpoint (`depends_on: [64.4-11]`).
 - [x] 64.4-13-PLAN.md — Crash-Safe Candidate Recovery And Build Budget (`depends_on: [64.4-12]`).
-- [ ] 64.4-14-PLAN.md — Canonical Recovery Budget And Pre-CAS Authority (`depends_on: [64.4-13]`).
+- [x] 64.4-14-PLAN.md — Canonical Recovery Budget And Pre-CAS Authority (`depends_on: [64.4-13]`).
 - [ ] 64.4-15-PLAN.md — Fresh-Parity Candidate Rebuild And Live Selection (`depends_on: [64.4-14]`).
 - [ ] 64.4-16-PLAN.md — Reversible Activation Drill And Closeout Guard (`depends_on: [64.4-15]`).
 - [ ] 64.4-17-PLAN.md — Final Documentation Ledgers And Regression Closeout (`depends_on: [64.4-16]`).

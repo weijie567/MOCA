@@ -4,8 +4,8 @@ status: running
 current_step: execute
 plan_review_loop: 6
 quota_waits: 0
-updated_at: "2026-08-12T09:27:29+08:00"
-next_command: "execute Plan14 deterministic canonical recovery budget and pre-CAS authority"
+updated_at: "2026-08-12T10:04:07+08:00"
+next_command: "execute Plan15 bounded fresh candidate rebuild and live selection"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -44,6 +44,7 @@ next_command: "execute Plan14 deterministic canonical recovery budget and pre-CA
 - The repaired recovery expands to 17 plans/34 tasks: Plan13 adds descriptor/recover-state/atomic state and per-document build budgets without live calls; Plan14 canonicalizes A-B root/candidate reservation and adds recovery authorization enforced before CAS; Plan15 performs bounded live rebuild/selection; Plan16 activation/guard; Plan17 closeout.
 - Clean authority repair re-review passed: fresh GSD checker and external Claude both returned no blocker or warning; Codex independently accepted the repository-backed results and authorized execution from Plan13.
 - Stage 5 recovery Plan 13 complete: fixed descriptor/recover-state, atomic state publication, descriptor-bound per-document cap=2 provider budget and single MOCA retry authority committed in five atomic commits; full lint and 45 focused tests passed with no live provider, candidate, DB, pointer/history or A-B side effect.
+- Stage 5 recovery Plan 14 complete: canonical production recovery root, actual candidate-state/parity rehash, separate create-only recovery authorization and real pre-CAS enforcement committed in five atomic commits; full lint and 202 scoped tests passed with no live provider, DB, A-B slot/evidence or pointer/history side effect.
 
 ## Evidence
 
@@ -61,4 +62,4 @@ next_command: "execute Plan14 deterministic canonical recovery budget and pre-CA
 
 ## Last Failure
 
-No A-B slot was consumed. Plan13 passed; Plan14 must still make the A-B root/selection lineage canonical and enforce recovery authorization before CAS before Plan15 may rebuild or invoke the provider.
+No A-B slot was consumed. Plans13-14 passed; Plan15 may now perform only the reviewed one-candidate build and canonical cap=2 A-B selection flow, with no activation until a real authorization exists.
