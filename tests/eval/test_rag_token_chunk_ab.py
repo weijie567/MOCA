@@ -47,6 +47,7 @@ def _api():
         ExactRatioV1,
         PLAN10_TERMINAL_RUNS,
         PLAN12_RECOVERY_BUDGET_ID,
+        RecoveryLiveAuthorityProofV1,
         RecoveryAttemptRefused,
         TerminalABRunV1,
         build_plan12_recovery_budget_manifest,
@@ -54,6 +55,7 @@ def _api():
         canonical_recovery_root,
         evaluate_exact_gates,
         evaluate_recovery_retry_authority,
+        issue_canonical_recovery_budget_manifest,
         load_execution_error_bundle,
         load_recovery_attempt_reservation,
         load_recovery_authorization,
@@ -96,6 +98,7 @@ def _api():
         "ExactRatioV1": ExactRatioV1,
         "PLAN10_TERMINAL_RUNS": PLAN10_TERMINAL_RUNS,
         "PLAN12_RECOVERY_BUDGET_ID": PLAN12_RECOVERY_BUDGET_ID,
+        "RecoveryLiveAuthorityProofV1": RecoveryLiveAuthorityProofV1,
         "RecoveryAttemptRefused": RecoveryAttemptRefused,
         "TerminalABRunV1": TerminalABRunV1,
         "build_plan12_recovery_budget_manifest": build_plan12_recovery_budget_manifest,
@@ -103,6 +106,7 @@ def _api():
         "canonical_recovery_root": canonical_recovery_root,
         "evaluate_exact_gates": evaluate_exact_gates,
         "evaluate_recovery_retry_authority": evaluate_recovery_retry_authority,
+        "issue_canonical_recovery_budget_manifest": issue_canonical_recovery_budget_manifest,
         "load_execution_error_bundle": load_execution_error_bundle,
         "load_recovery_attempt_reservation": load_recovery_attempt_reservation,
         "load_recovery_authorization": load_recovery_authorization,
@@ -1072,6 +1076,8 @@ class _CandidateStateArtifact:
 
 def _write_recovery_candidate_authority(
     tmp_path: Path,
+    *,
+    state: str = "complete",
 ) -> tuple[_CandidateStateArtifact, Path, object]:
     from datetime import timedelta
 
@@ -1165,9 +1171,9 @@ def _write_recovery_candidate_authority(
         generation_name=descriptor.generation_name,
         lease_owner=descriptor.lease_owner,
         lease_expires_at=descriptor.lease_expires_at,
-        state="complete",
+        state=state,
         state_version=7,
-        next_document_index=3,
+        next_document_index=3 if state == "complete" else 0,
         ordered_doc_keys=("policy-a", "policy-b", "policy-c"),
         config_schema_version=descriptor.config_schema_version,
         config_fingerprint=descriptor.config_fingerprint,
@@ -1186,6 +1192,39 @@ def _write_recovery_candidate_authority(
         _CandidateStateArtifact(path=state_artifact.path, descriptor_sha256=_file_sha256(descriptor_artifact.path)),
         parity_path,
         parity_report,
+    )
+
+
+def _live_authority_proof(candidate_state_path: Path):
+    from src.rag.policy_reindex_artifacts import (
+        load_policy_reindex_recovery_descriptor,
+        load_policy_reindex_state,
+        policy_reindex_descriptor_path,
+    )
+
+    candidates_root = candidate_state_path.parents[5]
+    descriptor_path = policy_reindex_descriptor_path(
+        candidates_root,
+        tenant_id=TENANT_ID,
+        run_token=UUID("64300000-0000-4000-8000-000000000014"),
+    )
+    descriptor = load_policy_reindex_recovery_descriptor(descriptor_path, root=candidates_root)
+    identity = load_policy_reindex_state(candidate_state_path, descriptor=descriptor, root=candidates_root)
+    return _api()["RecoveryLiveAuthorityProofV1"](
+        tenant_id=identity.tenant_id,
+        incumbent_corpus_version_id=identity.source_active_corpus_version_id,
+        candidate_corpus_version_id=identity.corpus_version_id,
+        candidate_run_token=identity.run_token,
+        candidate_lease_owner=identity.lease_owner,
+        candidate_state_version=identity.state_version,
+        source_manifest_revision_id=identity.source_manifest_revision_id,
+        source_manifest_revision=identity.source_manifest_revision,
+        source_manifest_hash=identity.source_manifest_hash,
+        source_rollout_epoch=identity.source_rollout_epoch,
+        expected_evidence_rollout_version=identity.expected_evidence_rollout_version,
+        deterministic_rebuild_sha256="sha256:" + "d" * 64,
+        complete_projection_proved=True,
+        sealed_inputs_proved=True,
     )
 
 
@@ -1819,3 +1858,133 @@ def test_recovery_authorization_refuses_noncanonical_or_fabricated_lineage(
                 selection_path=lineage.selection.json_path,
                 checked_at=GENERATED_AT,
             )
+
+
+def test_canonical_recovery_budget_issuance_requires_complete_live_authority_and_reconciles(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    candidate_state, parity_path, _ = _write_recovery_candidate_authority(tmp_path)
+    proof = _live_authority_proof(candidate_state.path)
+
+    issued = api["issue_canonical_recovery_budget_manifest"](
+        root=tmp_path,
+        candidate_state_path=candidate_state.path,
+        provider_parity_report_path=parity_path,
+        checked_at=GENERATED_AT,
+        live_authority=proof,
+    )
+    before = issued.path.read_bytes()
+    reconciled = api["issue_canonical_recovery_budget_manifest"](
+        root=tmp_path,
+        candidate_state_path=candidate_state.path,
+        provider_parity_report_path=parity_path,
+        checked_at=GENERATED_AT,
+        live_authority=proof,
+    )
+
+    assert reconciled == issued
+    assert reconciled.path.read_bytes() == before
+    assert reconciled.path == tmp_path / "recovery-budgets" / api["PLAN12_RECOVERY_BUDGET_ID"] / "manifest.json"
+    assert not (issued.path.parent / "attempts").exists()
+
+
+def test_canonical_recovery_budget_refuses_incomplete_candidate_and_expired_authority(
+    tmp_path: Path,
+) -> None:
+    from src.rag.policy_reindex_artifacts import load_policy_reindex_recovery_descriptor
+
+    api = _api()
+    incomplete_root = tmp_path / "incomplete"
+    candidate_state, parity_path, _ = _write_recovery_candidate_authority(incomplete_root, state="building")
+    with pytest.raises(api["RecoveryAttemptRefused"], match="recovery_candidate_incomplete"):
+        api["issue_canonical_recovery_budget_manifest"](
+            root=incomplete_root,
+            candidate_state_path=candidate_state.path,
+            provider_parity_report_path=parity_path,
+            checked_at=GENERATED_AT,
+            live_authority=_live_authority_proof(candidate_state.path),
+        )
+    assert not (incomplete_root / "recovery-budgets").exists()
+
+    current_root = tmp_path / "current"
+    candidate_state, parity_path, _ = _write_recovery_candidate_authority(current_root)
+    descriptor_path = candidate_state.path.parents[1] / "descriptor.json"
+    descriptor = load_policy_reindex_recovery_descriptor(descriptor_path, root=current_root / "candidates")
+    with pytest.raises(api["RecoveryAttemptRefused"], match="recovery_authority_expired"):
+        api["issue_canonical_recovery_budget_manifest"](
+            root=current_root,
+            candidate_state_path=candidate_state.path,
+            provider_parity_report_path=parity_path,
+            checked_at=descriptor.lease_expires_at,
+            live_authority=_live_authority_proof(candidate_state.path),
+        )
+    assert not (current_root / "recovery-budgets").exists()
+
+
+def test_reservation_and_provider_boundary_require_current_authority(tmp_path: Path) -> None:
+    api = _api()
+    candidate_state, parity_path, _ = _write_recovery_candidate_authority(tmp_path)
+    issued = api["issue_canonical_recovery_budget_manifest"](
+        root=tmp_path,
+        candidate_state_path=candidate_state.path,
+        provider_parity_report_path=parity_path,
+        checked_at=GENERATED_AT,
+        live_authority=_live_authority_proof(candidate_state.path),
+    )
+    manifest = api["load_recovery_budget_manifest"](issued.path)
+    from src.rag.policy_reindex_artifacts import load_policy_reindex_recovery_descriptor
+
+    descriptor = load_policy_reindex_recovery_descriptor(
+        candidate_state.path.parents[1] / "descriptor.json",
+        root=tmp_path / "candidates",
+    )
+    with pytest.raises(api["RecoveryAttemptRefused"], match="recovery_authority_expired"):
+        api["reserve_recovery_attempt"](
+            manifest_path=issued.path,
+            root=tmp_path,
+            candidate_state_path=candidate_state.path,
+            provider_parity_report_path=parity_path,
+            run_id=uuid4(),
+            selection_id=uuid4(),
+            reserved_at=descriptor.lease_expires_at,
+            prerequisite_state_sha256="sha256:" + "6" * 64,
+        )
+    assert not (issued.path.parent / "attempts").exists()
+
+    provider_calls = 0
+
+    def provider_factory():
+        nonlocal provider_calls
+        provider_calls += 1
+        return object()
+
+    with pytest.raises(api["RecoveryAttemptRefused"], match="recovery_authority_expired"):
+        api["reserve_then_create_provider"](
+            reserve=lambda: SimpleNamespace(ordinal=1),
+            require_current_authority=lambda: (_ for _ in ()).throw(
+                api["RecoveryAttemptRefused"]("recovery_authority_expired")
+            ),
+            provider_factory=provider_factory,
+        )
+    assert provider_calls == 0
+    assert manifest.max_attempts == 2
+
+
+def test_issue_recovery_budget_cli_has_no_operator_authority_timestamp() -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+
+    args = ab_cli.parse_args(
+        [
+            "issue-recovery-budget",
+            "--candidate-state",
+            "candidate.json",
+            "--parity-report",
+            "parity.json",
+            "--output-root",
+            str(ab_cli.DEFAULT_OUTPUT_ROOT),
+        ]
+    )
+    assert args.command == "issue-recovery-budget"
+    assert not hasattr(args, "checked_at")
+    assert not hasattr(args, "generated_at")
