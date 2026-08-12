@@ -8,6 +8,7 @@ from uuid import UUID
 
 import pytest
 
+from src.rag import policy_reindex_artifacts
 from src.rag.policy_reindex import PolicyReindexRunIdentity
 from src.rag.policy_reindex_artifacts import (
     CandidateBuildResultCode,
@@ -148,6 +149,63 @@ def test_state_publication_is_atomic_idempotent_and_conflict_closed(tmp_path: Pa
         write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=tmp_path)
     with pytest.raises(PolicyReindexArtifactError, match="state_invalid"):
         load_policy_reindex_state(first.path, descriptor=descriptor, root=tmp_path)
+
+
+def test_identical_state_replay_fsyncs_parent_before_return(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor = _descriptor()
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    owner = _identity()
+    state = write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=tmp_path)
+    fsynced: list[Path] = []
+    original_fsync = policy_reindex_artifacts._fsync_directory
+
+    def record_fsync(path: Path) -> None:
+        fsynced.append(path)
+        original_fsync(path)
+
+    monkeypatch.setattr(policy_reindex_artifacts, "_fsync_directory", record_fsync)
+
+    replay = write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=tmp_path)
+
+    assert replay == state
+    assert state.path.parent in fsynced
+
+
+def test_identical_state_file_exists_race_fsyncs_parent_before_return(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor = _descriptor()
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    owner = _identity()
+    state_path = policy_reindex_state_path(
+        tmp_path,
+        tenant_id=TENANT_ID,
+        run_token=RUN_TOKEN,
+        state_version=owner.state_version,
+    )
+    fsynced: list[Path] = []
+    original_fsync = policy_reindex_artifacts._fsync_directory
+
+    def record_fsync(path: Path) -> None:
+        fsynced.append(path)
+        original_fsync(path)
+
+    def lose_link_race(source: Path, target: Path) -> None:
+        Path(target).write_bytes(Path(source).read_bytes())
+        raise FileExistsError
+
+    monkeypatch.setattr(policy_reindex_artifacts, "_fsync_directory", record_fsync)
+    monkeypatch.setattr(policy_reindex_artifacts.os, "link", lose_link_race)
+
+    artifact = write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=tmp_path)
+
+    assert artifact.path == state_path
+    assert load_policy_reindex_state(state_path, descriptor=descriptor, root=tmp_path) == owner
+    assert state_path.parent in fsynced
 
 
 @pytest.mark.parametrize("boundary", ["stage_written", "stage_fsynced", "published", "parent_fsynced"])

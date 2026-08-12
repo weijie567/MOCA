@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+from argparse import Namespace
 import asyncio
 import hashlib
 import json
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from scripts import reindex_policies as reindex_cli
 from src.db.models import (
     CorpusBlockBinding,
     CorpusChunkBinding,
@@ -30,6 +33,9 @@ from src.rag.parsers.base import ParsedBlock
 from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.rag.policy_reindex_artifacts import (
     build_policy_reindex_recovery_descriptor,
+    load_policy_reindex_state,
+    policy_candidate_build_budget_path,
+    policy_reindex_state_path,
     write_policy_reindex_recovery_descriptor_create_only,
     write_policy_reindex_state_create_only,
 )
@@ -182,6 +188,82 @@ def _claim_request(
         source_rollout_epoch=rollout.rollout_epoch,
         expected_evidence_rollout_version=11,
     )
+
+
+def _reviewed_descriptor(
+    *,
+    tenant_id: UUID,
+    manifest: PolicyCorpusManifestRevision,
+    source: PolicyCorpusVersion,
+    rollout: PolicyCorpusRollout,
+    sealed_at: datetime | None = None,
+    lease_expires_at: datetime | None = None,
+    parity_expires_at: datetime | None = None,
+):
+    checked_at = sealed_at or datetime.now(UTC)
+    run_token = uuid4()
+    return build_policy_reindex_recovery_descriptor(
+        sealed_at=checked_at,
+        tenant_id=tenant_id,
+        run_token=run_token,
+        generation_name=f"token.v1:{run_token.hex}",
+        lease_owner="reviewed-worker",
+        lease_expires_at=lease_expires_at or checked_at + timedelta(hours=2),
+        config_schema_version="embedding_tokenizer.v1",
+        config_json={
+            "max_embedding_tokens": 512,
+            "overlap_tokens": 48,
+            "target_embedding_tokens": 384,
+        },
+        config_fingerprint=TOKEN_CONFIG_FINGERPRINT,
+        parity_report_sha256=PARITY_REPORT_HASH,
+        parity_config_fingerprint=TOKEN_CONFIG_FINGERPRINT,
+        parity_probe_fixture_sha256="sha256:" + "4" * 64,
+        parity_submitted_content_sha256="sha256:" + "5" * 64,
+        parity_captured_at=checked_at - timedelta(hours=1),
+        parity_expires_at=parity_expires_at or checked_at + timedelta(hours=23),
+        source_manifest_revision_id=manifest.id,
+        source_manifest_revision=manifest.revision,
+        source_manifest_hash=manifest.manifest_hash,
+        source_active_corpus_version_id=source.id,
+        source_rollout_epoch=rollout.rollout_epoch,
+        expected_evidence_rollout_version=11,
+    )
+
+
+def _reviewed_args(root: Path, *, descriptor) -> Namespace:
+    return Namespace(
+        artifact_root=root,
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+    )
+
+
+def _identity_for_descriptor(descriptor, **changes: object) -> PolicyReindexRunIdentity:
+    owner = PolicyReindexRunIdentity(
+        corpus_version_id=uuid4(),
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+        generation_name=descriptor.generation_name,
+        lease_owner=descriptor.lease_owner,
+        lease_expires_at=descriptor.lease_expires_at,
+        state="building",
+        state_version=2,
+        next_document_index=0,
+        ordered_doc_keys=("policy-a", "policy-b"),
+        config_schema_version=descriptor.config_schema_version,
+        config_fingerprint=descriptor.config_fingerprint,
+        provider_parity_report_hash=descriptor.parity_report_sha256,
+        source_manifest_revision_id=descriptor.source_manifest_revision_id,
+        source_manifest_revision=descriptor.source_manifest_revision,
+        source_manifest_hash=descriptor.source_manifest_hash,
+        source_active_corpus_version_id=descriptor.source_active_corpus_version_id,
+        source_rollout_epoch=descriptor.source_rollout_epoch,
+        expected_evidence_rollout_version=descriptor.expected_evidence_rollout_version,
+        parity_captured_at=descriptor.parity_captured_at,
+        parity_expires_at=descriptor.parity_expires_at,
+    )
+    return replace(owner, **changes)
 
 
 def _parsed_block(doc_key: str, *, block_index: int = 0, text: str | None = None) -> ParsedBlock:
@@ -703,6 +785,263 @@ async def test_recover_state_closes_every_claim_build_validate_commit_publicatio
     assert recovered_complete.corpus_version_id == claimed.corpus_version_id
     assert recovered_complete.run_token == claimed.run_token
     assert recovered_complete.state_version == 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("fault_version", "fault_after_publish"),
+    [(1, False), (1, True), (2, False), (2, True)],
+)
+async def test_reviewed_claim_fault_reentry_converges_to_one_row_and_contiguous_v1_v2(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault_version: int,
+    fault_after_publish: bool,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout = await _seed_source_authority(session)
+    descriptor = _reviewed_descriptor(
+        tenant_id=tenant_id,
+        manifest=manifest,
+        source=source,
+        rollout=rollout,
+    )
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    await session.commit()
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
+    original_write = reindex_cli.write_policy_reindex_state_create_only
+    faulted = False
+
+    def fault_once(owner, **kwargs):
+        nonlocal faulted
+        matches = not faulted and owner.state_version == fault_version
+        if matches and not fault_after_publish:
+            faulted = True
+            raise RuntimeError("injected claim publication fault")
+        artifact = original_write(owner, **kwargs)
+        if matches and fault_after_publish:
+            faulted = True
+            raise RuntimeError("injected claim publication fault")
+        return artifact
+
+    monkeypatch.setattr(reindex_cli, "write_policy_reindex_state_create_only", fault_once)
+    args = _reviewed_args(tmp_path, descriptor=descriptor)
+
+    with pytest.raises(RuntimeError, match="injected claim publication fault"):
+        await reindex_cli._claim_reviewed(args)
+    owner = await reindex_cli._claim_reviewed(args)
+
+    assert faulted is True
+    assert (owner.state, owner.state_version, owner.next_document_index) == ("building", 2, 0)
+    state_root = policy_reindex_state_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=descriptor.run_token,
+        state_version=1,
+    ).parent
+    assert [path.name for path in sorted(state_root.glob("*.json"))] == [
+        "00000001.json",
+        "00000002.json",
+    ]
+    claimed = load_policy_reindex_state(
+        state_root / "00000001.json",
+        descriptor=descriptor,
+        root=tmp_path,
+    )
+    building = load_policy_reindex_state(
+        state_root / "00000002.json",
+        descriptor=descriptor,
+        root=tmp_path,
+    )
+    assert (claimed.state, claimed.state_version, claimed.next_document_index) == ("claimed", 1, 0)
+    assert building == owner
+    async with session_factory() as verifier:
+        assert (
+            await verifier.scalar(
+                select(func.count())
+                .select_from(PolicyCorpusVersion)
+                .where(
+                    PolicyCorpusVersion.tenant_id == tenant_id,
+                    PolicyCorpusVersion.run_token == descriptor.run_token,
+                )
+            )
+            == 1
+        )
+
+
+def test_exact_initial_claim_predecessor_accepts_only_identical_building_v2_index0() -> None:
+    descriptor = _reviewed_descriptor(
+        tenant_id=uuid4(),
+        manifest=type("Manifest", (), {"id": uuid4(), "revision": 7, "manifest_hash": "sha256:" + "e" * 64})(),
+        source=type("Source", (), {"id": uuid4()})(),
+        rollout=type("Rollout", (), {"rollout_epoch": 11})(),
+    )
+    current = _identity_for_descriptor(descriptor)
+
+    predecessor = reindex_cli._derive_exact_initial_claim_predecessor(
+        current,
+        canonical_v2=current,
+        descriptor=descriptor,
+    )
+
+    assert predecessor == replace(current, state="claimed", state_version=1)
+    for drifted in (
+        replace(current, state_version=3),
+        replace(current, next_document_index=1),
+        replace(current, state="built"),
+        replace(current, state="validating"),
+        replace(current, state="complete"),
+        replace(current, run_token=uuid4()),
+        replace(current, corpus_version_id=uuid4()),
+        replace(current, config_fingerprint="sha256:" + "6" * 64),
+        replace(current, provider_parity_report_hash="sha256:" + "7" * 64),
+        replace(current, source_manifest_hash="sha256:" + "8" * 64),
+        replace(current, expected_evidence_rollout_version=12),
+    ):
+        with pytest.raises(RuntimeError, match="reindex_initial_predecessor_invalid"):
+            reindex_cli._derive_exact_initial_claim_predecessor(
+                current,
+                canonical_v2=drifted,
+                descriptor=descriptor,
+            )
+
+
+@pytest.mark.asyncio
+async def test_recover_state_derives_only_v1_then_replays_exact_v2_without_db_mutation(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout = await _seed_source_authority(session)
+    descriptor = _reviewed_descriptor(
+        tenant_id=tenant_id,
+        manifest=manifest,
+        source=source,
+        rollout=rollout,
+    )
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    service = PolicyReindexService(session)
+    claimed = await service.claim_from_descriptor(descriptor, now=descriptor.sealed_at)
+    building = await service.resume(claimed, now=descriptor.sealed_at)
+    await session.commit()
+    v2 = write_policy_reindex_state_create_only(building, descriptor=descriptor, root=tmp_path)
+    v2_bytes = v2.path.read_bytes()
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
+
+    recovered = await reindex_cli._recover_state(_reviewed_args(tmp_path, descriptor=descriptor))
+
+    v1_path = policy_reindex_state_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=descriptor.run_token,
+        state_version=1,
+    )
+    predecessor = load_policy_reindex_state(v1_path, descriptor=descriptor, root=tmp_path)
+    assert predecessor == replace(building, state="claimed", state_version=1)
+    assert recovered == building
+    assert v2.path.read_bytes() == v2_bytes
+    async with session_factory() as verifier:
+        row = (
+            await verifier.execute(
+                select(PolicyCorpusVersion).where(
+                    PolicyCorpusVersion.tenant_id == tenant_id,
+                    PolicyCorpusVersion.run_token == descriptor.run_token,
+                )
+            )
+        ).scalar_one()
+        assert (row.state, row.state_version, row.next_document_index) == ("building", 2, 0)
+
+
+@pytest.mark.asyncio
+async def test_claim_reviewed_refuses_historical_building_v2_without_v1(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout = await _seed_source_authority(session)
+    descriptor = _reviewed_descriptor(
+        tenant_id=tenant_id,
+        manifest=manifest,
+        source=source,
+        rollout=rollout,
+    )
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    service = PolicyReindexService(session)
+    claimed = await service.claim_from_descriptor(descriptor, now=descriptor.sealed_at)
+    building = await service.resume(claimed, now=descriptor.sealed_at)
+    await session.commit()
+    write_policy_reindex_state_create_only(building, descriptor=descriptor, root=tmp_path)
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
+
+    with pytest.raises(RuntimeError, match="reindex_state_predecessor_missing"):
+        await reindex_cli._claim_reviewed(_reviewed_args(tmp_path, descriptor=descriptor))
+
+    assert not policy_reindex_state_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=descriptor.run_token,
+        state_version=1,
+    ).exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expired_authority", ["lease", "parity"])
+async def test_recover_state_rechecks_internal_time_before_any_artifact_write(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expired_authority: str,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout = await _seed_source_authority(session)
+    checked_at = datetime.now(UTC)
+    sealed_at = checked_at - timedelta(minutes=2)
+    descriptor = _reviewed_descriptor(
+        tenant_id=tenant_id,
+        manifest=manifest,
+        source=source,
+        rollout=rollout,
+        sealed_at=sealed_at,
+        lease_expires_at=(
+            checked_at - timedelta(minutes=1) if expired_authority == "lease" else checked_at + timedelta(minutes=30)
+        ),
+        parity_expires_at=(
+            checked_at - timedelta(minutes=1) if expired_authority == "parity" else checked_at + timedelta(hours=1)
+        ),
+    )
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    service = PolicyReindexService(session)
+    claimed = await service.claim_from_descriptor(descriptor, now=sealed_at)
+    building = await service.resume(claimed, now=sealed_at)
+    await session.commit()
+    write_policy_reindex_state_create_only(building, descriptor=descriptor, root=tmp_path)
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
+
+    with pytest.raises(RuntimeError, match="reindex_recovery_authority_expired"):
+        await reindex_cli._recover_state(_reviewed_args(tmp_path, descriptor=descriptor))
+
+    assert not policy_reindex_state_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=descriptor.run_token,
+        state_version=1,
+    ).exists()
+    assert not policy_candidate_build_budget_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=descriptor.run_token,
+    ).exists()
 
 
 @pytest.mark.asyncio
