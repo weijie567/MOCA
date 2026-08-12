@@ -380,9 +380,176 @@ def test_canonical_ab_envelope_enumerates_every_provider_call_site() -> None:
     assert envelope.provider_request_envelope.maximum_request_count == (126 + envelope.ingestion_request_count)
     assert len(set(envelope.provider_request_envelope.ordered_call_sites)) == 142
     assert "max_retries=0" in inspect.getsource(EmbeddingService._get_client)
-    constructor_source = inspect.getsource(ab_cli.run_full_provider_ab)
+    constructor_source = inspect.getsource(ab_cli.main)
     assert "max_retries=CANONICAL_AB_OUTER_ATTEMPTS" in constructor_source
     assert "batch_size=CANONICAL_AB_PROVIDER_BATCH_SIZE" in constructor_source
+
+
+def test_terminal_ab_result_cannot_reserve_ordinal_two() -> None:
+    from src.rag.evaluation.token_chunk_ab import canonical_ab_result_code
+    from src.rag.provider_execution_authority import RETRYABLE_RESULT_CODES
+
+    api = _api()
+    selected = _selected_run()
+    candidate_failed = api["build_terminal_ab_run"](
+        run_id=RUN_ID,
+        generated_at=GENERATED_AT,
+        inputs=_inputs(),
+        runtime=_runtime(),
+        parity=_parity(),
+        incumbent=_observation(candidate=False),
+        candidate=_observation(candidate=True, quality=_quality(hit_5=(40, 45))),
+        hard_proofs=_proofs(),
+    )
+
+    assert selected.outcome == "selected_pass"
+    assert candidate_failed.outcome == "candidate_failed"
+    assert canonical_ab_result_code(selected) not in RETRYABLE_RESULT_CODES
+    assert canonical_ab_result_code(candidate_failed) not in RETRYABLE_RESULT_CODES
+
+
+@pytest.mark.asyncio
+async def test_persisted_selected_pass_binds_db_result_lineage(tmp_path: Path) -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+    from src.rag.evaluation.contracts import load_format_parity_contract
+    from src.rag.evaluation.token_chunk_ab import (
+        CanonicalABExecutionService,
+        build_canonical_ab_request_envelope,
+    )
+    from src.rag.provider_execution_authority import (
+        ProviderExecutionReservationViewV1,
+        ProviderExecutionResultCode,
+        ProviderExecutionResultViewV1,
+    )
+
+    dataset = load_format_parity_contract(
+        ab_cli.DEFAULT_MANIFEST,
+        ab_cli.DEFAULT_GOLD,
+        repository_root=ab_cli.REPOSITORY_ROOT,
+    )
+    envelope = build_canonical_ab_request_envelope(
+        dataset=dataset,
+        incumbent_assembler=ab_cli._character_incumbent(),
+        candidate_assembler=ab_cli._token_candidate(),
+    )
+    selected = _selected_run()
+    expected_binding = _api()["ABSelectionBindingV1"](
+        selection_id=SELECTION_ID,
+        tenant_id=TENANT_ID,
+        candidate_corpus_version_id=CANDIDATE_CORPUS_ID,
+        candidate_run_token=UUID("64300000-0000-4000-8000-000000000014"),
+        candidate_lease_owner="phase64.5-plan04",
+        source_manifest_hash="sha256:" + "4" * 64,
+    )
+    owner = SimpleNamespace(
+        tenant_id=TENANT_ID,
+        run_token=UUID("64300000-0000-4000-8000-000000000014"),
+        corpus_version_id=CANDIDATE_CORPUS_ID,
+        source_active_corpus_version_id=INCUMBENT_CORPUS_ID,
+        state_version=7,
+        config_fingerprint="sha256:" + "c" * 64,
+        provider_parity_report_hash=selected.parity.report_sha256,
+        source_manifest_revision_id=UUID("64300000-0000-4000-8000-000000000015"),
+        source_manifest_hash="sha256:" + "4" * 64,
+        source_rollout_epoch=11,
+        expected_evidence_rollout_version=13,
+        lease_expires_at=GENERATED_AT,
+    )
+    events: list[str] = []
+    recorded = None
+
+    class Authority:
+        async def require_current_promotion(self):
+            events.append("promotion")
+
+        async def reserve_and_commit(self, request):
+            events.append("reserve_commit")
+            assert request.purpose.value == "canonical_ab"
+            assert request.authority_id == UUID("64300000-0000-4000-8000-000000000099")
+            assert request.request_envelope == envelope.provider_request_envelope
+            return ProviderExecutionReservationViewV1(
+                **request.model_dump(),
+                reservation_id=UUID("64300000-0000-4000-8000-000000000098"),
+                tenant_id=TENANT_ID,
+                reserved_at=GENERATED_AT,
+            )
+
+        async def recheck_dispatch(self, reservation):
+            events.append("dispatch_recheck")
+            return reservation
+
+        async def record_result(self, request):
+            nonlocal recorded
+            recorded = request
+            events.append("result_commit")
+            return ProviderExecutionResultViewV1(
+                **request.model_dump(),
+                tenant_id=TENANT_ID,
+                request_limit=envelope.provider_request_envelope.maximum_request_count,
+                completed_at=GENERATED_AT,
+            )
+
+        async def reconcile_projection(self, **kwargs):
+            events.append("projection")
+            return SimpleNamespace(**kwargs)
+
+    async def require_shared_root(**kwargs):
+        events.append("shared_root")
+        assert kwargs["owner"] is owner
+
+    async def run(_provider):
+        events.append("provider")
+        return (
+            selected,
+            expected_binding,
+            envelope.provider_request_envelope.maximum_request_count,
+            ProviderExecutionResultCode.SUCCESS,
+        )
+
+    def persist_terminal(report, binding, reservation, result_id):
+        assert report == selected
+        assert binding == expected_binding
+        assert reservation.reservation_id == UUID("64300000-0000-4000-8000-000000000098")
+        assert isinstance(result_id, UUID)
+        events.append("terminal_selection_authorization")
+        return {
+            "terminal_run_hash": "sha256:" + "1" * 64,
+            "terminal_report_hash": "sha256:" + "2" * 64,
+            "selection_decision_hash": "sha256:" + "3" * 64,
+            "activation_authorization_hash": "sha256:" + "4" * 64,
+        }
+
+    outcome = await CanonicalABExecutionService(
+        authority_service=Authority(),
+        require_shared_root=require_shared_root,
+    ).execute(
+        authority_id=UUID("64300000-0000-4000-8000-000000000099"),
+        owner=owner,
+        inputs=selected.inputs,
+        envelope=envelope,
+        ordinal=1,
+        run=run,
+        projection_path=tmp_path / "canonical-ab.v2.json",
+        persist_terminal=persist_terminal,
+    )
+
+    assert outcome.result.result_code is ProviderExecutionResultCode.SUCCESS
+    assert recorded is not None
+    assert recorded.output_candidate_id == CANDIDATE_CORPUS_ID
+    assert recorded.selection_id == SELECTION_ID
+    assert recorded.terminal_run_hash == "sha256:" + "1" * 64
+    assert recorded.selection_decision_hash == "sha256:" + "3" * 64
+    assert recorded.activation_authorization_hash == "sha256:" + "4" * 64
+    assert events == [
+        "promotion",
+        "shared_root",
+        "reserve_commit",
+        "dispatch_recheck",
+        "provider",
+        "terminal_selection_authorization",
+        "result_commit",
+        "projection",
+    ]
 
 
 def test_exact_fraction_boundaries_pass_without_display_rounding() -> None:
@@ -685,10 +852,8 @@ async def test_cli_invalid_noncanonical_preflight_writes_no_terminal_or_selectio
         "sha256:" + "1" * 64,
         "--submitted-content-hash",
         "sha256:" + "2" * 64,
-        "--recovery-budget-manifest",
-        str(tmp_path / "missing-budget.json"),
-        "--prerequisite-state-sha256",
-        "sha256:" + "3" * 64,
+        "--authority-id",
+        str(uuid4()),
         "--run-id",
         str(RUN_ID),
         "--selection-id",
@@ -736,7 +901,7 @@ async def test_production_run_ab_dispatch_is_disabled_before_side_effects(
     monkeypatch.setattr(ab_cli, "SessionLocal", forbidden("db"))
     monkeypatch.setattr(ab_cli, "require_canonical_recovery_root", forbidden("root"))
     monkeypatch.setattr(ab_cli, "load_recovery_budget_manifest", forbidden("artifact"))
-    monkeypatch.setattr(ab_cli, "reserve_recovery_attempt", forbidden("reservation"))
+    monkeypatch.setattr(ab_cli, "_provider_execution_authority_service", forbidden("reservation"))
     monkeypatch.setattr(ab_cli, "run_full_provider_ab", forbidden_provider)
 
     assert await ab_cli.main([]) == 4
@@ -1493,10 +1658,8 @@ async def test_production_cli_refuses_copied_budget_root_before_run_or_provider(
             "sha256:" + "2" * 64,
             "--submitted-content-hash",
             "sha256:" + "3" * 64,
-            "--recovery-budget-manifest",
-            str(artifact.path),
-            "--prerequisite-state-sha256",
-            "sha256:" + "6" * 64,
+            "--authority-id",
+            str(uuid4()),
             "--run-id",
             str(uuid4()),
             "--selection-id",
@@ -1848,7 +2011,7 @@ def test_second_valid_slot_then_third_or_plan10_identity_reuse_refuses_before_pr
     assert reservation.ordinal == 1 and manifest.max_attempts == 2
 
 
-def test_recovery_artifacts_are_redacted_and_cli_reserves_before_provider_factory() -> None:
+def test_recovery_artifacts_are_redacted_and_db_service_rechecks_before_provider_factory() -> None:
     import scripts.eval_rag_token_chunk_ab as ab_cli
 
     manifest = _recovery_budget_manifest()
@@ -1865,8 +2028,10 @@ def test_recovery_artifacts_are_redacted_and_cli_reserves_before_provider_factor
         "/private/",
     ):
         assert forbidden not in serialized
+    authority_source = inspect.getsource(ab_cli.CanonicalABExecutionService.execute)
+    assert authority_source.index("reserve_and_commit") < authority_source.index("recheck_dispatch")
+    assert authority_source.index("recheck_dispatch") < authority_source.index("construct_provider()")
     source = inspect.getsource(ab_cli.run_full_provider_ab)
-    assert source.index("reserve_then_create_provider") < source.index("run_rollback_only_retrieval_parity")
     assert "max_embedding_tokens=512" not in source
     assert "target_embedding_tokens=384" not in source
     assert "overlap_tokens=48" not in source

@@ -338,3 +338,53 @@ def test_identity_and_compatibility_authorities_are_corpus_free_and_source_based
     assert "corpus_version_id" not in identity
     assert "_document_citation_text" not in ingestion
     assert "canonical_source = build_canonical_document_content(blocks)" in ingestion
+
+
+def test_provider_capable_build_and_ab_helpers_are_owned_by_the_db_authority_boundary() -> None:
+    """Inventory the two production provider commands and their sole internal owners."""
+
+    reindex = (ROOT / "scripts/reindex_policies.py").read_text(encoding="utf-8")
+    ab = (ROOT / "scripts/eval_rag_token_chunk_ab.py").read_text(encoding="utf-8")
+    policy_reindex = (ROOT / "src/rag/policy_reindex.py").read_text(encoding="utf-8")
+    token_ab = (ROOT / "src/rag/evaluation/token_chunk_ab.py").read_text(encoding="utf-8")
+
+    assert "class ReviewedPolicyCandidateBuildService" in policy_reindex
+    assert "await self._authority.reserve_and_commit(" in policy_reindex
+    assert "await self._authority.recheck_dispatch(reservation)" in policy_reindex
+    assert "class CanonicalABExecutionService" in token_ab
+    assert "purpose=ProviderExecutionPurpose.CANONICAL_AB" in token_ab
+    assert "await self._authority.reserve_and_commit(request)" in token_ab
+    assert "await self._authority.recheck_dispatch(reservation)" in token_ab
+    assert "provider_factory=EmbeddingService" in reindex
+    assert "construct_provider=lambda: EmbeddingService" in ab
+    assert token_ab.index("await self._authority.recheck_dispatch(reservation)") < token_ab.index(
+        "provider = construct_provider()"
+    )
+
+    reindex_main = next(
+        node for node in ast.parse(reindex).body if isinstance(node, ast.AsyncFunctionDef) and node.name == "_main"
+    )
+    ab_main = next(
+        node for node in ast.parse(ab).body if isinstance(node, ast.AsyncFunctionDef) and node.name == "main"
+    )
+    assert "return _refuse_live_provider_execution()" in ast.unparse(reindex_main)
+    assert "return _refuse_live_provider_execution()" in ast.unparse(ab_main)
+
+    production_constructors: set[tuple[str, str]] = set()
+    for path in (
+        RAG_ROOT / "policy_reindex.py",
+        SCRIPTS_ROOT / "reindex_policies.py",
+        SCRIPTS_ROOT / "eval_rag_token_chunk_ab.py",
+    ):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        collector = _CallCollector(path)
+        collector.visit(tree)
+        production_constructors.update(
+            (relative, scope)
+            for relative, scope, name in collector.calls
+            if name.rsplit(".", 1)[-1] == "EmbeddingService"
+        )
+    assert production_constructors == {
+        ("scripts/reindex_policies.py", "_build_next"),
+        ("scripts/eval_rag_token_chunk_ab.py", "main"),
+    }
