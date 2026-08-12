@@ -23850,3 +23850,14 @@ RED 失败来自计划 owner 尚未实现，不是 Python/PATH/PostgreSQL/provid
 
 **已做处理 / 剩余入口**
 统一 safe code 为 `reindex_initial_predecessor_invalid`，并让 recover-state 在所有既有前驱连续时发布缺失的 current version，同时新增真实回归。最终 `make format`、完整 `make lint` 与精确 suite `53 passed, 1 warning`。下一入口是 Task2 fresh read-only preflight；只有 descriptor lease/parity 与 DB/zero-budget facts仍精确时才可补 live v1，否则必须零写入停止。
+
+## 2026-08-12 — Phase 64.4 Plan 16 Task 2 只读 preflight 误用 zsh 特殊变量 `path`
+
+**问题现象 / 如何检测**
+在 live `recover-state` 前编写只读 shell probe 时，临时 loop 使用 lowercase `path` 作为变量名；zsh 将其绑定为 `PATH` 数组，赋值后后续命令查找失败，probe 在完成脱敏快照前退出。
+
+**关键证据 / 当前判断 / 根因**
+失败发生在 shell 变量赋值/命令解析边界，未调用 `recover-state`、provider、build/A-B reservation，也未读写数据库或 artifact。`git status` 仍 clean，run root仍只有 descriptor、v2与 build manifest。根因是 macOS/zsh 特殊参数命名冲突，不是 production recovery failure。
+
+**已做处理 / 剩余入口**
+停止复杂临时 probe，改用安全变量名与计划已有 strict loaders/生产 `recover-state` 命令。随后在 authority 未过期时完成精确恢复：仅新增 canonical v1（SHA256 `7e0dc98d1038132a8c05ac4b909dcb668a2561d4401bfcaf6450d04df241d7dd`），descriptor/v2/build manifest SHA 均保持不变，attempt/result 仍 `0/0`、A-B manifest absent；计划回归 `67 passed, 3 warnings`。后续 shell 临时变量禁止使用 zsh 特殊名 `path`/`PATH`。
