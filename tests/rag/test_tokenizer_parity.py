@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+from src.rag import tokenizer_parity
 from src.rag.embedding_tokenizer import ProviderParityStatus, load_embedding_tokenizer_config
 from src.rag.tokenizer_parity import (
     PARITY_SCHEMA_VERSION,
@@ -122,6 +123,45 @@ def test_unavailable_report_is_create_only_and_never_mutates_prior_bytes(tmp_pat
         write_parity_report_create_only(report, root=tmp_path)
     assert exc_info.value.code is ParityFailureCode.CREATE_CONFLICT
     assert report_path.read_bytes() == original
+
+
+@pytest.mark.parametrize("fault_boundary", ["published", "parent_fsynced"])
+def test_parity_report_fsyncs_created_chain_and_faults_at_publish_boundaries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault_boundary: str,
+) -> None:
+    report = _report(
+        captured_at=datetime(2026, 8, 11, 6, 30, tzinfo=UTC),
+        provider_delta=None,
+        unavailable_reason="provider_usage_unavailable",
+    )
+    root = tmp_path / "new" / "parity"
+    destination = root / "runs" / report.config_fingerprint.removeprefix("sha256:") / f"{report.run_id}.json"
+    fsynced: list[Path] = []
+    original_fsync = tokenizer_parity._fsync_directory
+
+    def record_fsync(path: Path) -> None:
+        fsynced.append(path)
+        original_fsync(path)
+
+    def inject(boundary: str) -> None:
+        if boundary == fault_boundary:
+            raise RuntimeError(f"fault:{boundary}")
+
+    monkeypatch.setattr(tokenizer_parity, "_fsync_directory", record_fsync)
+
+    with pytest.raises(RuntimeError, match=f"fault:{fault_boundary}"):
+        write_parity_report_create_only(report, root=root, fault_injector=inject)
+
+    assert destination.exists()
+    assert root.parent in fsynced
+    assert root in fsynced
+    assert root / "runs" in fsynced
+    if fault_boundary == "published":
+        assert destination.parent not in fsynced
+    else:
+        assert destination.parent in fsynced
 
 
 def test_mismatched_single_counts_are_quarantined_without_provider_success_claim() -> None:

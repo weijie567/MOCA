@@ -16,6 +16,7 @@ from src.db.models import (
     PolicyCorpusVersion,
     Tenant,
 )
+from src.rag import activation_receipt
 from src.rag.activation_receipt import (
     ACTIVATION_RECEIPT_GENESIS,
     ActivationArtifactPaths,
@@ -271,6 +272,65 @@ async def test_committed_event_writes_create_only_receipt_bound_to_live_pointer_
     assert receipt.db_history_sha256.startswith("sha256:")
     assert receipt.actor == ACTOR
     assert receipt.previous_receipt_sha256 == ACTIVATION_RECEIPT_GENESIS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault_boundary", ["published", "parent_fsynced"])
+async def test_activation_receipt_fsyncs_parent_at_link_fault_boundaries_and_identical_replay(
+    session: AsyncSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault_boundary: str,
+) -> None:
+    authority = load_activation_authority(_write_strict_artifacts(tmp_path / "evidence"))
+    await _seed_activation_authority(session)
+    await _commit_event(
+        session,
+        sequence=8,
+        from_corpus=INCUMBENT_CORPUS_ID,
+        to_corpus=CANDIDATE_CORPUS_ID,
+        reason="selected_cutover",
+        selection_sha256=authority.selection_decision_sha256,
+    )
+    root = tmp_path / "new" / "activations"
+    destination = root / str(TENANT_ID) / "00000000000000000008.json"
+    fsynced: list[Path] = []
+    original_fsync = activation_receipt._fsync_directory
+
+    def record_fsync(path: Path) -> None:
+        fsynced.append(path)
+        original_fsync(path)
+
+    def inject(boundary: str) -> None:
+        if boundary == fault_boundary:
+            raise RuntimeError(f"fault:{boundary}")
+
+    monkeypatch.setattr(activation_receipt, "_fsync_directory", record_fsync)
+    store = ActivationReceiptStore(root, fault_injector=inject)
+
+    with pytest.raises(RuntimeError, match=f"fault:{fault_boundary}"):
+        await store.write_committed(
+            session,
+            tenant_id=TENANT_ID,
+            history_sequence=8,
+            authority=authority,
+        )
+
+    assert destination.exists()
+    if fault_boundary == "published":
+        assert destination.parent not in fsynced
+    else:
+        assert destination.parent in fsynced
+
+    fsynced.clear()
+    replayed = await ActivationReceiptStore(root).write_committed(
+        session,
+        tenant_id=TENANT_ID,
+        history_sequence=8,
+        authority=authority,
+    )
+    assert replayed.path == destination
+    assert destination.parent in fsynced
 
 
 @pytest.mark.asyncio

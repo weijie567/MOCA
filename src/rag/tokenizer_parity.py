@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Final, NoReturn
+from typing import Any, Callable, Final, NoReturn
 from uuid import UUID
 
 from src.rag.embedding_tokenizer import EmbeddingTokenizerConfigV1, ProviderParityStatus
@@ -180,34 +180,73 @@ def write_parity_report_create_only(
     report: EmbeddingTokenizerParityReportV1,
     *,
     root: Path,
+    fault_injector: Callable[[str], None] | None = None,
 ) -> Path:
     _validate_report(report)
     fingerprint = report.config_fingerprint.removeprefix(_SHA256_PREFIX)
     destination = root / "runs" / fingerprint / f"{report.run_id}.json"
     try:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-    except OSError:
+        _ensure_directory_durable(destination.parent)
+    except (OSError, TokenizerParityError):
         _fail(ParityFailureCode.WRITE_FAILED)
     payload = _canonical_report_bytes(report)
-    temporary_name: str | None = None
+    temporary_path: Path | None = None
     try:
         descriptor, temporary_name = tempfile.mkstemp(prefix=".parity-", suffix=".tmp", dir=destination.parent)
+        temporary_path = Path(temporary_name)
         with os.fdopen(descriptor, "wb") as temporary:
             temporary.write(payload)
             temporary.flush()
             os.fsync(temporary.fileno())
-        os.link(temporary_name, destination)
+        os.link(temporary_path, destination)
+        _inject_fault(fault_injector, "published")
+        temporary_path.unlink()
+        temporary_path = None
+        _fsync_directory(destination.parent)
+        _inject_fault(fault_injector, "parent_fsynced")
     except FileExistsError:
         _fail(ParityFailureCode.CREATE_CONFLICT)
     except OSError:
         _fail(ParityFailureCode.WRITE_FAILED)
     finally:
-        if temporary_name is not None:
+        if temporary_path is not None:
             try:
-                Path(temporary_name).unlink(missing_ok=True)
+                temporary_path.unlink(missing_ok=True)
             except OSError:
                 pass
     return destination
+
+
+def _ensure_directory_durable(path: Path) -> None:
+    missing: list[Path] = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        if current == current.parent:
+            break
+        current = current.parent
+    for directory in reversed(missing):
+        try:
+            directory.mkdir()
+        except FileExistsError:
+            continue
+        _fsync_directory(directory.parent)
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        _fail(ParityFailureCode.WRITE_FAILED)
+
+
+def _inject_fault(fault_injector: Callable[[str], None] | None, boundary: str) -> None:
+    if fault_injector is not None:
+        fault_injector(boundary)
 
 
 def load_parity_report(report_path: Path) -> EmbeddingTokenizerParityReportV1:

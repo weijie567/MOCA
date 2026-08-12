@@ -17,7 +17,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -275,8 +275,9 @@ def load_activation_receipt(path: Path) -> ActivationReceiptV1:
 class ActivationReceiptStore:
     """Create and reconcile deterministic receipt files from committed history."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, fault_injector: Callable[[str], None] | None = None) -> None:
         self.root = root
+        self._fault_injector = fault_injector
 
     def path_for(self, *, tenant_id: UUID, history_sequence: int) -> Path:
         if tenant_id.int == 0 or history_sequence <= 0:
@@ -477,22 +478,30 @@ class ActivationReceiptStore:
                     _fail(ActivationReceiptFailureCode.CREATE_CONFLICT)
             except ActivationReceiptError:
                 _fail(ActivationReceiptFailureCode.CREATE_CONFLICT)
+            _fsync_directory(path.parent)
             return ActivationReceiptArtifactV1(
                 path=path,
                 file_sha256=_sha256_bytes(payload),
                 receipt=receipt,
             )
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
+            _ensure_directory_durable(path.parent)
             descriptor, temporary_name = tempfile.mkstemp(prefix=".activation-", suffix=".tmp", dir=path.parent)
+            temporary_path: Path | None = Path(temporary_name)
             try:
                 with os.fdopen(descriptor, "wb") as temporary:
                     temporary.write(payload)
                     temporary.flush()
                     os.fsync(temporary.fileno())
-                os.link(temporary_name, path)
+                os.link(temporary_path, path)
+                _inject_fault(self._fault_injector, "published")
+                temporary_path.unlink()
+                temporary_path = None
+                _fsync_directory(path.parent)
+                _inject_fault(self._fault_injector, "parent_fsynced")
             finally:
-                Path(temporary_name).unlink(missing_ok=True)
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
         except FileExistsError:
             return self._persist_expected(receipt)
         except OSError:
@@ -502,6 +511,38 @@ class ActivationReceiptStore:
             file_sha256=_sha256_bytes(payload),
             receipt=receipt,
         )
+
+
+def _ensure_directory_durable(path: Path) -> None:
+    missing: list[Path] = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        if current == current.parent:
+            break
+        current = current.parent
+    for directory in reversed(missing):
+        try:
+            directory.mkdir()
+        except FileExistsError:
+            continue
+        _fsync_directory(directory.parent)
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        _fail(ActivationReceiptFailureCode.WRITE_FAILED)
+
+
+def _inject_fault(fault_injector: Callable[[str], None] | None, boundary: str) -> None:
+    if fault_injector is not None:
+        fault_injector(boundary)
 
 
 def _build_receipt(

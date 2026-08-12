@@ -2809,3 +2809,12 @@
 - **处理状态**：✅ 已修复验证。parity gate改为 `checked_at >= parity_expires_at` 一律返回 `parity_stale`。
 - **证据**：Phase64.4 review WR-03；`src/rag/policy_reindex.py`、`tests/rag/test_policy_reindex.py`；同一 equality instant 覆盖 resume、prepare、build、validate，build拒绝时 embedder calls 为0，scoped gate通过。
 - **剩余风险 / 继续入口**：未修改 lease/parity时长、descriptor或 provider配置；未触碰 live candidate。Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 WR-04 — parity/activation create-only link 未持久化目录项 ✅已修复验证
+
+- **子系统**：RAG provider parity authority / activation committed-history receipt。
+- **问题现象 / 根因**：两类 writer均 fsync temporary file后以 hard link create-only发布，但成功返回前没有 fsync destination parent；activation existing identical reconciliation也直接返回。新建目录链只用 `mkdir(parents=True)`，没有逐级持久化目录项。
+- **影响**：调用方已观察成功后若主机崩溃，authority/evidence filename仍可能丢失；activation receipt reconciliation可能在相同窗口反复报告成功但证据目录项未 durable。
+- **处理状态**：✅ 已修复验证。新目录链逐级创建并 fsync 每一级父目录；link成功后在最终 destination parent fsync前清理 temporary link，再 fsync parent才返回。activation exact-byte replay同样 fsync parent。两类 writer暴露仅供 deterministic fault test 的 `published` 与 `parent_fsynced` 注入边界。
+- **证据**：Phase64.4 review WR-04；`src/rag/tokenizer_parity.py`、`src/rag/activation_receipt.py` 与对应 tests；四个 link/fsync fault cases通过，完整两文件 gate `17 passed, 1 warning`，full lint通过。
+- **剩余风险 / 继续入口**：fault tests验证 POSIX file/directory fsync与 hard-link顺序，不代表 live filesystem/power-loss演练；未创建或修改 repository live parity/activation evidence。Plans18-20 仍未执行。
