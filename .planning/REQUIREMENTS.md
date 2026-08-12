@@ -58,10 +58,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Token-Aware Policy Chunking And Reindex Validation
 
-- [ ] **SC-64.4-1**: One versioned model-to-tokenizer contract provides deterministic offline counts for the configured embedding model and has a provider-backed parity check against reported usage without exposing credentials or production text.
-- [ ] **SC-64.4-2**: Every final embedding input, including title, section, table headers, overlap, and allowed source context, stays within the configured token maximum; existing structural/provenance boundaries remain intact and identical source plus configuration produces identical chunks.
-- [ ] **SC-64.4-3**: Production ingestion, dry-run, and golden validation consume one authoritative chunk assembly contract, with regression coverage for Chinese, English, mixed text, long unpunctuated text, tables, OCR content, URLs, numbers, and tokenizer failure behavior.
-- [ ] **SC-64.4-4**: Chunker/tokenizer/model versions and actual token counts are auditable, and rechunking cannot silently reuse incompatible policy/chunk/evidence identity or break historical replay semantics established by Phase 64.2.
+- [x] **SC-64.4-1**: One versioned model-to-tokenizer contract provides deterministic offline counts for the configured embedding model and has a provider-backed parity check against reported usage without exposing credentials or production text.
+- [x] **SC-64.4-2**: Every final embedding input, including title, section, table headers, overlap, and allowed source context, stays within the configured token maximum; existing structural/provenance boundaries remain intact and identical source plus configuration produces identical chunks.
+- [x] **SC-64.4-3**: Production ingestion, dry-run, and golden validation consume one authoritative chunk assembly contract, with regression coverage for Chinese, English, mixed text, long unpunctuated text, tables, OCR content, URLs, numbers, and tokenizer failure behavior.
+- [x] **SC-64.4-4**: Chunker/tokenizer/model versions and actual token counts are auditable, and rechunking cannot silently reuse incompatible policy/chunk/evidence identity or break historical replay semantics established by Phase 64.2.
 - [ ] **SC-64.4-5**: Reindexing is isolated, resumable, and rollback-safe so failures preserve the prior usable index and no tenant observes a partially mixed old/new corpus.
 - [ ] **SC-64.4-6**: A versioned A/B report compares character- and token-aware candidates on Phase 64.3 Hit@1/3/5, MRR, anchor/locator coverage, format parity, duplicate rate, chunk count, latency, and embedding token cost; the selected configuration satisfies explicit non-regression gates and existing RAG tests pass.
 
@@ -122,12 +122,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SC-64.2-3 | Phase 64.2 | Complete |
 | SC-64.2-4 | Phase 64.2 | Complete |
 | SC-64.2-5 | Phase 64.2 | Complete |
-| SC-64.4-1 | Phase 64.4 | Planned |
-| SC-64.4-2 | Phase 64.4 | Planned |
-| SC-64.4-3 | Phase 64.4 | Planned |
-| SC-64.4-4 | Phase 64.4 | Planned |
-| SC-64.4-5 | Phase 64.4 | Planned |
-| SC-64.4-6 | Phase 64.4 | Planned |
+| SC-64.4-1 | Phase 64.4 | Complete |
+| SC-64.4-2 | Phase 64.4 | Complete |
+| SC-64.4-3 | Phase 64.4 | Complete |
+| SC-64.4-4 | Phase 64.4 | Complete |
+| SC-64.4-5 | Phase 64.5 | Planned (carryover) |
+| SC-64.4-6 | Phase 64.5 | Planned (carryover) |
 
 **Coverage:**
 - v2.2 requirements: 34 total
@@ -136,4 +136,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-07-09*
-*Last updated: 2026-08-11 for Phase 64.4 planning*
+*Last updated: 2026-08-12 for Phase 64.4 partial verification and Phase 64.5 carryover ownership*

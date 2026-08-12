@@ -24004,3 +24004,16 @@ production branch现以`abspath(REPOSITORY_ROOT / REVIEWED_CANDIDATE_RELATIVE_RO
 
 **已做处理 / 剩余入口**
 `reindex_policies.py`在parse后对`build-next-reviewed`与`build-next`无条件返回exit 4；`eval_rag_token_chunk_ab.py`保留deterministic/no-provider的`issue-recovery-budget`，但普通`run-ab`在parse/current UTC后无条件返回exit 4。三者统一只输出`{"error":"live_provider_execution_disabled","reason_code":"live_provider_execution_disabled"}`，parser无CLI flag且dispatch无environment override；内部算法只保留给deterministic test。最小GREEN为`4 passed, 1 warning`，最终`make format`、完整`make lint`均PASS，focused `tests/rag/test_policy_reindex.py tests/eval/test_rag_token_chunk_ab.py`为`134 passed, 1 warning in 50.98s`。本轮未运行full suite，也未调用live provider/DB/artifact。恢复live execution必须由新的post-PR rollout phase提供DB-backed unique budget；Plans18-20与SC-64.4-5/6保持未完成。
+
+## 2026-08-12 — Phase 64.4 最终全量负载下 approval single-flight 一次性时序失败
+
+**问题现象 / 如何检测**
+最终独占执行 `make lint && UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q`，lint 通过，但全量结果为 `1 failed, 4892 passed, 4 skipped`。唯一失败是 `tests/test_approval_api.py::test_concurrent_exact_resume_retries_are_single_flight_under_postgres_request_lock`：前两个并发请求已正确得到单飞结果，第三个 reconciliation 请求在全量负载下偶发返回 500，而断言期望 409。
+
+**关键证据 / 当前判断 / 根因**
+同一有效项目入口立即独占重跑该精确用例得到 `1 passed, 1 warning`；随后独占运行整个 `tests/test_approval_api.py` 得到 `44 passed, 1 warning`。因此当前证据指向全量长时负载下的非稳定时序波动，不是 Phase64.4 RAG/provider hard-disable 的稳定回归；尚未确认 approval production bug，不能据一次 500 编造根因。
+
+**已做处理 / 剩余入口**
+未修改 approval 实现或测试时限。保留首次完整 traceback 和两级独占 GREEN 证据，并重新运行最终完整 suite；只有最终全绿才作为 PR gate。若相同用例再次失败，应单独进入 approval single-flight 调试，核对 advisory/request lock 释放、失败后 reconciliation 状态和长负载调度，不得通过放宽断言或增加盲目重试掩盖。
+
+最终独占重跑已完成：`make lint` PASS，`UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` 为 `4893 passed, 4 skipped, 166 warnings in 2272.36s`，同一 approval 用例未再失败。当前 PR gate 采用这次完整 GREEN；首次偶发仍保留为后续若复现时的排查入口。

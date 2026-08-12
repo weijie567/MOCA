@@ -11,7 +11,7 @@
 ## Current Planning State
 
 **Active milestone:** v2.2 Product Experience Fixes
-**Status:** Phase 64.3 complete with 5/5 plans, clean review, UAT, security, and Nyquist gates; inserted Phase 64.4 is next, followed by Phase 65
+**Status:** Phase 64.4 is an accepted partial delivery: SC-64.4-1 through SC-64.4-4 are implemented, while provider execution remains fail-closed and SC-64.4-5/6 move to inserted Phase 64.5 before Phase 65
 **Scope:** Complete the product-experience work and close source-audit gaps across runtime safety, evidence/replay/memory integrity, trace/SSE reliability, operation contracts, reproducible validation, lifecycle/data integrity, LLM runtime ownership, retrieval governance, and service boundaries without weakening accepted v2.1 contracts.
 
 ## Current Milestone: v2.2 Product Experience Fixes
@@ -47,7 +47,7 @@ Plans:
 
 ## Next
 
-Phase 64.3 is complete. Next: plan Phase 64.4 Token-Aware Policy Chunking And Reindex Validation with `$gsd-phase-autopilot 64.4` or `$gsd-plan-phase 64.4`; Phase 65 follows Phase 64.4.
+Phase 64.4 is preparing a partial-delivery PR. Next: plan Phase 64.5 Database-Backed Provider Budget And Token Rollout Completion with `$gsd-phase-autopilot 64.5`; Phase 65 follows Phase 64.5.
 
 ### Phase 62: Business Query And Drilldown Foundation
 
@@ -242,11 +242,31 @@ Plans:
 - [ ] 64.4-19-PLAN.md — Reversible Activation Drill And Closeout Guard (`depends_on: [64.4-18]`).
 - [ ] 64.4-20-PLAN.md — Final Documentation Ledgers And Regression Closeout (`depends_on: [64.4-19]`).
 
+**Partial-delivery closeout:** SC-64.4-1 through SC-64.4-4 are implemented and verified. SC-64.4-5/6 are not complete: the retained live authority expired, no `selected_pass` or reversible activation drill exists, and provider-capable production dispatch is intentionally hard-disabled. Completion is transferred to Phase 64.5; this phase must not be marked complete by the partial PR.
+
+### Phase 64.5: Database-Backed Provider Budget And Token Rollout Completion (INSERTED)
+
+**Goal:** Replace file-backed provider/build attempt authority with a database-backed globally unique budget, then safely re-enable the reviewed live reindex and A/B paths and complete the selected-candidate activation, rollback/restore, receipt, and closeout evidence left by Phase 64.4.
+**Requirements**: SC-64.4-5, SC-64.4-6 (carryover; final Phase 64.5 requirement IDs are defined during planning)
+**Depends on:** Phase 64.4 partial delivery
+**Plans:** 0 plans
+
+**Mandatory scope boundary:** Provider-capable production dispatch stays hard-disabled until a separately reviewed DB-backed authority serializes reservations across processes/worktrees and binds tenant, run, candidate, parity, source/evidence epochs, absolute expiry, and provider execution. Phase 64.5 must use fresh reviewed authority; it may not renew or reinterpret the expired Phase 64.4 lease.
+
+**Required outcomes:**
+1. DB constraints and transactional reservation enforce globally unique, non-forgeable build and A/B provider budgets under concurrency, crash, replay, alternate worktrees, and copied artifacts.
+2. Production provider dispatch is re-enabled only after code review, security, and before-provider negative tests prove the DB authority cannot be bypassed.
+3. A fresh token candidate completes and a canonical character-vs-token A/B run produces a truthful terminal decision; only `selected_pass` may authorize activation.
+4. Cutover, rollback to the prior corpus, restore of the selected corpus, hash-chained receipts, and fail-closed closeout checks prove SC-64.4-5/6 without mixed tenant visibility.
+
+Plans:
+- [ ] TBD (run `$gsd-phase-autopilot 64.5`; plan count stays unset until research and dual review)
+
 ### Phase 65: Trace Event And Console Label Consistency
 
 **Goal:** Make runtime observability trustworthy end to end: canonical trace/event vocabulary must match what production nodes actually emit, persist, replay, project through SSE/API, and render in the Console, while failures are redacted and database/event lifecycles remain bounded.
 **Requirements**: TBD during Phase 65 planning.
-**Depends on:** Phase 64.4
+**Depends on:** Phase 64.5
 **Plans:** 0 plans
 
 **Audit findings owned:** LLM event types are registered but production calls do not emit them; two SSE paths expose raw exceptions; long streams retain request-scoped DB sessions; audit/event persistence failures can be silently discarded; backend/replay/DB/frontend labels remain separate facts.

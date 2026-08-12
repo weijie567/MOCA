@@ -1,12 +1,12 @@
 ---
 phase: "64.4"
 status: blocked
-current_step: execute
+current_step: partial_pr_closeout
 current_plan: "18"
 plan_review_loop: 6
 quota_waits: 0
-updated_at: "2026-08-12T12:19:22+08:00"
-next_command: "do not execute Plan18; await explicit user direction to close Phase64.4 incomplete"
+updated_at: "2026-08-12T21:00:00+08:00"
+next_command: "merge the bounded partial-delivery PR, then run $gsd-phase-autopilot 64.5; do not execute old Plan18"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -52,6 +52,7 @@ next_command: "do not execute Plan18; await explicit user direction to close Pha
 - Plans16-20 passed the fresh GSD checker and repository-backed Codex adjudication; external clean-review retries were unavailable because both providers returned quota errors and are recorded as unavailable, not as PASS. The reviewed plans are execution authority, while every absolute lease and zero-side-effect stop gate remains binding.
 - User execution boundary after Plan16: freeze the phase at 20 plans, run Plans17-20 strictly serially, stop each RED as soon as it proves the gap, read only the current plan's necessary delta, and stop truthfully on live lease expiry without renewal, a second candidate, or another recovery-chain expansion.
 - Stage 5 recovery Plan17 reached the user-mandated truthful stop: the canonical issuance/current-time gate passed format, full lint and focused regressions, then the immutable descriptor expired before live issuance. Read-only proof returned `recovery_authority_expired`; candidate/build/A-B/provider/pointer/history facts remained unchanged, requirements-completed stays empty, and Plan18 is not authorized.
+- Partial-delivery closeout: production provider-capable build/A-B dispatch is hard-disabled with no override; the final bounded deep review is clean, implemented-scope security has 49/49 threats closed, verification is 4/6 with SC-64.4-5/6 explicit gaps, and Nyquist remains partial. Phase 64.5 is the owner-named continuation for a DB-backed globally unique budget and the fresh live rollout; old Plans18-20 remain unexecuted historical planning evidence.
 
 ## Evidence
 

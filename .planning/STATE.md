@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: blocked
-last_updated: "2026-08-12T04:19:22Z"
-last_activity: 2026-08-12 -- Phase 64.4 Plan 17 stopped truthfully after immutable recovery authority expired
+last_updated: "2026-08-12T13:00:00Z"
+last_activity: 2026-08-12 -- Phase 64.4 partial delivery verified and Phase 64.5 inserted to own the DB-backed provider budget and unfinished live rollout
 progress:
-  total_phases: 15
+  total_phases: 16
   completed_phases: 7
   total_plans: 63
   completed_plans: 60
-  percent: 47
+  percent: 44
 ---
 
 # Project State: MOCA
@@ -26,14 +26,14 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 
 Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — BLOCKED
 Plan: 18 of 20 — blocked before same-candidate build and canonical A-B
-Status: Plans 01-17 complete/checkpointed; immutable Plan15 recovery authority expired, so Plans18-20 are not authorized.
-Last activity: 2026-08-12 -- Plan17 implemented the canonical issuance/current-time gate and proved expiry with zero live side effect.
-Next: Do not execute Plan18, renew authority, create another candidate or expand the frozen recovery chain. Await explicit user direction on closing Phase64.4 incomplete.
-After: Phase 65 follows Phase 64.4.
+Status: Partial delivery ready for PR; Plans 01-17 are complete/checkpointed, Plans18-20 remain unexecuted, and production provider dispatch is hard-disabled.
+Last activity: 2026-08-12 -- clean code review, partial verification/security/Nyquist closeout, and explicit Phase64.5 ownership recorded.
+Next: Merge the bounded Phase64.4 partial delivery, then run `$gsd-phase-autopilot 64.5`; do not execute old Plan18, renew its authority, or reinterpret the expired lease.
+After: Phase 65 follows Phase 64.5.
 
 Resume file: `.planning/autopilot/phase-64.4.md`
 
-Progress: [█████░░░░░] 47%
+Progress: [████░░░░░░] 44%
 
 ## Last Completed Milestone
 
@@ -80,6 +80,7 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 - Phase 64.2 inserted after Phase 64.1: Evidence Identity Immutable Replay And Memory Provenance (URGENT).
 - Phase 64.3 inserted after Phase 64.2: RAG Format Parity And Document Quality Evaluation (URGENT); it establishes the cross-format parser/retrieval baseline before Phase 65.
 - Phase 64.4 inserted after Phase 64.3: Token-Aware Policy Chunking And Reindex Validation (URGENT); it consumes the Phase 64.3 baseline and Phase 64.2 identity contract before Phase 65.
+- Phase 64.5 inserted after Phase 64.4: Database-Backed Provider Budget And Token Rollout Completion (URGENT); it owns the DB-backed globally unique provider budget and the unfinished SC-64.4-5/6 live rollout before Phase 65.
 - Phases 65-68 expanded with explicit audit finding ownership, scope boundaries, dependency order, and source-verifiable success criteria.
 - Phase 69 added: LLM Runtime Gateway And Observability.
 - Phase 70 added: Memory Retrieval Quality And Governance.
