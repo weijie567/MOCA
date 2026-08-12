@@ -1,13 +1,11 @@
 ---
 phase: "64.5"
-status: waiting_for_quota
-current_step: claude_plan_review
+status: running
+current_step: execute
 plan_review_loop: 1
 quota_waits: 1
-updated_at: "2026-08-12T17:10:04Z"
-next_command: "$gsd-review 64.5 --claude"
-quota_resume_at: unknown
-last_failure: "Claude CLI 403: 用户额度不足，剩余额度 -$0.052272; request id 20260813010946591619664nw7Wr1mM"
+updated_at: "2026-08-12T21:20:07Z"
+next_command: "$gsd-execute-phase 64.5 --wave 1 --no-cross-ai"
 ---
 
 # Phase 64.5 Autopilot Checkpoint
@@ -24,6 +22,8 @@ last_failure: "Claude CLI 403: 用户额度不足，剩余额度 -$0.052272; req
 - Repaired three plan-checker rounds: shared authority/cardinality, exact 108-call A/B accounting, activation lineage, real review-gate evidence, supported wave orchestration, and DB-backed post-review promotion.
 - Final GSD plan-checker verdict is `VERIFICATION PASSED`; no tests, database writes, provider calls, or live artifact mutations occurred during planning.
 - Committed the frozen reviewed plan set as `9e460a29`; external Claude plan review is the sole unfinished pre-implementation gate.
+- User explicitly waived the dual-AI/Claude plan-review layer for this run and directed Codex-only execution. The decision and final Codex review evidence are recorded in `64.5-PLAN-REVIEW-DECISIONS.md`.
+- Phase execution begins with Wave 1 only; all C0/C1 code/security, promotion, budget, live, and honest-stop gates remain mandatory.
 
 ## Evidence
 
@@ -40,3 +40,5 @@ last_failure: "Claude CLI 403: 用户额度不足，剩余额度 -$0.052272; req
 Additional bounded planning incidents (wrong discuss-workflow path, an unnecessary `uv` dependency bootstrap for a standard-library probe, and zsh/SDK path discovery mistakes) are recorded in `.planning/LOCAL-VALIDATION-ISSUES.md`; none touched source, DB, provider, or live state.
 
 The exact `$gsd-review 64.5 --claude` invocation reached Claude CLI but returned `403 用户额度不足` with remaining quota `-$0.052272` (request id `20260813010946591619664nw7Wr1mM`). Per the Phase Autopilot quota protocol, this is a quota checkpoint rather than a plan failure. No `64.5-REVIEWS.md` was created and implementation has not started. Resume with `$gsd-phase-autopilot --resume` after quota recovery, or explicitly authorize a non-Claude external reviewer substitute.
+
+The user subsequently chose Codex-only execution. The quota checkpoint is resolved by explicit scope direction, not by claiming the Claude review succeeded. `64.5-REVIEWS.md` remains absent by design.
