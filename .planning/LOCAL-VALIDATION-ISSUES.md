@@ -23707,3 +23707,25 @@ Task1 GREEN 已通过 `make lint` 与 prescribed `183 passed` 后，进入 Task2
 
 **已做处理 / 剩余入口**
 按 Rule 1 归回 Task1 删除两条不可达表达式，不改变任何运行逻辑、阈值、参数或 evidence；随后重新执行 `make format`、完整 `make lint` 与 Plan12 prescribed 三文件 gate。修复提交后才允许进入 Task2 的 no-Python live evidence 阶段。
+
+## 2026-08-12 — Phase 64.4 Plan 12 Task 2 fresh parity 后只读 helper 名称误用
+
+**问题现象 / 如何检测**
+fresh tokenizer parity 已以 `passed/exact_match` 写入 create-only report 后，紧接的只读 candidate/parity gate 临时脚本尝试从 `src.rag.tokenizer_parity` 导入不存在的 `load_tokenizer_parity_report`，Python 在任何 DB 查询、budget manifest 创建或 provider A/B 调用前报 `ImportError`。
+
+**关键证据 / 当前判断 / 根因**
+模块真实公开 loader 是 `load_parity_report`（`src/rag/tokenizer_parity.py:213`）；临时脚本把模型名误拼进函数名。这是本地验证 helper 误用，不是 fresh parity report、candidate、数据库或 Plan12 runtime defect。错误命令未写 DB，未创建 recovery budget manifest/reservation，也未消耗 full-provider slot。
+
+**已做处理 / 剩余入口**
+废弃该次 ImportError 结论，改用 `load_parity_report` 从 immutable path 严格读取并重跑候选绑定 gate；只有重跑结果可作为 Task2 判断依据。
+
+## 2026-08-12 — Phase 64.4 Plan 12 Task 2 fresh parity 与 immutable candidate 绑定冲突，live A/B 未启动
+
+**问题现象 / 如何检测**
+安全加载主仓 `.env` 的 `DASHSCOPE_API_KEY`（未复制或打印值，并移除 `.env` 中本机 UV/PIP index override）后运行 fresh tokenizer parity，得到 `passed/exact_match` run `c760c106-7e85-440e-a56d-ed7e00eb2fb7`、report SHA `sha256:166aba9633018ac529ab33c7dfe65126f2850ecf275987f46cfad9eb984ec1de`。随后在 provider A/B 与 budget reservation 前只读调用 `_validate_corpus_pair`，传入该 fresh SHA 后返回 `ValueError:candidate_identity_invalid`。
+
+**关键证据 / 当前判断 / 根因**
+Plan10 三份 run SHA 均通过 strict loader，selection 仍不存在；evaluation DB prerequisites 为 `[]`，baseline proof 仍是 `sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3`，active character corpus `55d651e5-634f-4b64-b057-350b22054007`、epoch/history `4/4`、current `3/158/13`、jobs `4`。inactive candidate `b293e0b4-ada6-4165-8e2f-4f1739c88fdf` 仍 complete，artifact SHA `sha256:e643a58b6f6b195c6e6c64625efa1d44290a35f1159416a33488c4bebab4e167`，projection `3/158/60`、validation proofs 全绿。candidate 精确绑定旧 parity SHA `sha256:7ed994e05e52df4c93ef831669bcd120c731ab689f561c6c699d44ef239d33c5`；fresh/旧 parity 的 config fingerprint `sha256:925446ea470da4da9a0ac9aee81f9103bb4b07bd7292c761bd98a36edd749584`、probe fixture SHA `sha256:f82d898edac7d952737fde02a4c4691b7a81fb8786975cd72ba28424045b9628`、submitted-content SHA `sha256:ff7270a7514524e4f51e53ec0ab27e848c05908f1125833133e54c450d951d30` 完全相同，只有 create-only report identity/hash不同。当前判断为已验证 implementation defect，不是 provider unavailable、candidate quality failure或 rollback failure。
+
+**已做处理 / 剩余入口**
+严格按 Plan12 stop：未创建 `rag_token_chunk_recovery_budget.v1` live manifest，未 reserve ordinal（`0/2` 已用，`2/2` 剩余），未调用 full-provider A/B，也未修改 Python、DB、旧 candidate/parity/run artifact、阈值、参数、pointer/history。新 fresh parity artifact原样保留。下一入口是单独 reviewed bounded repair plan，选择“新增独立 fresh runtime parity binding”或“构建绑定 fresh parity 的全新 candidate generation”并补 RED/identity regression；未评审前 Plans13/14 继续 blocked。
