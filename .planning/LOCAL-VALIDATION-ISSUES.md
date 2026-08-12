@@ -23806,3 +23806,14 @@ fixture 改为直接对 descriptor file bytes 计算 SHA，canonical-root 调用
 
 **已做处理 / 剩余入口**
 将该 collection failure 作为 Task2 tests-first 预期 RED 原子保留；下一步实现 separate create-only authorization、完整 lineage strict loader、production activation canonical root检查，以及真实 selection proof 的必填 SHA，再用同一精确 gate 转绿。Plan08 fixture 继续走独立 fixture 类型/schema，不用伪造 authorization 绕过真实路径。
+
+## 2026-08-12 — Phase 64.4 Plan 15 live preflight 探针误读 OCR 字段
+
+**问题现象 / 如何检测**
+在任何 provider 构造或 live mutation 之前执行只读预检脚本，脚本已成功完成 fresh parity strict-load 与数据库连接，但在输出 OCR 结果时抛出 `AttributeError: 'RuntimePreflightResult' object has no attribute 'reason_code'`，因此该轮输出未被用作 live 前置结论。
+
+**关键证据 / 当前判断 / 根因**
+`check_ocr_runtime(required_languages=('chi_sim', 'eng'))` 返回对象的安全字段为 `available`、`failure_code`、`installed_languages`、`missing_languages`、`safe_message`、`version`；临时只读探针误把字段名写成 `reason_code`。失败发生在读取阶段，没有 seal descriptor、claim/build candidate、构造 provider、写 evaluation DB、消费 candidate/A-B ordinal，且 worktree live artifact 根仍未改变。这是一次临时验证脚本字段误用，不是生产实现缺陷。
+
+**已做处理 / 剩余入口**
+已通过类型与字段名只读检查确认应读取 `failure_code`，后续预检改用该字段并重新从头核对 freshness、DB prerequisites、exact baseline、旧 candidate/new root 与 `0/2` A-B slots。只有完整脱敏预检全部通过才允许继续；若任何 prerequisite 非空或 freshness 不足则立即停在 provider 构造前。
