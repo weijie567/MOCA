@@ -4,8 +4,8 @@ status: running
 current_step: execute
 plan_review_loop: 6
 quota_waits: 0
-updated_at: "2026-08-12T08:44:46+08:00"
-next_command: "execute Plan13 deterministic crash-safe candidate recovery and build budget"
+updated_at: "2026-08-12T09:27:29+08:00"
+next_command: "execute Plan14 deterministic canonical recovery budget and pre-CAS authority"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -43,6 +43,7 @@ next_command: "execute Plan13 deterministic crash-safe candidate recovery and bu
 - Fresh review rejected the first rebuild draft on three repository-backed blockers: DB-commit-before-state-publish could lose the candidate identity, build provider retries lacked a machine cap, and cap=2 A-B attempts could be reset through an alternate output root while activation lacked pre-CAS budget lineage.
 - The repaired recovery expands to 17 plans/34 tasks: Plan13 adds descriptor/recover-state/atomic state and per-document build budgets without live calls; Plan14 canonicalizes A-B root/candidate reservation and adds recovery authorization enforced before CAS; Plan15 performs bounded live rebuild/selection; Plan16 activation/guard; Plan17 closeout.
 - Clean authority repair re-review passed: fresh GSD checker and external Claude both returned no blocker or warning; Codex independently accepted the repository-backed results and authorized execution from Plan13.
+- Stage 5 recovery Plan 13 complete: fixed descriptor/recover-state, atomic state publication, descriptor-bound per-document cap=2 provider budget and single MOCA retry authority committed in five atomic commits; full lint and 45 focused tests passed with no live provider, candidate, DB, pointer/history or A-B side effect.
 
 ## Evidence
 
@@ -60,4 +61,4 @@ next_command: "execute Plan13 deterministic crash-safe candidate recovery and bu
 
 ## Last Failure
 
-No A-B slot was consumed. Plans13-14 are clean-reviewed and must pass their deterministic gates before Plan15 may rebuild or invoke the provider.
+No A-B slot was consumed. Plan13 passed; Plan14 must still make the A-B root/selection lineage canonical and enforce recovery authorization before CAS before Plan15 may rebuild or invoke the provider.
