@@ -33,11 +33,14 @@ from src.rag.provider_execution_authority import (
     ExecutionPromotionRequestV1,
     ExecutionPromotionViewV1,
     ProviderExecutionAuthorityFailureCode,
+    ProviderExecutionProjectionV1,
     ProviderExecutionAuthorityRequestV1,
     ProviderExecutionAuthorityViewV1,
     ProviderExecutionReservationRequestV1,
     ProviderExecutionReservationViewV1,
     ProviderExecutionResultCode,
+    ProviderExecutionResultRequestV1,
+    ProviderExecutionResultViewV1,
     ProviderRequestEnvelopeV1,
     as_utc,
     canonical_sha256,
@@ -328,6 +331,185 @@ class ProviderExecutionAuthorityRepository:
             if result is not None:
                 _fail(ProviderExecutionAuthorityFailureCode.RESERVATION_MISMATCH)
             return actual
+
+    async def record_result(
+        self,
+        request: ProviderExecutionResultRequestV1,
+    ) -> ProviderExecutionResultViewV1:
+        """Append or exactly replay the sole committed result for a reservation."""
+
+        async with self._sessions.begin() as session:
+            peek = await session.get(ProviderExecutionReservation, request.reservation_id)
+            if peek is None:
+                _fail(ProviderExecutionAuthorityFailureCode.RESERVATION_MISSING)
+            await _lock_tenant_scope(session, peek.tenant_id)
+            reservation = (
+                await session.execute(
+                    select(ProviderExecutionReservation)
+                    .where(ProviderExecutionReservation.id == request.reservation_id)
+                    .execution_options(populate_existing=True)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if reservation is None:
+                _fail(ProviderExecutionAuthorityFailureCode.RESERVATION_MISSING)
+            try:
+                _reservation_view(reservation)
+            except ValueError:
+                _fail(ProviderExecutionAuthorityFailureCode.RESERVATION_MISMATCH)
+            if request.actual_request_count > reservation.max_request_count:
+                _fail(ProviderExecutionAuthorityFailureCode.RESULT_MISMATCH)
+
+            existing = list(
+                (
+                    await session.execute(
+                        select(ProviderExecutionResult)
+                        .where(
+                            or_(
+                                ProviderExecutionResult.id == request.result_id,
+                                ProviderExecutionResult.reservation_id == request.reservation_id,
+                            )
+                        )
+                        .order_by(ProviderExecutionResult.completed_at, ProviderExecutionResult.id)
+                        .execution_options(populate_existing=True)
+                        .with_for_update()
+                    )
+                ).scalars()
+            )
+            if existing:
+                if len(existing) != 1:
+                    _fail(ProviderExecutionAuthorityFailureCode.RESULT_MISMATCH)
+                view = _result_view(existing[0])
+                if not _result_request_matches(view, request):
+                    _fail(ProviderExecutionAuthorityFailureCode.RESULT_MISMATCH)
+                return view
+
+            if request.output_candidate_id is not None:
+                output_candidate = (
+                    await session.execute(
+                        select(PolicyCorpusVersion)
+                        .where(
+                            PolicyCorpusVersion.id == request.output_candidate_id,
+                            PolicyCorpusVersion.tenant_id == reservation.tenant_id,
+                        )
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if output_candidate is None:
+                    _fail(ProviderExecutionAuthorityFailureCode.RESULT_MISMATCH)
+
+            row = ProviderExecutionResult(
+                id=request.result_id,
+                tenant_id=reservation.tenant_id,
+                reservation_id=reservation.id,
+                request_limit=reservation.max_request_count,
+                result_code=request.result_code.value,
+                actual_request_count=request.actual_request_count,
+                result_schema_version="provider_execution_result.v1",
+                result_json=dict(request.result_json),
+                result_hash=request.result_hash,
+                output_candidate_id=request.output_candidate_id,
+                terminal_run_hash=request.terminal_run_hash,
+                terminal_report_hash=request.terminal_report_hash,
+                selection_id=request.selection_id,
+                selection_decision_hash=request.selection_decision_hash,
+                activation_authorization_hash=request.activation_authorization_hash,
+            )
+            session.add(row)
+            await session.flush()
+            await session.refresh(row)
+            return _result_view(row)
+
+    async def get_result(
+        self,
+        *,
+        reservation_id: UUID,
+    ) -> ProviderExecutionResultViewV1 | None:
+        async with self._sessions() as session:
+            row = (
+                await session.execute(
+                    select(ProviderExecutionResult).where(ProviderExecutionResult.reservation_id == reservation_id)
+                )
+            ).scalar_one_or_none()
+            return _result_view(row) if row is not None else None
+
+    async def read_projection(
+        self,
+        *,
+        authority_id: UUID,
+    ) -> ProviderExecutionProjectionV1:
+        """Read and lock a committed graph; never infer or create missing DB rows."""
+
+        async with self._sessions.begin() as session:
+            await _lock_promotion_scope(session)
+            peek = await session.get(ProviderExecutionAuthority, authority_id)
+            if peek is None:
+                _fail(ProviderExecutionAuthorityFailureCode.AUTHORITY_MISSING)
+            await _lock_tenant_scope(session, peek.tenant_id)
+            authority = (
+                await session.execute(
+                    select(ProviderExecutionAuthority)
+                    .where(ProviderExecutionAuthority.id == authority_id)
+                    .execution_options(populate_existing=True)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if authority is None:
+                _fail(ProviderExecutionAuthorityFailureCode.AUTHORITY_MISSING)
+            promotion = (
+                await session.execute(
+                    select(ProviderExecutionPromotion)
+                    .where(ProviderExecutionPromotion.id == authority.promotion_id)
+                    .execution_options(populate_existing=True)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if promotion is None:
+                _fail(ProviderExecutionAuthorityFailureCode.PROMOTION_MISSING)
+            reservations = list(
+                (
+                    await session.execute(
+                        select(ProviderExecutionReservation)
+                        .where(ProviderExecutionReservation.authority_id == authority.id)
+                        .order_by(
+                            ProviderExecutionReservation.purpose,
+                            ProviderExecutionReservation.subject_hash,
+                            ProviderExecutionReservation.ordinal,
+                            ProviderExecutionReservation.id,
+                        )
+                        .execution_options(populate_existing=True)
+                        .with_for_update()
+                    )
+                ).scalars()
+            )
+            reservation_ids = [row.id for row in reservations]
+            results = (
+                list(
+                    (
+                        await session.execute(
+                            select(ProviderExecutionResult)
+                            .where(ProviderExecutionResult.reservation_id.in_(reservation_ids))
+                            .order_by(
+                                ProviderExecutionResult.reservation_id,
+                                ProviderExecutionResult.id,
+                            )
+                            .execution_options(populate_existing=True)
+                            .with_for_update()
+                        )
+                    ).scalars()
+                )
+                if reservation_ids
+                else []
+            )
+            try:
+                return ProviderExecutionProjectionV1(
+                    promotion=_promotion_view(promotion),
+                    authority=_authority_view(authority),
+                    reservations=tuple(_reservation_view(row) for row in reservations),
+                    results=tuple(_result_view(row) for row in results),
+                )
+            except ValueError:
+                _fail(ProviderExecutionAuthorityFailureCode.PROJECTION_MISMATCH)
 
     async def _validate_promotion_transition(self, request: ExecutionPromotionRequestV1) -> None:
         try:
@@ -638,6 +820,44 @@ def _reservation_view(row: ProviderExecutionReservation) -> ProviderExecutionRes
         explicit_retry=row.ordinal == 2,
         predecessor_result_id=row.predecessor_result_id,
         reserved_at=row.reserved_at,
+    )
+
+
+def _result_view(row: ProviderExecutionResult) -> ProviderExecutionResultViewV1:
+    if row.actual_request_count < 0 or row.actual_request_count > row.request_limit:
+        _fail(ProviderExecutionAuthorityFailureCode.RESULT_MISMATCH)
+    try:
+        return ProviderExecutionResultViewV1(
+            schema_version=row.result_schema_version,
+            reservation_id=row.reservation_id,
+            result_id=row.id,
+            tenant_id=row.tenant_id,
+            request_limit=row.request_limit,
+            result_code=row.result_code,
+            actual_request_count=row.actual_request_count,
+            result_json=dict(row.result_json or {}),
+            result_hash=row.result_hash,
+            output_candidate_id=row.output_candidate_id,
+            terminal_run_hash=row.terminal_run_hash,
+            terminal_report_hash=row.terminal_report_hash,
+            selection_id=row.selection_id,
+            selection_decision_hash=row.selection_decision_hash,
+            activation_authorization_hash=row.activation_authorization_hash,
+            completed_at=row.completed_at,
+        )
+    except ValueError:
+        _fail(ProviderExecutionAuthorityFailureCode.RESULT_MISMATCH)
+
+
+def _result_request_matches(
+    view: ProviderExecutionResultViewV1,
+    request: ProviderExecutionResultRequestV1,
+) -> bool:
+    return (
+        ProviderExecutionResultRequestV1.model_validate(
+            view.model_dump(exclude={"schema_version", "tenant_id", "request_limit", "completed_at"})
+        )
+        == request
     )
 
 

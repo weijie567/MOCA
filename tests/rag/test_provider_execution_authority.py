@@ -7,7 +7,8 @@ import subprocess
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
+from pydantic import ValidationError
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import (
@@ -15,8 +16,10 @@ from src.db.models import (
     PolicyCorpusManifestRevision,
     PolicyCorpusRollout,
     PolicyCorpusVersion,
+    ProviderExecutionAuthority,
     ProviderExecutionReservation,
     ProviderExecutionPromotion,
+    ProviderExecutionResult,
     Tenant,
 )
 from src.rag.provider_execution_authority import (
@@ -26,6 +29,8 @@ from src.rag.provider_execution_authority import (
     ProviderExecutionAuthorityService,
     ProviderExecutionPurpose,
     ProviderExecutionReservationRequestV1,
+    ProviderExecutionResultCode,
+    ProviderExecutionResultRequestV1,
     ProviderRequestEnvelopeV1,
     canonical_sha256,
 )
@@ -82,6 +87,33 @@ def _reviewed_git_root(tmp_path: Path) -> tuple[Path, str, str, str, str, str]:
         capture_output=True,
     ).stdout
     return root, c0_commit, c0_tree, c1_commit, c1_tree, canonical_sha256(diff)
+
+
+def _promotion_request(
+    *,
+    c0_commit: str,
+    c0_tree: str,
+    c1_commit: str,
+    c1_tree: str,
+    diff_hash: str,
+) -> ExecutionPromotionRequestV1:
+    return ExecutionPromotionRequestV1.seal(
+        protected_code_c0_commit=c0_commit,
+        protected_code_c0_tree_hash=c0_tree,
+        protected_code_c1_commit=c1_commit,
+        protected_code_c1_tree_hash=c1_tree,
+        c0_to_c1_diff_hash=diff_hash,
+        c0_code_review_artifact_sha256=SHA_A,
+        c0_security_artifact_sha256=SHA_B,
+        c1_code_review_artifact_sha256=SHA_C,
+        c1_security_artifact_sha256=SHA_D,
+        c0_code_review_attestation_sha256=SHA_E,
+        c0_security_attestation_sha256=SHA_F,
+        c1_code_review_attestation_sha256=SHA_A,
+        c1_security_attestation_sha256=SHA_B,
+        c0_gate_report_sha256=SHA_C,
+        c1_gate_report_sha256=SHA_D,
+    )
 
 
 async def _seed_authority_inputs(
@@ -223,22 +255,12 @@ async def _build_service_and_authority(
         )
     )
     promotion = await service.promote_reviewed_execution(
-        ExecutionPromotionRequestV1.seal(
-            protected_code_c0_commit=c0_commit,
-            protected_code_c0_tree_hash=c0_tree,
-            protected_code_c1_commit=c1_commit,
-            protected_code_c1_tree_hash=c1_tree,
-            c0_to_c1_diff_hash=diff_hash,
-            c0_code_review_artifact_sha256=SHA_A,
-            c0_security_artifact_sha256=SHA_B,
-            c1_code_review_artifact_sha256=SHA_C,
-            c1_security_artifact_sha256=SHA_D,
-            c0_code_review_attestation_sha256=SHA_E,
-            c0_security_attestation_sha256=SHA_F,
-            c1_code_review_attestation_sha256=SHA_A,
-            c1_security_attestation_sha256=SHA_B,
-            c0_gate_report_sha256=SHA_C,
-            c1_gate_report_sha256=SHA_D,
+        _promotion_request(
+            c0_commit=c0_commit,
+            c0_tree=c0_tree,
+            c1_commit=c1_commit,
+            c1_tree=c1_tree,
+            diff_hash=diff_hash,
         )
     )
     authority = await service.issue_authority_root(
@@ -309,6 +331,20 @@ def _reservation_request(
     )
 
 
+def _result_request(
+    reservation_id,
+    *,
+    result_code: ProviderExecutionResultCode,
+    actual_request_count: int = 1,
+) -> ProviderExecutionResultRequestV1:
+    return ProviderExecutionResultRequestV1.seal(
+        reservation_id=reservation_id,
+        result_code=result_code,
+        actual_request_count=actual_request_count,
+        result_json={"safe_outcome": result_code.value},
+    )
+
+
 @pytest.mark.asyncio
 async def test_concurrent_same_subject_reservation_has_exactly_one_winner(test_engine, tmp_path: Path) -> None:
     session_factory, service, authority, _ = await _build_service_and_authority(test_engine, tmp_path)
@@ -334,6 +370,193 @@ async def test_concurrent_same_subject_reservation_has_exactly_one_winner(test_e
             .where(ProviderExecutionReservation.authority_id == authority.authority_id)
         )
     assert reservation_count == 1
+
+
+@pytest.mark.asyncio
+async def test_committed_reservation_without_result_consumes_ordinal_one(test_engine, tmp_path: Path) -> None:
+    session_factory, service, authority, _ = await _build_service_and_authority(test_engine, tmp_path)
+    first = await service.reserve_and_commit(_reservation_request(authority.authority_id))
+
+    assert await service.get_result(reservation_id=first.reservation_id) is None
+    with pytest.raises(ProviderExecutionAuthorityError, match="retry_not_allowed"):
+        await service.reserve_and_commit(
+            _reservation_request(
+                authority.authority_id,
+                ordinal=2,
+                explicit_retry=True,
+            )
+        )
+
+    async with session_factory() as independent_session:
+        reservation_count = await independent_session.scalar(
+            select(func.count())
+            .select_from(ProviderExecutionReservation)
+            .where(ProviderExecutionReservation.authority_id == authority.authority_id)
+        )
+    assert reservation_count == 1
+
+
+@pytest.mark.asyncio
+async def test_results_are_closed_bounded_and_exactly_idempotent(test_engine, tmp_path: Path) -> None:
+    session_factory, service, authority, _ = await _build_service_and_authority(test_engine, tmp_path)
+    assert {code.value for code in ProviderExecutionResultCode} == {
+        "success",
+        "provider_unavailable",
+        "transient_execution_error",
+        "quality_fail",
+        "safety_fail",
+        "configuration_error",
+        "parity_error",
+        "source_drift",
+        "response_error",
+        "projection_error",
+        "unknown_error",
+    }
+    with pytest.raises(ValidationError):
+        ProviderExecutionResultRequestV1.seal(
+            reservation_id=uuid4(),
+            result_code="unbounded_retry",
+            actual_request_count=0,
+            result_json={},
+        )
+
+    reservation = await service.reserve_and_commit(_reservation_request(authority.authority_id))
+    oversized = _result_request(
+        reservation.reservation_id,
+        result_code=ProviderExecutionResultCode.SUCCESS,
+        actual_request_count=2,
+    )
+    with pytest.raises(ProviderExecutionAuthorityError, match="result_mismatch"):
+        await service.record_result(oversized)
+
+    request = _result_request(
+        reservation.reservation_id,
+        result_code=ProviderExecutionResultCode.SUCCESS,
+    )
+    first = await service.record_result(request)
+    assert await service.record_result(request) == first
+    assert await service.get_result(reservation_id=reservation.reservation_id) == first
+    changed = ProviderExecutionResultRequestV1.seal(
+        **request.model_dump(exclude={"result_hash", "result_code"}),
+        result_code=ProviderExecutionResultCode.UNKNOWN_ERROR,
+    )
+    with pytest.raises(ProviderExecutionAuthorityError, match="result_mismatch"):
+        await service.record_result(changed)
+
+    async with session_factory() as independent_session:
+        result_count = await independent_session.scalar(
+            select(func.count())
+            .select_from(ProviderExecutionResult)
+            .where(ProviderExecutionResult.reservation_id == reservation.reservation_id)
+        )
+    assert result_count == 1
+    assert await service.get_result(reservation_id=uuid4()) is None
+
+
+@pytest.mark.asyncio
+async def test_only_allowlisted_exact_results_permit_ordinal_two(test_engine, tmp_path: Path) -> None:
+    _, service, authority, _ = await _build_service_and_authority(test_engine, tmp_path)
+
+    for code in (
+        ProviderExecutionResultCode.PROVIDER_UNAVAILABLE,
+        ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR,
+    ):
+        subject_hash = canonical_sha256({"retryable": code.value})
+        first = await service.reserve_and_commit(
+            _reservation_request(authority.authority_id, subject_hash=subject_hash)
+        )
+        await service.record_result(_result_request(first.reservation_id, result_code=code))
+        second = await service.reserve_and_commit(
+            _reservation_request(
+                authority.authority_id,
+                subject_hash=subject_hash,
+                ordinal=2,
+                explicit_retry=True,
+            )
+        )
+        assert second.ordinal == 2
+
+    for code in (
+        ProviderExecutionResultCode.QUALITY_FAIL,
+        ProviderExecutionResultCode.SAFETY_FAIL,
+        ProviderExecutionResultCode.CONFIGURATION_ERROR,
+    ):
+        subject_hash = canonical_sha256({"terminal": code.value})
+        first = await service.reserve_and_commit(
+            _reservation_request(authority.authority_id, subject_hash=subject_hash)
+        )
+        await service.record_result(_result_request(first.reservation_id, result_code=code))
+        with pytest.raises(ProviderExecutionAuthorityError, match="retry_not_allowed"):
+            await service.reserve_and_commit(
+                _reservation_request(
+                    authority.authority_id,
+                    subject_hash=subject_hash,
+                    ordinal=2,
+                    explicit_retry=True,
+                )
+            )
+
+    drift_subject = canonical_sha256({"retryable": "changed-envelope"})
+    first = await service.reserve_and_commit(_reservation_request(authority.authority_id, subject_hash=drift_subject))
+    await service.record_result(
+        _result_request(first.reservation_id, result_code=ProviderExecutionResultCode.PROVIDER_UNAVAILABLE)
+    )
+    changed_envelope = _envelope(call_site="reviewed_build:changed")
+    changed_retry = _reservation_request(
+        authority.authority_id,
+        subject_hash=drift_subject,
+        ordinal=2,
+        explicit_retry=True,
+    ).model_copy(update={"request_envelope": changed_envelope})
+    with pytest.raises(ProviderExecutionAuthorityError, match="retry_not_allowed"):
+        await service.reserve_and_commit(changed_retry)
+
+
+@pytest.mark.asyncio
+async def test_ordinal_two_has_one_concurrent_winner_and_ordinal_three_is_refused(
+    test_engine,
+    tmp_path: Path,
+) -> None:
+    session_factory, service, authority, _ = await _build_service_and_authority(test_engine, tmp_path)
+    first = await service.reserve_and_commit(_reservation_request(authority.authority_id))
+    await service.record_result(
+        _result_request(first.reservation_id, result_code=ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR)
+    )
+    retry = _reservation_request(
+        authority.authority_id,
+        ordinal=2,
+        explicit_retry=True,
+    )
+
+    async def reserve_retry() -> object:
+        try:
+            return await service.reserve_and_commit(retry)
+        except ProviderExecutionAuthorityError as exc:
+            return exc
+
+    outcomes = await asyncio.gather(reserve_retry(), reserve_retry())
+    assert sum(not isinstance(item, ProviderExecutionAuthorityError) for item in outcomes) == 1
+    losers = [item for item in outcomes if isinstance(item, ProviderExecutionAuthorityError)]
+    assert len(losers) == 1
+    assert losers[0].reason_code == "reservation_conflict"
+
+    with pytest.raises(ProviderExecutionAuthorityError, match="reservation_exhausted"):
+        await service.reserve_and_commit(
+            _reservation_request(
+                authority.authority_id,
+                subject_hash=SHA_A,
+                ordinal=3,
+            )
+        )
+    async with session_factory() as independent_session:
+        ordinals = list(
+            await independent_session.scalars(
+                select(ProviderExecutionReservation.ordinal)
+                .where(ProviderExecutionReservation.authority_id == authority.authority_id)
+                .order_by(ProviderExecutionReservation.ordinal)
+            )
+        )
+    assert ordinals == [1, 2]
 
 
 @pytest.mark.asyncio
@@ -415,15 +638,106 @@ async def test_promotion_is_singleton_and_different_review_bytes_are_refused(tes
     )
     assert (await service.promote_reviewed_execution(exact)).promotion_id == promotion.promotion_id
 
-    changed = ExecutionPromotionRequestV1.seal(
-        **exact.model_dump(exclude={"promotion_request_hash", "c1_gate_report_sha256"}),
-        c1_gate_report_sha256=SHA_E,
-    )
-    with pytest.raises(ProviderExecutionAuthorityError, match="promotion_mismatch"):
-        await service.promote_reviewed_execution(changed)
+    for field in (
+        "c0_code_review_artifact_sha256",
+        "c1_security_artifact_sha256",
+        "c0_code_review_attestation_sha256",
+        "c1_security_attestation_sha256",
+        "c0_gate_report_sha256",
+        "c1_gate_report_sha256",
+    ):
+        replacement = SHA_F if getattr(exact, field) != SHA_F else SHA_E
+        changed = ExecutionPromotionRequestV1.seal(
+            **exact.model_dump(exclude={"promotion_request_hash", field}),
+            **{field: replacement},
+        )
+        with pytest.raises(ProviderExecutionAuthorityError, match="promotion_mismatch"):
+            await service.promote_reviewed_execution(changed)
     async with session_factory() as independent_session:
         count = await independent_session.scalar(select(func.count()).select_from(ProviderExecutionPromotion))
     assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_foreign_commit_tree_and_diff_promotion_inputs_are_refused(test_engine, tmp_path: Path) -> None:
+    session_factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+    root, c0_commit, c0_tree, c1_commit, c1_tree, diff_hash = _reviewed_git_root(tmp_path)
+    service = ProviderExecutionAuthorityService(
+        ProviderExecutionAuthorityRepository(
+            session_factory,
+            project_entry=root / "src/rag/provider_execution_authority.py",
+        )
+    )
+    exact = _promotion_request(
+        c0_commit=c0_commit,
+        c0_tree=c0_tree,
+        c1_commit=c1_commit,
+        c1_tree=c1_tree,
+        diff_hash=diff_hash,
+    )
+    mismatches = (
+        exact.model_copy(
+            update={
+                "protected_code_c0_commit": "0" * 40,
+                "promotion_request_hash": canonical_sha256(
+                    {
+                        **exact.model_dump(exclude={"promotion_request_hash", "protected_code_c0_commit"}),
+                        "protected_code_c0_commit": "0" * 40,
+                    }
+                ),
+            }
+        ),
+        ExecutionPromotionRequestV1.seal(
+            **exact.model_dump(exclude={"promotion_request_hash", "protected_code_c1_tree_hash"}),
+            protected_code_c1_tree_hash="0" * 40,
+        ),
+        ExecutionPromotionRequestV1.seal(
+            **exact.model_dump(exclude={"promotion_request_hash", "c0_to_c1_diff_hash"}),
+            c0_to_c1_diff_hash=SHA_A,
+        ),
+    )
+    for mismatch in mismatches:
+        with pytest.raises(ProviderExecutionAuthorityError, match="promotion_mismatch"):
+            await service.promote_reviewed_execution(mismatch)
+
+    foreign = _reviewed_git_root(tmp_path / "foreign")
+    foreign_file = foreign[0] / "src/rag/provider_execution_authority.py"
+    foreign_file.write_text("foreign-c2\n", encoding="utf-8")
+    _git(foreign[0], "add", "src/rag/provider_execution_authority.py")
+    _git(foreign[0], "commit", "-qm", "foreign-c2")
+    foreign_c2_commit = _git(foreign[0], "rev-parse", "HEAD")
+    foreign_c2_tree = _git(foreign[0], "rev-parse", "HEAD^{tree}")
+    foreign_diff = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(foreign[0]),
+            "diff",
+            "--binary",
+            "--full-index",
+            foreign[3],
+            foreign_c2_commit,
+            "--",
+            "src/db/models.py",
+            "src/db/migrations/versions/032_phase64_5_provider_execution_authority.py",
+            "src/rag/provider_execution_authority.py",
+            "src/repositories/provider_execution_authority_repo.py",
+        ],
+        check=True,
+        capture_output=True,
+    ).stdout
+    foreign_request = _promotion_request(
+        c0_commit=foreign[3],
+        c0_tree=foreign[4],
+        c1_commit=foreign_c2_commit,
+        c1_tree=foreign_c2_tree,
+        diff_hash=canonical_sha256(foreign_diff),
+    )
+    with pytest.raises(ProviderExecutionAuthorityError, match="promotion_mismatch"):
+        await service.promote_reviewed_execution(foreign_request)
+    async with session_factory() as independent_session:
+        count = await independent_session.scalar(select(func.count()).select_from(ProviderExecutionPromotion))
+    assert count == 0
 
 
 @pytest.mark.asyncio
@@ -452,3 +766,154 @@ async def test_db_time_expiry_and_source_drift_refuse_before_new_reservation(tes
     source = Path("src/repositories/provider_execution_authority_repo.py").read_text(encoding="utf-8")
     assert 'text("SELECT clock_timestamp()")' in source
     assert "now >= as_utc(request.expires_at)" in source
+
+
+@pytest.mark.asyncio
+async def test_active_source_manifest_parity_and_envelope_drift_all_refuse(
+    test_engine,
+    tmp_path: Path,
+) -> None:
+    session_factory, service, authority, seeded = await _build_service_and_authority(test_engine, tmp_path)
+
+    async with session_factory.begin() as drift_session:
+        rollout = (
+            await drift_session.execute(
+                select(PolicyCorpusRollout).where(PolicyCorpusRollout.tenant_id == authority.tenant_id)
+            )
+        ).scalar_one()
+        rollout.active_corpus_version_id = seeded["candidate_id"]
+    with pytest.raises(ProviderExecutionAuthorityError, match="authority_mismatch"):
+        await service.reserve_and_commit(_reservation_request(authority.authority_id, subject_hash=SHA_A))
+    async with session_factory.begin() as restore_session:
+        rollout = (
+            await restore_session.execute(
+                select(PolicyCorpusRollout).where(PolicyCorpusRollout.tenant_id == authority.tenant_id)
+            )
+        ).scalar_one()
+        rollout.active_corpus_version_id = seeded["active_corpus_id"]
+
+    async with session_factory.begin() as drift_session:
+        manifest = await drift_session.get(PolicyCorpusManifestRevision, seeded["manifest_id"])
+        assert manifest is not None
+        manifest.manifest_hash = SHA_B
+    with pytest.raises(ProviderExecutionAuthorityError, match="authority_mismatch"):
+        await service.reserve_and_commit(_reservation_request(authority.authority_id, subject_hash=SHA_B))
+    async with session_factory.begin() as restore_session:
+        manifest = await restore_session.get(PolicyCorpusManifestRevision, seeded["manifest_id"])
+        assert manifest is not None
+        manifest.manifest_hash = SHA_A
+
+    async with session_factory.begin() as drift_session:
+        candidate = await drift_session.get(PolicyCorpusVersion, seeded["candidate_id"])
+        assert candidate is not None
+        candidate.provider_parity_report_hash = SHA_C
+    with pytest.raises(ProviderExecutionAuthorityError, match="authority_mismatch"):
+        await service.reserve_and_commit(_reservation_request(authority.authority_id, subject_hash=SHA_C))
+    async with session_factory.begin() as restore_session:
+        candidate = await restore_session.get(PolicyCorpusVersion, seeded["candidate_id"])
+        assert candidate is not None
+        candidate.provider_parity_report_hash = SHA_B
+
+    changed_envelope = _envelope().model_copy(update={"contract_hash": SHA_A})
+    with pytest.raises(ProviderExecutionAuthorityError, match="reservation_mismatch"):
+        await service.reserve_and_commit(
+            _reservation_request(authority.authority_id, subject_hash=SHA_D).model_copy(
+                update={"request_envelope": changed_envelope}
+            )
+        )
+    async with session_factory() as independent_session:
+        count = await independent_session.scalar(
+            select(func.count())
+            .select_from(ProviderExecutionReservation)
+            .where(ProviderExecutionReservation.authority_id == authority.authority_id)
+        )
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_db_time_equality_at_expiry_refuses_reservation(test_engine, tmp_path: Path) -> None:
+    session_factory, service, authority, seeded = await _build_service_and_authority(test_engine, tmp_path)
+    async with session_factory.begin() as session:
+        db_now = await session.scalar(text("SELECT clock_timestamp()"))
+        assert isinstance(db_now, datetime)
+        candidate = await session.get(PolicyCorpusVersion, seeded["candidate_id"])
+        authority_row = await session.get(ProviderExecutionAuthority, authority.authority_id)
+        assert candidate is not None
+        assert authority_row is not None
+        claim = dict(candidate.validation_proof_json["claim"])
+        claim["parity_expires_at"] = db_now.isoformat()
+        candidate.validation_proof_json = {"claim": claim}
+        candidate.lease_expires_at = db_now
+        authority_row.parity_expires_at = db_now
+        authority_row.candidate_lease_expires_at = db_now
+        authority_row.expires_at = db_now
+
+    with pytest.raises(ProviderExecutionAuthorityError, match="authority_stale"):
+        await service.reserve_and_commit(_reservation_request(authority.authority_id))
+    async with session_factory() as independent_session:
+        count = await independent_session.scalar(select(func.count()).select_from(ProviderExecutionReservation))
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_is_db_to_file_only_and_never_refunds_budget(
+    test_engine,
+    tmp_path: Path,
+) -> None:
+    session_factory, service, authority, _ = await _build_service_and_authority(test_engine, tmp_path)
+    first = await service.reserve_and_commit(_reservation_request(authority.authority_id))
+    terminal = await service.record_result(
+        _result_request(first.reservation_id, result_code=ProviderExecutionResultCode.QUALITY_FAIL)
+    )
+    projection_path = tmp_path / "projections" / "authority.json"
+
+    created = await service.reconcile_projection(
+        authority_id=authority.authority_id,
+        projection_path=projection_path,
+    )
+    original = projection_path.read_bytes()
+    assert created.created is True
+    assert created.projection.results == (terminal,)
+    assert (
+        await service.reconcile_projection(
+            authority_id=authority.authority_id,
+            projection_path=projection_path,
+        )
+    ).created is False
+
+    projection_path.unlink()
+    recreated = await service.reconcile_projection(
+        authority_id=authority.authority_id,
+        projection_path=projection_path,
+    )
+    assert recreated.created is True
+    assert projection_path.read_bytes() == original
+
+    projection_path.write_bytes(b"forged projection\n")
+    with pytest.raises(ProviderExecutionAuthorityError, match="projection_mismatch"):
+        await service.reconcile_projection(
+            authority_id=authority.authority_id,
+            projection_path=projection_path,
+        )
+
+    copied_path = tmp_path / "copied.json"
+    copied_path.write_bytes(original)
+    with pytest.raises(ProviderExecutionAuthorityError, match="authority_missing"):
+        await service.reconcile_projection(
+            authority_id=uuid4(),
+            projection_path=copied_path,
+        )
+    assert copied_path.read_bytes() == original
+
+    with pytest.raises(ProviderExecutionAuthorityError, match="retry_not_allowed"):
+        await service.reserve_and_commit(
+            _reservation_request(
+                authority.authority_id,
+                ordinal=2,
+                explicit_retry=True,
+            )
+        )
+    async with session_factory() as independent_session:
+        reservations = await independent_session.scalar(select(func.count()).select_from(ProviderExecutionReservation))
+        results = await independent_session.scalar(select(func.count()).select_from(ProviderExecutionResult))
+    assert (reservations, results) == (1, 1)
