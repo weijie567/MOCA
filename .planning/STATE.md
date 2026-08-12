@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
-status: executing
-last_updated: "2026-08-12T03:52:00Z"
-last_activity: 2026-08-12 -- Phase 64.4 Plan 16 completed ordered claim-state recovery for the retained candidate
+status: blocked
+last_updated: "2026-08-12T04:19:22Z"
+last_activity: 2026-08-12 -- Phase 64.4 Plan 17 stopped truthfully after immutable recovery authority expired
 progress:
   total_phases: 15
   completed_phases: 7
   total_plans: 63
-  completed_plans: 59
+  completed_plans: 60
   percent: 47
 ---
 
@@ -24,11 +24,11 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 
 ## Current Position
 
-Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — EXECUTING
-Plan: 17 of 20 — canonical live recovery manifest issuance and lease gate
-Status: Plans 01-16 complete/checkpointed; Plans17-20 are clean-reviewed and Plan17 is authorized.
-Last activity: 2026-08-12 -- Plan16 added exact v1 for the retained building/v2 candidate with zero provider/budget/DB side effect.
-Next: Implement deterministic canonical manifest issuance and current-time lease/parity gates, then prove the incomplete candidate cannot issue authority.
+Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — BLOCKED
+Plan: 18 of 20 — blocked before same-candidate build and canonical A-B
+Status: Plans 01-17 complete/checkpointed; immutable Plan15 recovery authority expired, so Plans18-20 are not authorized.
+Last activity: 2026-08-12 -- Plan17 implemented the canonical issuance/current-time gate and proved expiry with zero live side effect.
+Next: Do not execute Plan18, renew authority, create another candidate or expand the frozen recovery chain. Await explicit user direction on closing Phase64.4 incomplete.
 After: Phase 65 follows Phase 64.4.
 
 Resume file: `.planning/autopilot/phase-64.4.md`

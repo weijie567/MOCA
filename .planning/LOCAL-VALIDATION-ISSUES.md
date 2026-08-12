@@ -23883,3 +23883,14 @@ Task1按质量优先完成两轮 `make format`、完整 `make lint` 与 prescrib
 
 **已做处理 / 剩余入口**
 Plan17停在truthful fail-closed checkpoint；不续租、不rebind、不创建第二candidate、不写manifest/reservation、不调用provider、不进入Plan18，也不新增Plan21。完成Task2 deterministic回归后提交本证据与checkpoint SUMMARY；由orchestrator决定已冻结Plans18-20的后续处置。
+
+## 2026-08-12 — Phase 64.4 Plan 17 SUMMARY frontmatter 误标 requirement 完成
+
+**问题现象 / 如何检测**
+Plan17 SUMMARY 正文正确写明 authority expired、candidate仍building、没有canonical A/B manifest、selection或activation，且Plan18未获授权；但frontmatter一度写成 `requirements-completed: [SC-64.4-5, SC-64.4-6]`。通过与 `.planning/REQUIREMENTS.md`、Plan18-20 success criteria及同一SUMMARY live evidence交叉核对发现矛盾。
+
+**关键证据 / 当前判断 / 根因**
+SC-64.4-5/6要求完成隔离可回滚reindex、versioned A/B non-regression selected configuration及既有RAG回归。当前只有门禁实现与expired refusal，没有complete candidate、canonical manifest、selected_pass、recovery authorization或activation drill，因此不能标完成。根因是checkpoint SUMMARY沿用了Plan17 frontmatter的requirements ownership，错误地把“本plan覆盖这些requirement”写成“requirement已经完成”。
+
+**已做处理 / 剩余入口**
+已把Plan17 SUMMARY修正为 `requirements-completed: []`，并在正文明确未完成证据；ROADMAP只把Plan17标为已处理的expired checkpoint，STATE/autopilot标blocked。未修改代码、测试、live artifact、DB或requirement勾选；Plans18-20仍禁止执行。

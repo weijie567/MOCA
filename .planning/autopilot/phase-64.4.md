@@ -1,12 +1,12 @@
 ---
 phase: "64.4"
-status: running
+status: blocked
 current_step: execute
-current_plan: "17"
+current_plan: "18"
 plan_review_loop: 6
 quota_waits: 0
-updated_at: "2026-08-12T11:52:00+08:00"
-next_command: "execute Plan17 deterministic manifest issuance and lease gate"
+updated_at: "2026-08-12T12:19:22+08:00"
+next_command: "do not execute Plan18; await explicit user direction to close Phase64.4 incomplete"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -51,6 +51,7 @@ next_command: "execute Plan17 deterministic manifest issuance and lease gate"
 - Stage 5 recovery Plan16 complete: future claim publication is ordered v1 then v2 across separate transactions, exact predecessor recovery is building/v2/index0-only, identical replay fsyncs parent, and the retained candidate gained only canonical v1 with all budgets and DB authority unchanged.
 - Plans16-20 passed the fresh GSD checker and repository-backed Codex adjudication; external clean-review retries were unavailable because both providers returned quota errors and are recorded as unavailable, not as PASS. The reviewed plans are execution authority, while every absolute lease and zero-side-effect stop gate remains binding.
 - User execution boundary after Plan16: freeze the phase at 20 plans, run Plans17-20 strictly serially, stop each RED as soon as it proves the gap, read only the current plan's necessary delta, and stop truthfully on live lease expiry without renewal, a second candidate, or another recovery-chain expansion.
+- Stage 5 recovery Plan17 reached the user-mandated truthful stop: the canonical issuance/current-time gate passed format, full lint and focused regressions, then the immutable descriptor expired before live issuance. Read-only proof returned `recovery_authority_expired`; candidate/build/A-B/provider/pointer/history facts remained unchanged, requirements-completed stays empty, and Plan18 is not authorized.
 
 ## Evidence
 
@@ -68,4 +69,4 @@ next_command: "execute Plan17 deterministic manifest issuance and lease gate"
 
 ## Last Failure
 
-No provider request, candidate build reservation or A-B slot was consumed by the Plan15 failure or Plan16 recovery. Plan16 restored only the exact immutable v1 predecessor and preserved the descriptor `f8e190f1-ad0e-4476-9f77-704735e3dc46`, candidate `64932871-4488-4b8b-b438-a02791a1151f`, v2 state and unused build manifest. Plan17 is current; expiry or drift is a truthful stop, never authority to bypass review, renew the lease, create another candidate or extend the recovery chain.
+The immutable descriptor expired at `2026-08-12T04:13:52.208631Z` before Plan17 Task2 could invoke live issuance. A strict read-only check at `04:14:12Z` returned `recovery_authority_expired`; no provider request, candidate build reservation, canonical manifest, A-B slot, selection, activation, pointer/history or persistent DB mutation occurred. Under the user's frozen 20-plan/no-renewal boundary, Plan18 must not run and the autopilot stops blocked rather than expanding the recovery chain.
