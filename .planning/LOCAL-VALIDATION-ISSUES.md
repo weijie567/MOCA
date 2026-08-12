@@ -23828,3 +23828,14 @@ fixture 改为直接对 descriptor file bytes 计算 SHA，canonical-root 调用
 
 **已做处理 / 剩余入口**
 按 Plan15 implementation-defect stop 规则立即停止：不重试、不调用 `recover-state` 试图绕过、不创建第二 descriptor/candidate、不写 compatibility state、不改 Python/测试/阈值/旧 artifact，也不消费任何 provider或A-B ordinal。下一入口必须是单独 reviewed bounded repair，先补 live claim→build RED，明确由 `claim-reviewed` 依序发布 v1/v2 state，或经评审修改 canonical state 序列契约；修复后必须复用同一 descriptor/candidate并先证明 lease/source/parity仍有效，不能重新 claim 第二 candidate。
+
+## 2026-08-12 — Phase 64.4 claim-state clean cross-AI re-review 因外部 CLI 额度不足中止
+
+**问题现象 / 如何检测**
+对修订后的 Plans16-20 启动外部 clean re-review 时，Claude CLI 在读取 prompt 后返回 HTTP 403：`用户额度不足`；随后按 `$gsd-review` 可用 CLI 检测尝试 Gemini CLI，Gemini 同样返回 403 `local:insufficient_quota`。两次均未生成 plan review verdict。
+
+**关键证据 / 当前判断 / 根因**
+命令分别使用独立外部 CLI 的只读 prompt 模式，失败发生在外部模型鉴权/配额边界，不是仓库、plan YAML、Python、测试、数据库、provider 或 live artifact 错误。先前 Claude 已完成本轮第一版 19/38 草案的独立 review 并给出 `REPAIR REQUIRED`；本次目标是修订后的 20/40 clean re-review，不能把 403、旧 verdict 或当前 Codex 自审伪装成新 PASS。
+
+**已做处理 / 剩余入口**
+已保留真实失败结论并继续使用 fresh GSD plan-checker与 Codex repository-backed adjudication核对修订。外部 clean verdict 标为 unavailable；若外部额度恢复，可重新执行同一只读 prompt补录。未因此放宽计划、跳过 blocker、执行 recover-state、调用 provider/A-B、修改 DB/pointer/history或写 live evidence。

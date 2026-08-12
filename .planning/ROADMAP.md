@@ -206,7 +206,7 @@ Plans:
 **Goal:** Replace character-count policy chunk sizing with a versioned tokenizer-aware assembly path that measures the final `text-embedding-v4` input while preserving parser structure, provenance, evidence identity, deterministic rebuilds, and safe rollback, then prove the change against the Phase 64.3 format-parity baseline.
 **Requirements**: SC-64.4-1, SC-64.4-2, SC-64.4-3, SC-64.4-4, SC-64.4-5, SC-64.4-6
 **Depends on:** Phase 64.3
-**Plans:** 17 plans
+**Plans:** 20 plans
 
 **Confirmed gaps owned:** Production `chunk_blocks` and legacy `chunk_markdown` enforce character budgets rather than embedding-model token budgets; final embedding text adds title, section, and source context only after chunking; dry-run/golden validation and production ingestion do not share one authoritative chunk path; chunker/tokenizer configuration and per-chunk token counts are not persisted; and a rechunk/re-embedding rollout must preserve the immutable evidence/replay contract established by Phase 64.2.
 
@@ -235,9 +235,12 @@ Plans:
 - [x] 64.4-12-PLAN.md — Guarded Recovery Budget And Fresh-Parity Checkpoint (`depends_on: [64.4-11]`).
 - [x] 64.4-13-PLAN.md — Crash-Safe Candidate Recovery And Build Budget (`depends_on: [64.4-12]`).
 - [x] 64.4-14-PLAN.md — Canonical Recovery Budget And Pre-CAS Authority (`depends_on: [64.4-13]`).
-- [ ] 64.4-15-PLAN.md — Fresh-Parity Candidate Rebuild And Live Selection (`depends_on: [64.4-14]`).
-- [ ] 64.4-16-PLAN.md — Reversible Activation Drill And Closeout Guard (`depends_on: [64.4-15]`).
-- [ ] 64.4-17-PLAN.md — Final Documentation Ledgers And Regression Closeout (`depends_on: [64.4-16]`).
+- [x] 64.4-15-PLAN.md — Truthful blocked fresh-candidate checkpoint: one descriptor/candidate, state v2 only, zero provider/build/A-B attempts, and no requirements completed (`depends_on: [64.4-14]`).
+- [ ] 64.4-16-PLAN.md — Deterministic Claim-State Publication And Exact Candidate Recovery (`depends_on: [64.4-15]`).
+- [ ] 64.4-17-PLAN.md — Canonical Live Recovery Manifest Issuance And Lease Gate (`depends_on: [64.4-16]`).
+- [ ] 64.4-18-PLAN.md — Resumed Same-Candidate Build And Canonical A-B Selection (`depends_on: [64.4-17]`).
+- [ ] 64.4-19-PLAN.md — Reversible Activation Drill And Closeout Guard (`depends_on: [64.4-18]`).
+- [ ] 64.4-20-PLAN.md — Final Documentation Ledgers And Regression Closeout (`depends_on: [64.4-19]`).
 
 ### Phase 65: Trace Event And Console Label Consistency
 

@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: executing
-last_updated: "2026-08-12T02:04:07Z"
-last_activity: 2026-08-12 -- Phase 64.4 Plan 14 completed canonical recovery authority before CAS
+last_updated: "2026-08-12T03:13:35Z"
+last_activity: 2026-08-12 -- Phase 64.4 Plans16-20 passed clean GSD/Codex review after external repairs
 progress:
   total_phases: 15
   completed_phases: 7
-  total_plans: 60
-  completed_plans: 57
+  total_plans: 63
+  completed_plans: 58
   percent: 47
 ---
 
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 ## Current Position
 
 Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — EXECUTING
-Plan: 15 of 17 — Plan 64.4-15 fresh-parity candidate rebuild and live selection
-Status: Plans 01-14 complete; Plan 15 is the reviewed bounded live candidate/selection stage.
-Last activity: 2026-08-12 -- Phase 64.4 Plan 14 completed canonical recovery authority before CAS
-Next: Execute one descriptor-owned fresh candidate, then at most two canonical A-B attempts; stop without activation unless real selected_pass and recovery authorization exist.
+Plan: 16 of 20 — deterministic claim-state publication and exact same-candidate recovery
+Status: Plans 01-14 complete; Plan 15 is a checked truthful blocked checkpoint with 0/2 tasks and no requirements completed; Plans16-20 are clean-reviewed and Plan16 is authorized.
+Last activity: 2026-08-12 -- Plans16-20 passed clean GSD/Codex review; external clean retry was unavailable due quota and is not represented as PASS.
+Next: Execute deterministic Plan16 ordered v1->v2 publication and exact same-candidate state reconciliation with zero provider/reservation/A-B/persistent-DB mutation.
 After: Phase 65 follows Phase 64.4.
 
 Resume file: `.planning/autopilot/phase-64.4.md`
@@ -93,7 +93,7 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 **Completed Phase:** 64.1 (Runtime Safety And Approval Contract Repair) — 6/6 plans complete, review/UAT/security/validation clean
 **Completed Phase:** 64.2 (Evidence Identity Immutable Replay And Memory Provenance) — 11/11 plans and 26/26 tasks complete; final review/UAT/security/validation clean
 **Completed Phase:** 64.3 (RAG Format Parity And Document Quality Evaluation) — 5/5 plans and 12/12 tasks complete; final review/UAT/security/validation clean; canonical baseline truthfully quality-red
-**Executing Phase:** 64.4 (Token-Aware Policy Chunking And Reindex Validation) — repaired recovery is 17 plans / 34 executable tasks; Plans 01-14 complete, bounded live Plan15 next
+**Executing Phase:** 64.4 (Token-Aware Policy Chunking And Reindex Validation) — recovery replan is 20 plans / 40 executable tasks; Plans 01-14 complete, Plan15 checked as a truthful blocked checkpoint with no requirements completed, Plan16 draft pending review
 **Registered Phase:** 65 (Trace Event And Console Label Consistency) — depends on 64.4, pending `$gsd-plan-phase 65`
 **Registered Phase:** 66 (Unified Operation Contract And Tool Gateway) — pending `$gsd-plan-phase 66`
 **Registered Phase:** 67 (Dev Test And Config Hygiene) — pending `$gsd-plan-phase 67`

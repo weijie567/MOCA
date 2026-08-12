@@ -2,10 +2,11 @@
 phase: "64.4"
 status: running
 current_step: execute
+current_plan: "16"
 plan_review_loop: 6
 quota_waits: 0
-updated_at: "2026-08-12T10:04:07+08:00"
-next_command: "execute Plan15 bounded fresh candidate rebuild and live selection"
+updated_at: "2026-08-12T11:13:35+08:00"
+next_command: "execute Plan16 deterministic ordered claim-state publication and exact candidate reconciliation"
 ---
 
 # Phase 64.4 Autopilot Checkpoint
@@ -41,10 +42,13 @@ next_command: "execute Plan15 bounded fresh candidate rebuild and live selection
 - Stage 5 recovery Plan 11 complete: crash-consistent manifest-committed execution diagnostics, strict redaction, typed role/round/stage/rollback provenance and fault-injection coverage committed in five atomic commits; format/lint and 166 focused tests passed with no live provider, selection or pointer mutation.
 - Stage 5 recovery Plan 12 complete under its fail-closed checkpoint revision: cap=2 reserve-before-provider ledger and closed retry matrix passed 183 tests; fresh parity passed but the old complete candidate bound the previous report SHA, so exact readiness refused before budget creation with slots still 0/2 and pointer/history unchanged.
 - Fresh review rejected the first rebuild draft on three repository-backed blockers: DB-commit-before-state-publish could lose the candidate identity, build provider retries lacked a machine cap, and cap=2 A-B attempts could be reset through an alternate output root while activation lacked pre-CAS budget lineage.
-- The repaired recovery expands to 17 plans/34 tasks: Plan13 adds descriptor/recover-state/atomic state and per-document build budgets without live calls; Plan14 canonicalizes A-B root/candidate reservation and adds recovery authorization enforced before CAS; Plan15 performs bounded live rebuild/selection; Plan16 activation/guard; Plan17 closeout.
+- Current superseding recovery authority is 20 plans/40 tasks: Plan15 is the blocked checkpoint; Plan16 repairs exact claim-state publication/recovery; Plan17 implements and proves the manifest-issuance/current-lease gate; Plan18 resumes the same candidate and runs canonical A-B; Plan19 activates and guards closeout; Plan20 owns docs/full regression.
 - Clean authority repair re-review passed: fresh GSD checker and external Claude both returned no blocker or warning; Codex independently accepted the repository-backed results and authorized execution from Plan13.
 - Stage 5 recovery Plan 13 complete: fixed descriptor/recover-state, atomic state publication, descriptor-bound per-document cap=2 provider budget and single MOCA retry authority committed in five atomic commits; full lint and 45 focused tests passed with no live provider, candidate, DB, pointer/history or A-B side effect.
 - Stage 5 recovery Plan 14 complete: canonical production recovery root, actual candidate-state/parity rehash, separate create-only recovery authorization and real pre-CAS enforcement committed in five atomic commits; full lint and 202 scoped tests passed with no live provider, DB, A-B slot/evidence or pointer/history side effect.
+- Stage 5 recovery Plan 15 stopped truthfully before its first build reservation/provider construction: the sole retained descriptor/run/candidate reached DB `building`, state version 2, document index 0, but only `states/00000002.json` was published while the canonical reader requires contiguous v1 first. Candidate attempts/results remain 0/0; canonical A-B manifest remains absent at 0/2; selection, authorization, activation, pointer/history and requirement completion remain zero.
+- A bounded 20-plan / 40-task recovery draft preserves Plan15 as the checked blocked checkpoint, keeps Plan16 only for deterministic future v1->v2 claim publication plus exact same-candidate v1 predecessor recovery, adds Plan17 for deterministic manifest issuance/current lease gating and a zero-side-effect refusal on the still-building candidate, moves same-candidate build/issuance/A-B to Plan18, activation/guard to Plan19 and docs/full regression to Plan20.
+- The Plan16-20 draft is not execution authority. Fresh GSD checker, external Claude review and Codex repository-backed adjudication are pending; no recovery command may run merely to race the remaining lease window.
 
 ## Evidence
 
@@ -54,12 +58,12 @@ next_command: "execute Plan15 bounded fresh candidate rebuild and live selection
 - Production must fail closed on unknown tokenizer/count failures and may keep character sizing only as an explicit A/B baseline, never a silent fallback.
 - Phase completion requires a token-aware candidate that passes hard safety and fixed same-run non-regression gates; a truthful red candidate report alone is not completion.
 - Planning must split tokenizer/parity, assembly/path convergence, persistence/reindex, and A/B/cutover into separate dependency-ordered plans.
-- Original granularity was 11 plans/22 tasks; the repaired recovery is 17 plans/34 tasks, still 2 tasks and at most 12 files per plan, with clean GSD/Claude/Codex re-review.
+- Original granularity was 11 plans/22 tasks; after the Plan15 claim-state blocker the current draft is 20 plans/40 tasks, still 2 tasks and at most 12 files per plan. Plans13-15 retain their historical clean review evidence, while the changed Plans16-20 require a fresh review before execution.
 - `evidence_identity.v1` remains corpus-free; canonical document source content comes from ordered blocks, chunk compatibility is config-aware, and corpus projections control visibility only.
 - Provider parity, all-outcome terminal A/B reports, passing-only selection decisions, and hash-chained activation receipts are separate immutable stages.
 - External review's highest-priority inference is that Plan 04 must keep token-aware production activation default-off until active-corpus routing exists in Plan 06; no external finding has been accepted before repository-backed adjudication.
-- Plans11-12 executed. Plans13-14 now own the reviewed deterministic repairs for the three GSD blockers; Plans15-17 remain gated on their passing evidence.
+- Plans11-14 executed. Plan15 is a truthful blocked checkpoint with no completed requirement; Plans16-20 remain gated on fresh plan review and then their dependency-ordered evidence.
 
 ## Last Failure
 
-No A-B slot was consumed. Plans13-14 passed; Plan15 may now perform only the reviewed one-candidate build and canonical cap=2 A-B selection flow, with no activation until a real authorization exists.
+No provider request, candidate build reservation or A-B slot was consumed. Plan15 exposed that `_claim_reviewed` commits claimed/v1 and resumed building/v2 in one transaction, then publishes only v2; `_latest_reviewed_state_artifact` correctly rejected the missing `00000001.json`. The descriptor `f8e190f1-ad0e-4476-9f77-704735e3dc46`, candidate `64932871-4488-4b8b-b438-a02791a1151f`, v2 state and unused build manifest remain immutable evidence. Plan16 may be executed only after fresh review and only while exact descriptor/lease/parity/source/evidence/DB/zero-budget facts still hold; expiry or drift is a stop, not a reason to bypass review or renew authority.
