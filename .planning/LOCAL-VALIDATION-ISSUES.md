@@ -24116,3 +24116,14 @@ fixture 先显式 flush tenant；移除未使用变量；result seal 将所有 n
 
 **已做处理 / 剩余入口**
 仅让新增 reviewed 节点用当前时间签发 owner，并在测试 seed 中先 flush promotion 再写 authority；未放宽任何生产时间或外键规则。精确主节点最终 `1 passed, 1 warning`，补充 promotion-before-provider 与 committed-reservation crash 节点合计 `3 passed, 1 warning`；`make format`、完整 `make lint` 均通过。warning 是既有 LangGraph serializer deprecation。Task 2 仍需完成 CLI authority issuance、copied projection RED 与完整 scoped 两文件验证；production `build-next-reviewed`/legacy `build-next` 继续最早硬拒绝。
+
+## 2026-08-13 — Phase 64.5 Plan 03 Task 2 scoped 测试遗留预期失配
+
+**问题现象 / 如何检测**
+首次串行运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/rag/test_policy_reindex.py tests/rag/test_provider_execution_authority.py -q` 得到 `65 passed, 3 failed`。其中两条旧测试仍等待 Phase 64.4 文件预算在 `attempts/` 下创建 reservation，新的 DB-authority build 已不再访问该目录；另一条旧测试试图插入相同 `(tenant_id, run_token)` 的第二个 candidate 来制造歧义，但数据库唯一约束在 flush 时先以 `IntegrityError` 正确拒绝。
+
+**关键证据 / 当前判断 / 根因**
+两类失败均是测试预期落后于现有契约：D-09 要求 reviewed build 不再把 Phase 64.4 文件预算当 authority，而 `uq_policy_corpus_versions_tenant_run_token` 已从数据库层阻止同 tenant/run 的歧义行。失败前的 Task 2 focused 集合为 `6 passed`，copied projection + known UUID 且 DB 无 authority row 的节点已在 provider factory 前以 `authority_unavailable` 关闭；没有 live provider 调用。
+
+**已做处理 / 剩余入口**
+将旧 attempt-parent 测试改为直接断言 DB root 缺失时 reviewed build 源码不再导入/调用 legacy reservation、provider 构造数为零且 candidate cursor 不推进；将歧义行测试改为断言唯一约束拒绝、保存点回滚后仅留一行且 exact recovery 仍成立。受影响节点重跑为 `9 passed, 1 warning`；随后严格按 `make format` → 完整 `make lint` → 串行 scoped 两文件执行，最终为 `67 passed, 1 warning in 82.46s`。warning 是既有 LangGraph serializer deprecation；未回退 DB authority/唯一性约束，未调用 live provider。

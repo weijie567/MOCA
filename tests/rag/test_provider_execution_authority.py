@@ -571,6 +571,14 @@ async def test_one_shared_root_supports_both_purpose_envelopes_and_dispatch_rech
         )
     )
     assert same_root.authority_id == authority.authority_id
+    conflicting_root = ProviderExecutionAuthorityRequestV1.model_validate(
+        {
+            **authority.model_dump(exclude={"authority_id", "promotion_id", "issued_at"}),
+            "provider_name": "foreign-provider",
+        }
+    )
+    with pytest.raises(ProviderExecutionAuthorityError, match="authority_mismatch"):
+        await service.issue_authority_root(conflicting_root)
 
     build = await service.reserve_and_commit(_reservation_request(authority.authority_id))
     ab = await service.reserve_and_commit(
@@ -588,6 +596,7 @@ async def test_one_shared_root_supports_both_purpose_envelopes_and_dispatch_rech
     assert await service.recheck_dispatch(build) == build
 
     async with session_factory() as independent_session:
+        root_count = await independent_session.scalar(select(func.count()).select_from(ProviderExecutionAuthority))
         committed = list(
             (
                 await independent_session.execute(
@@ -597,6 +606,7 @@ async def test_one_shared_root_supports_both_purpose_envelopes_and_dispatch_rech
                 )
             ).scalars()
         )
+    assert root_count == 1
     assert {row.purpose for row in committed} == {"reviewed_build", "canonical_ab"}
 
 
