@@ -181,6 +181,28 @@ async def test_search_uses_query_prefix_and_deeper_candidate_fetch():
 
 
 @pytest.mark.asyncio
+async def test_unchanged_production_caller_observes_repository_pointer_cutover():
+    tenant_id = uuid4()
+    active = {"chunk": _chunk(chunk_id="character_001", content="旧字符语料退款规则。")}
+
+    async def search_similar(**kwargs):
+        assert "corpus_version_id" not in kwargs
+        assert kwargs["tenant_id"] == tenant_id
+        return [(active["chunk"], 0.82)]
+
+    repo = SimpleNamespace(search_similar=AsyncMock(side_effect=search_similar))
+    embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2, 0.3]))
+    engine = PolicyRetrievalEngine(chunk_repo=repo, embedder=embedder)
+
+    _, before, _ = await _retrieve_hits(engine, "退款规则", tenant_id)
+    active["chunk"] = _chunk(chunk_id="token_001", content="新 token 语料退款规则。")
+    _, after, _ = await _retrieve_hits(engine, "退款规则", tenant_id)
+
+    assert [hit.chunk_id for hit in before] == ["character_001"]
+    assert [hit.chunk_id for hit in after] == ["token_001"]
+
+
+@pytest.mark.asyncio
 async def test_hybrid_rerank_promotes_lexical_match_from_outside_top5():
     generic_results = [
         (

@@ -3,10 +3,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.jwt import hash_password
 from src.db.models import (
@@ -28,13 +29,11 @@ from src.db.models import (
     ConversationMessage,
     ConversationSummary,
     ConversationThread,
-    DocumentBlock,
     LongTermMemory,
     Merchant,
     MemoryTombstone,
     MemoryWriteEvent,
     Order,
-    PolicyChunk,
     PolicyDocument,
     RagIngestionJob,
     RefundCase,
@@ -49,6 +48,17 @@ from src.db.models import (
     UserRole,
 )
 from src.db.session import SessionLocal
+from src.rag.ingestion import (
+    CharacterCompatibilityAssembler,
+    assembler_for_active_policy_corpus,
+    character_compatibility_config_json,
+)
+from src.repositories.policy_corpus_repo import PolicyCorpusRepository
+from src.repositories.policy_corpus_scope import (
+    ActivePolicyCorpusScope,
+    PolicyCorpusScopeUnavailable,
+    join_active_document_projection,
+)
 
 
 MOCA_NAMESPACE = uuid.UUID("f47ac10b-58cc-4372-a567-0d02b2c3d479")
@@ -60,6 +70,8 @@ def deterministic_id(entity_type: str, key: str) -> uuid.UUID:
 
 async def reset_demo_data(session) -> None:
     tenant_ids = [deterministic_id("tenant", "demo"), deterministic_id("tenant", "other")]
+    if isinstance(session, AsyncSession):
+        await _require_no_active_policy_projection(session, tenant_ids=tenant_ids)
     user_ids = list((await session.execute(select(User.id).where(User.tenant_id.in_(tenant_ids)))).scalars().all())
     run_ids = list(
         (await session.execute(select(AgentRun.id).where(AgentRun.tenant_id.in_(tenant_ids)))).scalars().all()
@@ -128,9 +140,6 @@ async def reset_demo_data(session) -> None:
     await session.execute(delete(AgentRun).where(AgentRun.tenant_id.in_(tenant_ids)))
     await session.execute(delete(AuditLog).where(AuditLog.tenant_id.in_(tenant_ids)))
     await session.execute(delete(RagIngestionJob).where(RagIngestionJob.tenant_id.in_(tenant_ids)))
-    await session.execute(delete(PolicyChunk).where(PolicyChunk.tenant_id.in_(tenant_ids)))
-    await session.execute(delete(DocumentBlock).where(DocumentBlock.tenant_id.in_(tenant_ids)))
-    await session.execute(delete(PolicyDocument).where(PolicyDocument.tenant_id.in_(tenant_ids)))
     await session.execute(delete(Ticket).where(Ticket.tenant_id.in_(tenant_ids)))
     await session.execute(delete(RefundCase).where(RefundCase.tenant_id.in_(tenant_ids)))
     await session.execute(delete(Order).where(Order.tenant_id.in_(tenant_ids)))
@@ -140,6 +149,22 @@ async def reset_demo_data(session) -> None:
     await session.execute(delete(Merchant).where(Merchant.tenant_id.in_(tenant_ids)))
     await session.execute(delete(Tenant).where(Tenant.id.in_(tenant_ids)))
     await session.commit()
+
+
+async def _require_no_active_policy_projection(session: AsyncSession, *, tenant_ids: list[uuid.UUID]) -> None:
+    """Refuse destructive reset of append-only corpus-bound policy material."""
+
+    for tenant_id in tenant_ids:
+        try:
+            await ActivePolicyCorpusScope.resolve(session, tenant_id=tenant_id)
+        except PolicyCorpusScopeUnavailable:
+            continue
+        statement = join_active_document_projection(
+            select(PolicyDocument.id).where(PolicyDocument.tenant_id == tenant_id),
+            tenant_id=tenant_id,
+        ).limit(1)
+        if (await session.execute(statement)).scalar_one_or_none() is not None:
+            raise PolicyCorpusScopeUnavailable("demo reset refuses active policy corpus deletion")
 
 
 async def seed_roles(session) -> dict[str, Role]:
@@ -443,55 +468,22 @@ async def seed_tickets(session, orders: dict[str, Order], refunds: dict[str, Ref
 
 
 async def seed_policy_documents(session, tenants: dict[str, Tenant]) -> dict[str, PolicyDocument]:
-    documents: dict[str, PolicyDocument] = {}
-    docs = [
-        ("refund_general", "退款规则总则", "refund_rule", "high"),
-        ("not_shipped", "未发货退款处理规范", "refund_rule", "low"),
-        ("damaged_after_delivery", "签收后退款处理规范", "refund_rule", "medium"),
-        ("virtual_goods", "虚拟商品退款政策", "refund_rule", "medium"),
-        ("after_sales_period", "售后期限规定", "refund_rule", "low"),
-        ("high_amount_approval", "高金额退款审批流程", "refund_rule", "high"),
-        ("abnormal_refunds", "异常退款风险识别指南", "high_risk_list", "high"),
-        ("coupon_compensation", "补偿券发放标准", "compensation_sop", "medium"),
-        ("service_tone", "客服话术规范", "compensation_sop", "low"),
-        ("merchant_appeal", "商家申诉处理流程", "appeal_process", "medium"),
-        ("coupon_rules", "优惠券使用规则", "coupon_rule", "low"),
-        ("high_risk_merchants", "高风险商家名单管理", "high_risk_list", "high"),
-        ("refund_reason_taxonomy", "退款原因分类标准", "refund_rule", "low"),
-        ("logistics_abnormal", "物流异常处理指南", "refund_rule", "medium"),
-        ("duplicate_refund_rule", "重复退款识别规则", "high_risk_list", "high"),
-    ]
-    today = date.today()
-    for index, (key, title, doc_type, risk_level) in enumerate(docs, start=1):
-        content = f"{title}：用于客服与运营处理相关退款场景，要求以证据和租户权限为前提。"
-        document = PolicyDocument(
-            id=deterministic_id("policy_document", key),
-            tenant_id=tenants["demo"].id,
-            doc_key=key,
-            doc_type=doc_type,
-            title=title,
-            effective_date=today - timedelta(days=index),
-            risk_level=risk_level,
-            version=1,
-            content=content,
-        )
-        await session.merge(document)
-        documents[key] = document
-        for chunk_index, section in enumerate(["适用范围", "处理规则"], start=1):
-            chunk = PolicyChunk(
-                id=deterministic_id("policy_chunk", f"{key}:{chunk_index}"),
-                tenant_id=tenants["demo"].id,
-                doc_id=document.id,
-                chunk_id=f"{key}-{chunk_index}",
-                section=section,
-                content=f"{title} - {section}：请结合订单、退款单、工单证据进行判断。",
-                risk_level=risk_level,
-                effective_date=document.effective_date,
-                embedding=None,
-            )
-            await session.merge(chunk)
-    await session.flush()
-    return documents
+    tenant_id = tenants["demo"].id
+    assembler = CharacterCompatibilityAssembler()
+    config_json = character_compatibility_config_json(counter=assembler.counter)
+    await PolicyCorpusRepository(session).ensure_tenant_character_bootstrap(
+        tenant_id=tenant_id,
+        config_json=config_json,
+        config_fingerprint=assembler.config_fingerprint,
+    )
+    scope = await ActivePolicyCorpusScope.resolve(session, tenant_id=tenant_id)
+    assembler_for_active_policy_corpus(scope)
+    statement = join_active_document_projection(
+        select(PolicyDocument).where(PolicyDocument.tenant_id == tenant_id),
+        tenant_id=tenant_id,
+    ).order_by(PolicyDocument.doc_key)
+    documents = list((await session.execute(statement)).scalars())
+    return {document.doc_key: document for document in documents}
 
 
 async def seed_all(reset: bool) -> None:

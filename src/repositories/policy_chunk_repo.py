@@ -12,6 +12,12 @@ from src.db.models import PolicyChunk, PolicyDocument
 from src.knowledge.provenance import EvidenceProvenance, source_locator_from_block
 from src.repositories.document_block_repo import DocumentBlockRepository
 from src.repositories.evidence_version_repo import EvidenceRolloutError, EvidenceVersionRepository
+from src.repositories.policy_corpus_scope import (
+    ActivePolicyCorpusScope,
+    PolicyCorpusScopeUnavailable,
+    active_chunk_ids,
+    join_active_chunk_projection,
+)
 
 
 class PolicyChunkRepository:
@@ -22,11 +28,19 @@ class PolicyChunkRepository:
         stmt = delete(PolicyChunk).where(
             PolicyChunk.doc_id == document_id,
             PolicyChunk.tenant_id == tenant_id,
+            PolicyChunk.id.in_(active_chunk_ids(tenant_id=tenant_id, document_id=document_id)),
         )
         result = await self.session.execute(stmt)
         return result.rowcount or 0
 
     async def bulk_insert(self, chunks: list[PolicyChunk]) -> None:
+        tenant_ids = {chunk.tenant_id for chunk in chunks}
+        if len(tenant_ids) != 1:
+            raise PolicyCorpusScopeUnavailable("one tenant active policy corpus is required")
+        tenant_id = next(iter(tenant_ids))
+        scope = await ActivePolicyCorpusScope.resolve(self.session, tenant_id=tenant_id)
+        for chunk in chunks:
+            scope.require_chunk_config(chunk.chunking_config_fingerprint)
         self.session.add_all(chunks)
         await self.session.flush()
 
@@ -37,15 +51,14 @@ class PolicyChunkRepository:
     ) -> list[PolicyChunk]:
         """Lock current chunk heads after the rollout/document locks."""
 
-        stmt = (
-            select(PolicyChunk)
-            .where(
+        stmt = join_active_chunk_projection(
+            select(PolicyChunk).where(
                 PolicyChunk.tenant_id == tenant_id,
                 PolicyChunk.doc_id == document_id,
-            )
-            .order_by(PolicyChunk.tenant_id, PolicyChunk.doc_id, PolicyChunk.id)
-            .with_for_update()
+            ),
+            tenant_id=tenant_id,
         )
+        stmt = stmt.order_by(PolicyChunk.tenant_id, PolicyChunk.doc_id, PolicyChunk.id).with_for_update()
         return list((await self.session.execute(stmt)).scalars())
 
     async def get_contents_by_evidence_keys(
@@ -56,7 +69,7 @@ class PolicyChunkRepository:
         if not keys:
             return {}
 
-        stmt = (
+        stmt = join_active_chunk_projection(
             select(PolicyDocument.doc_key, PolicyChunk.chunk_id, PolicyChunk.content)
             .join(
                 PolicyDocument,
@@ -68,7 +81,8 @@ class PolicyChunkRepository:
             .where(
                 PolicyChunk.tenant_id == tenant_id,
                 tuple_(PolicyDocument.doc_key, PolicyChunk.chunk_id).in_(keys),
-            )
+            ),
+            tenant_id=tenant_id,
         )
         rows = (await self.session.execute(stmt)).all()
         counts = Counter((row[0], row[1]) for row in rows)
@@ -82,7 +96,7 @@ class PolicyChunkRepository:
         if not keys:
             return {}
 
-        stmt = (
+        stmt = join_active_chunk_projection(
             select(
                 PolicyDocument.doc_key,
                 PolicyDocument.version,
@@ -100,7 +114,8 @@ class PolicyChunkRepository:
             .where(
                 PolicyChunk.tenant_id == tenant_id,
                 tuple_(PolicyDocument.doc_key, PolicyChunk.chunk_id).in_(keys),
-            )
+            ),
+            tenant_id=tenant_id,
         )
         rows = (await self.session.execute(stmt)).all()
         row_counts = Counter((row[0], row[2]) for row in rows)
@@ -180,7 +195,7 @@ class PolicyChunkRepository:
         if not keys:
             return {}
 
-        stmt = (
+        stmt = join_active_chunk_projection(
             select(
                 PolicyDocument.doc_key,
                 PolicyDocument.version,
@@ -201,7 +216,8 @@ class PolicyChunkRepository:
             .where(
                 PolicyChunk.tenant_id == tenant_id,
                 tuple_(PolicyDocument.doc_key, PolicyChunk.chunk_id).in_(keys),
-            )
+            ),
+            tenant_id=tenant_id,
         )
         rows = (await self.session.execute(stmt)).all()
         counts = Counter((row[0], row[4]) for row in rows)
@@ -251,7 +267,7 @@ class PolicyChunkRepository:
         """
         similarity_expr = 1 - PolicyChunk.embedding.cosine_distance(query_embedding)
 
-        stmt = (
+        stmt = join_active_chunk_projection(
             select(PolicyChunk, similarity_expr.label("score"))
             .join(
                 PolicyDocument,
@@ -268,7 +284,8 @@ class PolicyChunkRepository:
                 )
             )
             .order_by(PolicyChunk.embedding.cosine_distance(query_embedding))
-            .limit(top_k)
+            .limit(top_k),
+            tenant_id=tenant_id,
         )
 
         if doc_type:
@@ -296,7 +313,7 @@ class PolicyChunkRepository:
         query_expr = func.to_tsquery("simple", query_text)
         rank_expr = func.ts_rank_cd(PolicyChunk.search_vector, query_expr)
 
-        stmt = (
+        stmt = join_active_chunk_projection(
             select(PolicyChunk, rank_expr.label("score"))
             .join(
                 PolicyDocument,
@@ -314,7 +331,8 @@ class PolicyChunkRepository:
                 )
             )
             .order_by(rank_expr.desc())
-            .limit(top_k)
+            .limit(top_k),
+            tenant_id=tenant_id,
         )
 
         stmt = _apply_policy_filters(
@@ -340,7 +358,7 @@ class PolicyChunkRepository:
         """pg_trgm fuzzy search over retrieval-ready chunk text."""
         similarity_expr = func.similarity(PolicyChunk.search_text, query_text)
 
-        stmt = (
+        stmt = join_active_chunk_projection(
             select(PolicyChunk, similarity_expr.label("score"))
             .join(
                 PolicyDocument,
@@ -357,7 +375,8 @@ class PolicyChunkRepository:
                 )
             )
             .order_by(similarity_expr.desc())
-            .limit(top_k)
+            .limit(top_k),
+            tenant_id=tenant_id,
         )
 
         stmt = _apply_policy_filters(

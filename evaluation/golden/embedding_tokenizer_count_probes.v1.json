@@ -1,0 +1,80 @@
+{
+  "schema_version": "embedding_tokenizer_count_probes.v1",
+  "tokenizer_contract_version": "embedding_tokenizer.v1",
+  "tokenizer_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+  "tokenizer_asset_sha256": "def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a",
+  "runtime": "tokenizers==0.23.1",
+  "note": "Offline safe synthetic count fixture only; live provider parity provenance belongs to Phase 64.4 Plan 03.",
+  "probes": [
+    {
+      "id": "ascii",
+      "category": "ascii",
+      "text": "Refunds require manager approval.",
+      "expected_tokens": 7,
+      "expected_tokens_without_special": 6
+    },
+    {
+      "id": "chinese",
+      "category": "chinese",
+      "text": "退款审核通过后两个工作日内原路退回。",
+      "expected_tokens": 12,
+      "expected_tokens_without_special": 11
+    },
+    {
+      "id": "mixed",
+      "category": "mixed",
+      "text": "Refund 退款 case A-1024 requires 人工复核.",
+      "expected_tokens": 18,
+      "expected_tokens_without_special": 17
+    },
+    {
+      "id": "markdown_table",
+      "category": "markdown_table",
+      "text": "| 场景 | 审核要求 |\n| --- | --- |\n| 仅退款 | 核实物流 |",
+      "expected_tokens": 26,
+      "expected_tokens_without_special": 25
+    },
+    {
+      "id": "url",
+      "category": "url",
+      "text": "Policy: https://example.invalid/rules/refund?v=4#evidence",
+      "expected_tokens": 16,
+      "expected_tokens_without_special": 15
+    },
+    {
+      "id": "numbers",
+      "category": "numbers",
+      "text": "订单 20260811 金额 CNY 128.50，折扣 12.5%。",
+      "expected_tokens": 31,
+      "expected_tokens_without_special": 30
+    },
+    {
+      "id": "emoji",
+      "category": "emoji",
+      "text": "Safe synthetic probe ✅ 🧾 🔒",
+      "expected_tokens": 11,
+      "expected_tokens_without_special": 10
+    },
+    {
+      "id": "unpunctuated_zh",
+      "category": "unpunctuated_zh",
+      "text": "退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则退款规则",
+      "expected_tokens": 161,
+      "expected_tokens_without_special": 160
+    },
+    {
+      "id": "combining_unicode",
+      "category": "combining_unicode",
+      "text": "Café 与 café must normalize only as the asset defines.",
+      "expected_tokens": 15,
+      "expected_tokens_without_special": 14
+    },
+    {
+      "id": "whitespace_envelope",
+      "category": "whitespace_envelope",
+      "text": "退款规则 / 审核要求: 仅退款需核实物流\n\nsource_block_id=synthetic-block-001\n",
+      "expected_tokens": 28,
+      "expected_tokens_without_special": 27
+    }
+  ]
+}

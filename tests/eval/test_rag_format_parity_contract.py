@@ -26,6 +26,8 @@ from src.rag.evaluation.contracts import (
     FormatParityContractError,
     load_format_parity_contract,
 )
+from src.rag.ingestion import CharacterCompatibilityAssembler
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -495,3 +497,34 @@ def test_manifest_gold_and_fixture_hashes_are_independent_reuse_inputs(tmp_path:
     fixture_path.write_bytes(fixture_path.read_bytes() + b"tampered")
     with pytest.raises(FormatParityContractError, match="fixture_checksum_mismatch"):
         load_format_parity_contract(manifest_path, gold_path, repository_root=tmp_path)
+
+
+def test_golden_seed_validator_uses_the_production_parsed_block_assembler(tmp_path: Path) -> None:
+    from scripts.validate_golden_seeds import _extract_rag_corpus_ids
+
+    policy = tmp_path / "refund_policy.md"
+    policy.write_text("# 退款规则\n\n## 七天无理由\n商品不影响二次销售时可退货。\n", encoding="utf-8")
+    assembler = PolicyEmbeddingInputAssembler()
+    corpus = _extract_rag_corpus_ids(
+        tmp_path,
+        manifest=[
+            {
+                "file": policy.name,
+                "doc_key": "refund_policy",
+                "title": "退款规则",
+                "doc_type": "refund_rule",
+                "risk_level": "high",
+            }
+        ],
+        input_assembler=assembler,
+    )
+
+    assert corpus["doc_keys"] == {"refund_policy"}
+    assert corpus["chunk_ids"] == {"refund_policy_000", "refund_policy_001"}
+
+
+def test_phase64_3_exposes_explicit_token_candidate_and_named_character_baseline() -> None:
+    from scripts.eval_rag_format_parity import _character_baseline, _token_candidate
+
+    assert isinstance(_token_candidate(), PolicyEmbeddingInputAssembler)
+    assert isinstance(_character_baseline(), CharacterCompatibilityAssembler)

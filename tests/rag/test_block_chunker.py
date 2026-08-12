@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 from src.rag.chunker import chunk_blocks, chunk_markdown
+from src.rag.embedding_tokenizer import EmbeddingTokenCounter, load_embedding_tokenizer_config
 from src.rag.parsers.base import ParsedBlock, SourceBox
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.rag.search_text import build_policy_chunk_search_text
 
 
@@ -160,3 +162,23 @@ def test_search_text_enrichment_remains_retrieval_only_and_does_not_mutate_conte
     assert "商家举证" in search_text
     assert "refund_rule" in search_text
     assert content == "商家举证成立时，客服应拒绝仅退款。"
+
+
+def test_token_aware_assembler_preserves_block_provenance_without_using_normalized_citation_text() -> None:
+    block = _block(
+        source_block_id="block-001",
+        block_index=0,
+        block_type="paragraph",
+        text="用户可见的政策原文。",
+        normalized_text="retrieval-only normalized text",
+        page_number=4,
+        ocr_metadata={"confidence": 88.0},
+    )
+    assembler = PolicyEmbeddingInputAssembler(counter=EmbeddingTokenCounter(load_embedding_tokenizer_config()))
+
+    assembled = assembler.assemble(blocks=(block,), doc_key="refund_policy", title="退款政策")
+
+    assert assembled[0].citation_content == "用户可见的政策原文。"
+    assert "retrieval-only normalized text" not in assembled[0].citation_content
+    assert assembled[0].source_block_refs[0]["page_number"] == 4
+    assert assembled[0].source_block_refs[0]["ocr"]["confidence"] == 88.0

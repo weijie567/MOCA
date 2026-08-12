@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
+import hashlib
+import json
 import re
 from typing import Any, Literal, Sequence
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -14,8 +16,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import (
+    CorpusBlockBinding,
+    CorpusChunkBinding,
+    CorpusDocumentBinding,
     DocumentBlock,
+    EvidenceIdentityRollout,
+    EvidenceSnapshotDependency,
     PolicyChunk,
+    PolicyCorpusActivationHistory,
+    PolicyCorpusManifestRevision,
+    PolicyCorpusRollout,
+    PolicyCorpusVersion,
     PolicyChunkVersion,
     PolicyDocument,
     PolicyDocumentVersion,
@@ -25,6 +36,11 @@ from src.db.models import (
 from src.knowledge.text_hash import evidence_text_hash
 from src.repositories.document_block_repo import DocumentBlockRepository
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
+from src.repositories.policy_corpus_scope import (
+    join_active_block_projection,
+    join_active_chunk_projection,
+    join_active_document_projection,
+)
 from src.repositories.rag_ingestion_job_repo import (
     RagIngestionJobRepository,
     canonical_ingestion_source_checksum,
@@ -143,6 +159,87 @@ class ProjectionInspection:
     job_error_code: str | None
     head_mapping: dict[str, dict[str, Any]]
     immutable_counts: dict[str, int]
+    resources: IngestionResourceProof
+
+
+@dataclass(frozen=True)
+class IngestionResourceProof:
+    chunk_count: int
+    duplicate_count: int
+    offline_embedding_tokens: int
+    provider_embedding_tokens: int | None
+    provider_tokens_status: Literal["provider_reported", "unavailable"]
+    config_fingerprint: str | None
+
+
+@dataclass(frozen=True)
+class RollbackBaselineProof:
+    """Safe hashes and exact authority identities for rollback-only evaluation."""
+
+    tenant_id: UUID
+    active_corpus_version_id: UUID
+    previous_corpus_version_id: UUID | None
+    rollout_epoch: int
+    rollout_sha256: str
+    activation_history_count: int
+    activation_history_hashes: tuple[str, ...]
+    active_config_schema_version: str
+    active_config_fingerprint: str
+    active_corpus_sha256: str
+    source_manifest_revision_id: UUID
+    source_manifest_hash: str
+    source_manifest_sha256: str
+    current_document_count: int
+    current_block_count: int
+    current_chunk_count: int
+    current_job_count: int
+    current_view_sha256: str
+    current_jobs_sha256: str
+    evidence_rollout_version: int
+    evidence_rollout_sha256: str
+    immutable_document_count: int
+    immutable_chunk_count: int
+    immutable_counts: tuple[tuple[str, int], ...]
+    immutable_counts_sha256: str
+    proof_sha256: str
+
+    def __post_init__(self) -> None:
+        hashes = (
+            *self.activation_history_hashes,
+            self.rollout_sha256,
+            self.active_config_fingerprint,
+            self.active_corpus_sha256,
+            self.source_manifest_hash,
+            self.source_manifest_sha256,
+            self.current_view_sha256,
+            self.current_jobs_sha256,
+            self.evidence_rollout_sha256,
+            self.immutable_counts_sha256,
+            self.proof_sha256,
+        )
+        immutable_counts = dict(self.immutable_counts)
+        if (
+            self.tenant_id != FORMAT_PARITY_TENANT_ID
+            or self.rollout_epoch <= 0
+            or self.activation_history_count != len(self.activation_history_hashes)
+            or self.current_document_count != len(FORMAT_PARITY_DOC_KEYS)
+            or min(
+                self.current_block_count,
+                self.current_chunk_count,
+                self.current_job_count,
+                self.immutable_document_count,
+                self.immutable_chunk_count,
+            )
+            < 0
+            or self.evidence_rollout_version <= 0
+            or tuple(sorted(self.immutable_counts)) != self.immutable_counts
+            or len(immutable_counts) != len(self.immutable_counts)
+            or any(value < 0 for value in immutable_counts.values())
+            or immutable_counts.get("policy_document_versions") != self.immutable_document_count
+            or immutable_counts.get("policy_chunk_versions") != self.immutable_chunk_count
+            or any(not _valid_prefixed_sha256(value) for value in hashes)
+        ):
+            raise EvaluationIsolationError("rollback_baseline_invalid")
 
 
 @dataclass(frozen=True)
@@ -392,6 +489,341 @@ class RagEvaluationRoundRepository:
         self.block_repo = DocumentBlockRepository(session)
         self.chunk_repo = PolicyChunkRepository(session)
 
+    async def capture_rollback_baseline(self) -> RollbackBaselineProof:
+        """Read the exact evaluation authority without persisting source content."""
+
+        rollout = (
+            await self.session.execute(
+                select(PolicyCorpusRollout).where(PolicyCorpusRollout.tenant_id == FORMAT_PARITY_TENANT_ID)
+            )
+        ).scalar_one_or_none()
+        evidence_rollout = await self.session.get(EvidenceIdentityRollout, 1)
+        if rollout is None or evidence_rollout is None:
+            raise EvaluationIsolationError("rollback_baseline_invalid")
+        active_corpus = await self.session.get(PolicyCorpusVersion, rollout.active_corpus_version_id)
+        if active_corpus is None or active_corpus.tenant_id != FORMAT_PARITY_TENANT_ID:
+            raise EvaluationIsolationError("rollback_baseline_invalid")
+        source_manifest = await self.session.get(
+            PolicyCorpusManifestRevision,
+            active_corpus.source_manifest_revision_id,
+        )
+        if (
+            source_manifest is None
+            or source_manifest.tenant_id != FORMAT_PARITY_TENANT_ID
+            or source_manifest.manifest_hash != active_corpus.source_manifest_hash
+            or active_corpus.state != "complete"
+        ):
+            raise EvaluationIsolationError("rollback_baseline_invalid")
+
+        histories = list(
+            (
+                await self.session.execute(
+                    select(PolicyCorpusActivationHistory)
+                    .where(PolicyCorpusActivationHistory.tenant_id == FORMAT_PARITY_TENANT_ID)
+                    .order_by(
+                        PolicyCorpusActivationHistory.rollout_epoch,
+                        PolicyCorpusActivationHistory.id,
+                    )
+                )
+            ).scalars()
+        )
+        if (
+            not histories
+            or histories[-1].rollout_epoch != rollout.rollout_epoch
+            or histories[-1].to_corpus_version_id != rollout.active_corpus_version_id
+        ):
+            raise EvaluationIsolationError("rollback_baseline_invalid")
+        history_hashes = tuple(
+            _canonical_sha256(
+                {
+                    "id": row.id,
+                    "tenant_id": row.tenant_id,
+                    "from_corpus_version_id": row.from_corpus_version_id,
+                    "to_corpus_version_id": row.to_corpus_version_id,
+                    "prior_rollout_epoch": row.prior_rollout_epoch,
+                    "rollout_epoch": row.rollout_epoch,
+                    "reason_code": row.reason_code,
+                    "actor": row.actor,
+                    "selection_decision_hash": row.selection_decision_hash,
+                    "receipt_hash": row.receipt_hash,
+                    "created_at": row.created_at,
+                }
+            )
+            for row in histories
+        )
+        rollout_sha256 = _canonical_sha256(
+            {
+                "id": rollout.id,
+                "tenant_id": rollout.tenant_id,
+                "active_corpus_version_id": rollout.active_corpus_version_id,
+                "previous_corpus_version_id": rollout.previous_corpus_version_id,
+                "rollout_epoch": rollout.rollout_epoch,
+                "quarantine_reason": rollout.quarantine_reason,
+                "source_drifted_at": rollout.source_drifted_at,
+            }
+        )
+        active_corpus_sha256 = _canonical_sha256(
+            {
+                "id": active_corpus.id,
+                "tenant_id": active_corpus.tenant_id,
+                "generation_name": active_corpus.generation_name,
+                "owner_marker": active_corpus.owner_marker,
+                "run_token": active_corpus.run_token,
+                "config_schema_version": active_corpus.config_schema_version,
+                "config_json": active_corpus.config_json,
+                "config_fingerprint": active_corpus.config_fingerprint,
+                "provider_parity_report_hash": active_corpus.provider_parity_report_hash,
+                "source_manifest_revision_id": active_corpus.source_manifest_revision_id,
+                "source_manifest_hash": active_corpus.source_manifest_hash,
+                "source_active_corpus_version_id": active_corpus.source_active_corpus_version_id,
+                "source_rollout_epoch": active_corpus.source_rollout_epoch,
+                "expected_evidence_rollout_version": active_corpus.expected_evidence_rollout_version,
+                "state": active_corpus.state,
+                "state_version": active_corpus.state_version,
+                "next_document_index": active_corpus.next_document_index,
+                "bootstrap_counts_json": active_corpus.bootstrap_counts_json,
+                "validation_proof_json": active_corpus.validation_proof_json,
+                "deterministic_rebuild_hash": active_corpus.deterministic_rebuild_hash,
+                "validation_report_hash": active_corpus.validation_report_hash,
+                "failure_code": active_corpus.failure_code,
+                "terminal_at": active_corpus.terminal_at,
+            }
+        )
+        source_manifest_sha256 = _canonical_sha256(
+            {
+                "id": source_manifest.id,
+                "tenant_id": source_manifest.tenant_id,
+                "revision": source_manifest.revision,
+                "manifest_schema_version": source_manifest.manifest_schema_version,
+                "manifest_json": source_manifest.manifest_json,
+                "manifest_hash": source_manifest.manifest_hash,
+                "document_count": source_manifest.document_count,
+                "block_count": source_manifest.block_count,
+                "chunk_count": source_manifest.chunk_count,
+            }
+        )
+
+        heads = await self._read_tenant_heads()
+        if len(heads) != len(FORMAT_PARITY_DOC_KEYS) or {row.doc_key for row in heads} != set(FORMAT_PARITY_DOC_KEYS):
+            raise EvaluationIsolationError("rollback_baseline_invalid")
+        document_ids = [row.id for row in heads]
+        blocks = list(
+            (
+                await self.session.execute(
+                    join_active_block_projection(
+                        select(DocumentBlock).where(
+                            DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            DocumentBlock.doc_id.in_(document_ids),
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
+                    ).order_by(
+                        DocumentBlock.doc_id,
+                        DocumentBlock.block_index,
+                        DocumentBlock.id,
+                    )
+                )
+            ).scalars()
+        )
+        chunks = list(
+            (
+                await self.session.execute(
+                    join_active_chunk_projection(
+                        select(PolicyChunk).where(
+                            PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            PolicyChunk.doc_id.in_(document_ids),
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
+                    ).order_by(PolicyChunk.doc_id, PolicyChunk.chunk_id, PolicyChunk.id)
+                )
+            ).scalars()
+        )
+        jobs, jobs_sha256 = await self._current_job_proof()
+        if not blocks or not chunks:
+            raise EvaluationIsolationError("rollback_baseline_invalid")
+        current_view_sha256 = _canonical_sha256(
+            {
+                "documents": [
+                    {
+                        "id": row.id,
+                        "doc_key": row.doc_key,
+                        "doc_type": row.doc_type,
+                        "title_sha256": _canonical_sha256(row.title),
+                        "effective_date": row.effective_date,
+                        "risk_level": row.risk_level,
+                        "version": row.version,
+                        "content_sha256": _canonical_sha256(row.content),
+                        "source_type": row.source_type,
+                        "source_checksum": row.source_checksum,
+                        "parser_metadata_sha256": _canonical_sha256(row.parser_metadata_json),
+                        "policy_version_fingerprint": row.policy_version_fingerprint,
+                        "evidence_write_sequence": row.evidence_write_sequence,
+                    }
+                    for row in heads
+                ],
+                "blocks": [
+                    {
+                        "id": row.id,
+                        "doc_id": row.doc_id,
+                        "source_block_id": row.source_block_id,
+                        "block_index": row.block_index,
+                        "block_type": row.block_type,
+                        "text_hash": row.text_hash,
+                        "normalized_text_sha256": _canonical_sha256(row.normalized_text),
+                        "page_number": row.page_number,
+                        "bbox_sha256": _canonical_sha256(row.bbox_json),
+                        "table_metadata_sha256": _canonical_sha256(row.table_metadata_json),
+                        "parser_metadata_sha256": _canonical_sha256(row.parser_metadata_json),
+                        "ocr_metadata_sha256": _canonical_sha256(row.ocr_metadata_json),
+                        "source_uri_sha256": _canonical_sha256(row.source_uri),
+                    }
+                    for row in blocks
+                ],
+                "chunks": [
+                    {
+                        "id": row.id,
+                        "doc_id": row.doc_id,
+                        "chunk_id": row.chunk_id,
+                        "section_sha256": _canonical_sha256(row.section),
+                        "content_sha256": _canonical_sha256(row.content),
+                        "search_text_sha256": _canonical_sha256(row.search_text),
+                        "source_refs_sha256": _canonical_sha256(row.source_block_refs_json),
+                        "ocr_metadata_sha256": _canonical_sha256(row.ocr_metadata_json),
+                        "risk_level": row.risk_level,
+                        "effective_date": row.effective_date,
+                        "embedding_sha256": _canonical_sha256(row.embedding),
+                        "chunking_config_fingerprint": row.chunking_config_fingerprint,
+                        "embedding_input_hash": row.embedding_input_hash,
+                        "embedding_token_count": row.embedding_token_count,
+                        "evidence_write_sequence": row.evidence_write_sequence,
+                    }
+                    for row in chunks
+                ],
+            }
+        )
+        immutable = await self._immutable_counts()
+        rollback_immutable_counts = await self._rollback_immutable_counts()
+        immutable_counts = tuple(sorted(rollback_immutable_counts.items()))
+        immutable_counts_sha256 = _canonical_sha256(immutable_counts)
+        evidence_sha256 = _canonical_sha256(
+            {
+                "id": evidence_rollout.id,
+                "rollout_version": evidence_rollout.rollout_version,
+                "dual_write_enabled_at": evidence_rollout.dual_write_enabled_at,
+                "backfill_watermark_sequence": evidence_rollout.backfill_watermark_sequence,
+                "reconciled_through_sequence": evidence_rollout.reconciled_through_sequence,
+                "canonical_reads_enabled": evidence_rollout.canonical_reads_enabled,
+                "canonical_reads_enabled_at": evidence_rollout.canonical_reads_enabled_at,
+                "canonical_reads_disabled_at": evidence_rollout.canonical_reads_disabled_at,
+                "quarantine_reason": evidence_rollout.quarantine_reason,
+                "audit_counts_sha256": _canonical_sha256(evidence_rollout.audit_counts_json),
+            }
+        )
+        base: dict[str, Any] = {
+            "tenant_id": FORMAT_PARITY_TENANT_ID,
+            "active_corpus_version_id": rollout.active_corpus_version_id,
+            "previous_corpus_version_id": rollout.previous_corpus_version_id,
+            "rollout_epoch": rollout.rollout_epoch,
+            "rollout_sha256": rollout_sha256,
+            "activation_history_count": len(histories),
+            "activation_history_hashes": history_hashes,
+            "active_config_schema_version": active_corpus.config_schema_version,
+            "active_config_fingerprint": active_corpus.config_fingerprint,
+            "active_corpus_sha256": active_corpus_sha256,
+            "source_manifest_revision_id": source_manifest.id,
+            "source_manifest_hash": source_manifest.manifest_hash,
+            "source_manifest_sha256": source_manifest_sha256,
+            "current_document_count": len(heads),
+            "current_block_count": len(blocks),
+            "current_chunk_count": len(chunks),
+            "current_job_count": jobs,
+            "current_view_sha256": current_view_sha256,
+            "current_jobs_sha256": jobs_sha256,
+            "evidence_rollout_version": evidence_rollout.rollout_version,
+            "evidence_rollout_sha256": evidence_sha256,
+            "immutable_document_count": immutable["document_versions"],
+            "immutable_chunk_count": immutable["chunk_versions"],
+            "immutable_counts": immutable_counts,
+            "immutable_counts_sha256": immutable_counts_sha256,
+        }
+        return RollbackBaselineProof(**base, proof_sha256=_canonical_sha256(base))
+
+    async def _read_tenant_heads(self) -> list[PolicyDocument]:
+        return list(
+            (
+                await self.session.execute(
+                    join_active_document_projection(
+                        select(PolicyDocument).where(PolicyDocument.tenant_id == FORMAT_PARITY_TENANT_ID),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
+                    ).order_by(PolicyDocument.doc_key, PolicyDocument.id)
+                )
+            ).scalars()
+        )
+
+    async def _current_job_proof(self) -> tuple[int, str]:
+        jobs = list(
+            (
+                await self.session.execute(
+                    select(RagIngestionJob)
+                    .where(
+                        RagIngestionJob.tenant_id == FORMAT_PARITY_TENANT_ID,
+                        RagIngestionJob.doc_key.in_(FORMAT_PARITY_DOC_KEYS),
+                    )
+                    .order_by(RagIngestionJob.created_at, RagIngestionJob.id)
+                )
+            ).scalars()
+        )
+        return len(jobs), _canonical_sha256(
+            [
+                {
+                    "id": row.id,
+                    "doc_id": row.doc_id,
+                    "doc_key": row.doc_key,
+                    "source_type": row.source_type,
+                    "source_checksum": row.source_checksum,
+                    "parser_name": row.parser_name,
+                    "parser_version": row.parser_version,
+                    "stage": row.stage,
+                    "status": row.status,
+                    "error_code": row.error_code,
+                    "counts_sha256": _canonical_sha256(row.counts_json),
+                    "chunking_config_fingerprint": row.chunking_config_fingerprint,
+                    "chunk_count": row.chunk_count,
+                    "embedding_token_count_total": row.embedding_token_count_total,
+                    "provider_prompt_tokens": row.provider_prompt_tokens,
+                    "provider_total_tokens": row.provider_total_tokens,
+                    "provider_usage_status": row.provider_usage_status,
+                    "started_at": row.started_at,
+                    "completed_at": row.completed_at,
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at,
+                }
+                for row in jobs
+            ]
+        )
+
+    async def _rollback_immutable_counts(self) -> dict[str, int]:
+        models = {
+            "corpus_block_bindings": CorpusBlockBinding,
+            "corpus_chunk_bindings": CorpusChunkBinding,
+            "corpus_document_bindings": CorpusDocumentBinding,
+            "evidence_snapshot_dependencies": EvidenceSnapshotDependency,
+            "policy_chunk_versions": PolicyChunkVersion,
+            "policy_corpus_manifest_revisions": PolicyCorpusManifestRevision,
+            "policy_corpus_versions": PolicyCorpusVersion,
+            "policy_document_versions": PolicyDocumentVersion,
+            "rag_evaluation_rounds": RagEvaluationRound,
+        }
+        counts: dict[str, int] = {}
+        for name, model in models.items():
+            counts[name] = int(
+                (
+                    await self.session.execute(
+                        select(func.count()).select_from(model).where(model.tenant_id == FORMAT_PARITY_TENANT_ID)
+                    )
+                ).scalar_one()
+            )
+        return counts
+
     async def lock_run_rows(self, run_token: UUID) -> list[RagEvaluationRound]:
         """Lock one exact run plus any active row that could conflict with it."""
 
@@ -537,6 +969,26 @@ class RagEvaluationRoundRepository:
         await self._prove_recorded_projection(row, heads, require_all=False)
         return owner
 
+    async def prove_advanced_document_resources(
+        self,
+        owner: EvaluationRoundIdentity,
+        *,
+        doc_key: str,
+        source_checksum: str,
+    ) -> tuple[EvaluationRoundIdentity, IngestionResourceProof]:
+        """Rebuild safe resource counters for one already-checkpointed document."""
+
+        proved = await self.prove_advanced_document(
+            owner,
+            doc_key=doc_key,
+            source_checksum=source_checksum,
+        )
+        heads = await self._lock_tenant_heads()
+        matching = [head for head in heads if head.doc_key == doc_key]
+        if len(matching) != 1:
+            raise EvaluationIsolationError("advanced_document_mismatch")
+        return proved, await self._head_resource_proof(matching[0])
+
     async def prove_recorded_anchor_locators(
         self,
         *,
@@ -555,23 +1007,26 @@ class RagEvaluationRoundRepository:
         chunk_rows = list(
             (
                 await self.session.execute(
-                    select(
-                        PolicyChunk.doc_id,
-                        PolicyChunk.chunk_id,
-                        PolicyChunk.content,
-                        PolicyChunk.source_block_refs_json,
-                    )
-                    .join(
-                        PolicyDocument,
-                        and_(
-                            PolicyChunk.doc_id == PolicyDocument.id,
-                            PolicyDocument.tenant_id == FORMAT_PARITY_TENANT_ID,
+                    join_active_chunk_projection(
+                        select(
+                            PolicyChunk.doc_id,
+                            PolicyChunk.chunk_id,
+                            PolicyChunk.content,
+                            PolicyChunk.source_block_refs_json,
+                        )
+                        .join(
+                            PolicyDocument,
+                            and_(
+                                PolicyChunk.doc_id == PolicyDocument.id,
+                                PolicyDocument.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            ),
+                        )
+                        .where(
+                            PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            PolicyDocument.doc_key == doc_key,
+                            PolicyChunk.chunk_id.in_(chunk_ids),
                         ),
-                    )
-                    .where(
-                        PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        PolicyDocument.doc_key == doc_key,
-                        PolicyChunk.chunk_id.in_(chunk_ids),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
                     )
                 )
             ).all()
@@ -588,10 +1043,13 @@ class RagEvaluationRoundRepository:
         block_rows = list(
             (
                 await self.session.execute(
-                    select(DocumentBlock).where(
-                        DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        DocumentBlock.doc_id.in_(document_ids),
-                        DocumentBlock.source_block_id.in_(source_block_ids),
+                    join_active_block_projection(
+                        select(DocumentBlock).where(
+                            DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            DocumentBlock.doc_id.in_(document_ids),
+                            DocumentBlock.source_block_id.in_(source_block_ids),
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
                     )
                 )
             )
@@ -606,20 +1064,49 @@ class RagEvaluationRoundRepository:
             allowed_pdf_pages=allowed_pdf_pages,
         )
 
-    async def prove_compatible_pre_state(self, owner: EvaluationRoundIdentity) -> EvaluationRoundIdentity:
+    async def prove_compatible_pre_state(
+        self,
+        owner: EvaluationRoundIdentity,
+        *,
+        rollback_baseline: RollbackBaselineProof | None = None,
+    ) -> EvaluationRoundIdentity:
         row = await self.lock_owned(owner, allowed_states=frozenset({"claimed"}))
         heads = await self._lock_tenant_heads()
         current_counts = await self._current_counts(heads)
-        if current_counts["blocks"] or current_counts["chunks"] or current_counts["jobs"]:
-            raise EvaluationIsolationError("pre_state_not_clean")
+        if rollback_baseline is None:
+            if current_counts["blocks"] or current_counts["chunks"] or current_counts["jobs"]:
+                raise EvaluationIsolationError("pre_state_not_clean")
+            pre_state_proof: dict[str, Any] = {
+                "current": current_counts,
+                "head_ids": {head.doc_key: str(head.id) for head in heads},
+            }
+        else:
+            observed = await self.capture_rollback_baseline()
+            expected_counts = {
+                "documents": rollback_baseline.current_document_count,
+                "blocks": rollback_baseline.current_block_count,
+                "chunks": rollback_baseline.current_chunk_count,
+                "jobs": rollback_baseline.current_job_count,
+            }
+            if observed != rollback_baseline or current_counts != expected_counts:
+                raise EvaluationIsolationError("rollback_baseline_mismatch")
+            pre_state_proof = {
+                "current": current_counts,
+                "head_ids": {head.doc_key: str(head.id) for head in heads},
+                "rollback_baseline_sha256": rollback_baseline.proof_sha256,
+            }
         immutable = await self._immutable_counts()
-        head_mapping = {head.doc_key: str(head.id) for head in heads}
+        if rollback_baseline is not None and immutable != {
+            "document_versions": rollback_baseline.immutable_document_count,
+            "chunk_versions": rollback_baseline.immutable_chunk_count,
+        }:
+            raise EvaluationIsolationError("rollback_baseline_mismatch")
         return await self._cas(
             row,
             owner,
             state="ingesting",
             next_step="ingest",
-            pre_state_proof_json={"current": current_counts, "head_ids": head_mapping},
+            pre_state_proof_json=pre_state_proof,
             head_mappings_json={},
             immutable_counts_json=immutable,
         )
@@ -803,15 +1290,28 @@ class RagEvaluationRoundRepository:
             immutable_counts_json=residual.immutable_counts,
         )
 
-    async def prove_retrieval_ready(self, owner: EvaluationRoundIdentity) -> EvaluationRoundIdentity:
+    async def prove_retrieval_ready(
+        self,
+        owner: EvaluationRoundIdentity,
+        *,
+        rollback_baseline: RollbackBaselineProof | None = None,
+    ) -> EvaluationRoundIdentity:
         row = await self.lock_owned(owner, allowed_states=frozenset({"retrieving"}))
         if owner.next_document_index != len(FORMAT_PARITY_DOC_KEYS):
             raise EvaluationIsolationError("retrieval_progress_incomplete")
         heads = await self._lock_tenant_heads()
         await self._prove_recorded_projection(row, heads, require_all=True)
         current = await self._current_counts(heads)
-        if current["jobs"]:
+        if rollback_baseline is None and current["jobs"]:
             raise EvaluationIsolationError("retrieval_projection_invalid")
+        if rollback_baseline is not None:
+            job_count, jobs_sha256 = await self._current_job_proof()
+            if (
+                current["jobs"] != rollback_baseline.current_job_count
+                or job_count != rollback_baseline.current_job_count
+                or jobs_sha256 != rollback_baseline.current_jobs_sha256
+            ):
+                raise EvaluationIsolationError("retrieval_projection_invalid")
         return await self._cas(row, owner, state="cleaning", next_step="cleanup")
 
     async def cleanup_current_projection(
@@ -821,24 +1321,36 @@ class RagEvaluationRoundRepository:
         terminal_state: Literal["completed", "abandoned"],
         failure_code: str | None = None,
         round_result: dict[str, Any] | None = None,
+        rollback_baseline: RollbackBaselineProof | None = None,
     ) -> EvaluationRoundIdentity:
         allowed = frozenset({"cleaning", "expired", "ingesting", "retrieving"})
         row = await self.lock_owned(owner, allowed_states=allowed)
         heads = await self._lock_tenant_heads()
         proved_heads = await self._prove_recorded_projection(row, heads, require_all=False)
         before_current = await self._current_counts(heads)
-        if before_current["jobs"]:
+        if rollback_baseline is None and before_current["jobs"]:
             raise EvaluationIsolationError("projection_drift")
+        if rollback_baseline is not None:
+            job_count, jobs_sha256 = await self._current_job_proof()
+            if (
+                before_current["jobs"] != rollback_baseline.current_job_count
+                or job_count != rollback_baseline.current_job_count
+                or jobs_sha256 != rollback_baseline.current_jobs_sha256
+            ):
+                raise EvaluationIsolationError("projection_drift")
         before_immutable = await self._immutable_counts()
         recorded = {key: int(value) for key, value in row.immutable_counts_json.items() if isinstance(value, int)}
         if any(before_immutable.get(key, 0) < value for key, value in recorded.items()):
             raise EvaluationIsolationError("immutable_history_regressed")
-        for head in proved_heads:
-            await self.block_repo.delete_by_document_id(head.id, row.tenant_id)
-            await self.chunk_repo.delete_by_document_id(head.id, row.tenant_id)
+        if rollback_baseline is None:
+            for head in proved_heads:
+                await self.block_repo.delete_by_document_id(head.id, row.tenant_id)
+                await self.chunk_repo.delete_by_document_id(head.id, row.tenant_id)
         current = await self._current_counts(heads)
-        if current["blocks"] or current["chunks"] or current["jobs"]:
+        if rollback_baseline is None and (current["blocks"] or current["chunks"] or current["jobs"]):
             raise EvaluationIsolationError("post_cleanup_residual")
+        if rollback_baseline is not None and current != before_current:
+            raise EvaluationIsolationError("projection_drift")
         after_immutable = await self._immutable_counts()
         if any(after_immutable[key] < before_immutable[key] for key in before_immutable):
             raise EvaluationIsolationError("immutable_history_regressed")
@@ -846,6 +1358,11 @@ class RagEvaluationRoundRepository:
             "current": current,
             "head_keys": [head.doc_key for head in heads],
         }
+        if rollback_baseline is not None:
+            post_proof.update(
+                rollback_pending=True,
+                rollback_baseline_sha256=rollback_baseline.proof_sha256,
+            )
         if round_result is not None:
             post_proof["round_result"] = dict(round_result)
         return await self._cas(
@@ -882,9 +1399,13 @@ class RagEvaluationRoundRepository:
         head_rows = (
             (
                 await self.session.execute(
-                    select(PolicyDocument)
-                    .where(PolicyDocument.tenant_id == row.tenant_id, PolicyDocument.doc_key == doc_key)
-                    .with_for_update()
+                    join_active_document_projection(
+                        select(PolicyDocument).where(
+                            PolicyDocument.tenant_id == row.tenant_id,
+                            PolicyDocument.doc_key == doc_key,
+                        ),
+                        tenant_id=row.tenant_id,
+                    ).with_for_update()
                 )
             )
             .scalars()
@@ -907,9 +1428,12 @@ class RagEvaluationRoundRepository:
             blocks = list(
                 (
                     await self.session.execute(
-                        select(DocumentBlock).where(
-                            DocumentBlock.tenant_id == row.tenant_id,
-                            DocumentBlock.doc_id == head.id,
+                        join_active_block_projection(
+                            select(DocumentBlock).where(
+                                DocumentBlock.tenant_id == row.tenant_id,
+                                DocumentBlock.doc_id == head.id,
+                            ),
+                            tenant_id=row.tenant_id,
                         )
                     )
                 )
@@ -919,9 +1443,13 @@ class RagEvaluationRoundRepository:
             chunks = list(
                 (
                     await self.session.execute(
-                        select(PolicyChunk)
-                        .where(PolicyChunk.tenant_id == row.tenant_id, PolicyChunk.doc_id == head.id)
-                        .with_for_update()
+                        join_active_chunk_projection(
+                            select(PolicyChunk).where(
+                                PolicyChunk.tenant_id == row.tenant_id,
+                                PolicyChunk.doc_id == head.id,
+                            ),
+                            tenant_id=row.tenant_id,
+                        ).with_for_update()
                     )
                 )
                 .scalars()
@@ -972,6 +1500,7 @@ class RagEvaluationRoundRepository:
             failed_job_count=sum(job.status == "failed" for job in jobs),
         )
         immutable = await self._immutable_counts()
+        resource_proof = self._resource_proof(chunks=chunks, job=jobs[0] if len(jobs) == 1 else None)
         return ProjectionInspection(
             state=classify_attempt_projection(projection),
             projection=projection,
@@ -992,6 +1521,51 @@ class RagEvaluationRoundRepository:
                 else {}
             ),
             immutable_counts=immutable,
+            resources=resource_proof,
+        )
+
+    async def _head_resource_proof(self, head: PolicyDocument) -> IngestionResourceProof:
+        chunks = list(
+            (
+                await self.session.execute(
+                    join_active_chunk_projection(
+                        select(PolicyChunk).where(
+                            PolicyChunk.tenant_id == head.tenant_id,
+                            PolicyChunk.doc_id == head.id,
+                        ),
+                        tenant_id=head.tenant_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return self._resource_proof(chunks=chunks, job=None)
+
+    @staticmethod
+    def _resource_proof(
+        *,
+        chunks: Sequence[PolicyChunk],
+        job: RagIngestionJob | None,
+    ) -> IngestionResourceProof:
+        fingerprints = {
+            str(fingerprint)
+            for chunk in chunks
+            if (fingerprint := getattr(chunk, "chunking_config_fingerprint", None)) is not None
+        }
+        provider_reported = bool(
+            job is not None
+            and getattr(job, "provider_usage_status", None) == "available"
+            and getattr(job, "provider_prompt_tokens", None) is not None
+        )
+        hashes = [getattr(chunk, "embedding_input_hash", None) for chunk in chunks]
+        return IngestionResourceProof(
+            chunk_count=len(chunks),
+            duplicate_count=len(chunks) - len({str(value) for value in hashes}) if all(hashes) else 0,
+            offline_embedding_tokens=sum(int(getattr(chunk, "embedding_token_count", 0)) for chunk in chunks),
+            provider_embedding_tokens=int(getattr(job, "provider_prompt_tokens")) if provider_reported else None,
+            provider_tokens_status="provider_reported" if provider_reported else "unavailable",
+            config_fingerprint=next(iter(fingerprints)) if len(fingerprints) == 1 else None,
         )
 
     async def _prove_recorded_projection(
@@ -1044,12 +1618,13 @@ class RagEvaluationRoundRepository:
         blocks = list(
             (
                 await self.session.execute(
-                    select(DocumentBlock)
-                    .where(
-                        DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        DocumentBlock.doc_id == head.id,
-                    )
-                    .with_for_update()
+                    join_active_block_projection(
+                        select(DocumentBlock).where(
+                            DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            DocumentBlock.doc_id == head.id,
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
+                    ).with_for_update()
                 )
             )
             .scalars()
@@ -1058,12 +1633,13 @@ class RagEvaluationRoundRepository:
         chunks = list(
             (
                 await self.session.execute(
-                    select(PolicyChunk)
-                    .where(
-                        PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        PolicyChunk.doc_id == head.id,
-                    )
-                    .with_for_update()
+                    join_active_chunk_projection(
+                        select(PolicyChunk).where(
+                            PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            PolicyChunk.doc_id == head.id,
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
+                    ).with_for_update()
                 )
             )
             .scalars()
@@ -1113,8 +1689,10 @@ class RagEvaluationRoundRepository:
         heads = list(
             (
                 await self.session.execute(
-                    select(PolicyDocument)
-                    .where(PolicyDocument.tenant_id == FORMAT_PARITY_TENANT_ID)
+                    join_active_document_projection(
+                        select(PolicyDocument).where(PolicyDocument.tenant_id == FORMAT_PARITY_TENANT_ID),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
+                    )
                     .order_by(PolicyDocument.doc_key, PolicyDocument.id)
                     .with_for_update()
                 )
@@ -1147,11 +1725,14 @@ class RagEvaluationRoundRepository:
         blocks = int(
             (
                 await self.session.execute(
-                    select(func.count())
-                    .select_from(DocumentBlock)
-                    .where(
-                        DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        DocumentBlock.doc_id.in_(document_ids),
+                    join_active_block_projection(
+                        select(func.count())
+                        .select_from(DocumentBlock)
+                        .where(
+                            DocumentBlock.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            DocumentBlock.doc_id.in_(document_ids),
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
                     )
                 )
             ).scalar_one()
@@ -1159,11 +1740,14 @@ class RagEvaluationRoundRepository:
         chunks = int(
             (
                 await self.session.execute(
-                    select(func.count())
-                    .select_from(PolicyChunk)
-                    .where(
-                        PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
-                        PolicyChunk.doc_id.in_(document_ids),
+                    join_active_chunk_projection(
+                        select(func.count())
+                        .select_from(PolicyChunk)
+                        .where(
+                            PolicyChunk.tenant_id == FORMAT_PARITY_TENANT_ID,
+                            PolicyChunk.doc_id.in_(document_ids),
+                        ),
+                        tenant_id=FORMAT_PARITY_TENANT_ID,
                     )
                 )
             ).scalar_one()
@@ -1257,3 +1841,31 @@ class RagEvaluationRoundRepository:
             raise EvaluationIsolationError("stale_state")
         if row.next_document_index != owner.next_document_index:
             raise EvaluationIsolationError("stale_progress")
+
+
+def _valid_prefixed_sha256(value: object) -> bool:
+    return isinstance(value, str) and value.startswith("sha256:") and bool(_SHA256.fullmatch(value[7:]))
+
+
+def _canonical_sha256(value: object) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=_canonical_json_default,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def _canonical_json_default(value: object) -> object:
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    to_list = getattr(value, "tolist", None)
+    if callable(to_list):
+        normalized = to_list()
+        if isinstance(normalized, list):
+            return normalized
+    raise TypeError(f"unsupported canonical JSON value: {type(value).__name__}")

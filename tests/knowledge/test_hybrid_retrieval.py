@@ -9,7 +9,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.knowledge.config import RERANK_CONFIG_VERSION, RERANK_SCORE_CONFIG_VERSION
-from src.db.models import PolicyChunk, PolicyDocument
+from src.db.models import (
+    PolicyChunk,
+    PolicyDocument,
+)
 from src.knowledge.retrieval import (
     FUZZY_CANDIDATE_TOP_K,
     FUZZY_MIN_SIMILARITY,
@@ -21,6 +24,7 @@ from src.knowledge.schemas import KnowledgeContext
 from src.rag.search_text import build_policy_chunk_search_text, build_sparse_query_text
 from src.rag.search_text_backfill import rebuild_policy_chunk_search_texts
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
+from tests.policy_corpus_helpers import bind_character_corpus
 
 
 def _chunk(
@@ -536,6 +540,9 @@ async def test_sparse_repository_matches_chinese_domain_terms_in_postgres(
             ),
         ]
     )
+    await session.flush()
+    await bind_character_corpus(session, tenant_id=tenant_id)
+    await bind_character_corpus(session, tenant_id=other_tenant_id)
     await session.commit()
 
     repo = PolicyChunkRepository(session)
@@ -580,6 +587,8 @@ async def test_rebuild_policy_chunk_search_texts_matches_ingestion_builder(
         embedding=_unit_vector(0),
     )
     session.add(chunk)
+    await session.flush()
+    await bind_character_corpus(session, tenant_id=tenant_id)
     await session.commit()
 
     count = await rebuild_policy_chunk_search_texts(session, tenant_id=tenant_id)

@@ -18,9 +18,16 @@ from sqlalchemy import select
 
 from src.db.models import Tenant
 from src.db.session import SessionLocal
-from src.rag.chunker import chunk_markdown
 from src.rag.embedder import EmbeddingService
-from src.rag.ingestion import IngestionReport, IngestionService
+from src.rag.ingestion import (
+    IngestionAssemblyMode,
+    IngestionReport,
+    IngestionService,
+    PolicyInputAssembler,
+    assemble_policy_embedding_inputs,
+)
+from src.rag.parsers.registry import ParserRegistry
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 
 
 DOCUMENT_MANIFEST = [
@@ -130,6 +137,11 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Ingest policy documents into pgvector")
     parser.add_argument("--dir", default="data/policies/", help="Policy documents directory")
     parser.add_argument("--dry-run", action="store_true", help="Parse and chunk only, no embedding/DB")
+    parser.add_argument(
+        "--token-aware",
+        action="store_true",
+        help="Explicitly select token-aware production assembly (default remains character-compatible)",
+    )
     parser.add_argument("--tenant-id", help="Tenant UUID (default: first tenant from DB)")
     return parser
 
@@ -141,21 +153,58 @@ def _print_reports(reports: list[IngestionReport]) -> None:
         print(f"{report.doc_key:<30} {report.status:<8} {report.chunks_created:<6} {report.error or ''}")
 
 
-def _dry_run(dir_path: Path) -> list[IngestionReport]:
+def _dry_run(
+    dir_path: Path,
+    *,
+    manifest: list[dict] | None = None,
+    input_assembler: PolicyInputAssembler | None = None,
+) -> list[IngestionReport]:
+    """Run the token-aware parsed-block assembly path without provider or DB writes."""
     reports: list[IngestionReport] = []
-    for doc_meta in DOCUMENT_MANIFEST:
+    parser_registry = ParserRegistry()
+    assembler = input_assembler or PolicyEmbeddingInputAssembler()
+    for doc_meta in manifest or DOCUMENT_MANIFEST:
         doc_key = doc_meta["doc_key"]
         title = doc_meta["title"]
         try:
-            content = (dir_path / doc_meta["file"]).read_text(encoding="utf-8")
-            chunks = chunk_markdown(content, doc_key=doc_key)
-            if not chunks:
+            file_path = dir_path / doc_meta["file"]
+            parse_result = parser_registry.parse(
+                file_path,
+                doc_key=doc_key,
+                source_type=str(doc_meta.get("source_type") or "policy_markdown"),
+                metadata=doc_meta,
+            )
+            if parse_result.status == "failed":
+                reports.append(
+                    IngestionReport(
+                        doc_key=doc_key,
+                        title=title,
+                        status="failed",
+                        error=parse_result.safe_message or "Policy source could not be parsed.",
+                    )
+                )
+                continue
+            blocks = tuple(block for block in parse_result.blocks if block.text.strip())
+            assembled_inputs = assemble_policy_embedding_inputs(
+                blocks=blocks,
+                doc_key=doc_key,
+                title=title,
+                doc_type=doc_meta.get("doc_type"),
+                risk_level=doc_meta.get("risk_level"),
+                input_assembler=assembler,
+            )
+            if not assembled_inputs:
                 reports.append(
                     IngestionReport(doc_key=doc_key, title=title, status="failed", error="No chunks produced")
                 )
             else:
                 reports.append(
-                    IngestionReport(doc_key=doc_key, title=title, status="success", chunks_created=len(chunks))
+                    IngestionReport(
+                        doc_key=doc_key,
+                        title=title,
+                        status="success",
+                        chunks_created=len(assembled_inputs),
+                    )
                 )
         except Exception as exc:
             reports.append(IngestionReport(doc_key=doc_key, title=title, status="failed", error=str(exc)))
@@ -193,7 +242,15 @@ async def main() -> int:
         return 1
 
     async with SessionLocal() as session:
-        service = IngestionService(session=session, embedder=EmbeddingService(), tenant_id=tenant_id)
+        assembly_mode = (
+            IngestionAssemblyMode.TOKEN_AWARE if args.token_aware else IngestionAssemblyMode.CHARACTER_COMPATIBILITY
+        )
+        service = IngestionService(
+            session=session,
+            embedder=EmbeddingService(),
+            tenant_id=tenant_id,
+            assembly_mode=assembly_mode,
+        )
         reports = await service.ingest_directory(dir_path, DOCUMENT_MANIFEST)
 
     _print_reports(reports)

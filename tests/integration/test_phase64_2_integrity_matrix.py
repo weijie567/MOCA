@@ -21,9 +21,11 @@ from src.db.models import (
     CaseMemoryLineageLink,
     EvidenceIdentityRollout,
     PolicyDocument,
-    PolicyChunkVersion,
-    PolicyDocumentVersion,
     Tenant,
+)
+from src.db.pre_token_corpus_models import (
+    PreTokenPolicyChunkVersion as PolicyChunkVersion,
+    PreTokenPolicyDocumentVersion as PolicyDocumentVersion,
 )
 from src.knowledge.evidence_identity import (
     PersistedEvidenceIdentityMaterialV1,

@@ -56,6 +56,15 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **SC-64.2-4**: Nodes, services, events, stores, deduplication, and review flows consume one version-aware memory candidate identity owner, while reviewed case-memory records preserve real tenant/scope, source status/authority, source run/event/evidence refs, reviewer decision, candidate identity, and correction/supersession lineage.
 - [x] **SC-64.2-5**: Database uniqueness, lifecycle compare-and-set, idempotent services, and PostgreSQL concurrency tests prevent duplicate candidates or competing reviews and enforce deterministic expiry, rejection, correction, supersession, deletion, and tombstone no-resurrection behavior without merging distinct identities.
 
+### Token-Aware Policy Chunking And Reindex Validation
+
+- [x] **SC-64.4-1**: One versioned model-to-tokenizer contract provides deterministic offline counts for the configured embedding model and has a provider-backed parity check against reported usage without exposing credentials or production text.
+- [x] **SC-64.4-2**: Every final embedding input, including title, section, table headers, overlap, and allowed source context, stays within the configured token maximum; existing structural/provenance boundaries remain intact and identical source plus configuration produces identical chunks.
+- [x] **SC-64.4-3**: Production ingestion, dry-run, and golden validation consume one authoritative chunk assembly contract, with regression coverage for Chinese, English, mixed text, long unpunctuated text, tables, OCR content, URLs, numbers, and tokenizer failure behavior.
+- [x] **SC-64.4-4**: Chunker/tokenizer/model versions and actual token counts are auditable, and rechunking cannot silently reuse incompatible policy/chunk/evidence identity or break historical replay semantics established by Phase 64.2.
+- [ ] **SC-64.4-5**: Reindexing is isolated, resumable, and rollback-safe so failures preserve the prior usable index and no tenant observes a partially mixed old/new corpus.
+- [ ] **SC-64.4-6**: A versioned A/B report compares character- and token-aware candidates on Phase 64.3 Hit@1/3/5, MRR, anchor/locator coverage, format parity, duplicate rate, chunk count, latency, and embedding token cost; the selected configuration satisfies explicit non-regression gates and existing RAG tests pass.
+
 ## Future Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -113,12 +122,18 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SC-64.2-3 | Phase 64.2 | Complete |
 | SC-64.2-4 | Phase 64.2 | Complete |
 | SC-64.2-5 | Phase 64.2 | Complete |
+| SC-64.4-1 | Phase 64.4 | Complete |
+| SC-64.4-2 | Phase 64.4 | Complete |
+| SC-64.4-3 | Phase 64.4 | Complete |
+| SC-64.4-4 | Phase 64.4 | Complete |
+| SC-64.4-5 | Phase 64.5 | Planned (carryover) |
+| SC-64.4-6 | Phase 64.5 | Planned (carryover) |
 
 **Coverage:**
-- v2.2 requirements: 28 total
-- Mapped to phases: 28
+- v2.2 requirements: 34 total
+- Mapped to phases: 34
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-09*
-*Last updated: 2026-08-06 for Phase 64.2 completion*
+*Last updated: 2026-08-12 for Phase 64.4 partial verification and Phase 64.5 carryover ownership*

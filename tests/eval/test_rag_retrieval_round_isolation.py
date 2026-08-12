@@ -24,6 +24,7 @@ from src.repositories.rag_evaluation_round_repo import (
     EvaluationRoundIdentity,
     ProjectionState,
     RagEvaluationRoundRepository,
+    RollbackBaselineProof,
     classify_attempt_projection,
     validate_run_sequence,
 )
@@ -35,6 +36,7 @@ from src.knowledge.service import PolicyKnowledgeService
 from src.knowledge.text_hash import evidence_text_hash
 from src.rag.evaluation.contracts import FormatParityContractError, load_format_parity_contract
 from src.rag.evaluation.retrieval_rounds import (
+    build_ab_round_namespaces,
     RecordingPolicyRetrievalEngine,
     RetrievalParityRunV1,
     RetrievalRoundResultV1,
@@ -42,6 +44,7 @@ from src.rag.evaluation.retrieval_rounds import (
     ordered_gold_questions,
     run_retrieval_parity,
 )
+from src.rag.policy_reindex import PolicyReindexService
 from scripts.eval_rag_format_parity import (
     build_unavailable_result,
     parse_args,
@@ -51,6 +54,37 @@ from scripts.eval_rag_format_parity import (
 
 MIGRATION = Path("src/db/migrations/versions/029_phase64_3_rag_eval_rounds.py")
 RUN_IDENTITY_HASH = "d" * 64
+
+
+def test_ab_round_namespaces_are_deterministic_distinct_and_fixed_owner_scoped() -> None:
+    incumbent_corpus_id = UUID("64300000-0000-4000-8000-000000000011")
+    candidate_corpus_id = UUID("64300000-0000-4000-8000-000000000012")
+    run_id = UUID("64300000-0000-4000-8000-000000000009")
+
+    namespaces = build_ab_round_namespaces(
+        run_id=run_id,
+        incumbent_corpus_version_id=incumbent_corpus_id,
+        candidate_corpus_version_id=candidate_corpus_id,
+    )
+
+    assert tuple(item.role for item in namespaces) == ("incumbent", "candidate")
+    assert namespaces[0].corpus_version_id == incumbent_corpus_id
+    assert namespaces[1].corpus_version_id == candidate_corpus_id
+    assert namespaces[0].run_token != namespaces[1].run_token
+    assert namespaces[0].round_owner != namespaces[1].round_owner
+    assert {item.evaluation_owner_marker for item in namespaces} == {FORMAT_PARITY_OWNER_MARKER}
+    assert namespaces == build_ab_round_namespaces(
+        run_id=run_id,
+        incumbent_corpus_version_id=incumbent_corpus_id,
+        candidate_corpus_version_id=candidate_corpus_id,
+    )
+
+    with pytest.raises(EvaluationIsolationError, match="evaluation isolation denied"):
+        build_ab_round_namespaces(
+            run_id=run_id,
+            incumbent_corpus_version_id=incumbent_corpus_id,
+            candidate_corpus_version_id=incumbent_corpus_id,
+        )
 
 
 def _identity(**overrides: object) -> EvaluationRoundIdentity:
@@ -67,6 +101,42 @@ def _identity(**overrides: object) -> EvaluationRoundIdentity:
     }
     values.update(overrides)
     return EvaluationRoundIdentity(**values)
+
+
+def _rollback_baseline(**overrides: object) -> RollbackBaselineProof:
+    values: dict[str, object] = {
+        "tenant_id": FORMAT_PARITY_TENANT_ID,
+        "active_corpus_version_id": UUID("64300000-0000-4000-8000-000000000011"),
+        "previous_corpus_version_id": None,
+        "rollout_epoch": 4,
+        "rollout_sha256": "sha256:" + "0" * 64,
+        "activation_history_count": 4,
+        "activation_history_hashes": tuple(f"sha256:{value * 64}" for value in "1234"),
+        "active_config_schema_version": "character_compatibility.v1",
+        "active_config_fingerprint": "sha256:" + "5" * 64,
+        "active_corpus_sha256": "sha256:" + "6" * 64,
+        "source_manifest_revision_id": UUID("64300000-0000-4000-8000-000000000015"),
+        "source_manifest_hash": "sha256:" + "7" * 64,
+        "source_manifest_sha256": "sha256:" + "8" * 64,
+        "current_document_count": 3,
+        "current_block_count": 158,
+        "current_chunk_count": 13,
+        "current_job_count": 4,
+        "current_view_sha256": "sha256:" + "9" * 64,
+        "current_jobs_sha256": "sha256:" + "a" * 64,
+        "evidence_rollout_version": 1,
+        "evidence_rollout_sha256": "sha256:" + "b" * 64,
+        "immutable_document_count": 3,
+        "immutable_chunk_count": 13,
+        "immutable_counts": (
+            ("policy_chunk_versions", 13),
+            ("policy_document_versions", 3),
+        ),
+        "immutable_counts_sha256": "sha256:" + "d" * 64,
+        "proof_sha256": "sha256:" + "c" * 64,
+    }
+    values.update(overrides)
+    return RollbackBaselineProof(**values)
 
 
 def _sequence_row(
@@ -167,6 +237,16 @@ def test_fixed_evaluation_identity_and_orm_constraints_are_exact() -> None:
     assert "abandoned" in str(active_index.dialect_options["postgresql"]["where"])
 
 
+def test_candidate_reindex_does_not_share_evaluation_cleanup_or_activation_paths() -> None:
+    source = inspect.getsource(PolicyReindexService.build_next_document)
+
+    assert "RagEvaluationRound" not in source
+    assert "RagIngestionJob" not in source
+    assert "delete(" not in source
+    assert "cas_rollout" not in source
+    assert "activate" not in source.lower()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("completed_formats", "active_format", "expected_format", "expected_create_count"),
@@ -219,7 +299,6 @@ async def test_same_token_resume_creates_only_first_missing_round_or_returns_any
         expected_rollout_version=2,
         run_identity_hash=RUN_IDENTITY_HASH,
     )
-
     owner = claim.owner
     assert owner is not None
     assert owner.round_format == expected_format
@@ -267,7 +346,6 @@ async def test_post_final_terminal_claim_rebuilds_without_new_round_mutation(
         expected_rollout_version=2,
         run_identity_hash=RUN_IDENTITY_HASH,
     )
-
     assert claim.owner is None
     assert len(claim.completed_results) == 3
     rebuilt = retrieval_rounds_module.rebuild_completed_retrieval_parity(
@@ -291,6 +369,219 @@ async def test_post_final_terminal_claim_rebuilds_without_new_round_mutation(
             expected_run_identity_hash="e" * 64,
         )
     assert caught.value.reason_code == "run_identity_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_rollback_only_ab_wrapper_always_rolls_back_root_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = build_ab_round_namespaces(
+        run_id=UUID("64300000-0000-4000-8000-000000000009"),
+        incumbent_corpus_version_id=UUID("64300000-0000-4000-8000-000000000011"),
+        candidate_corpus_version_id=UUID("64300000-0000-4000-8000-000000000012"),
+    )[0]
+
+    class _RootTransaction:
+        is_active = True
+        rollbacks = 0
+
+        async def rollback(self) -> None:
+            type(self).rollbacks += 1
+            events.append("root_rollback")
+            self.is_active = False
+
+    class _Connection:
+        transaction: _RootTransaction | None = None
+
+        async def begin(self) -> _RootTransaction:
+            self.transaction = _RootTransaction()
+            return self.transaction
+
+    class _ConnectContext:
+        def __init__(self, connection: _Connection) -> None:
+            self.connection = connection
+
+        async def __aenter__(self) -> _Connection:
+            return self.connection
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+    class _Bind:
+        def __init__(self) -> None:
+            self.connection = _Connection()
+
+        def connect(self) -> _ConnectContext:
+            return _ConnectContext(self.connection)
+
+    class _RootSession:
+        def __init__(self) -> None:
+            self.bind = _Bind()
+
+    class _BeginContext:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+    class _RollbackSession:
+        commits = 0
+        closes = 0
+
+        async def __aenter__(self) -> _RollbackSession:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+        async def rollback(self) -> None:
+            events.append("read_session_rollback")
+
+        def begin(self) -> _BeginContext:
+            return _BeginContext()
+
+        async def commit(self) -> None:
+            type(self).commits += 1
+
+        async def close(self) -> None:
+            type(self).closes += 1
+
+    class _RoundRepository:
+        captures = 0
+
+        def __init__(self, session: object) -> None:
+            del session
+
+        async def capture_rollback_baseline(self) -> RollbackBaselineProof:
+            type(self).captures += 1
+            events.append(f"capture_{type(self).captures}")
+            return _rollback_baseline()
+
+        async def create_round(self, **kwargs: object) -> EvaluationRoundIdentity:
+            return _identity(
+                run_token=kwargs["run_token"],
+                round_token=kwargs["round_token"],
+                round_format=kwargs["round_format"],
+                run_identity_hash=kwargs["run_identity_hash"],
+            )
+
+    sentinel = RetrievalParityRunV1(
+        mode="provider",
+        baseline_eligible=True,
+        outcome="completed_pass",
+        generated_at="2026-08-11T09:00:00Z",
+        tenant_id=str(FORMAT_PARITY_TENANT_ID),
+        owner_marker=FORMAT_PARITY_OWNER_MARKER,
+        run_token=str(namespace.run_token),
+        manifest_hash="a" * 64,
+        gold_hash="b" * 64,
+        baseline_identity="c" * 64,
+        rounds=(
+            RetrievalRoundResultV1(
+                round_format="markdown",
+                round_token=str(uuid4()),
+                outcome="completed_pass",
+                pre_state_proved=True,
+                exactly_three_current_proved=True,
+                post_state_proved=False,
+                immutable_history_preserved=False,
+            ),
+        ),
+        prerequisites=(),
+    )
+    constructors: list[dict[str, object]] = []
+    events: list[str] = []
+
+    def _isolated_session(**kwargs: object) -> _RollbackSession:
+        constructors.append(dict(kwargs))
+        return _RollbackSession()
+
+    async def _run(*args: object, **kwargs: object) -> object:
+        del args
+        assert kwargs["rollback_only"] is True
+        assert kwargs["rollback_baseline"] == _rollback_baseline()
+        assert kwargs["stop_after_current_round"] is True
+        rollback_session = kwargs["session"]
+        assert isinstance(rollback_session, _RollbackSession)
+        await rollback_session.commit()
+        owner = kwargs["owner"]
+        assert isinstance(owner, EvaluationRoundIdentity)
+        return sentinel.model_copy(
+            update={
+                "rounds": (
+                    sentinel.rounds[0].model_copy(
+                        update={
+                            "round_format": owner.round_format,
+                            "round_token": str(owner.round_token),
+                        }
+                    ),
+                )
+            }
+        )
+
+    monkeypatch.setattr(retrieval_rounds_module, "AsyncSession", _isolated_session)
+    monkeypatch.setattr(retrieval_rounds_module, "RagEvaluationRoundRepository", _RoundRepository)
+    monkeypatch.setattr(retrieval_rounds_module, "run_retrieval_parity", _run)
+    _RootTransaction.rollbacks = 0
+    _RollbackSession.commits = 0
+    _RollbackSession.closes = 0
+    _RoundRepository.captures = 0
+
+    result = await retrieval_rounds_module.run_rollback_only_retrieval_parity(
+        _dataset(),
+        session=_RootSession(),  # type: ignore[arg-type]
+        embedder=object(),  # type: ignore[arg-type]
+        namespace=namespace,
+        generated_at="2026-08-11T09:00:00Z",
+        run_identity_hash=RUN_IDENTITY_HASH,
+        expected_rollout_version=1,
+        input_assembler=object(),  # type: ignore[arg-type]
+    )
+
+    assert tuple(item.round_format for item in result.rounds) == ROUND_FORMATS
+    assert all(item.post_state_proved for item in result.rounds)
+    assert all(item.immutable_history_preserved for item in result.rounds)
+    assert len(constructors) == 7
+    assert all(constructors[index]["join_transaction_mode"] == "create_savepoint" for index in (1, 3, 5))
+    assert all(constructors[index]["expire_on_commit"] is False for index in (1, 3, 5))
+    assert _RollbackSession.commits == 3
+    assert _RollbackSession.closes == 3
+    assert _RootTransaction.rollbacks == 3
+    assert _RoundRepository.captures == 4
+    assert events == [
+        "capture_1",
+        "read_session_rollback",
+        "root_rollback",
+        "capture_2",
+        "read_session_rollback",
+        "root_rollback",
+        "capture_3",
+        "read_session_rollback",
+        "root_rollback",
+        "capture_4",
+        "read_session_rollback",
+    ]
+
+
+def test_rollback_only_ab_wrapper_rejects_any_post_rollback_baseline_drift() -> None:
+    before = _rollback_baseline()
+    after = _rollback_baseline(current_view_sha256="sha256:" + "f" * 64)
+
+    with pytest.raises(EvaluationIsolationError) as caught:
+        retrieval_rounds_module._require_rollback_baseline_unchanged(before, after)  # noqa: SLF001
+
+    assert caught.value.reason_code == "rollback_baseline_mismatch"
+
+
+def test_rollback_baseline_canonical_hash_accepts_pgvector_array_shape() -> None:
+    class _PgVectorArray:
+        def tolist(self) -> list[float]:
+            return [0.25, -0.5, 1.0]
+
+    assert round_repo_module._canonical_sha256(  # noqa: SLF001
+        _PgVectorArray()
+    ) == round_repo_module._canonical_sha256([0.25, -0.5, 1.0])  # noqa: SLF001
 
 
 @pytest.mark.asyncio
@@ -702,6 +993,135 @@ async def test_cleanup_rejects_replacement_or_mixed_projection_before_any_delete
         await repo.cleanup_current_projection(owner, terminal_state="abandoned")
     assert caught.value.reason_code == "projection_drift"
     assert deletes == []
+
+
+@pytest.mark.asyncio
+async def test_rollback_pre_state_accepts_only_the_exact_nonempty_baseline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _identity()
+    baseline = _rollback_baseline()
+    row = SimpleNamespace()
+    heads = [SimpleNamespace(id=uuid4(), doc_key=doc_key) for doc_key in FORMAT_PARITY_DOC_KEYS]
+    repo = RagEvaluationRoundRepository(SimpleNamespace())  # type: ignore[arg-type]
+    cas_values: dict[str, object] = {}
+
+    async def lock_owned(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        return row
+
+    async def lock_heads() -> list[SimpleNamespace]:
+        return heads
+
+    async def capture() -> RollbackBaselineProof:
+        return baseline
+
+    async def current_counts(_heads: object) -> dict[str, int]:
+        return {"documents": 3, "blocks": 158, "chunks": 13, "jobs": 4}
+
+    async def immutable_counts() -> dict[str, int]:
+        return {"document_versions": 3, "chunk_versions": 13}
+
+    async def cas(_row: object, _owner: object, **values: object) -> EvaluationRoundIdentity:
+        assert _row is row
+        assert _owner is owner
+        cas_values.update(values)
+        return owner
+
+    monkeypatch.setattr(repo, "lock_owned", lock_owned)
+    monkeypatch.setattr(repo, "_lock_tenant_heads", lock_heads)
+    monkeypatch.setattr(repo, "capture_rollback_baseline", capture, raising=False)
+    monkeypatch.setattr(repo, "_current_counts", current_counts)
+    monkeypatch.setattr(repo, "_immutable_counts", immutable_counts)
+    monkeypatch.setattr(repo, "_cas", cas)
+
+    assert await repo.prove_compatible_pre_state(owner, rollback_baseline=baseline) is owner
+    proof = cas_values["pre_state_proof_json"]
+    assert isinstance(proof, dict)
+    assert proof["rollback_baseline_sha256"] == baseline.proof_sha256
+    assert proof["current"] == {
+        "documents": 3,
+        "blocks": 158,
+        "chunks": 13,
+        "jobs": 4,
+    }
+
+
+@pytest.mark.asyncio
+async def test_rollback_cleanup_never_deletes_append_only_bound_projection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _identity(next_document_index=3)
+    baseline = _rollback_baseline()
+    heads = [SimpleNamespace(id=uuid4(), doc_key=doc_key) for doc_key in FORMAT_PARITY_DOC_KEYS]
+    row = SimpleNamespace(
+        head_mappings_json={doc_key: {} for doc_key in FORMAT_PARITY_DOC_KEYS},
+        immutable_counts_json={"document_versions": 3, "chunk_versions": 13},
+    )
+    repo = RagEvaluationRoundRepository(SimpleNamespace())  # type: ignore[arg-type]
+    deletes: list[str] = []
+    cas_values: dict[str, object] = {}
+
+    async def lock_owned(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        return row
+
+    async def lock_heads() -> list[SimpleNamespace]:
+        return heads
+
+    async def prove(*args: object, **kwargs: object) -> list[SimpleNamespace]:
+        del args
+        assert kwargs["require_all"] is False
+        return heads
+
+    async def current_counts(_heads: object) -> dict[str, int]:
+        return {"documents": 3, "blocks": 165, "chunks": 60, "jobs": 4}
+
+    async def immutable_counts() -> dict[str, int]:
+        return {"document_versions": 6, "chunk_versions": 73}
+
+    async def current_job_proof() -> tuple[int, str]:
+        return baseline.current_job_count, baseline.current_jobs_sha256
+
+    async def delete_block(*args: object, **kwargs: object) -> int:
+        del args, kwargs
+        deletes.append("block")
+        return 1
+
+    async def delete_chunk(*args: object, **kwargs: object) -> int:
+        del args, kwargs
+        deletes.append("chunk")
+        return 1
+
+    async def cas(_row: object, _owner: object, **values: object) -> EvaluationRoundIdentity:
+        assert _row is row
+        assert _owner is owner
+        cas_values.update(values)
+        return owner
+
+    monkeypatch.setattr(repo, "lock_owned", lock_owned)
+    monkeypatch.setattr(repo, "_lock_tenant_heads", lock_heads)
+    monkeypatch.setattr(repo, "_prove_recorded_projection", prove)
+    monkeypatch.setattr(repo, "_current_counts", current_counts)
+    monkeypatch.setattr(repo, "_current_job_proof", current_job_proof)
+    monkeypatch.setattr(repo, "_immutable_counts", immutable_counts)
+    monkeypatch.setattr(repo.block_repo, "delete_by_document_id", delete_block)
+    monkeypatch.setattr(repo.chunk_repo, "delete_by_document_id", delete_chunk)
+    monkeypatch.setattr(repo, "_cas", cas)
+
+    assert (
+        await repo.cleanup_current_projection(
+            owner,
+            terminal_state="completed",
+            rollback_baseline=baseline,
+        )
+        is owner
+    )
+    assert deletes == []
+    post = cas_values["post_state_proof_json"]
+    assert isinstance(post, dict)
+    assert post["rollback_pending"] is True
+    assert post["rollback_baseline_sha256"] == baseline.proof_sha256
 
 
 @pytest.mark.asyncio
@@ -1776,3 +2196,189 @@ async def test_contract_load_read_and_hash_failures_are_execution_errors_for_bot
     else:
         assert payload["prerequisites"] == ["evaluation_contract"]
         assert payload["reason_codes"] == ["evaluation_contract_invalid"]
+
+
+@pytest.mark.parametrize("role", ["incumbent", "candidate"])
+@pytest.mark.parametrize(
+    ("stage", "reason_code"),
+    [
+        ("role_setup", "role_setup_failed"),
+        ("format_ingestion", "format_ingestion_failed"),
+        ("retrieval_resource_proof", "resource_proof_failed"),
+        ("post_rollback_baseline_verification", "rollback_proof_failed"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_typed_role_failure_survives_outer_rollback_and_fresh_baseline_proof(
+    monkeypatch: pytest.MonkeyPatch,
+    role: str,
+    stage: str,
+    reason_code: str,
+) -> None:
+    from src.rag.evaluation.retrieval_rounds import SafeRoleExecutionError, SafeRoleFailureV1
+
+    namespace = build_ab_round_namespaces(
+        run_id=UUID("64300000-0000-4000-8000-000000000009"),
+        incumbent_corpus_version_id=UUID("64300000-0000-4000-8000-000000000011"),
+        candidate_corpus_version_id=UUID("64300000-0000-4000-8000-000000000012"),
+    )[0 if role == "incumbent" else 1]
+    events: list[str] = []
+
+    class _Transaction:
+        is_active = True
+
+        async def rollback(self) -> None:
+            events.append("outer_rollback")
+            self.is_active = False
+
+    class _Connection:
+        async def begin(self) -> _Transaction:
+            return _Transaction()
+
+    class _Connect:
+        async def __aenter__(self) -> _Connection:
+            return _Connection()
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+    class _Bind:
+        def connect(self) -> _Connect:
+            return _Connect()
+
+    class _RootSession:
+        bind = _Bind()
+
+    class _Begin:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+    class _RollbackSession:
+        def begin(self) -> _Begin:
+            return _Begin()
+
+        async def close(self) -> None:
+            events.append("session_close")
+
+    class _Repository:
+        def __init__(self, session: object) -> None:
+            del session
+
+        async def create_round(self, **kwargs: object) -> EvaluationRoundIdentity:
+            if stage == "role_setup":
+                raise RuntimeError("provider payload must not escape")
+            return _identity(
+                run_token=kwargs["run_token"],
+                round_token=kwargs["round_token"],
+                round_format=kwargs["round_format"],
+                run_identity_hash=kwargs["run_identity_hash"],
+            )
+
+    captures = 0
+
+    async def capture(_bind: object) -> RollbackBaselineProof:
+        nonlocal captures
+        captures += 1
+        events.append(f"baseline_{captures}")
+        if stage == "post_rollback_baseline_verification" and captures == 2:
+            return _rollback_baseline(current_view_sha256="sha256:" + "e" * 64)
+        return _rollback_baseline()
+
+    async def fail(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        injected_stage = "format_ingestion" if stage in {"role_setup", "post_rollback_baseline_verification"} else stage
+        injected_reason = (
+            "format_ingestion_failed" if stage in {"role_setup", "post_rollback_baseline_verification"} else reason_code
+        )
+        raise SafeRoleExecutionError(
+            SafeRoleFailureV1(
+                failing_role="character_incumbent" if role == "incumbent" else "token_candidate",
+                round_format="markdown",
+                stage=injected_stage,
+                reason_code=injected_reason,
+                provider_availability="available",
+                provider_request_classification="request_failed",
+                outer_rollback_attempted=False,
+                outer_rollback_proved=False,
+                completed_round_count=0,
+                provider_request_count=1,
+                safe_context_sha256="sha256:" + RUN_IDENTITY_HASH,
+            )
+        )
+
+    monkeypatch.setattr(retrieval_rounds_module, "AsyncSession", lambda **kwargs: _RollbackSession())
+    monkeypatch.setattr(retrieval_rounds_module, "RagEvaluationRoundRepository", _Repository)
+    monkeypatch.setattr(retrieval_rounds_module, "_capture_rollback_baseline", capture)
+    monkeypatch.setattr(retrieval_rounds_module, "run_retrieval_parity", fail)
+
+    with pytest.raises(SafeRoleExecutionError) as caught:
+        await retrieval_rounds_module.run_rollback_only_retrieval_parity(
+            _dataset(),
+            session=_RootSession(),  # type: ignore[arg-type]
+            embedder=object(),  # type: ignore[arg-type]
+            namespace=namespace,
+            generated_at="2026-08-11T09:00:00Z",
+            run_identity_hash=RUN_IDENTITY_HASH,
+            expected_rollout_version=1,
+            input_assembler=object(),  # type: ignore[arg-type]
+        )
+
+    failure = caught.value.failure
+    assert failure.failing_role == ("character_incumbent" if role == "incumbent" else "token_candidate")
+    assert failure.round_format == "markdown"
+    assert failure.stage == stage
+    assert failure.reason_code == reason_code
+    assert failure.outer_rollback_attempted is True
+    assert failure.outer_rollback_proved is (stage != "post_rollback_baseline_verification")
+    assert events == ["baseline_1", "session_close", "outer_rollback", "baseline_2"]
+
+
+def test_safe_role_failure_contract_covers_all_stages_and_rejects_raw_payload() -> None:
+    from pydantic import ValidationError
+
+    from src.rag.evaluation.retrieval_rounds import SafeRoleFailureV1
+
+    base = {
+        "failing_role": "shared_preflight",
+        "round_format": None,
+        "reason_code": "candidate_pair_invalid",
+        "provider_availability": "not_checked",
+        "provider_request_classification": "not_attempted",
+        "outer_rollback_attempted": False,
+        "outer_rollback_proved": False,
+        "completed_round_count": 0,
+        "provider_request_count": 0,
+        "safe_context_sha256": "sha256:" + "f" * 64,
+    }
+    stages = {
+        "shared_preflight",
+        "role_setup",
+        "format_ingestion",
+        "retrieval_resource_proof",
+        "post_rollback_baseline_verification",
+    }
+    for stage in stages:
+        reason = {
+            "shared_preflight": "candidate_pair_invalid",
+            "role_setup": "role_setup_failed",
+            "format_ingestion": "format_ingestion_failed",
+            "retrieval_resource_proof": "resource_proof_failed",
+            "post_rollback_baseline_verification": "rollback_proof_failed",
+        }[stage]
+        assert SafeRoleFailureV1(**{**base, "stage": stage, "reason_code": reason}).stage == stage
+
+    with pytest.raises(ValidationError):
+        SafeRoleFailureV1(**{**base, "stage": "shared_preflight", "raw_exception": "secret traceback"})
+    with pytest.raises(ValidationError):
+        SafeRoleFailureV1(**{**base, "stage": "shared_preflight", "reason_code": "RuntimeError: secret"})
+
+
+def test_runtime_failure_source_never_serializes_raw_exception_or_traceback() -> None:
+    source = inspect.getsource(retrieval_rounds_module)
+    assert "SafeRoleFailureV1" in source
+    assert "SafeRoleExecutionError" in source
+    for forbidden in ("str(exc)", "repr(exc)", "traceback.format_exc"):
+        assert forbidden not in source

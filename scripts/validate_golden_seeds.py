@@ -7,7 +7,7 @@ Deterministic seed facts:
 - Refund cases: extracted from seed_demo.py scenarios plus generated RF-2024-007..RF-2024-030.
 - Tickets: extracted from seed_demo.py key_cases plus generated TK-2024-007..TK-2024-015.
 - Agent policy evidence docs: extracted from seed_demo.py seed_policy_documents doc_key tuples.
-- RAG policy docs/chunks: generated from data/policies/*.md with src.rag.chunker.chunk_markdown.
+- RAG policy docs/chunks: generated from production parsed blocks with PolicyEmbeddingInputAssembler.
 """
 
 from __future__ import annotations
@@ -44,16 +44,42 @@ def _read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _extract_rag_corpus_ids(policy_dir: Path) -> dict[str, set[str]]:
-    from src.rag.chunker import chunk_markdown
+def _extract_rag_corpus_ids(
+    policy_dir: Path,
+    *,
+    manifest: list[dict] | None = None,
+    input_assembler=None,
+) -> dict[str, set[str]]:
+    from scripts.ingest_policies import DOCUMENT_MANIFEST
+    from src.rag.ingestion import assemble_policy_embedding_inputs
+    from src.rag.parsers.registry import ParserRegistry
+    from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 
     doc_keys: set[str] = set()
     chunk_ids: set[str] = set()
-    for path in sorted(policy_dir.glob("*.md")):
-        doc_key = path.stem
+    parser_registry = ParserRegistry()
+    assembler = input_assembler or PolicyEmbeddingInputAssembler()
+    for doc_meta in sorted(manifest or DOCUMENT_MANIFEST, key=lambda item: str(item["doc_key"])):
+        path = policy_dir / str(doc_meta["file"])
+        doc_key = str(doc_meta["doc_key"])
         doc_keys.add(doc_key)
-        content = path.read_text(encoding="utf-8")
-        chunk_ids.update(chunk.chunk_id for chunk in chunk_markdown(content, doc_key=doc_key))
+        parse_result = parser_registry.parse(
+            path,
+            doc_key=doc_key,
+            source_type=str(doc_meta.get("source_type") or "policy_markdown"),
+            metadata=doc_meta,
+        )
+        if parse_result.status == "failed":
+            raise RuntimeError("golden_policy_parse_failed")
+        assembled_inputs = assemble_policy_embedding_inputs(
+            blocks=tuple(block for block in parse_result.blocks if block.text.strip()),
+            doc_key=doc_key,
+            title=str(doc_meta["title"]),
+            doc_type=str(doc_meta["doc_type"]),
+            risk_level=str(doc_meta["risk_level"]),
+            input_assembler=assembler,
+        )
+        chunk_ids.update(dto.chunk_id for dto in assembled_inputs)
     return {"doc_keys": doc_keys, "chunk_ids": chunk_ids}
 
 
@@ -138,7 +164,7 @@ def _validate_rag_cases(rag_corpus_ids: dict[str, set[str]]) -> list[str]:
                 _error(
                     case_id,
                     "non-fallback RAG case has no expected_chunk_ids",
-                    "add at least one chunk_id produced by chunk_markdown",
+                    "add at least one chunk_id produced by the production parsed-block assembler",
                 )
             )
 
@@ -157,7 +183,7 @@ def _validate_rag_cases(rag_corpus_ids: dict[str, set[str]]) -> list[str]:
                 errors.append(
                     _error(
                         case_id,
-                        f"references {chunk_id} in expected_chunk_ids but chunk is not produced by chunk_markdown",
+                        f"references {chunk_id} in expected_chunk_ids but chunk is not produced by the production assembler",
                         "update the chunk_id to match the current data/policies corpus and chunker output",
                     )
                 )

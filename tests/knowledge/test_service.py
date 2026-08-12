@@ -12,6 +12,7 @@ from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
 from src.knowledge.service import PolicyKnowledgeService
+from tests.policy_corpus_helpers import bind_character_corpus
 
 
 def _context(merchant_scope: list[str] | None) -> KnowledgeContext:
@@ -235,6 +236,7 @@ async def test_verified_evidence_details_uses_real_retrieval_engine_canonical_ro
         )
     )
     await session.flush()
+    await bind_character_corpus(session, tenant_id=seeded_session["tenant"].id)
 
     evidence = EvidenceRefV1.build(
         tenant_id=tenant_id,

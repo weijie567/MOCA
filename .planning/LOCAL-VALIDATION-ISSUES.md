@@ -23306,3 +23306,714 @@ PR #5 在 Ruff 修复后的 GitHub Actions run `31449869596` 中，lint 已通�
 首次安装 `fonts-noto-cjk` 后，GitHub Actions run `31451212566` 已通过字体安装 preflight，但测试仍在同一 fixture builder 用例失败；ReportLab 5.0.0 明确报 `NotoSansCJK-Regular.ttc: postscript outlines are not supported`，汇总仍为 `1 failed, 2911 passed, 1 skipped`。这说明缺失字体问题已解决，但所选字体的轮廓格式不满足 PDF 生成器依赖契约。
 
 已在隔离的 `python:3.12-slim` Linux 容器中安装 `fonts-wqy-zenhei` 和项目锁定的 `reportlab==5.0.0`，验证 `/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc` 可由 `TTFont` 成功注册。CI 因此改用该 TrueType 轮廓 CJK 字体，并继续保留精确文件名检查、`MOCA_CJK_FONT` 显式注入和 SHA-256 日志。最终结论仍以 PR #5 的完整 Linux test job 为准。
+
+## 2026-08-11 — Phase 64.4 `state.record-session` 再次错算小数阶段进度
+
+**问题现象**
+Phase 64.4 auto discuss 提交 context 后调用 `gsd-sdk query state.record-session --stopped-at ... --resume-file ...`，handler 把 `.planning/STATE.md` frontmatter 的里程碑进度从 47% 改成 100%，把较完整的 Phase 64.3 last activity 回退，并把正文 `Resume file` 写成字面量 `--resume-file`。
+
+**如何检测/复现与关键证据**
+命令返回 `recorded:true` 后立即执行 `git diff -- .planning/STATE.md`。diff 显示 `percent: 47 -> 100`、`Resume file: --resume-file`；SDK 源码的 `state.record-session` query handler 实际按位置读取 `args[0..2]`，没有消费 workflow 文档给出的 `--stopped-at` / `--resume-file` flag，同时 frontmatter sync 继续把 64.4 这种零-plan小数阶段按已登记 plans 误算为 100%。这与 2026-07-10 Phase 63 及 2026-08-11 Phase 64.3 transition 台账记录一致。
+
+**当前判断/根因**
+这是 GSD SDK query 参数契约与 workflow 示例不一致、以及 frontmatter 同步不适配 decimal inserted phase/里程碑 phase 完成率的工具缺陷，不是 Phase 64.4 产品实现或计划内容问题。
+
+**已做处理**
+按 ROADMAP 的 7/15 completed phases 恢复 47%，把 last activity 更新为 Phase 64.4 context 已收集且 planning 进行中，并写入精确 context resume path；保留工具调用及修正提交作为证据。后续每次 `state.*` / `phase.*` handler 后继续立即检查 STATE diff。
+
+**剩余问题和下次继续排查入口**
+产品侧无剩余问题。GSD SDK 需统一 query handler 的 positional/flag 参数契约，并让进度同步区分“已规划 plan 完成率”和“当前里程碑 phase 完成率”；修复前不直接信任 handler 生成的 decimal phase transition/progress metadata。
+
+### `state.begin-phase` 同样把 flag 名当成小数阶段参数
+
+进入 Phase 64.4 execution 时按 execute-phase workflow 调用 `gsd-sdk query state.begin-phase --phase 64.4 --name token-aware-policy-chunking-and-reindex-validation --plans 11`，返回值却是 `phase: "--phase"`、`name: "64.4"`、`plan_count: "--name"`，并把 STATE 写成 `Phase --phase`、`Plan 1 of --name`、里程碑进度 80%。这证明问题不只存在于 `state.record-session`：`state.begin-phase` handler 也按位置参数读取，却与 workflow 的 flag 示例不兼容，并继续误算 decimal inserted phase 进度。已在启动任何 executor 前核对 diff，按 ROADMAP 的 7/15 完成阶段恢复 47%，保留真实 Phase64.4、11 plans/22 tasks 和 execution 状态。后续每个 GSD tracking handler 仍必须立即检查 STATE/ROADMAP diff，不能直接提交工具输出。
+
+## 2026-08-11 — Phase 64.4 tokenizer parity 探针首次被 uv 镜像 403 阻断
+
+**问题现象**
+为验证 Qwen 官方 tokenizer 与 DashScope `text-embedding-v4` usage 的实证一致性，首次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run --with tokenizers --with huggingface-hub ...` 时依赖解析失败；uv 报当前清华镜像对 `filetype` 返回 403，并据此判定项目依赖不可满足。
+
+**如何检测/复现与关键证据**
+失败发生在创建隔离 worktree `.venv` 后、任何 provider 请求之前，输出包含 `No solution found`、`filetype was not found` 和 `https://pypi.tuna.tsinghua.edu.cn/simple` 403。使用相同 lock/worktree 并显式设置 `UV_DEFAULT_INDEX=https://pypi.org/simple UV_CACHE_DIR=/tmp/uv-cache` 后成功安装项目与临时 `tokenizers`/`huggingface-hub` 依赖，随后 10 组安全合成文本逐条 provider parity 探针正常完成。
+
+**当前判断/根因**
+这是本机 uv 默认镜像的访问/同步环境问题，不是 MOCA 依赖冲突、tokenizer 实现失败或 DashScope provider 失败。首次失败没有产生 token 计数结论，也没有发出 provider 请求。
+
+**已做处理**
+保留项目标准 `uv run` 入口并仅为本次依赖拉取显式选择官方 PyPI；未打印、复制或写入 API key。成功探针确认官方 Qwen3-Embedding tokenizer 固定 revision/asset SHA、启用 special token（EOS）时，在中文、英文、混合文本、表格、URL、数字、emoji、组合字符、空白 envelope 与长无标点文本上 10/10 精确匹配 provider `prompt_tokens`。
+
+**剩余问题和下次继续排查入口**
+产品实现仍需把 tokenizer asset、revision/SHA 与 provider parity gate 正式版本化，并在架构债务台账记录阿里云未公开服务 tokenizer 映射这一事实和实证启用策略。后续新 worktree 若默认镜像再次 403，应先显式 `UV_DEFAULT_INDEX=https://pypi.org/simple` 重跑，不能把镜像失败误判为项目依赖失败。
+
+## 2026-08-11 — Phase 64.4 plan 命令审计首次因 zsh 引号未闭合失败
+
+**问题现象**
+第一次执行 plan 内裸测试入口扫描时，zsh 在解析包含反引号的双引号正则后报 `unmatched "`，命令未进入任何仓库校验逻辑。
+
+**如何检测/复现与关键证据**
+失败命令把反引号放进 `rg` 的双引号 pattern；shell 在命令启动前即退出，exit code 非零且没有 plan 校验结果。改用不含 command-substitution 字符的单引号 pattern 后，同一 `git diff --check`、11 个 `gsd-sdk query verify.plan-structure` 和 requirement 扫描均成功，11/11 返回 `true`。
+
+**当前判断/根因**
+这是本次临时 zsh 审计命令的转义错误，不是 MOCA plan、uv、pytest、Ruff 或代码失败；首轮输出无效，未被用作绿色结论。
+
+**已做处理**
+用安全单引号 pattern 重跑，并继续以 GSD plan-structure、frontmatter、`git diff --check` 和独立 plan-checker 为正式证据。未运行裸 pytest/Python。
+
+**剩余问题和下次继续排查入口**
+无产品侧剩余问题。后续临时 `rg` 正则避免在 shell 双引号中放反引号或 `$()`；若审计命令本身失败，必须修正后完整重跑。
+
+### 同类 zsh 参数修饰符补充：CLI detection 的 `$cli:available`
+
+执行 `$gsd-review` CLI detection 时，首次用 `echo "$cli:available"`；zsh 把冒号后的 `a` 解释为参数绝对路径修饰符，输出了形如 `.../geminivailable` 的路径，不能作为 available 标签证据。已改为 `echo "${cli}:available"` 并完整重跑，确认 `gemini`、`claude`、`codex` 可用，显式请求的 `claude` 审查随后成功完成。该问题只影响临时显示格式，没有改变 reviewer 选择或审查内容。
+
+### 外部复审 prompt 流首次被 Ruby 源码默认 US-ASCII 编码拦截
+
+Phase 64.4 第二轮 Claude plan review 首次用 Ruby 从现有 planning artifacts 组装标准输入时，Ruby 2.6 在解析 prompt 中的中文/长破折号前即报 `invalid multibyte char (US-ASCII)`；因此没有调用到 Claude，也没有生成或覆盖 review artifact。单独检查 `ruby -v` 与 `locale` 证明系统 locale 虽为 `C.UTF-8`，该 Ruby 仍要求源码级编码声明；仅加 `-EUTF-8:UTF-8` 不足以改变源码解析编码。已在临时 stdin 脚本第一行加入 `# encoding: UTF-8` 后完整重跑。这个问题只影响一次性复审 prompt 组装入口，不是计划或产品代码失败；后续 Ruby 临时脚本只要包含非 ASCII 字面量，就必须同时保留源码编码声明。
+
+修正编码后的完整串流已到达 Claude CLI，但 11 个 plan、RESEARCH、CONTEXT、VALIDATION、ROADMAP、REQUIREMENTS 和裁决记录合并后超过 CLI 单次 prompt 上限，CLI 明确返回 `Prompt is too long`，仍未产生 review 结论或改写 artifact。当前处理改为给独立 Claude Code 会话一份短的文件清单与审查契约，由其在同一隔离 worktree 内逐文件读取完整内容和必要源码，避免截断任一 plan；最终只采纳该完整仓库读取会话的输出。后续 plan 数量较多时，`$gsd-review` 应优先让代码型 reviewer 按路径读取，或由工具实现分块/context-file 输入，而不是把所有正文拼成单条 prompt。
+
+### `verify.key-links` 未解析 inline YAML 且误报当前 wave 产物缺失
+
+Plan01 完成后按 execute-phase pre-wave gate 调用 `gsd-sdk query verify.key-links .../64.4-02-PLAN.md`，工具返回 `all_verified:false`，但唯一 link 的 `from/to/via` 全为空并报 `Source file not found`。人工核对 Plan02 frontmatter 后确认该 link 是合法 inline YAML map，`from: src/rag/policy_embedding_input.py` 正是 Plan02 当前 wave 将创建的产物，按 execute-phase 规则本应跳过而不是阻断；其 `to: src/rag/embedding_tokenizer.py` 已由 Plan01 创建且存在。当前判断是 GSD key-link parser/当前-wave skip 的工具缺口，不是跨 plan 接线失败。已保留工具输出并用 plan/source existence 人工门禁后继续；Plan02 完成后还会对实际 import/count 调用和 tests 做源代码复核。
+
+## 2026-08-11 — Phase 64.4 Plan 01 tokenizer 资产与新 worktree 验证入口问题
+
+**问题现象 / 如何检测**
+固定 Qwen tokenizer 资产时，直接访问 pinned Hugging Face `resolve` URL 在 15 秒 connect timeout 后返回 curl code 28，未产生文件；随后首次运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_embedding_tokenizer.py` 时，worktree `.venv` 尚未同步 dev extra，`uv run` 从外部 PATH 找到 `/Users/ming/Library/Python/3.9/bin/pytest`，collection 因 Python 3.9 缺少 `datetime.UTC` 失败。一次性 cache 检查命令还复用了 zsh 特殊数组名 `path`，导致该 subshell 后续 `head` 无法通过 `PATH` 查找。
+
+**关键证据 / 当前判断**
+本机官方 Hugging Face cache 的 revision ref 精确指向 `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`；对应 blob 为 11,423,705 bytes，SHA-256 为 `def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a`，与 Phase 64.4 research 和官方模型文件页一致。`.venv/pyvenv.cfg` 与 `uv run python -V` 均为 Python 3.12.13，错误只来自缺少本地 pytest executable 后的 PATH 回退；zsh 错误只影响一次性显示命令。三项都不是 tokenizer bytes、MOCA 依赖或产品代码失败，首轮无效 pytest 结果未用作结论。
+
+**已做处理 / 剩余入口**
+从已核验的官方 cache blob vendor 固定 bytes，并保留 pinned source URL、revision、size、SHA、Apache-2.0 许可证据；执行 `UV_CACHE_DIR=/tmp/uv-cache uv sync --extra dev` 后确认 `uv run which pytest` 指向当前 worktree `.venv/bin/pytest`，再重跑得到预期 Wave-0 RED，随后 Task 1 的 `make lint` 与 scoped pytest 为 5 passed。orchestrator 在 Plan01 完成后的只读 spot-check 也曾再次复用 zsh 特殊数组名 `path`，导致同一 subshell 后续 `git`/`rg` 无法从 PATH 查找；改用 `asset_file` 后已完整重跑并确认 summary key files、提交和 clean worktree。后续新 worktree 在测试前先同步 dev extra，资产获取优先核验 pinned cache、网络可用时再按同一 SHA 复核；zsh 临时变量继续避开 `path` / `status`。当前无产品侧 blocker。
+
+## 2026-08-11 — Phase 64.4 Plan 02 structural split 首版插入非源换行
+
+**问题现象**
+Task 2 新增中英混合、OCR-like、combining Unicode、emoji、URL/number 和 sentence/clause 重建属性测试后，8 个用例证明 `"".join(item.primary_content)` 与原始单 block 文本不相等；差异是在 sentence/clause/whitespace 拆出的 piece 之间多了 `\n`。同轮 overlap 测试还因测试代码对错位长度序列使用 `zip(..., strict=True)` 产生 1 个测试自身错误。
+
+**如何检测/复现与关键证据**
+使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_token_aware_chunker.py tests/rag/test_block_chunker.py`，结果为 `9 failed, 18 passed, 1 warning`。8 个产品失败共同指向 `_base_from_units()` 无条件用换行拼接同一 source block 的 structural pieces；第 9 个失败在断言循环启动前直接抛出 `ValueError: zip() argument 2 is shorter`，属于测试边界写错而非 overlap 实现结论。
+
+**当前判断/根因**
+assembler 需要区分“不同 parser block 的 canonical 换行”和“同一 block 内为满足 token budget 产生的无损 split”；首版 `_AssemblyUnit` 没有携带该关系，packing 因而把所有 unit 都当成 block 边界。token count 与 512 hard bound 本身仍正确，但 citation bytes 被额外装饰，不满足 D-08/D-10 的无截断、byte-identical rebuild 语义。
+
+**已做处理**
+为 `_AssemblyUnit` 增加显式 `joiner`：每个 parser block 首 piece 使用 block 换行，后续 structural/token-window pieces 使用空连接；chunk 起始 piece 忽略前置 joiner，确保跨 chunk 的同 block source 可直接重组。测试循环改为等长的 `zip(assembled[:-1], assembled[1:], strict=True)`。原命令完整重跑为 `27 passed, 1 warning`，覆盖 Unicode unsafe boundary、exact recount、token overlap、oversized table cell/header 与 tokenizer failure。
+
+**剩余问题和下次继续排查入口**
+assembler 本体当前无已知重建缺口；Plan 04 仍需把 production/dry-run/golden/parity/A-B 接到同一 DTO，届时必须再次证明 embedder 收到的 bytes 与本 assembler 返回值完全一致。若后续改变 structural unit packing，优先从 `tests/rag/test_token_aware_chunker.py` 的 multilingual rebuild 与 sentence/clause exact-source 用例继续排查。
+
+## 2026-08-11 — Phase 64.4 Plan 03 executor 可见性空转与强制恢复
+
+**问题现象**
+Plan 03 执行过程中，上层 orchestrator 的 watchdog 在一段时间内没有看到新的文件、命令或提交，因而中断原 executor turn 并要求立即从 Wave-0 Task 1 恢复。该现象发生在本地执行编排层，不是 embedding usage 产品逻辑失败。
+
+**如何检测/复现与关键证据**
+上层收到的状态是“长期无可见改动”；恢复 turn 后立即运行 `git status --short` 和 `rg -n "EmbeddingBatchResultV1|embed_documents_with_usage"`，确认中断前的 `src/rag/embedder.py`、`tests/test_embedder.py` 修改和新建 `tests/rag/test_embedding_usage.py` 实际仍在共享 worktree。中断前有效 RED 为测试 collection 找不到 `EmbeddingBatchResultV1`；实现后有效门禁为完整 `make lint` 通过，随后项目入口测试 `7 passed, 1 warning`。
+
+**当前判断/根因**
+当前只能确认是 agent turn 的进度可见性/调度空转，具体触发原因未确认；仓库文件没有丢失，也没有出现 Python 环境入口错误、provider 请求、凭据读取或产品回归。不能据此推断 MOCA 代码缺陷。
+
+**已做处理**
+中断恢复后先以 Git 和源码事实核对保留状态，没有重复覆盖已有编辑；向上层报告精确 RED/green 证据后继续原子提交。没有运行裸 pytest/Python，也没有修改 `.planning/STATE.md` 或 `.planning/ROADMAP.md`。
+
+**剩余问题和下次继续排查入口**
+产品侧无剩余问题。若后续 executor 再次长时间无可见进度，上层应先查询共享 worktree 的 `git status` 和最近 gate 输出再决定是否重启，避免把调度可见性问题误记为代码未执行。
+
+## 2026-08-11 — Phase 64.4 Plan 04 golden seam 测试误把 heading 文档假设为单 chunk
+
+**问题现象**
+Task 2 首次 GREEN 后精确测试得到 `1 failed, 40 passed, 1 warning`：`test_golden_seed_validator_uses_production_parser_and_shared_assembler` 预期一个带一级标题和二级章节的 fixture 只产生 `refund_policy_000`，实际 token assembler 正确产生 `refund_policy_000` 与 `refund_policy_001`。
+
+**如何检测/复现与关键证据**
+使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_format_parity_contract.py tests/architecture/test_rag_chunking_boundaries.py tests/rag/test_tokenizer_parity.py`；唯一失败显示返回集合比测试预期多 `refund_policy_001`。检查 production parser 与 assembler 输出确认一级标题后的 intro block 和二级章节 block 是两个结构边界，并非重复或不稳定切块。
+
+**当前判断/根因**
+这是新测试 fixture 的错误预期，不是产品实现回归。测试把“token budget 足够容纳全文”错误等同为“跨 parser section 合并为单 chunk”，忽略 assembler 保留结构边界的既有契约。
+
+**已做处理**
+将断言改为精确验证两个稳定 chunk id，并继续验证 validator 确实经 production parser 与 shared assembler。随后先执行 `make format`、完整 `make lint`，再重跑同一精确 gate，结果为 `41 passed, 1 warning`；额外 `tests/eval/test_rag_retrieval_round_isolation.py` 为 `71 passed, 1 warning`，checked-in seed validator 输出 `SEED VALIDATION PASSED`。没有使用裸 pytest/Python。
+
+**剩余问题和下次继续排查入口**
+当前无产品侧剩余问题。后续 golden seam fixture 若包含 Markdown heading，应按 parsed-block 结构断言稳定 id，不应仅凭总 token 数推断 chunk 数量。
+
+## 2026-08-11 — Phase 64.4 Plan 05 executor 空转重启与迁移 fixture 参数类型歧义
+
+**问题现象 / 如何检测**
+Plan 05 首个 executor turn 在已经完成强制前读后长时间没有产生可见命令或文件修改，上层 watchdog 因而中断并重新派发；这是执行编排状态，不是 MOCA 产品失败。恢复后 Task 1 首次真实 PostgreSQL gate 又在 legacy fixture 写入 immutable document/chunk version 时失败，asyncpg 报 `AmbiguousParameterError: inconsistent types deduced for parameter $2 (character varying versus uuid)`。
+
+**关键证据 / 当前判断**
+恢复 turn 先确认共享 worktree 保留了 Wave-0 tests、migration、ORM 和 repository 修改，随后使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/knowledge/test_token_corpus_migration.py tests/test_rag_migration.py`。失败 SQL 在同一个 `:tenant_id` 参数上同时绑定 UUID 列和 `CAST(... AS varchar)` scope_id，属于测试 fixture 的 asyncpg 参数推断歧义；migration bootstrap 尚未开始，因此不能据此判定产品迁移失败。另在同轮静态核对发现 bootstrap tenant 枚举使用 `SELECT DISTINCT ... FOR UPDATE`，该 PostgreSQL 组合不合法，属于迁移实现的可预防缺陷。
+
+**已做处理**
+恢复后立即从已存在的 Wave-0 RED 继续，没有重复覆盖前序 plan 修改；fixture 改为独立传入字符串 `scope_id`，migration tenant 枚举移除无效的 DISTINCT row lock，同时仍对每租户实际 document/block/chunk rows 加锁。完整重跑真实 PostgreSQL/pgvector migration、bootstrap、visibility 与 downgrade refusal gate 为 `5 passed, 7 warnings`；没有运行裸 pytest/Python。
+
+**剩余问题和下次继续排查入口**
+产品侧当前无已知 blocker。若 executor 再次长时间无可见进度，应先用 `git status --short` 与最近 gate log 核对共享 worktree；若 fixture 再出现 asyncpg 参数歧义，优先检查同一 named bind 是否跨 UUID/varchar 上下文复用。
+
+## 2026-08-11 — Phase 64.4 Plan 05 canonical source/replay 验证暴露 legacy JSON NULL 与旧 staging 断言
+
+**问题现象 / 如何检测**
+Task 2 首次 replay 精确 gate 为 `1 failed, 12 passed`：旧路径调用 `append_immutable_version(..., canonical_source=None)` 时，`policy_document_versions` 的 canonical completeness check 拒绝插入。新增真实 PostgreSQL source/config versioning fixture 首轮又因同一 flush 中 tenant 与 document 无显式 ORM relationship 依赖而先写 document，触发 tenant FK。额外 ingestion 回归首次为 `7 failed, 34 passed`；其中 6 条是 canonical source 首版使用双换行导致既有 policy fingerprint 漂移，另 1 条仍断言 Plan04 的 count/hash/config “不得持久化”。
+
+**关键证据 / 当前判断**
+replay failing row 显示 `canonical_blocks_json` 为 JSON `null` 而非 SQL NULL；SQLAlchemy `JSONB` 默认把 Python `None` 编码成 JSON null，违反 migration 030 为 legacy v1 定义的四字段全 SQL NULL 分支。这是产品 ORM/schema 边界 bug。fixture FK 是测试 setup 顺序问题。双换行会改变已有 authoritative block rendering，属于 canonical renderer 首版缺陷；改为稳定的 ordered-block 单换行后 6 条 version/fingerprint 回归全部恢复。剩余旧测试 `test_explicit_token_mode_submits_exact_assembler_dto_without_persisting_audit_fields` 的语义只适用于 Plan04 schema 前 staging，Plan05 action 明确要求迁移 030 后在同一事务持久化这些字段，因此是已过期负断言，不是产品回归，且该文件不在 Plan05 ownership 中未修改。
+
+**已做处理**
+ORM canonical JSON 列改用 `JSONB(none_as_null=True)`，legacy append 继续写 SQL NULL 且不回写历史；PostgreSQL fixture 显式先 flush tenant；canonical document content 改为按 block 顺序单换行，仍完全不依赖 chunks/overlap。重跑 Task 2 replay gate 为 `13 passed, 1 warning`，真实 source/config test 为 `7 passed, 3 warnings`；额外 ingestion 回归缩减为仅上述 1 条过期 staging 断言，其余 `40 passed`。没有运行裸 pytest/Python。
+
+**剩余问题和下次继续排查入口**
+上层按 Rule 2 确认该 staging 断言必须由 Plan05 一并收敛，已最小改为精确验证 current chunk 与 ingestion job 的 DTO count/hash/config audit；immutable audit 由同 plan 的真实 PostgreSQL source/config versioning test 覆盖。对应 ingestion gate 随后完整通过。Plan06/07 继续分别验证 candidate current-head isolation 与 reindex，不在本 plan 提前实现。
+
+## 2026-08-11 — Phase 64.4 Plan 06 Task 2 静态 guard 首版类边界插入错误
+
+**问题现象 / 如何检测**
+扩展 `tests/architecture/test_rag_chunking_boundaries.py` 覆盖 repository current SQL 后，首次执行 `make format` 被 Ruff 以 3 个 `F811` 拦截：`visit_FunctionDef`、`visit_AsyncFunctionDef`、`visit_Call` 在 `_CurrentSqlCollector` 内被重复定义。
+
+**关键证据 / 当前判断**
+检查文件顶部确认新 collector 插入在旧 `_CallCollector.visit_ClassDef()` 与其后续 methods 之间，导致旧 methods 落入新 class。这是测试 guard 编辑位置错误，不是 production active-corpus 实现或 Python 环境入口失败；Ruff 在任何 pytest gate 前已可靠检出。
+
+**已做处理 / 剩余入口**
+恢复 `_CallCollector` 完整类边界，并让 `_CurrentSqlCollector` 独立维护 scope/source stack；随后 `make format`、两次完整 `make lint`、Task 2 精确 gate `65 passed, 1 warning` 与受影响 Task 1 回归 gate `41 passed, 1 warning` 全部通过。没有使用裸 pytest/Python。当前无产品侧剩余问题；以后修改 AST visitor 时先运行 `make format`，再运行 architecture test 单文件定位 collector 自身错误。
+
+## 2026-08-11 — Phase 64.4 Plan 07 Task 1 PostgreSQL corpus fixture flush 顺序违反复合外键
+
+**问题现象 / 如何检测**
+Task 1 首次 GREEN 使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_policy_reindex.py`，5 个用例均在 setup 阶段失败；PostgreSQL 报 `policy_corpus_rollouts(active_corpus_version_id, tenant_id)` 找不到对应 `policy_corpus_versions(id, tenant_id)`。
+
+**关键证据 / 当前判断 / 根因**
+fixture 将 manifest、source corpus、rollout 三个没有 ORM relationship 的对象一次性 `add_all + flush`。SQLAlchemy 无法从 Python 对象关系推导 migration 030 的 manifest → corpus → rollout 复合外键顺序，实际先插入 rollout。失败发生在 `PolicyReindexService.claim()` 之前，属于新测试 setup 顺序错误，不是 claim/lease/CAS 产品实现或数据库 schema 缺陷。
+
+**已做处理 / 剩余入口**
+fixture 改为 tenant 后依次 flush manifest、source corpus、rollout，保留真实 PostgreSQL/pgvector schema 与复合外键，不绕过约束。相同项目入口重跑为 `5 passed, 1 warning`；随后 `make format`、完整 `make lint` 与精确 gate 继续通过。当前无产品侧剩余问题；后续构造 inactive candidate projection fixture 时仍须显式按 tenant → manifest → corpus → current/immutable row → binding 顺序 flush。
+
+## 2026-08-11 — Phase 64.4 Plan 07 Task 2 DB snapshot candidate 的预期 RED
+
+**问题现象 / 如何检测**
+Wave-0 先补 source file 不可用、inactive candidate 可见性、per-document snapshot 重检、事务中断回滚重试、complete coverage/deterministic replay 与 cross-tenant/run 隔离测试。使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_policy_reindex.py`，结果为 `5 failed, 5 passed, 1 warning`；五个新用例均在调用 `PolicyReindexService.build_next_document` 时得到 `AttributeError`。
+
+**当前判断 / 根因**
+这是严格 TDD 的预期 RED，证明测试命中了 Plan 07 Task 2 尚不存在的 candidate build 边界，不是 PostgreSQL/pgvector、Python 入口或既有 Task 1 回归。实现核对同时确认 `EvidenceVersionRepository.append_immutable_version()` 原先必然投影 shared document/chunk `evidence_write_sequence`；候选若直接复用会违反“不修改 shared current head”的硬约束。
+
+**已做处理 / 剩余入口**
+新增显式 source-corpus 的数据库快照 DTO、重检、candidate bindings、唯一 assembler/provider input、immutable compatibility、count/vector/coverage/deterministic proof 与 cursor 同事务 CAS；immutable owner 仅增加默认 `True` 的 `project_current_head` 参数，candidate 显式传 `False`，ordinary append 回归证明默认仍更新 current head。最终先执行 `make format`、完整 `make lint`，再运行 Plan 07 三文件 gate 为 `89 passed, 3 warnings`。当前无已知本地验证缺口；Plan 08 才能验证 pointer activation 与 ordinary-ingestion continuity。
+
+## 2026-08-11 — Phase 64.4 Plan 08 Rule 4 前读发现 append-only schema 无法支持普通 ingestion
+
+**问题现象 / 如何检测**
+Plan 08 mandatory reads 与只读 schema 核对发现，migration 030 对 corpus bindings 设置 append-only trigger/FK RESTRICT，`PolicyDocument` 又保持单一 `(tenant_id, doc_key)` head，`DocumentBlock` 还具有 `(tenant_id, doc_id, source_block_id)` 唯一约束；原 plan 若继续沿用 delete/replace current rows，会直接违反已落地 schema，也无法同时保留旧 corpus replay。
+
+**关键证据 / 当前判断 / 根因**
+核对 `030_phase64_4_token_corpora.py`、`src/db/models.py`、document/block/chunk repository 与 ingestion delete 路径后，确认这不是可用局部代码绕过的测试问题，而是普通 ingestion 与 immutable corpus history 的结构冲突，触发 execute-plan Rule 4。最小安全方案是同 config copy-on-write corpus：复用唯一 `PolicyDocument` head，变更 source 追加 block/chunk/immutable rows并复制未变 bindings，随后原子 pointer flip；只需移除 block source identity 唯一约束，不允许删除历史。
+
+**已做处理 / 剩余入口**
+先暂停写入并上报；用户于 2026-08-11 本轮 Rule 4 checkpoint 后明确批准 migration 031、COW ingestion、source-stale/refusal/rebuild 与 config schema+fingerprint 识别边界。实现没有删除 immutable/binding/history，也没有提前制造 Plan 09 selection 或 Plan 10 receipt。最终真实 PostgreSQL 合并 gate 为 `94 passed, 4 warnings`。当前无 schema blocker；downgrade 遇到重复 block identity 会 fail closed。
+
+## 2026-08-11 — Phase 64.4 Plan 08 activation 首轮回归暴露 active projection SQL 与 canonical v2 reconciliation 缺口
+
+**问题现象 / 如何检测**
+Task 1 首轮 GREEN 中，旧 retrieval/evidence fixture 在 Plan 06 fail-closed active authority 下不可用；补齐 fixture 后 PostgreSQL 又报 active chunk helper 缺少 `policy_documents` FROM，canonical read reconciliation 则把已存在的 `canonical_document_content.v2` immutable row 在未传 canonical source DTO 时误判不兼容。
+
+**关键证据 / 当前判断 / 根因**
+Plan 06 helper 将 `CorpusDocumentBinding.policy_document_id` 连接到未必存在于 statement 的 `PolicyDocument.id`；正确 authority 已可由 `PolicyChunk.doc_id` 证明。canonical matcher 的 `canonical_source=None` 分支无条件 `False`，使 retained v2 row 无法在仅持有 current head/hash 的 reconciliation 路径复用。两者都是经真实 PostgreSQL SQL/immutable 回归核实的 RAG 产品缺陷，不是 Python 环境或 fake fixture 问题。
+
+**已做处理 / 剩余入口**
+active projection 改为 chunk→document binding；canonical v2 retained-source 分支验证 checksum、persisted content hash 与 canonical fields，再与 current content/hash复核。Task 1 核心 gate 达到 `40 passed, 4 warnings`。合并回归随后还检出 current identity caller 对同一 `CorpusChunkBinding` 再 join，导致 `DuplicateAliasError`；移除重复 join 后对应两条 targeted PostgreSQL 回归 `2 passed`，最终合并 gate `94 passed`。历史 immutable identity 的伴随失败确认是前一个 SQL transaction error 的级联，未把 active pointer 错加到历史 resolver。当前无已知剩余缺口。
+
+## 2026-08-11 — Phase 64.4 Plan 08 Task 2 测试预期与 generation authority 旧断言
+
+**问题现象 / 如何检测**
+Task 2 预期 RED 为 `3 failed, 44 passed`，证明首次 ingestion 未刷新 pointer/manifest；实现后首次 GREEN 为 `2 failed, 45 passed`，两条新测试把 character assembler 的真实单块 `标题\n正文` 错写成标题/正文两块。额外 evidence projection 回归为 `1 failed, 11 passed`：旧参数化用例仍要求 generation name 与 config 类型精确配对。
+
+**关键证据 / 当前判断 / 根因**
+前两个失败的 COW epoch/history/state assertions 已先通过，差异只在 fixture 对 incumbent character chunk 边界的错误假设。后一个断言与用户批准的“assembler/config recognition 按 config_schema_version+fingerprint，而不是 generation_name 精确值”直接冲突；generation suffix `:ingest:<manifest_revision>` 是 COW corpus 的合法身份，不是配置权威。
+
+**已做处理 / 剩余入口**
+测试改为 character 单块真实输出，并将 chunk-version count 调整为实际每次一个；projection contract 改为 suffix 正例，未知 schema/fingerprint 仍 fail closed。另补 delete-not-found rollback 断言，避免持有 evidence/corpus/manifest/document locks 返回。按规定依次执行 `make format`、完整 `make lint`、Task 2 精确 gate，结果 `47 passed, 1 warning`；最终合并 gate `94 passed, 4 warnings`。当前无产品侧剩余问题。
+
+## 2026-08-11 — Phase 64.4 Plan 08 SUMMARY self-check 误用 zsh 特殊变量 `path`
+
+**问题现象 / 如何检测**
+首次 SUMMARY self-check 在文件存在性检查后连续报告 `zsh: command not found: git` 与 `command not found: rg`，因而把四个实际存在的 commit 错报为 missing。
+
+**关键证据 / 当前判断 / 根因**
+同一命令用 `for path in ...` 作为循环变量；zsh 的小写 `path` 是与 `PATH` 绑定的特殊数组，赋值后仅在该子 shell 内覆盖命令搜索路径。此前和后续独立 shell 均可正常调用 Git/Ripgrep，仓库文件、commit 和持久环境没有丢失。这是验证脚本变量命名错误，不是 MOCA 或 Git 状态损坏。
+
+**已做处理 / 剩余入口**
+改用非保留变量 `task_file` 和 `task_commit_hash` 重新执行完整 self-check，并以第二次输出作为有效结论；SUMMARY 只在全部文件/commit真实找到后写 `PASSED`。以后 shell 辅助变量不得使用 `path`/`PATH` 等系统选项名。当前无剩余问题。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 1 Wave-0 辅助导入被 Ruff 自动删除
+
+**问题现象 / 如何检测**
+Task 1 首轮 Wave-0 在 `make format` 与完整 `make lint` 通过后，使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_token_chunk_ab.py tests/eval/test_rag_format_parity_report.py`，collection 以 `KeyError: 'ABQualityMetricsV1'` 失败，而不是预期的 Plan 09 实现缺失。
+
+**关键证据 / 当前判断 / 根因**
+新测试辅助器 `_api()` 用函数内 import 加 `locals()` 间接返回 API；`make format` 的 `ruff check --fix` 无法识别这种动态引用，把 24 个导入全部判为未使用并删除，只留下空映射。失败发生在测试模块参数化收集期，属于 Wave-0 测试辅助器写法与项目自动修复规则不兼容，不是 A/B 产品实现、Python 入口或 Phase64.3 数据契约问题。
+
+**已做处理 / 剩余入口**
+辅助器改为显式导入并返回逐项命名映射，使 Ruff 能静态识别所有符号；重新执行 `make format`、完整 `make lint` 和相同 project-entry pytest，以实现缺失的受控失败作为有效 RED。后续若新增动态 API helper，应使用显式 tuple/dict 返回，禁止依赖 `locals()` 保留导入。当前无产品侧剩余问题。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 1 安全扫描拒绝 provider prompt 字段名
+
+**问题现象 / 如何检测**
+Task 1 初版 GREEN 使用项目入口运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_token_chunk_ab.py`，结果 `4 failed, 12 passed`；四条均在构造完整终态报告时被共享 disclosure scanner 以 `unsafe_report_key` 拒绝。
+
+**关键证据 / 当前判断 / 根因**
+新资源 DTO 沿用了供应商 usage 名称 `provider_prompt_tokens`。Phase64.3 的共享报告安全扫描会拒绝任何包含 `prompt` 的 key，以防 prompt/raw payload 泄漏；即使该值只是整数 token count，也不能绕开统一 allowlist。属于新报告字段命名与既有安全契约冲突，扫描器行为正确，不应放宽。
+
+**已做处理 / 剩余入口**
+字段改为语义等价且安全的 `provider_embedding_tokens`，仍只保存请求级 provider token 总数，不分摊到输入，也不保留 prompt/provider payload。重新运行格式、完整 lint 与相同 scoped gate。后续报告字段若来自 provider API，必须先通过共享 safe-key allowlist，不得为兼容供应商原始命名而放宽 disclosure 边界。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 1 编排器误判 executor idle/status
+
+**问题现象 / 如何检测**
+Task 1 RED commit `cb60064d` 后，编排器在约八分钟未观察到文件变化、子进程或消息，主动中断并以“恢复 Task1 GREEN”重新派发；恢复时仓库实际已经存在 GREEN commit `3753fad2`，worktree 为 clean。
+
+**关键证据 / 当前判断 / 根因**
+`git log --oneline -4` 显示 `3753fad2 feat(64.4-09): define exact immutable A-B selection` 紧随 `cb60064d`；`git show --stat 3753fad2` 显示 Task1 六个文件共 852 行变更。当前判断为 turn 中断与编排状态传播延迟造成的观测误差，不是 MOCA 产品、测试、provider 或 Git 数据失败。
+
+**已做处理 / 剩余入口**
+恢复后先核对 commit、文件统计和 clean worktree，并通知 orchestrator 不重复实现、不改写历史；随后从 Task2 read-first / Wave0 RED 继续。若后续再出现 agent status 长时间无刷新，继续以仓库 commit 与 worktree 实态为准，并单独排查编排链路，不将其计入产品失败率。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 2 首轮 GREEN 的资源 proof 破坏旧 resume/mock seam
+
+**问题现象 / 如何检测**
+完成 full-provider runtime 初版后按项目入口执行 `make format`、完整 `make lint` 和三文件 scoped pytest，结果 `105 passed, 10 failed`。其中旧 resume repository spy 缺少新增 `prove_advanced_document_resources`，直接调用 `_resolve_ingestion_attempt` 缺少 `rollback_only`，简化 chunk/job fixture 不含 token/config usage 字段；这些异常被 evaluator 安全降级成 `provider_execution_failed`，连带 8 条 round 测试失败。
+
+**关键证据 / 当前判断 / 根因**
+失败集中在 `tests/eval/test_rag_retrieval_round_isolation.py`；产品新增字段本身正确，但把 Phase64.3 的公开测试 seam 当成所有实现都已同步，未保留旧 terminal payload、resume spy 和 projection fixture 的向后兼容。另有一条测试仍对整个 `PolicyReindexService` 断言源码不含 `activate`，与 Plan08 已合法加入独立 activation 方法冲突，属于测试断言范围陈旧，不是 activation 产品失败。
+
+**已做处理 / 剩余入口**
+资源 proof 对旧 fixture 使用只读缺省值，resume 优先调用新资源 API、缺失时回落旧 proof；`rollback_only` 恢复默认 `False`。陈旧测试收窄到 `build_next_document`，继续证明 candidate build 不触碰 evaluation cleanup/activation，而不否定 Plan08 已审核的独立 activation boundary。重跑同序 gate 后为 `115 passed, 1 warning`。当前无剩余产品问题。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 2 新 rollback 测试插入到相邻测试断言中
+
+**问题现象 / 如何检测**
+补充 root-transaction rollback acceptance test 后执行 `make format`，Ruff 立即以 `F821 Undefined name _CompletedRunRepository` 与 `F841 claim assigned but never used` 失败，未进入 lint/pytest。
+
+**关键证据 / 当前判断 / 根因**
+`apply_patch` 以重复的 `_claim_or_resume` 调用作为锚点，把原 `test_post_final_terminal_claim...` 的尾部断言插入到前一个参数化测试，并把新测试放在原测试函数中间。属于测试补丁锚点不唯一造成的本地编辑事故，不是 runtime、数据库或 provider 失败。
+
+**已做处理 / 剩余入口**
+用行号核对函数边界，把 completed-run 断言恢复到原测试，并保持 rollback test 独立；随后按规定从 `make format` 起完整重跑。最终三文件 gate 为 `118 passed, 1 warning`。后续向长测试文件插入新函数时必须使用唯一函数名与尾部断言作为双锚点。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 2 提交前深审发现 session root rollback 会被 production commit 提前结束
+
+**问题现象 / 如何检测**
+Task 2 scoped gate 已到 `118 passed` 后，提交前沿真实 production ingestion 调用链复核事务边界，发现 rollback wrapper 以 `AsyncSession.begin()` 建立 root transaction，但 `IngestionService.ingest_document()` 在每个文档成功后会调用 `session.commit()`；原单元测试只 mock 了 evaluator，没有模拟该内部 commit。
+
+**关键证据 / 当前判断 / 根因**
+`src/rag/ingestion.py` 的真实成功路径显式 `await self.session.commit()`；SQLAlchemy 2.0 的 session commit 会结束该 session 管理的最外层 transaction，因此 wrapper finally 看到 transaction 已 inactive 时不能再 rollback，Plan 08 COW pointer/history 可能已提交。这是 Plan09 新隔离 wrapper 的 correctness bug，不是 provider、数据库环境或 Plan08 contract 失败。
+
+**已做处理 / 剩余入口**
+rollback owner 改为独占 `AsyncConnection` 的外层 transaction，并把 evaluator 使用的 `AsyncSession` 以 `join_transaction_mode="create_savepoint"` 绑定该 connection；production 内部 commit 只结束 session savepoint，最终 connection transaction 无条件 rollback。回归测试显式模拟内部 commit，并断言 create-savepoint 配置、session close 与外层 rollback 均发生。随后依次执行 `make format`、完整 `make lint` 与三文件 scoped gate，结果为 `118 passed, 1 warning`。Plan10 live drill 仍须从真实 pointer/history 前后快照验证零漂移，不能把单元 seam 当作 live selected evidence。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 空库初始化、source provision 与 A/B attempt 1 事故
+
+**问题现象 / 如何检测**
+Plan10 live preflight/初始化连续发现：首次临时 `uv run python -c` 把 `async def` 放在分号后触发 `SyntaxError`；随后确认本地 eval DB 的 `alembic current` 为空且查询 `tenants` 报 `UndefinedTableError`。直接 `alembic upgrade head` 又按设计在 migration 026 因 `dual_write_enabled_at` 为空 fail closed。建立固定 eval tenant/corpus 的第一版临时 ORM 脚本未先 flush tenant，manifest FK 失败；source provision 第一文档已成功提交后，脚本读取不存在的 `IngestionReport.chunk_count` 报 `AttributeError`。幂等续跑时第二文档曾由 ingestion broad catch 返回 `parse_failed`。完整 candidate 建成后，full-provider A/B attempt 1 在数秒内写出 immutable `execution_error` run，而非进入 quality gate。
+
+**关键证据 / 当前判断 / 根因**
+所有命令均通过项目入口与主仓 `.env` 安全注入，未打印 secret/DSN。DB 错误发生在空的 evaluation-only DB，未接触生产 tenant。migration 026 要求先在 revision 025 写入新鲜 dual-write healthy proof；显式完成该 CAS 后成功迁移至 `031_phase64_4_policy_corpus_cow`。tenant FK 与 report 字段错误均为一次性本地辅助脚本顺序/字段误用，失败 transaction 已回滚；读回 DB 证明首文档 epoch2 已提交，因此续跑按 exact doc_key 跳过。第二文档 direct Markdown parse/character assembly 均成功，真实 provider usage probe 也 `reported` 且 4/4 vector，证明前次是瞬态 provider 调用被 ingestion 的 broad catch 归类成 `parse_failed`，单次重试后余下两文档均成功。A/B attempt 1 的直接 prerequisite probe 只返回 `database_schema`：Plan09 错误复用了 Phase64.3 对 Alembic revision **恰等于 029** 的旧 gate，mandatory Phase64.4 head031 因而必然被拒绝；attempt 前后 active corpus、epoch4、history4 完全不变。
+
+**已做处理 / 剩余入口**
+以 `alembic upgrade 025` → evaluation singleton healthy CAS → `upgrade head` 的受控顺序完成空库；固定 tenant `643…0001` 最终为唯一 `evaluation_only` tenant，sealed Markdown source 为 3 docs / 158 blocks / 13 character chunks。新增 RED regression 后，A/B 自己的 preflight 保留 Phase64.3 tenant/evidence gate，并仅在 `rag_evaluation_rounds`、rollout/binding/history tables、pgvector 与 exact revision031 全部存在时消除旧 `database_schema` false negative；`make format`、完整 `make lint` 与 scoped gate `94 passed, 1 warning`，live probe 为 missing `[]`。attempt 1 immutable error artifact 保留，不覆盖；只因该已验证实现缺陷允许 attempt 2。后续若 source ingestion 再出现 broad `parse_failed`，应改进 stage-preserving error taxonomy，当前不为完成 live drill 扩 scope。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 attempt 2 触发 rollback-only 与 append-only COW 冲突
+
+**问题现象 / 如何检测**
+修复 head031 preflight 后启动 full-provider attempt 2，run `1628accd-05ea-495e-8961-b74c18d6b85c` 仍以 immutable `execution_error` 终止。只读核对显示 active evaluation corpus 已合法包含 3 documents / 158 blocks / 13 chunks 与 4 条既有 ingestion jobs，而 Phase64.3 round repository 仍要求 `pre_state` 的 blocks/chunks/jobs 全为零，并在 terminal cleanup 删除 current block/chunk。
+
+**关键证据 / 当前判断 / 根因**
+Plan08 已把 ordinary ingestion 改为 append-only corpus COW；active binding 指向的 current block/chunk 不能被 evaluator 删除。旧 `pre_state_not_clean` 与 cleanup DELETE 语义只适用于无 active projection 的 Phase64.3 非 rollback 路径，直接放宽会破坏历史 replay，属于架构边界而非可继续重试的 provider 波动。主代理确认 Rule 4 blocker 后保持零写入，并未消耗第三次 attempt。
+
+**已做处理 / 剩余入口**
+`[Rule 4 - Architectural change]` 用户明确批准只修改 `rollback_only=True`：每个格式前用独立只读 session 封存 pointer/epoch、ordered history hash、active corpus/config/manifest、exact active view、jobs/evidence rollout/immutable counts；production commits 仅释放 savepoint，外层 connection transaction rollback 后必须由全新 session 精确重读一致，才在返回内存结果中标记 post-state/immutable proof。rollback cleanup 不再删除 append-only projection；非 rollback pre-state/cleanup/resume 保持兼容。RED `7440b0df`、GREEN `2851d385`，format/full lint、Plan09 `122 passed`、Plan10 `38 passed`。下一入口仅是批准后的第三次且最后一次 full-provider attempt。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 live baseline probe 暴露 pgvector ndarray canonicalization 缺口
+
+**问题现象 / 如何检测**
+attempt 3 前只读调用 `capture_rollback_baseline()` 时，PostgreSQL/pgvector ORM 把 embedding 返回为 `ndarray`，canonical JSON helper 抛出 `TypeError: unsupported canonical JSON value: ndarray`。更早的临时 probe 还分别因误引入不存在的 `load_reindex_identity`、向 `_load_identity` 传 `str` 而非 `Path` 失败；这些均在 provider 调用前发生。
+
+**关键证据 / 当前判断 / 根因**
+单元测试只覆盖 JSON list embedding，未覆盖真实 pgvector driver 的 ndarray 形态。新增回归精确复现相同错误；这属于新 baseline proof 的 in-scope implementation defect。临时 probe 的 import/参数错误是本地验证脚本误用，不是产品缺陷，均未写 DB。
+
+**已做处理 / 剩余入口**
+RED `55d6458d` 后，canonicalizer 只把有 `tolist()` 且结果为 list 的 DB array 规范化，等价 list/array 得到相同 hash；GREEN `c4bc6aea`。重新执行 format/full lint、Plan09 `123 passed`、Plan10 `38 passed`，live preflight 得到 `missing=[]`，baseline proof `sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3`。主仓 `.env` 同时设置了 provider key 与受限 UV/PIP index，第一次启动被 index 403 在脚本前拦截；去掉 index override、只保留 provider key 后才进入唯一 attempt 3。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 attempt 3 execution_error，三次上限耗尽
+
+**问题现象 / 如何检测**
+最后一次 full-provider run `9aa10545-2350-4053-b4ef-03a57fda0535` 生成 create-only `execution_error` artifact，safe reason 仅为 `provider_execution_failed`，JSON SHA 为 `sha256:863a88ec87c575668712e4b56937b45d7d24d9773f0af0dbe8e6b8b89e9d7c49`。没有生成 selection `30ffe6e0-6f91-4429-91b2-2dee8c20ee73`，因此未执行 cutover/rollback/restore，也没有 activation receipt。
+
+**关键证据 / 当前判断 / 根因**
+fresh parity 仍为 passed/exact-match；但 A/B orchestration 的 broad catch 在任一 role 非成功时丢弃 role rounds，只保留通用 `provider_execution_failed`，现有 artifact 无法进一步证明是 provider transient、ingestion/retrieval execution error 或新的实现缺陷。三次 full-provider attempt 已达到 plan 硬上限，禁止第四次。新 session 复读 active corpus `55d651e5-634f-4b64-b057-350b22054007`、epoch/history `4/4`、current `3/158/13`、jobs `4` 及完整 baseline proof 均与 attempt 前一致，证明 rollback-only 零漂移。
+
+**已做处理 / 剩余入口**
+如实保留三次 immutable error reports、fresh parity 与 complete inactive candidate；prior character corpus 保持 active，不伪造 selection/activation success。Phase64.4 Plan10 在此停止为 incomplete user-decision checkpoint。继续前需用户发起新的 reviewed config/diagnostic plan，先修复 terminal artifact 的 role-level safe failure provenance，再决定是否授权新的 provider budget；本 plan 不再重试。
+
+## 2026-08-12 — Phase 64.4 恢复计划结构校验脚本误判 docs-only task
+
+**问题现象 / 如何检测**
+恢复计划从 11 plans / 22 tasks 拆为 13 plans / 26 tasks 后，使用项目入口执行一次临时结构校验脚本。脚本错误要求每个 task 的 action 都必须包含 `make format`，因此把 Plan13 Task1 的纯文档更新误报为失败；该 task 不修改 Python 文件，按项目约束不需要格式化源码。
+
+**关键证据 / 当前判断 / 根因**
+命令通过 `UV_CACHE_DIR=/tmp/uv-cache uv run python` 运行，环境入口有效；失败断言来自临时校验器把“Python task 必须执行 make format”错误扩大为“所有 task 必须执行 make format”。计划本身仍要求每个 task 运行完整 `make lint` 与项目入口 pytest，且所有修改 Python 的 task 均包含 `make format`。这是本地验证脚本规则过宽，不是产品代码或计划契约失败。
+
+**已做处理 / 剩余入口**
+废弃该错误结论，改用只对 files/action 涉及 `.py` 的 task 检查 `make format` 的紧凑校验；同时继续检查 13 plans、26 tasks、依赖顺序、每 plan 文件面上限、XML task 字段、完整 lint 与 `uv run pytest`。后续计划校验脚本须区分 docs-only 与 Python task，不能把工具误报写成 planning blocker。
+
+## 2026-08-12 — Phase 64.4 Plan 11 首轮 GREEN 未覆盖全部目录 fsync 与 failure stage 注入
+
+**问题现象 / 如何检测**
+Task1/Task2 首轮 scoped GREEN 已分别达到 `66 passed` 与 `156 passed`，但提交前按 Plan11 的 publication boundary 和 typed provenance 清单逐项反查测试矩阵，发现初版只对 staging leaf/final leaf 目录做 fsync，未显式覆盖新建 `.staging`、`runs`、`diagnostics`、`commits` 在其父目录中的持久化边界；failure 注入也只实际穿透 ingestion/resource 两阶段，role setup 与 post-rollback baseline 仅有类型枚举断言。
+
+**关键证据 / 当前判断 / 根因**
+检查 `write_execution_error_bundle_create_only()` 的 fsync/fault label 与参数化测试列表可以一一看到缺项；`run_rollback_only_retrieval_parity()` 的初版注入用例只有两类 inner `SafeRoleExecutionError`。这是 Plan11 新 crash-consistency/诊断测试矩阵首版覆盖不完整，不是 provider、数据库或已有 v1 artifact 失败；全程没有 live provider 调用。
+
+**已做处理 / 剩余入口**
+补齐 staging/output/commit parent 与 manifest rename 后 source/destination parent fsync，并把每个目录边界加入 fault injection；manifest rename 前故障保持 bundle 不可读，rename 后故障按已提交 bundle 读取。typed runtime 参数化扩展到两种 role × role setup/format ingestion/retrieval resource/post-rollback baseline，并让 invalid candidate state 实际生成 shared-preflight committed diagnostic。重新执行 `make format`、完整 `make lint` 与 prescribed 三文件 gate，结果 `166 passed, 1 warning`。当前无剩余本地验证缺口；Plan12 首次 live exercise 仍必须复核真实 filesystem/rollback evidence，不能把 deterministic fault test 当成 provider 成功证据。
+
+## 2026-08-12 — Phase 64.4 Plan 11 self-check 的 zsh 特殊变量覆盖 PATH
+
+**问题现象 / 如何检测**
+SUMMARY 初次 self-check 在文件存在性检查全部通过后，同一命令块随即报告 `git` 与 `rg` 均为 `command not found`，因此四个 commit 检查显示为 `MISSING`，后续 `git diff --check` 也未实际执行。
+
+**关键证据 / 当前判断 / 根因**
+临时 zsh 循环使用了变量名 `path`；zsh 的 `path` 是与 `PATH` 绑定的特殊数组，循环赋值把当前命令环境的可执行搜索路径覆盖成最后一个文件名。这是 self-check 辅助命令的局部变量命名错误，不是 commit、仓库、虚拟环境或产品代码缺失，也未影响此前 `make lint` 和项目入口 pytest 结果。
+
+**已做处理 / 剩余入口**
+废弃该次 commit 检查结论，改用普通变量名 `item` 从全新 shell 重跑全部文件、commit、`git diff --check` 与 worktree 状态检查。后续 zsh 临时脚本禁止把 `path`、`PATH` 用作循环变量；没有剩余产品验证问题。
+
+## 2026-08-12 — Phase 64.4 Plan 12 证据哈希命令在 macOS 缺少 `sha256sum`
+
+**问题现象 / 如何检测**
+Task1 前置只读核对三份 Plan10 immutable run JSON 时调用 `sha256sum evaluation/reports/rag_token_chunk_ab/v1/runs/*.json`，当前 macOS shell 返回 `command not found: sha256sum`。改用系统自带 `shasum -a 256` 后成功得到三个预期 digest，但 Perl 同时提示当前 `C.UTF-8` locale 不受支持并回退到 `C`。
+
+**关键证据 / 当前判断 / 根因**
+这是 Linux/macOS 命令可用性与 locale 配置差异，不是 run artifact、Python 虚拟环境或产品代码问题。`shasum -a 256` 的结果与 Plan10 SUMMARY 锁定值一致：attempt1 `ccf819...5843a`、attempt2 `196468...2e8`、attempt3 `863a88...d7c49`；命令只读，未修改任何既有 evidence。
+
+**已做处理 / 剩余入口**
+废弃失败的 `sha256sum` 结果，后续本机哈希核对使用 `LC_ALL=C shasum -a 256` 或项目 `uv run` 内的标准库 helper，避免 locale 噪音；本事故不占 provider attempt，也没有剩余产品缺陷。
+
+## 2026-08-12 — Phase 64.4 Plan 12 Task 1 GREEN import patch 留下不可达表达式
+
+**问题现象 / 如何检测**
+Task1 GREEN 已通过 `make lint` 与 prescribed `183 passed` 后，进入 Task2 mandatory `read_first` 重新完整读取当前 A/B 脚本，发现 `if __name__ == "__main__": sys.exit(...)` 之后残留两条不可达的 `(reserve_recovery_attempt,)` / `(reserve_then_create_provider,)` 表达式。
+
+**关键证据 / 当前判断 / 根因**
+这是 Task1 import patch 首次匹配位置错误留下的机械残片；正确 imports 同时已在 module import block 中存在。两条表达式位于 `sys.exit` 之后，不会执行，Ruff 与 pytest 因而均未报错；预算 manifest、ordinal reservation、retry matrix 与 provider guard 行为不受影响。问题在任何 Task2 live preflight/provider 调用前检出，尚未创建 budget manifest 或消耗 slot。
+
+**已做处理 / 剩余入口**
+按 Rule 1 归回 Task1 删除两条不可达表达式，不改变任何运行逻辑、阈值、参数或 evidence；随后重新执行 `make format`、完整 `make lint` 与 Plan12 prescribed 三文件 gate。修复提交后才允许进入 Task2 的 no-Python live evidence 阶段。
+
+## 2026-08-12 — Phase 64.4 Plan 12 Task 2 fresh parity 后只读 helper 名称误用
+
+**问题现象 / 如何检测**
+fresh tokenizer parity 已以 `passed/exact_match` 写入 create-only report 后，紧接的只读 candidate/parity gate 临时脚本尝试从 `src.rag.tokenizer_parity` 导入不存在的 `load_tokenizer_parity_report`，Python 在任何 DB 查询、budget manifest 创建或 provider A/B 调用前报 `ImportError`。
+
+**关键证据 / 当前判断 / 根因**
+模块真实公开 loader 是 `load_parity_report`（`src/rag/tokenizer_parity.py:213`）；临时脚本把模型名误拼进函数名。这是本地验证 helper 误用，不是 fresh parity report、candidate、数据库或 Plan12 runtime defect。错误命令未写 DB，未创建 recovery budget manifest/reservation，也未消耗 full-provider slot。
+
+**已做处理 / 剩余入口**
+废弃该次 ImportError 结论，改用 `load_parity_report` 从 immutable path 严格读取并重跑候选绑定 gate；只有重跑结果可作为 Task2 判断依据。
+
+## 2026-08-12 — Phase 64.4 Plan 12 Task 2 fresh parity 与 immutable candidate 绑定冲突，live A/B 未启动
+
+**问题现象 / 如何检测**
+安全加载主仓 `.env` 的 `DASHSCOPE_API_KEY`（未复制或打印值，并移除 `.env` 中本机 UV/PIP index override）后运行 fresh tokenizer parity，得到 `passed/exact_match` run `c760c106-7e85-440e-a56d-ed7e00eb2fb7`、report SHA `sha256:166aba9633018ac529ab33c7dfe65126f2850ecf275987f46cfad9eb984ec1de`。随后在 provider A/B 与 budget reservation 前只读调用 `_validate_corpus_pair`，传入该 fresh SHA 后返回 `ValueError:candidate_identity_invalid`。
+
+**关键证据 / 当前判断 / 根因**
+Plan10 三份 run SHA 均通过 strict loader，selection 仍不存在；evaluation DB prerequisites 为 `[]`，baseline proof 仍是 `sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3`，active character corpus `55d651e5-634f-4b64-b057-350b22054007`、epoch/history `4/4`、current `3/158/13`、jobs `4`。inactive candidate `b293e0b4-ada6-4165-8e2f-4f1739c88fdf` 仍 complete，artifact SHA `sha256:e643a58b6f6b195c6e6c64625efa1d44290a35f1159416a33488c4bebab4e167`，projection `3/158/60`、validation proofs 全绿。candidate 精确绑定旧 parity SHA `sha256:7ed994e05e52df4c93ef831669bcd120c731ab689f561c6c699d44ef239d33c5`；fresh/旧 parity 的 config fingerprint `sha256:925446ea470da4da9a0ac9aee81f9103bb4b07bd7292c761bd98a36edd749584`、probe fixture SHA `sha256:f82d898edac7d952737fde02a4c4691b7a81fb8786975cd72ba28424045b9628`、submitted-content SHA `sha256:ff7270a7514524e4f51e53ec0ab27e848c05908f1125833133e54c450d951d30` 完全相同，只有 create-only report identity/hash不同。当前判断为已验证 implementation defect，不是 provider unavailable、candidate quality failure或 rollback failure。
+
+**已做处理 / 剩余入口**
+严格按 Plan12 stop：未创建 `rag_token_chunk_recovery_budget.v1` live manifest，未 reserve ordinal（`0/2` 已用，`2/2` 剩余），未调用 full-provider A/B，也未修改 Python、DB、旧 candidate/parity/run artifact、阈值、参数、pointer/history。新 fresh parity artifact原样保留。下一入口是单独 reviewed bounded repair plan，选择“新增独立 fresh runtime parity binding”或“构建绑定 fresh parity 的全新 candidate generation”并补 RED/identity regression；未评审前 Plans13/14 继续 blocked。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 1 descriptor/state recovery 预期 RED
+
+**问题现象 / 如何检测**
+先写 descriptor、atomic state 与 exact DB recover 的 Wave-0 tests，再用有效项目入口执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_policy_reindex_artifacts.py tests/rag/test_policy_reindex.py`；两个测试文件在 collection 阶段均报 `ModuleNotFoundError: No module named 'src.rag.policy_reindex_artifacts'`。
+
+**关键证据 / 当前判断 / 根因**
+RED 前 `make format` 与完整 `make lint` 均通过，失败精确来自 Plan13 新 artifacts owner 尚不存在，不是 Python/PATH/旧虚拟环境或 PostgreSQL fixture 失败。该结果符合 tests-first 预期；没有调用 live provider、claim live candidate、修改 evaluation DB、pointer/history 或占用 candidate/A-B budget。
+
+**已做处理 / 剩余入口**
+RED 已原子提交为 `8b2551e7`。随后实现 create-only descriptor、staged/fsynced/atomic state writer、descriptor-bound claim、exact `recover_identity` 与 reviewed CLI，重新执行 format/full lint/scoped deterministic PostgreSQL/fault gate并转绿。Task2 继续在同一 deterministic boundary补 per-document provider execution budget，不把本次预期 RED 当 live candidate 成功证据。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 1 commit/publication fault test 误用 assembler 属性
+
+**问题现象 / 如何检测**
+Task1 GREEN 的完整 `make lint` 已通过，scoped gate 首轮得到 `1 failed, 25 passed, 1 warning`；新增 claim/build/validate DB-commit-before-state-publish 覆盖在构造 descriptor 时抛出 `AttributeError: 'PolicyEmbeddingInputAssembler' object has no attribute 'config_fingerprint'`。
+
+**关键证据 / 当前判断 / 根因**
+测试夹具将既有 `PolicyEmbeddingInputAssembler` 的嵌套 config 字段误写成 assembler 顶层字段；真实 API 是 `assembler.config.config_fingerprint`，同文件既有 helper 也使用该形态。失败发生在 descriptor 构造前，没有进入 DB claim/build/validate，也没有 provider、live artifact或外部状态副作用；这是新增测试代码错误，不是 recovery implementation defect。
+
+**已做处理 / 剩余入口**
+把两处属性引用修正为 `assembler.config.config_fingerprint`，随后重新执行 `make format`、完整 `make lint` 与 scoped PostgreSQL/fault gate。只采用修正后的结果作为 Task1 GREEN 结论；若后续 DB commit/publication 断点仍失败，则从对应 state_version 与 descriptor binding继续排查。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 2 build budget 预期 RED
+
+**问题现象 / 如何检测**
+先补 per-document budget、reservation/result safe matrix、deterministic prepare 与 SDK retry authority 测试，再用有效项目入口执行三文件 gate；collection 在导入 `CandidateBuildResultCode` 时失败，证明新 budget contract 尚不存在。
+
+**关键证据 / 当前判断 / 根因**
+命令为 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_policy_reindex_artifacts.py tests/rag/test_policy_reindex.py tests/test_embedder.py`，失败是 tests-first 的预期 RED，不是 PATH、Python 版本、PostgreSQL fixture 或 provider failure。期间未构造 live provider、未 claim candidate、未写 evaluation DB，也未消耗 candidate/A-B slot。
+
+**已做处理 / 剩余入口**
+RED 原子提交为 `8d5d6cc4`；随后实现 descriptor-bound cap=2、create-only ordinal/result、canonical root 与 reviewed build entry，并把 OpenAI SDK 隐式 retry 归零。最终只采用 format/full lint/精确 gate 的 GREEN 结果作为结论。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 2 首轮 GREEN 的 doc-key SHA 测试 oracle 错误
+
+**问题现象 / 如何检测**
+首轮 `make format` 与完整 `make lint` 通过，精确三文件 gate 得到 `1 failed, 40 passed, 1 warning`；唯一失败是 `policy-a` 的 `doc_key_sha256` 断言，测试硬编码 `a2ad5e…6abc`，实现按 UTF-8 原文计算得到 `c1f727…e4d8`。
+
+**关键证据 / 当前判断 / 根因**
+仓库 `src/rag/policy_reindex.py::_sha256_text` 的既有语义是 `sha256(value.encode("utf-8"))`；用有效项目入口复算 `policy-a` 也得到完整值 `sha256:c1f7278b77bb9eb3977b9d5373b60680c8bf81ae32ab0aebd7c16b4b9884e4d8`。这是新增 RED 测试的错误 oracle，不是 budget hash 实现漂移或 artifact tampering；失败发生于 deterministic temp root，没有外部状态副作用。
+
+**已做处理 / 剩余入口**
+将断言修正为仓库既有 UTF-8 SHA 规范值，随后重跑 `make format`、完整 `make lint` 与精确三文件套件转绿。后续 doc-key authority 继续复用同一 `_sha256_text` 语义，不引入第二种 canonicalization。
+
+## 2026-08-12 — Phase 64.4 Plan 14 Task 1 canonical root/candidate binding 预期 RED
+
+**问题现象 / 如何检测**
+先添加 production copied/symlink root、actual candidate state strict rehash/load、fresh parity tamper 与 reserve-before-provider adversarial tests，再执行 `make format`、完整 `make lint` 和 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_token_chunk_ab.py tests/eval/test_rag_retrieval_round_isolation.py`。lint 通过，pytest 在 collection 阶段报 `ImportError: cannot import name 'canonical_recovery_root'`。
+
+**关键证据 / 当前判断 / 根因**
+失败精确来自 Plan14 新 canonical authority 尚未实现，属于 tests-first 预期 RED，不是 Python 版本、PATH、PostgreSQL fixture 或 provider failure。新增测试只在 `tmp_path` 构造 Plan13 descriptor/state/parity 与 copied budget；未调用 production provider、claim/build candidate、写 live DB、保留 A-B slot、修改既有 v1 run/selection bytes或 pointer/history。
+
+**已做处理 / 剩余入口**
+RED 将作为 Task1 原子测试提交保留；下一步实现仓库唯一 resolved root、manifest 完整 candidate identity 与 reservation 时 strict state/parity revalidation，并重跑同一 format/full lint/scoped gate。只有 GREEN 后才可进入 Task2 recovery authorization；本次失败不代表任何 live recovery 已执行。
+
+## 2026-08-12 — Phase 64.4 Plan 14 Task 1 首轮 GREEN fixture 混淆 descriptor payload hash 与文件 SHA
+
+**问题现象 / 如何检测**
+首轮 `make format` 与完整 `make lint` 通过，精确两文件 gate 得到 `17 failed, 146 passed, 1 warning`。16 个 reservation/retry 用例在 fresh parity 前统一报 `recovery_candidate_state_invalid`；另一个 canonical-root 用例因把 keyword-only `output_root` 当位置参数调用而报 `TypeError`。
+
+**关键证据 / 当前判断 / 根因**
+Plan13 descriptor artifact 的 `artifact.sha256` 是 descriptor 自校验 payload identity，不是整个 canonical descriptor 文件 bytes 的 SHA；Plan14 manifest 设计绑定的是实际 descriptor file SHA，但新增 fixture 错把前者传入，导致正确的 reserve-time rehash 全部 fail closed。keyword-only 失败同样是新增 test caller 误用。两项均发生于 `tmp_path` deterministic tests，未访问 provider/DB/live artifact；production实现没有放宽 hash或 path gate。
+
+**已做处理 / 剩余入口**
+fixture 改为直接对 descriptor file bytes 计算 SHA，canonical-root 调用显式传 `output_root=`；随后重跑 `make format`、完整 `make lint` 与相同 scoped gate，结果 `163 passed, 1 warning`。后续 authority artifact 测试须明确区分 schema self-hash 与 file-byte hash，不能用字段名相似代替真实 rehash oracle。
+
+## 2026-08-12 — Phase 64.4 Plan 14 Task 2 recovery authorization 预期 RED
+
+**问题现象 / 如何检测**
+先补 recovery authorization create-only/reconcile、完整 activation lineage 与真实 selection pre-CAS 拒绝测试，再运行 `make format`、完整 `make lint` 和 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_token_chunk_ab.py tests/rag/test_activation_receipt.py tests/rag/test_policy_reindex.py tests/replay/test_production_evidence_binding.py`。format/lint 通过，pytest collection 报 `ImportError: cannot import name 'ABRecoveryAuthorizationV1'`。
+
+**关键证据 / 当前判断 / 根因**
+失败精确证明当前仓库尚无 `rag_token_chunk_recovery_authorization.v1` owner；现有 activation authority 只严格读取 selection/terminal/parity，真实 `ImmutableSelectionDecisionV1` 也没有 recovery authorization SHA，因此 budget ordinal/candidate state authority 尚未进入 pointer CAS。该次仅使用 deterministic `tmp_path` artifacts 与测试数据库；没有调用 provider、claim/build live candidate、消费 A-B slot或修改 live pointer/history。
+
+**已做处理 / 剩余入口**
+将该 collection failure 作为 Task2 tests-first 预期 RED 原子保留；下一步实现 separate create-only authorization、完整 lineage strict loader、production activation canonical root检查，以及真实 selection proof 的必填 SHA，再用同一精确 gate 转绿。Plan08 fixture 继续走独立 fixture 类型/schema，不用伪造 authorization 绕过真实路径。
+
+## 2026-08-12 — Phase 64.4 Plan 15 live preflight 探针误读 OCR 字段
+
+**问题现象 / 如何检测**
+在任何 provider 构造或 live mutation 之前执行只读预检脚本，脚本已成功完成 fresh parity strict-load 与数据库连接，但在输出 OCR 结果时抛出 `AttributeError: 'RuntimePreflightResult' object has no attribute 'reason_code'`，因此该轮输出未被用作 live 前置结论。
+
+**关键证据 / 当前判断 / 根因**
+`check_ocr_runtime(required_languages=('chi_sim', 'eng'))` 返回对象的安全字段为 `available`、`failure_code`、`installed_languages`、`missing_languages`、`safe_message`、`version`；临时只读探针误把字段名写成 `reason_code`。失败发生在读取阶段，没有 seal descriptor、claim/build candidate、构造 provider、写 evaluation DB、消费 candidate/A-B ordinal，且 worktree live artifact 根仍未改变。这是一次临时验证脚本字段误用，不是生产实现缺陷。
+
+**已做处理 / 剩余入口**
+已通过类型与字段名只读检查确认应读取 `failure_code`，后续预检改用该字段并重新从头核对 freshness、DB prerequisites、exact baseline、旧 candidate/new root 与 `0/2` A-B slots。只有完整脱敏预检全部通过才允许继续；若任何 prerequisite 非空或 freshness 不足则立即停在 provider 构造前。
+
+## 2026-08-12 — Phase 64.4 Plan 15 首个 live build 在 provider reservation 前因 state 序列缺口被拒绝
+
+**问题现象 / 如何检测**
+唯一 descriptor 已按 retained fresh parity seal，`claim-reviewed` 成功创建 inactive candidate `64932871-4488-4b8b-b438-a02791a1151f` 并返回 `building / state_version=2`。随后第一次执行 `build-next-reviewed`，入口在读取 canonical state 时立即抛出 `RuntimeError: reindex_state_invalid`；artifact 根只有 `states/00000002.json`，没有 `00000001.json`。
+
+**关键证据 / 当前判断 / 根因**
+`scripts/reindex_policies.py::_claim_reviewed` 在同一事务内先 claim 为 state v1、再 resume 为 state v2，事务提交后只把最终 owner 写成 `00000002.json`；而 `_latest_reviewed_state_artifact` 要求现有文件名严格等于从 `00000001.json` 到当前数量的连续序列。live 入口因此在 `_latest_reviewed_state_artifact` 阶段失败，尚未进入 `reserve_candidate_build_attempt` 或 `EmbeddingService(...)`。核对结果为 candidate build attempts `0`、results `0`、A-B manifest absent、A-B attempts `0/2`、selection `0`、recovery authorization `0`；DB candidate仍是 building v2/index0、projection `0/0/0`，旧 candidate与 active pointer/epoch/history/current view未改。provider key只在进程环境中安全加载，未打印、复制或序列化。
+
+**已做处理 / 剩余入口**
+按 Plan15 implementation-defect stop 规则立即停止：不重试、不调用 `recover-state` 试图绕过、不创建第二 descriptor/candidate、不写 compatibility state、不改 Python/测试/阈值/旧 artifact，也不消费任何 provider或A-B ordinal。下一入口必须是单独 reviewed bounded repair，先补 live claim→build RED，明确由 `claim-reviewed` 依序发布 v1/v2 state，或经评审修改 canonical state 序列契约；修复后必须复用同一 descriptor/candidate并先证明 lease/source/parity仍有效，不能重新 claim 第二 candidate。
+
+## 2026-08-12 — Phase 64.4 claim-state clean cross-AI re-review 因外部 CLI 额度不足中止
+
+**问题现象 / 如何检测**
+对修订后的 Plans16-20 启动外部 clean re-review 时，Claude CLI 在读取 prompt 后返回 HTTP 403：`用户额度不足`；随后按 `$gsd-review` 可用 CLI 检测尝试 Gemini CLI，Gemini 同样返回 403 `local:insufficient_quota`。两次均未生成 plan review verdict。
+
+**关键证据 / 当前判断 / 根因**
+命令分别使用独立外部 CLI 的只读 prompt 模式，失败发生在外部模型鉴权/配额边界，不是仓库、plan YAML、Python、测试、数据库、provider 或 live artifact 错误。先前 Claude 已完成本轮第一版 19/38 草案的独立 review 并给出 `REPAIR REQUIRED`；本次目标是修订后的 20/40 clean re-review，不能把 403、旧 verdict 或当前 Codex 自审伪装成新 PASS。
+
+**已做处理 / 剩余入口**
+已保留真实失败结论并继续使用 fresh GSD plan-checker与 Codex repository-backed adjudication核对修订。外部 clean verdict 标为 unavailable；若外部额度恢复，可重新执行同一只读 prompt补录。未因此放宽计划、跳过 blocker、执行 recover-state、调用 provider/A-B、修改 DB/pointer/history或写 live evidence。
+
+## 2026-08-12 — Phase 64.4 Plan 16 ordered claim-state recovery RED 与首轮 GREEN 错误码不一致
+
+**问题现象 / 如何检测**
+使用有效项目入口执行 Task1 Wave0，`make format` 与完整 `make lint` 通过，精确 suite 得到 `11 failed, 41 passed, 1 warning`；失败全部命中计划缺口：两个 identical-replay parent fsync、四个 claim v1/v2 publication boundary、受限 predecessor helper、历史 v2-only recover、claim拒绝缺 v1、lease/parity expiry。首轮实现后 gate 为 `1 failed, 51 passed`，唯一失败是实现 safe code `reindex_state_predecessor_invalid` 与 RED 锁定的 `reindex_initial_predecessor_invalid` 不一致。
+
+**关键证据 / 当前判断 / 根因**
+RED 失败来自计划 owner 尚未实现，不是 Python/PATH/PostgreSQL/provider 假失败；没有触碰 live artifact 或外部状态。首轮 GREEN 的单一失败是新实现错误码命名不一致，不影响拒绝行为，但会破坏 operator/test 的稳定 safe-code contract。补充自审又发现 v1 已连续、DB 已提交 v2但 v2 file 尚未发布的合法 crash 边界需要允许发布当前版本，不能把“当前文件缺失”误判成历史 gap。
+
+**已做处理 / 剩余入口**
+统一 safe code 为 `reindex_initial_predecessor_invalid`，并让 recover-state 在所有既有前驱连续时发布缺失的 current version，同时新增真实回归。最终 `make format`、完整 `make lint` 与精确 suite `53 passed, 1 warning`。下一入口是 Task2 fresh read-only preflight；只有 descriptor lease/parity 与 DB/zero-budget facts仍精确时才可补 live v1，否则必须零写入停止。
+
+## 2026-08-12 — Phase 64.4 Plan 16 Task 2 只读 preflight 误用 zsh 特殊变量 `path`
+
+**问题现象 / 如何检测**
+在 live `recover-state` 前编写只读 shell probe 时，临时 loop 使用 lowercase `path` 作为变量名；zsh 将其绑定为 `PATH` 数组，赋值后后续命令查找失败，probe 在完成脱敏快照前退出。
+
+**关键证据 / 当前判断 / 根因**
+失败发生在 shell 变量赋值/命令解析边界，未调用 `recover-state`、provider、build/A-B reservation，也未读写数据库或 artifact。`git status` 仍 clean，run root仍只有 descriptor、v2与 build manifest。根因是 macOS/zsh 特殊参数命名冲突，不是 production recovery failure。
+
+**已做处理 / 剩余入口**
+停止复杂临时 probe，改用安全变量名与计划已有 strict loaders/生产 `recover-state` 命令。随后在 authority 未过期时完成精确恢复：仅新增 canonical v1（SHA256 `7e0dc98d1038132a8c05ac4b909dcb668a2561d4401bfcaf6450d04df241d7dd`），descriptor/v2/build manifest SHA 均保持不变，attempt/result 仍 `0/0`、A-B manifest absent；计划回归 `67 passed, 3 warnings`。后续 shell 临时变量禁止使用 zsh 特殊名 `path`/`PATH`。
+
+## 2026-08-12 — Phase 64.4 Plan 17 Task 1 canonical issuance 预期 RED
+
+**问题现象 / 如何检测**
+先补足最小决定性测试后，使用有效项目入口执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_token_chunk_ab.py -k 'canonical_recovery_budget_issuance or canonical_recovery_budget_refuses or reservation_and_provider_boundary or issue_recovery_budget_cli'`；collection 报 `ImportError: cannot import name 'RecoveryLiveAuthorityProofV1'`。
+
+**关键证据 / 当前判断 / 根因**
+失败精确来自 Plan17 新 domain issuance/live-authority owner尚不存在，足以证明当前缺口；不是 Python/PATH、PostgreSQL、provider或 live artifact失败。按新增硬约束，RED在证明缺口后立即运行，没有继续扩大测试矩阵。该轮仅修改测试并使用 `tmp_path` contract，未写 repository live manifest、reservation、DB、pointer/history，也未构造 provider。
+
+**已做处理 / 剩余入口**
+RED原子提交为 `d643a13d`。随后实现 canonical issuance/reconcile、内部 UTC lease/parity gate、严格 DB/source/evidence proof与 pre-provider二次 forcing；最小 GREEN为 `4 passed`，完整 `test_rag_token_chunk_ab.py` 为 `85 passed, 1 warning`。Task2开始前重新读取 UTC；若已达到 descriptor绝对 expiry `2026-08-12T04:13:52.208631Z`，禁止运行 live issuance，只做只读过期与零副作用证据。
+
+## 2026-08-12 — Phase 64.4 Plan 17 Task 2 lease window 在 live issuance 前耗尽
+
+**问题现象 / 如何检测**
+Task1按质量优先完成两轮 `make format`、完整 `make lint` 与 prescribed `198 passed, 1 warning` 后，UTC为 `2026-08-12T04:14:12Z`，已经晚于 descriptor不可续租 expiry `2026-08-12T04:13:52.208631Z`。遵循用户新增硬边界，没有调用可能签发manifest的production命令；仅调用只读 `load_recovery_issuance_identity` strict loader核对exact state/parity，得到safe code `recovery_authority_expired`。
+
+**关键证据 / 当前判断 / 根因**
+到期前只读快照确认同一 run/candidate为 `f8e190f1…dc46` / `64932871…151f`、`building/v2/index0`、projection `0/0/0`，active/epoch/history/current/jobs为 `55d651e5…e007 / 4 / 4 / 3-158-13 / 4`。到期后 descriptor、v1、v2、build manifest SHA不变；candidate attempts/results `0/0`、canonical A-B manifest absent、A-B attempts `0`、runs仍仅原3份JSON、diagnostics/selections/authorizations/activations新增均为0。DB同一candidate/active/current/evidence proof完全相同，provider factory与外部provider均未触发。根因是窄绝对lease自然耗尽，不是implementation defect、candidate quality failure或provider failure。
+
+**已做处理 / 剩余入口**
+Plan17停在truthful fail-closed checkpoint；不续租、不rebind、不创建第二candidate、不写manifest/reservation、不调用provider、不进入Plan18，也不新增Plan21。完成Task2 deterministic回归后提交本证据与checkpoint SUMMARY；由orchestrator决定已冻结Plans18-20的后续处置。
+
+## 2026-08-12 — Phase 64.4 Plan 17 SUMMARY frontmatter 误标 requirement 完成
+
+**问题现象 / 如何检测**
+Plan17 SUMMARY 正文正确写明 authority expired、candidate仍building、没有canonical A/B manifest、selection或activation，且Plan18未获授权；但frontmatter一度写成 `requirements-completed: [SC-64.4-5, SC-64.4-6]`。通过与 `.planning/REQUIREMENTS.md`、Plan18-20 success criteria及同一SUMMARY live evidence交叉核对发现矛盾。
+
+**关键证据 / 当前判断 / 根因**
+SC-64.4-5/6要求完成隔离可回滚reindex、versioned A/B non-regression selected configuration及既有RAG回归。当前只有门禁实现与expired refusal，没有complete candidate、canonical manifest、selected_pass、recovery authorization或activation drill，因此不能标完成。根因是checkpoint SUMMARY沿用了Plan17 frontmatter的requirements ownership，错误地把“本plan覆盖这些requirement”写成“requirement已经完成”。
+
+**已做处理 / 剩余入口**
+已把Plan17 SUMMARY修正为 `requirements-completed: []`，并在正文明确未完成证据；ROADMAP只把Plan17标为已处理的expired checkpoint，STATE/autopilot标blocked。未修改代码、测试、live artifact、DB或requirement勾选；Plans18-20仍禁止执行。
+
+## 2026-08-12 — Phase 64.4 CR-01 canonical candidate root RED 与共享测试库并发冲突
+
+**问题现象 / 如何检测**
+最小 adversarial RED 使用 copied candidate tree 与指向 canonical tree 的 symlink 调用 `build-next-reviewed`，旧实现均继续进入 descriptor loader，实际返回 `descriptor_invalid` 而不是入口级 `reviewed_artifact_root_invalid`。修复后该纯文件系统测试为 `1 passed`，reservation/provider 计数均为 0。随后扩大相邻 PostgreSQL tests 时，fixture 的 `drop_all/create_all` 与另一测试进程并发，出现 DDL deadlock、`pg_type_typname_nsp_index` 重复和依赖对象未清理错误。
+
+**关键证据 / 当前判断 / 根因**
+有效命令为 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`。最小 RED 精确证明 caller-selected artifact namespace 可绕过 canonical budget root；共享库错误栈位于 `tests/conftest.py` schema setup，并显示不同 PostgreSQL backend PID 互相持锁，属于并发测试进程共享同一 schema，不是 CR-01 代码语义或 Python 环境错误。全程未构造 provider、未预留 ordinal、未访问 live DB/artifact。
+
+**已做处理 / 剩余入口**
+新增 repository-owned canonical candidate root，CLI 只能提交与其逐路径一致且无 symlink component 的根；临时 root 仅能通过 argparse 不会生成的测试内部属性注入。orchestrator 同期启动的 pre-fix full suite 因同一共享 schema 并发出现 `3 failed / 4 errors` 后被主动中止，完整 traceback 未作为结论，该 suite 结果无效。其他测试进程退出后独占运行 `make format`、完整 `make lint` 及六文件 focused union，结果 lint PASS、`63 passed, 7 warnings`；没有再出现 DDL 冲突。code-fixer 未重复运行完整 pytest，留给 orchestrator 在本报告完成后独占执行；不得把此前被中止的 `3F/4E` 当作 full-suite 结果。
+
+## 2026-08-12 — Phase 64.4 iteration 2 descendant symlink / TOCTOU 最小 RED
+
+**问题现象 / 如何检测**
+用仓库有效入口执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_policy_reindex.py::test_reviewed_build_rejects_descendant_symlink_before_budget_or_provider`。分别把 canonical run chain 的 `tenants`、tenant UUID、`runs`、run UUID 四级替换成指向完整 copied tree 的 symlink，旧实现得到 `4 failed`：命令继续沿普通 `Path` I/O 读取替代树并返回后续 `descriptor_invalid`，没有在 namespace boundary 返回 `reviewed_artifact_namespace_invalid`。
+
+**关键证据 / 当前判断 / 根因**
+四个 case 都在测试中同时锁定 reservation/provider 计数必须为 0；失败证明 iteration 1 只校验 artifact root 及其上游祖先，未保护 root 下 descendant chain，后续实际 artifact I/O 也仍可跟随被替换的目录。另有 guard-open 后将 exact run rename 并换成 symlink 的定向用例，验证不能只做一次 lexical/realpath 检查。
+
+**已做处理 / 剩余入口**
+reviewed 命令现以 `O_DIRECTORY|O_NOFOLLOW` 逐级打开并固定 exact run dirfd；所有 reviewed artifact read/list/exists/create-only publish 都相对固定 dirfd 执行，publish 使用 no-follow temporary open 与 dirfd hard link，并在 reservation 后/provider construction 前重验 canonical run chain inode。最小 GREEN 为 `5 passed, 1 warning`，四级 symlink 均在 reservation/provider 前拒绝，open 后替换也返回 namespace safe code。未访问 live artifact/DB、未创建 provider或 reservation；后续仍需随本 iteration focused union 复跑。
+
+## 2026-08-12 — Phase 64.4 iteration 2 initial parity equality RED 与时钟 seam 回归
+
+**问题现象 / 如何检测**
+精确执行 tokenizer loader、direct service、ordinary CLI、reviewed CLI 四条 equality 测试，旧实现得到 `4 failed`：age/current 恰等于 expiry 时仍通过，ordinary/reviewed可创建 candidate row，reviewed还发布 v1。修复后四条精确测试 `4 passed`。扩大至 tokenizer/reindex 两文件时首轮为 `1 failed, 50 passed`：已有“transaction A后到期”测试把 `_utc_now` 恒定为 expiry，而新入口在 initial claim 前也采 UTC，因此提前拒绝且没有该测试原期望的 v1。
+
+**关键证据 / 当前判断 / 根因**
+四条 RED 直接证明两个 `>` 比较的 equality 漏洞；expanded suite 唯一失败不是 production倒退，而是旧 fault seam只模拟单一时点、无法表达“transaction A fresh、transaction B equality expiry”。把测试时钟改为顺序返回 fresh instant 与 expiry 后，仍证明 v1已提交而 v2/budget未发布的原始边界。
+
+**已做处理 / 剩余入口**
+tokenizer freshness与 service claim validation均改为 `>=`拒绝；ordinary/reviewed initial claim都使用内部 `_utc_now()` 并把同一 instant交给 service，reviewed在任何 row/v1前先检查 descriptor absolute lease/parity。更新两时点 fault seam后完整两文件 gate `51 passed, 1 warning`。未修改时长/阈值、未读取 live parity、未创建 live candidate/provider；后续纳入 iteration focused union。
+
+## 2026-08-12 — Phase 64.4 iteration 1 后独占 full suite 的 11 个有效失败与旧 migration兼容
+
+**问题现象 / 如何检测**
+orchestrator 在 iteration 1 fixes后独占运行完整 suite，真实结果为 `11 failed, 4864 passed, 4 skipped`。失败分三类：3个 architecture boundary allowlist/seam文字过期；2个 Phase64.2 staged migration在 revision025/028执行当前 ingestion时提前查询 migration030 corpus tables；另6个服务/approval/search测试只seed裸 documents/chunks，未建立当前 active corpus/bindings。
+
+**关键证据 / 当前判断 / 根因**
+旧 migration两条用有效入口精确复现为 `2 failed`，最先均是 `policy_corpus_rollouts does not exist`。加table-existence gate后又依次暴露当前ORM自动选择/写入 migration030新增列，以及 Phase64.2 backfill owner被改为active-corpus scoped的同类兼容问题；这些均属于“当前 runtime module必须仍能在它自己的历史 migration阶段执行”，不能通过创建未来表或放宽当前 active authority解决。与此前并发共享schema导致并被中止的 `3F/4E` 不同，本次11失败来自独占full suite，是有效回归输入。
+
+**已做处理 / 剩余入口**
+只在 `to_regclass('policy_corpus_rollouts') IS NULL` 的 staged migration seam启用revision025已有列的窄ORM projection，覆盖该历史 ingestion/backfill必需的job/current chunk/document version/chunk version；migration030存在时仍强制bootstrap、active scope与COW，current schema路径不变。目标两条最终 `2 passed, 11 warnings`，format/full lint PASS。其余9个失败按原分类继续修复；本code-fixer不再运行full suite，最终独占全量由orchestrator执行。
+
+## 2026-08-12 — Phase 64.4 iteration 2 — 六条检索/审批集成fixture缺少active corpus authority
+
+**问题现象 / 如何检测**
+独占full suite中的3条approval integration、1条Phase64.1 runtime safety、1条knowledge service与1条search回归可被精确复现：approval文件为`3 failed, 2 passed`，其余三条为`3 failed`。前四条chat payload缺少`approval_id`，knowledge canonical detail返回`canonical_content_missing`，search从`strong_evidence`退化为`no_evidence`。
+
+**关键证据 / 当前判断 / 根因**
+六条测试都只seed current `policy_documents`/`policy_chunks`（部分另有immutable versions），没有`policy_corpus_rollouts`指向的active character corpus及document/chunk bindings；Phase64.4 active projection正确fail closed，因此应修fixture而非放宽production authority。`tests/knowledge/test_hybrid_retrieval.py`已有正确的character corpus helper，但此前仅为文件私有且总是新建immutable version，无法直接复用已有binding的approval/search fixture。
+
+**已做处理 / 剩余入口**
+把既有helper提取为`tests/policy_corpus_helpers.py`共享fixture，并在建新immutable version前复用exact binding；mock graph、knowledge目标test与search seed完成后均建立active character corpus及tenant-scoped bindings。六条精确GREEN为`6 passed, 9 warnings`，原helper两条回归为`2 passed, 1 warning`。未修改production查询或authority规则；最终仍需由orchestrator独占full suite确认无遗漏。
+
+## 2026-08-12 — Phase 64.4 iteration 2 — RAG architecture boundary精确清单与COW seam文字过期
+
+**问题现象 / 如何检测**
+`UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/architecture/test_rag_chunking_boundaries.py`得到`3 failed, 5 passed`：character compatibility constructor与current SQL owner精确allowlist缺少已实现路径，ingestion仍断言旧`bind_active_policy_projection` seam。
+
+**关键证据 / 当前判断 / 根因**
+逐条核对新增owner后确认：ingestion first-corpus bootstrap、seed/eval incumbent构造均由active config或固定character基线控制；reindex与authoritative snapshot通过显式`CorpusChunkBinding`/`CorpusBlockBinding`固定source/candidate corpus；evaluation paths都包含active projection join；ingestion直接delete只存在于`_pre_token_corpus_schema`历史migration seam。其余current ingestion已经改由`ensure_tenant_character_bootstrap`与`create_ingestion_cow`维护authority。因此三条均是boundary test事实清单/文字过期，不是production绕过。
+
+**已做处理 / 剩余入口**
+仅更新精确owner allowlist、认可的显式corpus binding/历史schema token，以及current COW seam断言；未改production。目标文件GREEN为`8 passed, 1 warning`。最终需纳入iteration focused union和orchestrator独占full suite。
+
+## 2026-08-12 — Phase 64.4 review-fix iteration 2 最终聚焦验证
+
+**问题现象 / 如何检测**
+本轮修复完成后使用项目入口串行运行review findings与11条full-suite回归的focused union，避免此前并发共享schema造成的无效`3F/4E`。
+
+**关键证据 / 当前判断 / 根因**
+`make format`与全量`make lint`均PASS；聚焦命令覆盖reviewed descendant symlink/TOCTOU、initial parity equality、architecture boundary、两条pre030 migration、六条active-corpus fixture及共享helper原回归，结果为`93 passed, 19 warnings in 105.38s`。warnings为既有LangGraph serializer/node typing与Alembic config弃用提示，本轮未新增失败。
+
+**已做处理 / 剩余入口**
+iteration 2聚焦gate全部通过。本fixer按任务约束没有运行完整suite；最终独占full suite由orchestrator执行并作为全量结论。未调用live provider、未续租/创建live candidate、未写live DB/artifact，Plans18-20未执行。
+
+## 2026-08-12 — Phase 64.4 review-fix iteration 3 — nested artifact parent TOCTOU与并发schema假失败
+
+**问题现象 / 如何检测**
+最小adversarial test在reservation hard-link前把`build-budget/documents/<index>/attempts`重命名并替换为新目录。修复前命令最终报`build_reservation_invalid`，但缺少canonical `01.json`且provider构造已发生，证明detached parent可绕过canonical build budget。实现初稿后尝试运行同一DB integration test时出现`evidence_identity_rollouts does not exist`；当时orchestrator正在独占full suite并重建共享schema，因此该结果是并发DDL污染的无效验证，不作代码结论，已立即暂停所有DB tests。
+
+**关键证据 / 当前判断 / 根因**
+secure publish先pin nested parent fd，却用另一轮lexical reopen做existence检查；hard-link后只验证run inode，没有比较nested parent `(st_dev, st_ino)`或从canonical chain strict-load新reservation。pure artifact RED/GREEN进一步证明：真实新目录替换可从pinned staging inode安全recovery-link同一bytes到canonical ordinal后拒绝本次命令；symlink替换必须因`O_NOFOLLOW`直接fail closed，且不得写入攻击者目录。
+
+**已做处理 / 剩余入口**
+existence与create-only link现在共用同一parent fd；所有打开的artifact directory identity会在命令生命周期内pin并复核。publish后从pinned run fd逐级no-follow reopen exact parent、比较inode、strict比对bytes；若canonical为稳定真实目录则recovery-link同一staging inode、fsync、用新pinned namespace strict-load后仍拒绝本次命令，确保provider=0且ordinal已消费；symlink/持续漂移则不follow、不写入并fail closed。pure artifact文件`26 passed, 1 warning`，DB integration两种替换`2 passed, 1 warning`，均证明provider=0且candidate保持`building/v2/index0`。最终`make format`与全量`make lint` PASS，artifact/reindex focused两文件`69 passed, 1 warning`。orchestrator在fix前独占full suite最终`4883 passed, 4 skipped`，与此前并发schema缺表结果明确区分；本fix后仍由orchestrator重跑最终独占全量。
+
+## 2026-08-12 — Phase 64.4 review-fix iteration 4 — production canonical root被resolve后可改写authority identity
+
+**问题现象 / 如何检测**
+production预期`evaluation/reports/rag_token_chunk_ab/v1/candidates`若是指向仓库内部copy的稳定symlink，旧root gate先`resolve()`预期路径，再与caller比较。最小两case测试中，caller传lexical symlink时原本拒绝，但传resolved copied target时root gate通过并继续读取copy，最终只因测试descriptor简化而报`descriptor_invalid`；RED为`1 failed, 1 passed`，证明拒绝发生得太晚且canonical identity已被重定义。
+
+**关键证据 / 当前判断 / 根因**
+production canonical由repository-relative lexical path定义，不应由filesystem target反向定义。旧实现把expected path与测试injection共同走`resolve(strict=False)`，随后symlink scan也从resolved target开始，因此永远看不到expected candidates component本身的symlink。该缺陷在reservation/provider之前即可纯CLI复现，不需要DB或真实provider。
+
+**已做处理 / 剩余入口**
+production branch现以`abspath(REPOSITORY_ROOT / REVIEWED_CANDIDATE_RELATIVE_ROOT)`保留lexical identity，对expected path及全部ancestor逐级`lstat`并要求真实directory，再与caller的lexical `abspath`精确比较，全程不resolve。argparse不可达的temp test injection使用显式独立分支才允许resolve。lexical symlink与resolved target两case均在root gate拒绝，reservation/provider均为0；连同既有四层descendant coverage为`6 passed, 1 warning`。按orchestrator要求，full suite运行期间未运行DB tests；独占full suite最终`4887 passed, 4 skipped`后再串行运行artifact/reindex focused两文件，结果`71 passed, 1 warning in 64.46s`。`make format`与全量`make lint`均PASS；本fixer未触碰live DB/provider/artifact。
+
+## 2026-08-12 — Phase 64.4 review-fix iteration 5 — file-backed budget无法作为不可伪造production authority
+
+**问题现象 / 如何检测**
+最终deep review确认两条同类Critical：reviewed reindex虽然已保护stable root、descendant与nested parent，但repository-root到candidate-root的pathname选择仍存在check/open竞态；A/B recovery的root/attempt目录也没有全程由repository dirfd固定。只要production dispatch仍可达，攻击者就可能用self-consistent copy或替换后的空attempt目录隐藏已消费ordinal。先补纯dispatch测试并用有效项目入口精确运行，旧实现得到`3 failed, 1 passed`：`build-next-reviewed`进入root gate，legacy `build-next`进入identity artifact路径，`run-ab`进入output-root路径；仅无override静态断言通过。
+
+**关键证据 / 当前判断 / 根因**
+文件系统中的canonical path、create-only hard-link、fsync与no-follow只能约束被选中的namespace，不能让file-backed execution budget成为跨pathname替换/拷贝都不可伪造的全局production authority。继续迭代局部pinning无法满足当前安全结论，因此本轮不再扩展filesystem matrix，而是移除所有production provider-capable CLI可达性。RED与最终测试均用monkeypatch计数锁定DB/root/artifact/reservation/provider为0，没有读取或写入live authority。
+
+**已做处理 / 剩余入口**
+`reindex_policies.py`在parse后对`build-next-reviewed`与`build-next`无条件返回exit 4；`eval_rag_token_chunk_ab.py`保留deterministic/no-provider的`issue-recovery-budget`，但普通`run-ab`在parse/current UTC后无条件返回exit 4。三者统一只输出`{"error":"live_provider_execution_disabled","reason_code":"live_provider_execution_disabled"}`，parser无CLI flag且dispatch无environment override；内部算法只保留给deterministic test。最小GREEN为`4 passed, 1 warning`，最终`make format`、完整`make lint`均PASS，focused `tests/rag/test_policy_reindex.py tests/eval/test_rag_token_chunk_ab.py`为`134 passed, 1 warning in 50.98s`。本轮未运行full suite，也未调用live provider/DB/artifact。恢复live execution必须由新的post-PR rollout phase提供DB-backed unique budget；Plans18-20与SC-64.4-5/6保持未完成。
+
+## 2026-08-12 — Phase 64.4 最终全量负载下 approval single-flight 一次性时序失败
+
+**问题现象 / 如何检测**
+最终独占执行 `make lint && UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q`，lint 通过，但全量结果为 `1 failed, 4892 passed, 4 skipped`。唯一失败是 `tests/test_approval_api.py::test_concurrent_exact_resume_retries_are_single_flight_under_postgres_request_lock`：前两个并发请求已正确得到单飞结果，第三个 reconciliation 请求在全量负载下偶发返回 500，而断言期望 409。
+
+**关键证据 / 当前判断 / 根因**
+同一有效项目入口立即独占重跑该精确用例得到 `1 passed, 1 warning`；随后独占运行整个 `tests/test_approval_api.py` 得到 `44 passed, 1 warning`。因此当前证据指向全量长时负载下的非稳定时序波动，不是 Phase64.4 RAG/provider hard-disable 的稳定回归；尚未确认 approval production bug，不能据一次 500 编造根因。
+
+**已做处理 / 剩余入口**
+未修改 approval 实现或测试时限。保留首次完整 traceback 和两级独占 GREEN 证据，并重新运行最终完整 suite；只有最终全绿才作为 PR gate。若相同用例再次失败，应单独进入 approval single-flight 调试，核对 advisory/request lock 释放、失败后 reconciliation 状态和长负载调度，不得通过放宽断言或增加盲目重试掩盖。
+
+最终独占重跑已完成：`make lint` PASS，`UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` 为 `4893 passed, 4 skipped, 166 warnings in 2272.36s`，同一 approval 用例未再失败。当前 PR gate 采用这次完整 GREEN；首次偶发仍保留为后续若复现时的排查入口。

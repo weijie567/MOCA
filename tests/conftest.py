@@ -40,6 +40,7 @@ from src.repositories.evidence_version_repo import EvidenceVersionRepository
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.tools.platform import ToolPlatform
+from tests.policy_corpus_helpers import bind_character_corpus
 
 
 TEST_DATABASE_URL = "postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test"
@@ -563,6 +564,7 @@ async def _seed_approval_policy(session: AsyncSession, tenant_id: uuid.UUID) -> 
 @pytest.fixture
 async def mock_graph(monkeypatch, mock_llm_responses, session: AsyncSession, seeded_session):
     evidence_ref = await _seed_approval_policy(session, seeded_session["tenant"].id)
+    await bind_character_corpus(session, tenant_id=seeded_session["tenant"].id)
     fake_llm = _FakeLLM(mock_llm_responses)
 
     import src.agent.nodes.claim_verify as claim_verify_node

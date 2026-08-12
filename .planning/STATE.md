@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
-status: ready_to_plan
-last_updated: "2026-08-10T17:01:43Z"
-last_activity: 2026-08-10 -- Phase 64.3 completed with review, UAT, security, and Nyquist gates clean
+status: blocked
+last_updated: "2026-08-12T13:00:00Z"
+last_activity: 2026-08-12 -- Phase 64.4 partial delivery verified and Phase 64.5 inserted to own the DB-backed provider budget and unfinished live rollout
 progress:
-  total_phases: 15
+  total_phases: 16
   completed_phases: 7
-  total_plans: 43
-  completed_plans: 43
-  percent: 47
+  total_plans: 63
+  completed_plans: 60
+  percent: 44
 ---
 
 # Project State: MOCA
@@ -24,16 +24,16 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 
 ## Current Position
 
-Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-10 -- Phase 64.3 completed
-Next: Plan Phase 64.4 with `$gsd-phase-autopilot 64.4` or `$gsd-plan-phase 64.4`.
-After: Phase 65 follows Phase 64.4.
+Phase: 64.4 (token-aware-policy-chunking-and-reindex-validation) — BLOCKED
+Plan: 18 of 20 — blocked before same-candidate build and canonical A-B
+Status: Partial delivery ready for PR; Plans 01-17 are complete/checkpointed, Plans18-20 remain unexecuted, and production provider dispatch is hard-disabled.
+Last activity: 2026-08-12 -- clean code review, partial verification/security/Nyquist closeout, and explicit Phase64.5 ownership recorded.
+Next: Merge the bounded Phase64.4 partial delivery, then run `$gsd-phase-autopilot 64.5`; do not execute old Plan18, renew its authority, or reinterpret the expired lease.
+After: Phase 65 follows Phase 64.5.
 
-Resume file: --resume-file
+Resume file: `.planning/autopilot/phase-64.4.md`
 
-Progress: [█████░░░░░] 47%
+Progress: [████░░░░░░] 44%
 
 ## Last Completed Milestone
 
@@ -80,6 +80,7 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 - Phase 64.2 inserted after Phase 64.1: Evidence Identity Immutable Replay And Memory Provenance (URGENT).
 - Phase 64.3 inserted after Phase 64.2: RAG Format Parity And Document Quality Evaluation (URGENT); it establishes the cross-format parser/retrieval baseline before Phase 65.
 - Phase 64.4 inserted after Phase 64.3: Token-Aware Policy Chunking And Reindex Validation (URGENT); it consumes the Phase 64.3 baseline and Phase 64.2 identity contract before Phase 65.
+- Phase 64.5 inserted after Phase 64.4: Database-Backed Provider Budget And Token Rollout Completion (URGENT); it owns the DB-backed globally unique provider budget and the unfinished SC-64.4-5/6 live rollout before Phase 65.
 - Phases 65-68 expanded with explicit audit finding ownership, scope boundaries, dependency order, and source-verifiable success criteria.
 - Phase 69 added: LLM Runtime Gateway And Observability.
 - Phase 70 added: Memory Retrieval Quality And Governance.
@@ -93,7 +94,7 @@ Phase directories remain under `.planning/phases/` for now. Use `$gsd-cleanup` l
 **Completed Phase:** 64.1 (Runtime Safety And Approval Contract Repair) — 6/6 plans complete, review/UAT/security/validation clean
 **Completed Phase:** 64.2 (Evidence Identity Immutable Replay And Memory Provenance) — 11/11 plans and 26/26 tasks complete; final review/UAT/security/validation clean
 **Completed Phase:** 64.3 (RAG Format Parity And Document Quality Evaluation) — 5/5 plans and 12/12 tasks complete; final review/UAT/security/validation clean; canonical baseline truthfully quality-red
-**Registered Phase:** 64.4 (Token-Aware Policy Chunking And Reindex Validation) — urgent, depends on 64.3, pending `$gsd-plan-phase 64.4`
+**Executing Phase:** 64.4 (Token-Aware Policy Chunking And Reindex Validation) — recovery replan is 20 plans / 40 executable tasks; Plans 01-14 complete, Plan15 checked as a truthful blocked checkpoint with no requirements completed, Plan16 draft pending review
 **Registered Phase:** 65 (Trace Event And Console Label Consistency) — depends on 64.4, pending `$gsd-plan-phase 65`
 **Registered Phase:** 66 (Unified Operation Contract And Tool Gateway) — pending `$gsd-plan-phase 66`
 **Registered Phase:** 67 (Dev Test And Config Hygiene) — pending `$gsd-plan-phase 67`

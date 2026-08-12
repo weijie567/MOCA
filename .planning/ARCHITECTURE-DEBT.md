@@ -2485,3 +2485,408 @@
 - **证据**：Phase 64.2 REVIEW iteration 2 WR-01；`src/memory/case_working_context_lifecycle.py`；`tests/agent/test_case_working_context_lifecycle.py::test_terminal_projection_rejects_mixed_malformed_business_ref_list`、`::test_terminal_projection_rejects_mixed_malformed_policy_ref_list_before_exact_resolution`。
 - **验证**：两条新增负向与既有 exact resolver 正/负向定向回归通过；生命周期测试文件与 scoped Ruff 通过。
 - **剩余风险**：当前无已知缺口；后续必须保留原始 ref 容器成员完整性检查，不能在 typed validation 前用通用 mapping filter 丢弃非法成员。
+
+## 2026-08-11 — Phase 64.4 Plan 05 — policy document 身份被 chunk 边界反向污染 ✅已修复验证
+
+- **子系统**：RAG ingestion / policy chunking / immutable evidence identity / replay。
+- **问题现象 / 根因**：当前 ingestion 先按字符切块，再用 `_document_citation_text(chunks)` 拼接 chunk body 写入 `PolicyDocument.content` 并参与 policy fingerprint。由于 chunk overlap 和切分边界会改变拼接结果，同一 authoritative source 在 character/token 配置间可能被误判为不同 document content/version；同时最终 embedding envelope 在 chunk 之后才追加，实际 provider 输入不受 chunk budget 约束。
+- **影响**：Phase 64.4 若只替换 chunk 算法，同一源文档可能因 rollout/config 而漂移 immutable document identity，进而错误新建或错误拒绝 Phase 64.2 evidence binding；历史 replay 与 current projection 的职责也会混在一起。
+- **处理状态**：✅ 已实现 `canonical_document_content.v2`：new writes 在 chunking 前从按 `block_index` 排序的 authoritative `ParsedBlock` snapshot 生成 citation content、content hash 与 blocks hash；duplicate order/source block fail closed。immutable document compatibility 比较 tenant/source checksum/schema/block content+provenance，忽略 chunk config/corpus；chunk compatibility 独立比较 citation/search/final-input hash/count/config/provenance，忽略 corpus。相同 source 的 character/token 写入复用同一个 document-version row，配置不兼容才追加 chunk version，兼容配置再次复用；legacy 四个 canonical 字段保持 SQL NULL 且 replay 可读，不回写历史。
+- **证据**：Phase 64.4 Plan 05 Task 2；`src/repositories/document_block_repo.py`、`src/rag/ingestion.py`、`src/repositories/evidence_version_repo.py`、`tests/knowledge/test_document_source_identity.py`、`tests/test_ingestion.py`、`tests/replay/test_production_evidence_binding.py`；真实 PostgreSQL source/config versioning test `7 passed, 3 warnings`，Task 2 replay gate `14 passed, 3 warnings`，ingestion audit 回归 `41 passed, 1 warning`。
+- **剩余风险**：Plan 06 仍负责 active-scope routing 与 candidate shared-head isolation，Plan 07 负责 resumable reindex；Plan 09/10 仍需完成 A/B selection 与真实 provider-backed activation。本 plan 未提前实现这些行为。
+
+## 2026-08-11 — Phase 64.4 Plan 01 — DashScope offline tokenizer 映射缺少厂商保证 🟡有意妥协
+
+- **子系统**：RAG embedding tokenizer / offline token counting / provider parity。
+- **问题现象 / 根因**：Alibaba Cloud 官方文档确认 `text-embedding-v4` 的 1024 默认维度、单条 8192 token、每请求最多 10 条和 request-level `prompt_tokens`，但没有发布或保证可离线使用的精确 tokenizer revision。Phase 64.4 research 的 10 组安全合成 probe 证明 Qwen 官方 `Qwen3-Embedding-0.6B` tokenizer 在固定 revision、包含 EOS 时与当前 provider usage 10/10 精确一致；该结论是实证映射，不是厂商兼容承诺。
+- **影响**：provider 或 tokenizer 资产漂移时，若仅依赖模型名猜测或 ambient library 行为，new ingestion/reindex 可能低估 final input、错误复用配置身份或把不可验证状态当成通过。
+- **处理状态**：🟡 有意妥协。Plan 01 已 vendor revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` 的 11,423,705-byte asset（SHA-256 `def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a`），精确锁定 `tokenizers==0.23.1`、EOS、8192/10、512/384/48 和 canonical fingerprint；missing/hash/runtime/count/nondeterminism 只返回 allowlisted typed failure，没有下载、字符回退或 provider/persistence side effect。contract 与 SOURCE 明示 `empirically_provider_parity_approved_not_vendor_guaranteed`。
+- **证据**：Phase 64.4 Plan 01 commits `c2bf8ccc`、`2bde39bd`；`src/rag/assets/embedding_tokenizer.v1.json:1`、`src/rag/embedding_tokenizer.py:18`、`src/rag/embedding_tokenizer.py:119`、`src/rag/embedding_tokenizer.py:155`、`tests/rag/test_embedding_tokenizer.py`；最终 Plan 01 gate 为 `make lint` 通过、tokenizer tests `21 passed`、`uv lock --check` 通过。
+- **剩余风险 / 继续入口**：Plan 03 必须用同一 authoritative final-input seam 产生新的 create-only provider parity artifact；`unavailable` / `quarantined` 均不得授权 new token-aware writes 或 cutover。Plan 09/10 的 selection/activation 还必须绑定 fresh parity hash；在这些 gate 完成前不能把本条升级为“厂商保证”或“端到端已修复”。
+
+## 2026-08-11 — Phase 64.4 Plan 02 — 字符 chunk budget 与 provider final input 分离 ⚠️修复但验证有缺口
+
+- **子系统**：RAG policy chunking / embedding input assembly / parser provenance。
+- **问题现象 / 根因**：既有 `chunk_blocks` 只按 `max_chars/target_chars/overlap_chars` 控制 citation body；title、section 与 `source_block_id` envelope 由 ingestion 在 chunk 完成后追加，因而 chunker 无法证明实际 provider string 不溢出，table header、oversized row 与 Unicode/no-progress 分支也没有共同的 token budget owner。
+- **影响**：中英/混合/OCR/table 内容可能因字符-token 比例与 post-count decoration 产生不一致边界；极端输入可能超过 provider 限制，或在拆分时丢失 row/header/source provenance。citation content、retrieval-only search text 与 provider input 若由调用方各自重建，还会形成新的契约漂移点。
+- **处理状态**：⚠️ 已完成 assembler 本体与 Task 2 adversarial 修复。新增唯一 `PolicyEmbeddingInputAssembler`，每次结构分组、表格 row/header 重复、sentence/clause/whitespace 与最终 tokenizer-window 分割都用 Plan 01 `EmbeddingTokenCounter` 对完整 envelope 计数；最终 frozen DTO 同时返回 citation/search/exact provider string、hash/count/config fingerprint 与深冻结 provenance。Task 2 RED 进一步发现 structural piece packing 会在同一 source block 内插入额外换行，现已用显式 source joiner 区分 block 边界与 block 内 split，中文/英文/混合/OCR-like/combining/emoji/URL/number 与 oversized table cell 均可按 `primary_content` 重组原文。空输入有界返回，envelope-dominant/no-progress/overflow/tokenizer failure fail closed；没有第二套 tokenizer 或字符预算 fallback。
+- **证据**：Phase 64.4 Plan 02 Tasks 1-2；commits `890eed62`（Task 1）与 Task 2 原子提交；`src/rag/policy_embedding_input.py`、`src/rag/chunker.py`、`tests/rag/test_token_aware_chunker.py`、`tests/rag/test_block_chunker.py`、`tests/test_chunker.py`；Task 1 Wave-0/Green 为 3 个预期 collection error → `23 passed, 1 warning`，Task 2 adversarial RED 为 8 个真实 separator invariant failures 加 1 个测试 zip 边界错误，修复后 Task 2 精确门禁为 `27 passed, 1 warning`；全仓 `make lint` 与 `git diff --check` 通过。
+
+## 2026-08-11 — Phase 64.4 Plan 03 Task 1 — embedding provider usage 被丢弃且 batch 总量无可信分配语义 ✅已修复验证
+
+- **子系统**：RAG embedding provider / token accounting / evaluation provenance。
+- **问题现象 / 根因**：原 `EmbeddingService` 只从 OpenAI-compatible response 提取 vectors，直接丢弃 request-level `usage.prompt_tokens/total_tokens`；provider 又不提供 per-input usage 数组，因此后续若把 batch 总量平均或按比例摊给输入，会制造不存在的 per-input 事实。
+- **影响**：Phase 64.3/64.4 无法保留真实 provider token 成本；parity 与 A/B 若误把 aggregate usage 当单条 usage，会错误授权 tokenizer 映射或选择结论。
+- **处理状态**：✅ 已增加冻结的 request usage 与 batch result DTO，以及 `embed_documents_with_usage`；仅按 provider request 记录 usage，只有每个 request 都报告完整 usage 时才汇总 totals，缺失/非法 usage 统一为 `unavailable`，从不生成 per-input 分配。既有 `embed_documents`/`embed_query` vector-only list 契约、最多十条 batching、index 顺序、dimensions 参数和 retry 行为保留。
+- **证据**：Phase 64.4 Plan 03 Task 1；`src/rag/embedder.py`、`tests/rag/test_embedding_usage.py`、`tests/test_embedder.py`；Wave-0 RED 为缺少 `EmbeddingBatchResultV1` 的预期 collection error，完成后完整 `make lint` 通过，精确 gate 为 `7 passed, 1 warning`。
+- **剩余风险**：Task 2 仍需把这些 request-level usage 接入 create-only parity artifact，并以 10 个 single request 加一个 10-input aggregate request 做精确 freshness/identity gate；Plan 04 继续负责所有 live final strings 收敛到唯一 assembler。
+
+## 2026-08-11 — Phase 64.4 Plan 03 Task 2 — tokenizer parity 缺少不可变身份与 freshness 授权边界 ✅已修复验证
+
+- **子系统**：RAG embedding tokenizer parity / selection authorization / provider evidence。
+- **问题现象 / 根因**：Plan 01 只有离线 fixture 与一次 planning 期实证，原仓库没有 create-only run identity、精确 final-input content hash、freshness、provider/model/config 复核或 `passed|quarantined|unavailable` 的严格 artifact；旧实证若被复制、覆盖或跨 fingerprint 使用，会把陈旧/变异 provider 事实错误带入后续 selection。
+- **影响**：缺少该边界时，Plan 09/10 无法证明选择消费的是当前 pinned tokenizer、当前 provider/model 和 assembler exact final strings，也无法区分 usage 缺失与真正 count mismatch。
+- **处理状态**：✅ 已定义严格 `embedding_tokenizer_parity.v1`、UUID/timestamp/region/config/model/fixture/content identity、10 个 single request 加一个 10-input aggregate 的 prompt-token exact gate，以及 fingerprint/run-id create-only 原子 writer。`unavailable`、`quarantined` 均不能通过 `require_fresh_provider_parity`；所有 report/failure 字段只允许安全 label/count/hash/code，不含文本、key、URL、raw response、path 或 exception。
+- **证据**：Phase 64.4 Plan 03 Task 2；`src/rag/tokenizer_parity.py`、`scripts/check_embedding_tokenizer_parity.py`、`evaluation/golden/embedding_tokenizer_parity_probes.v1.json`、`evaluation/reports/rag_embedding_tokenizer/v1/README.md`、`tests/rag/test_tokenizer_parity.py`；Wave-0 RED 为缺少 module 的预期 collection error，完成后完整 `make lint` 与精确 gate `11 passed, 1 warning` 通过。显式清空 credential 的 CLI 安全探针写出真实 `unavailable/provider_credentials_unavailable` artifact 并以 exit 2 结束，没有 provider 请求或成功声明。
+- **剩余风险**：本 plan 没有伪造或宣称 live `passed`；Plan 04 仍需完成 production/dry-run/golden/parity/A-B 的 assembler seam 静态收敛，Plan 10 必须在真实 provider 与 selected configuration 上产生 fresh passed artifact 后才能激活。
+- **剩余风险 / 继续入口**：Plan 04 前 production ingestion/dry-run 尚未消费该 DTO，所以当前生产 character path 仍保持不变；必须在 Plan 04 convergence gate 证明 embedder 直接消费 `embedding_input` 且提交/持久化前复算一致，才能将本条升级为端到端已修复。Plan 03 仍负责 fresh provider parity，而 persistence/reindex/cutover 由后续 Plans 05-10 负责。
+
+## 2026-08-11 — Phase 64.4 Plan 04 Task 1 — production/dry-run final-input owner 分叉 ✅已修复验证
+
+- **子系统**：RAG ingestion / embedding-input assembly / CLI dry-run。
+- **问题现象 / 根因**：production 原先调用 `chunk_blocks` 后由 ingestion 本地拼接 title/section/source envelope，dry-run 则直接调用独立的 `chunk_markdown`；两条路径既不共享 parsed-block assembly owner，也没有把实际 provider 字符串、Plan 01 token count、input hash 与配置身份绑定在同一 DTO 中。
+- **影响**：token-aware 模式若直接替换 shared `policy_chunks` 会在 Plans 05-06 corpus isolation 前制造 character/token 混合语料；继续本地重建又可能在 count 后追加内容。dry-run 也无法证明真实 production parser/provenance 与 final-input 契约。
+- **处理状态**：✅ 已修复验证。`IngestionService` 默认显式选择 `CharacterCompatibilityAssembler`，保持 pre-Plan04 provider bytes；只有 `IngestionAssemblyMode.TOKEN_AWARE` 才选择 `PolicyEmbeddingInputAssembler`，且 assembly 失败不会回退。两者返回同一 `PolicyEmbeddingInputV1`，character incumbent 用 Plan 01 counter 记录真实 final-input token count/hash 与 `character_compatibility.v1` 配置 fingerprint。embedder 只接收 DTO `embedding_input`，projection 只消费 DTO citation/search/provenance；Plan 05 前 count/hash/config 仍只存在内存，不写入任何新列。CLI dry-run 改走 production parser + token assembler，并在构造 provider/DB client 前结束。
+- **证据**：Phase 64.4 Plan 04 Task 1；`src/rag/ingestion.py`、`scripts/ingest_policies.py`、`tests/test_ingestion.py`；Wave-0 RED 为缺少新 assembly mode/compatibility owner 的预期 collection error，`make format` 与完整 `make lint` 通过，精确 gate 为 `39 passed, 1 warning`。
+- **剩余风险 / 继续入口**：Task 2 仍需把 golden/Phase64.3 evaluation seam 收敛到同一 parsed-block入口并加入 AST/rg guard；Plan 05 才能新增并持久化 token/config audit 字段，Plan 06 才能按 active corpus/config 路由普通 production token writes。当前普通生产保持 character-compatible 是有意且限时的 staging contract，不代表 token corpus 已激活。
+
+## 2026-08-11 — Phase 64.4 Plan 04 Task 2 — golden 与 Phase64.3 evaluation 绕过统一 assembly seam ✅已修复验证
+
+- **子系统**：RAG golden validation / retrieval parity evaluation / embedding-input assembly。
+- **问题现象 / 根因**：golden seed validator 直接调用 `chunk_markdown`，没有复用 production parser、manifest 与 typed assembler；Phase64.3 parity runner 又在内部构造默认 character-compatible 的 `IngestionService`，即使外层脚本声明 token candidate，实际运行也无法把同一个 assembler 注入 ingestion。两处都会让验证对象与候选 production final input 分叉。
+- **影响**：golden corpus identity、token A/B 与 provider input 可能来自不同 chunk owner；外层“token candidate”名称不能证明真实 ingestion bytes 已切到 token assembler，也会给后续 Plan09 selection 留下错误证据。
+- **处理状态**：✅ 已修复验证。golden validator 现在按 production manifest 顺序经 parser registry 生成 `ParsedBlock`，再调用唯一 shared typed assembly entry；Phase64.3 parity 明确暴露 `PolicyInputAssembler` seam，默认运行 token candidate，只有显式命名的 `_character_baseline()` 可构造 `CharacterCompatibilityAssembler`。AST/static guards 禁止其他 production `chunk_markdown`/`chunk_blocks` 调用、第二套 budget split/envelope renderer 或未命名 compatibility owner。`src/rag/evaluation/retrieval_rounds.py` 不在 Plan04 原 `<files>` 清单，但内部隐藏的 `IngestionService` constructor 是完成“Expose same assembly seam to Phase64.3 evaluation”的必要缺口；本次按 Rule 2 仅增加 typed injection/default-token wiring，没有预做 Plan09 selection、报告或 retrieval algorithm 逻辑。
+- **证据**：Phase 64.4 Plan 04 Task 2；`scripts/validate_golden_seeds.py`、`scripts/eval_rag_format_parity.py`、`src/rag/evaluation/retrieval_rounds.py`、`tests/eval/test_rag_format_parity_contract.py`、`tests/architecture/test_rag_chunking_boundaries.py`；Wave-0 为 `4 failed, 37 passed, 1 warning`，完成后精确 gate 为 `41 passed, 1 warning`，Phase64.3 isolation 回归为 `71 passed, 1 warning`，checked-in golden seed validation 为 `SEED VALIDATION PASSED`。
+- **剩余风险 / 继续入口**：Plan 05 才能持久化 token/config audit 字段，Plan 06 才能切换 ordinary production；Plan 09 仍负责同次 A/B selection 与独立 corpus 的选择逻辑。本次没有新 schema/reindex/cutover 行为，character compatibility 仍只能作为显式 baseline 使用。
+
+## 2026-08-11 — Phase 64.4 Plan 05 Task 1 — shared current projection 缺少 corpus visibility 边界 ✅已修复验证
+
+- **子系统**：RAG corpus lifecycle / immutable evidence projection / migration bootstrap。
+- **问题现象 / 根因**：既有 `policy_documents`、`document_blocks`、`policy_chunks` 只有单一 shared current head，没有 tenant-scoped corpus manifest、active rollout 或 append-only projection binding；直接写 token candidate 会与 character incumbent 混合，而直接新增 active filter 又会让 migration 前 legacy rows 失去可见性。
+- **影响**：无法在不污染当前生产 head 的前提下构建候选；错误 bootstrap 还可能产生不可见、孤立、重复或跨租户绑定，并破坏历史 evidence/replay identity。
+- **处理状态**：✅ 已新增 corpus manifest revision/version、tenant rollout、activation history 与 document/block/chunk projection binding schema；migration 030 为每个有 legacy document 的 tenant 创建且只创建一个 complete + active `character.v1` corpus，并以逐租户 before/after distinct counts、exact immutable document/chunk binding 和 cross-tenant constraints fail closed。manifest/history/projection bindings 由数据库 trigger 保持 append-only；token-dependent audit rows 出现后 downgrade 明确拒绝。corpus id 仅存在于 visibility projection，没有进入 immutable evidence/document/chunk identity。
+- **证据**：Phase 64.4 Plan 05 Task 1；`src/db/migrations/versions/030_phase64_4_token_corpora.py`、`src/db/models.py`、`src/repositories/policy_corpus_repo.py`、`tests/knowledge/test_token_corpus_migration.py`、`tests/test_rag_migration.py`；真实 PostgreSQL/pgvector gate 为 `5 passed, 7 warnings`，完整 `make lint` 通过。
+- **剩余风险 / 继续入口**：本 task 只提供 schema、bootstrap 与 read-only/bootstrap assertions；Plan 06 才能实现 active-scope production routing/candidate write isolation，Plan 07 才能实现 resumable reindex。不得提前把新 corpus projection 当成 ordinary write router。
+
+## 2026-08-11 — Phase 64.4 Plan 06 Task 1 — current RAG 查询绕过 tenant active corpus pointer ✅已修复验证
+
+- **子系统**：RAG current retrieval / canonical evidence / corpus visibility / immutable replay。
+- **问题现象 / 根因**：migration 030 已建立 tenant rollout 与 document/block/chunk projection bindings，但 `PolicyChunkRepository`、`DocumentBlockRepository`、current canonical identity 和 evaluation current inspection 仍直接按 tenant 查询 shared current tables；inactive corpus row 可能进入 dense/sparse/fuzzy、canonical re-fetch、provenance 或 cleanup 视图。相反，历史 replay 应继续只按 stored immutable version ID 解析，不能受当前 pointer 影响。
+- **影响**：candidate/inactive chunks 可能泄漏到生产检索，pointer 切换后 production caller 也无法保证只观察一个 generation；cross-tenant 或配置不兼容的 current row 可能被误绑定为当前 evidence。若把 pointer 反向加入历史 resolver，又会破坏 Phase 64.2 byte-exact replay。
+- **处理状态**：✅ 已新增单一 `ActivePolicyCorpusScope` 和显式 `ExactPolicyCorpusScope`；所有已知 current `PolicyChunk`/`DocumentBlock` repository SQL 通过 tenant rollout、complete active corpus 和同一 corpus projection binding，current canonical identity 直接消费 active projection 指定的 exact immutable chunk version，并复核 corpus-free content/search/provenance/config compatibility。production 方法签名不接受 caller-supplied corpus；evaluation/reindex exact scope 必须显式命名。`resolve_immutable_evidence`、`resolve_exact` 与 legacy alias 仍只按 retained immutable ID/tenant/scope 解析，不读取 active pointer。
+- **证据**：Phase 64.4 Plan 06 Task 1；`src/repositories/policy_corpus_scope.py`、`src/repositories/policy_chunk_repo.py`、`src/repositories/document_block_repo.py`、`src/repositories/evidence_version_repo.py`、`src/repositories/rag_evaluation_round_repo.py`、`tests/repositories/test_policy_chunk_repo.py`、`tests/knowledge/test_evidence_projection.py`、`tests/knowledge/test_retrieval.py`；RED 为缺失 scope owner 的 collection error，完成后完整 `make lint` 通过，Task 1 精确 gate 为 `34 passed, 1 warning`。
+- **剩余风险 / 继续入口**：Task 2 仍须让 ordinary ingestion、search-text backfill、seed/reset/delete 按 active named config fail-closed，并扩展静态 guard 覆盖所有 current table paths。Plan 07 才拥有 reindex claim/build/resume 状态机；Plan 08 才拥有 pointer CAS activation、manifest epoch refresh 与 source-drift continuity，本 task 未提前实现。
+
+## 2026-08-11 — Phase 64.4 Plan 06 Task 2 — ordinary write/maintenance 路径可绕过 active named config ✅已修复验证
+
+- **子系统**：RAG ingestion / corpus projection binding / search-text backfill / demo seed-reset / architecture guard。
+- **问题现象 / 根因**：Plan 04 的 ordinary ingestion 仍由 caller `assembly_mode` 决定 assembler；repository `bulk_insert`、search-text backfill 与 demo seed/reset 不解析 tenant active pointer，seed 还直接构造无 canonical block/immutable binding/config audit 的 `PolicyChunk`。Phase 64.2 current-head backfill/reconcile 也会跨 tenant 全局直读 shared current rows。migration 030 后这些路径可能写入错误 config、修改 inactive row，或制造没有 active projection binding 的 current material。
+- **影响**：active corpus 的命名配置与实际 provider input/chunk bytes 可漂移；新 current row 在生产检索中不可见或错误可见；直接 seed/delete 会碰撞 append-only projection FK，并绕过 corpus-free immutable compatibility。
+- **处理状态**：✅ 已修复验证。ordinary real-session ingestion 在 parser/provider/persistence 前内部解析 active pointer，`character.v1` 只选 `CharacterCompatibilityAssembler`，pinned `embedding_tokenizer.v1` 只选唯一 token assembler，unknown/mixed/fingerprint drift 返回固定 fail-closed code；current block/chunk writes 再次在 repository 内解析 scope，immutable append 后由无 caller corpus 参数的 binder 追加 document/block/chunk exact bindings。backfill 强制单 tenant active join；Phase 64.2 current backfill/reconcile 改为逐 tenant pointer 锁定。demo seed 只接受已存在且配置可证明的 active ingested corpus，不再伪造 bare chunks；reset 对 append-only active policy projection 明确拒绝破坏性删除。
+- **证据**：Phase 64.4 Plan 06 Task 2；`src/rag/ingestion.py`、`src/rag/search_text_backfill.py`、`scripts/seed_demo.py`、`src/repositories/policy_corpus_scope.py`、`src/repositories/evidence_version_repo.py`、`tests/knowledge/test_evidence_projection.py`、`tests/architecture/test_rag_chunking_boundaries.py`；RED 为缺失 active config selector 的预期 collection error；最终完整 `make lint` 通过，Task 2 gate `65 passed, 1 warning`，Task 1 回归 gate `41 passed, 1 warning`。静态枚举锁定所有已知 production/repository/script `PolicyChunk`/`DocumentBlock` constructor 与 SQL current path，并拒绝 corpus ID 进入 identity/compatibility 或恢复 `_document_citation_text(chunks)`。
+- **剩余风险 / 继续入口**：🟡 demo seed/reset 现在刻意要求 operator 先通过受控 ingestion 建立 active corpus，且不会删除 append-only corpus-bound政策资料；这是避免伪造或破坏 projection 的 fail-closed 行为。Plan 07 才实现 inactive candidate reindex state machine，Plan 08 才实现 source-manifest refresh、pointer CAS 与 active corpus 上持续 create/update/delete 的并发连续性；本 plan 未提前实现这些状态或 activation。
+
+## 2026-08-11 — Phase 64.4 Plan 07 Task 1 — inactive candidate 缺少固定身份、lease/CAS 与 source-stale resume 边界 ✅已修复验证
+
+- **子系统**：RAG policy reindex lifecycle / tenant corpus isolation / provider parity authorization。
+- **问题现象 / 根因**：migration 030 与 Plan 06 已提供 corpus rows、active pointer 和 exact scope，但仓库没有 claim/resume owner；任何后续 builder 若只凭 corpus ID 或 mutable current pointer 继续，会在 config/parity、manifest、active corpus/epoch、tenant/run/owner 或 lease 已变化时继续写 candidate，也没有 transactionally ordered document cursor。
+- **影响**：中断恢复可能混入两次 source/config，foreign tenant/run worker 可能推进错误 cursor；如果把 `active` 当 corpus state 或 claim 时改 pointer，partial candidate 会泄漏到 current retrieval。过期/被接管的 lease 继续执行还会形成双 writer。
+- **处理状态**：✅ 已实现并验证。`PolicyReindexService` 在 tenant advisory lock 与 rollout row lock 下固定 UUID run、config schema/fingerprint、fresh passed parity artifact hash/capture expiry、manifest revision/hash、source active corpus/epoch、evidence epoch、owner/lease 与 ordered doc keys；状态仅允许 `claimed/building/built/validating/complete/failed/source_stale`，active authority 始终只来自 rollout pointer。resume/checkpoint 以 tenant/run/owner/state version/cursor CAS fail closed，拒绝 config/parity/manifest/pointer/epoch/owner/expired-or-taken lease drift；每个 ordered document checkpoint 不 commit，必须与调用方 projection writes 共用单事务，rollback 后 cursor 不前进。
+- **证据**：Phase 64.4 Plan 07 Task 1；`src/rag/policy_reindex.py`、`src/repositories/policy_corpus_repo.py`、`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`；真实 PostgreSQL gate `5 passed, 1 warning`，完整 `make lint` 通过。负向覆盖 cross-tenant/run、foreign/taken owner、expired lease、stale CAS、out-of-order doc、manifest/pointer drift；rollout pointer 在 claim/build checkpoint 全程不变。
+- **剩余风险 / 继续入口**：Task 2 仍须从 active `PolicyDocument` + ordered authoritative `DocumentBlock` 生成 sealed snapshot，做 per-document recheck、inactive projection/immutable binding/count/determinism/replay 与 interrupted idempotency；Plan 08 才拥有 pointer activation、ordinary ingestion continuity 和 retention cleanup，本 task 未提前实现。
+
+## 2026-08-11 — Phase 64.4 Plan 07 Task 2 — candidate reindex 会误投影 shared current evidence head ✅已修复验证
+
+- **子系统**：RAG policy reindex / authoritative DB source snapshot / immutable evidence binding。
+- **问题现象 / 根因**：Plan 05 的 `EvidenceVersionRepository.append_immutable_version()` 同时拥有 immutable append 与 ordinary current-head write-sequence projection，原签名没有 candidate-only 模式。Plan 07 若直接复用，会把 inactive token candidate 的 sequence 写回 shared `PolicyDocument`/`PolicyChunk`；若绕开该 repository 自行写 immutable rows，又会复制 Phase 64.2/64.4 的 compatibility、retention 与 replay owner。另一个缺口是仓库没有显式 source-corpus 的 `PolicyDocument` + ordered `DocumentBlock` sealed snapshot/read-back recheck，reindex 容易重新读原始文件或混入 mutable latest source。
+- **影响**：未激活 candidate 可能污染 current evidence head，ordinary ingestion/canonical current identity 与 inactive build 混合；中断恢复可能重复 vector/binding 或跨 source epoch 继续；缺少 exact recount/rebuild 时，持久化 hash/count 无法证明对应真正 provider input。
+- **处理状态**：✅ 已修复验证。`DocumentBlockRepository` 新增 corpus-qualified authoritative snapshot，锁定 manifest 指定 document/immutable document/block bindings，完整 hash 文本与 provenance，并在每文档 checkpoint 前重读比较；`PolicyReindexService` 只消费该 DB snapshot，经唯一 `PolicyEmbeddingInputAssembler` 生成 frozen provider input，复算 hash/EOS-inclusive count、验证 1024 维 vector 数量，append/reuse immutable document/chunk 后只绑定 inactive candidate。immutable repository 最小增加 `project_current_head: bool = True`：ordinary caller 默认语义不变，candidate 唯一显式 `False`，对应回归证明 shared document/chunk sequence 不变。document projection、block projection、chunk/vector、immutable binding 与 cursor CAS 同一事务，rollback 后零 candidate binding 且 retry 不重复；complete validation 从 source snapshots 重建 count/hash/content/provenance，封存 config/parity/manifest/source epoch、coverage、no-mixed-source 与 corpus-free immutable compatibility proof。该 ownership deviation 已获 Plan 07 executor 上层确认。
+- **证据**：Phase 64.4 Plan 07 Task 2；commits `34edced6`（Wave-0 RED）及 Task 2 GREEN commit；`src/repositories/document_block_repo.py`、`src/repositories/evidence_version_repo.py`、`src/rag/policy_reindex.py`、`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`、`tests/knowledge/test_document_source_identity.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；真实 PostgreSQL/pgvector 三文件 gate `89 passed, 3 warnings`，完整 `make lint` 通过。
+- **剩余风险 / 继续入口**：Plan 08 才拥有 candidate pointer CAS activation、active manifest/epoch refresh、ordinary create/update/delete continuity 与 retention/cleanup；Plan 09 才拥有同次 A/B selection。本 task 没有增加 activation、current retrieval 或 ordinary ingestion selection 语义。真实 provider build 仍需由 operator 提供 fresh passed parity/credential 后通过 CLI 执行，本地测试只用确定性 1024 维 fake vector，未伪造 live provider 事实。
+
+## 2026-08-11 — Phase 64.4 Plan 08 — append-only corpus 与普通 ingestion 缺少 COW 演进模型 ✅已修复验证
+
+- **子系统**：RAG ordinary ingestion / corpus rollout / immutable evidence retention。
+- **问题现象 / 根因**：migration 030 的 manifest、activation history 与 projection bindings 均 append-only，binding FK RESTRICT；同时单一 `PolicyDocument` head 和 `DocumentBlock(tenant, doc, source_block)` 唯一约束使 create/update/delete 无法既原地替换又保留旧 corpus replay。原 Plan 08 action 若直接沿用 repository delete 路径会破坏已接受的 immutable history 边界。
+- **影响**：普通写入可能删除旧 activation/replay 证据、让当前 pointer 指向不完整 projection，或允许 source drift 后直接 rollback 到过时政策；并发 ingestion/cutover 还可能出现 mixed authority。
+- **处理状态**：✅ 已修复验证。经 Rule 4 用户批准，migration 031 仅移除 block source identity 唯一约束并保留非唯一索引，downgrade 检出重复即 fail closed；普通 create/update/delete 固定 evidence rollout→tenant corpus rollout→manifest→document 锁序，构建同 config complete COW corpus，复制未变 bindings、为变更 source 追加 block/chunk/immutable rows、append manifest/history 后 CAS 唯一 pointer+epoch。所有绑定旧 manifest 的可用/在建 corpus（除新 COW）同事务标 `source_stale`，过时 corpus拒绝直接 rollback/restore，必须用当前 source 按旧 config rebuild。cleanup 仅逻辑终止 exact tenant/run/owner candidate，不删 immutable/binding/history。
+- **证据**：Phase 64.4 Plan 08；`src/db/migrations/versions/031_phase64_4_policy_corpus_cow.py`、`src/db/models.py`、`src/rag/ingestion.py`、`src/repositories/policy_corpus_repo.py`、`src/rag/policy_reindex.py`、`tests/knowledge/test_policy_corpus_cow_migration.py`、`tests/rag/test_ingestion_continuity.py`、`tests/rag/test_policy_reindex.py`；Task 2 gate `47 passed, 1 warning`，合并真实 PostgreSQL gate `94 passed, 4 warnings`。
+- **剩余风险 / 继续入口**：Plan 08 activation 只接受 immutable selection DTO fixture，不读取、生成或宣称真实 selected artifact；Plan 09 才拥有同次 A/B selection，Plan 10 才拥有真实 receipt hash chain/drill。`receipt_hash` 本 plan 保持 NULL，未伪造 provider/selection success。
+
+## 2026-08-11 — Phase 64.4 Plan 08 — active current projection helper 与 retained canonical v2 复用缺陷 ✅已修复验证
+
+- **子系统**：RAG current retrieval / canonical evidence reconciliation / immutable replay。
+- **问题现象 / 根因**：active chunk projection helper 以 `PolicyDocument.id` 连接 corpus document binding，但部分 current statements 只选择 `PolicyChunk`，PostgreSQL 因缺少 FROM 失败；修正 helper 后，一个 current identity caller 又重复 join 同名 `CorpusChunkBinding`。另外 canonical document matcher 在未携带 canonical source DTO 的 reconciliation 路径对所有 v2 retained rows返回不匹配。
+- **影响**：canonical current identity/retrieval 可在 runtime SQL 编译或执行时失败；已有 v2 immutable document version 可能被误判为 drift，阻断 canonical read cutover。若为了修复而把 active pointer 加入历史 resolver，则会进一步破坏 retained immutable identity。
+- **处理状态**：✅ 已修复验证。helper 统一通过 `PolicyChunk.doc_id` 证明同 active corpus 的 document binding，current identity caller复用该唯一 binding join；canonical v2 无 DTO 分支严格验证 source checksum、persisted content hash/canonical fields，并与 current head content/hash再比较。历史 `resolve_immutable_evidence` 保持只按 retained immutable ID/tenant/scope，不读取当前 pointer。
+- **证据**：Phase 64.4 Plan 08 Task 1/2 Rule 1；`src/repositories/policy_corpus_scope.py`、`src/repositories/evidence_version_repo.py`、`tests/knowledge/test_evidence_cutover.py`、`tests/knowledge/test_evidence_projection.py`；targeted regression `2 passed`，最终合并 gate `94 passed`。
+- **剩余风险 / 继续入口**：当前无已知缺口。后续修改 active projection helper 时须避免 caller 重复 join同一 ORM entity；历史 identity resolver 必须继续与 current authority 解耦。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 1 — A/B 选择缺少精确数值与不可变终态 owner ✅已修复验证
+
+- **子系统**：RAG token chunk A/B evaluation / selection evidence。
+- **问题现象 / 根因**：Phase64.3 canonical report 以六位小数展示 retrieval 指标，仓库此前没有 character/token 同次比较 owner，也没有为 quality red、safety red、provider unavailable、execution error 都保留 create-only 终态证据的 strict schema。若直接比较 `0.022223/0.066667/0.018519` 等展示值，边界舍入可能改变 selection；若把 selection 与 activation 写入同一 artifact，后续 cutover 会反向改写授权证据。
+- **影响**：候选可能因 round drift 被错误选中/拒绝；red/unavailable/error 运行可能无证据；selection hash 可能被 pointer/receipt 字段污染，无法作为 Plan10 独立 activation 的稳定授权输入。
+- **处理状态**：✅ 已修复验证。新增 `rag_token_chunk_ab.v1`：所有命中、MRR、format spread、anchor/locator/fallback、duplicate、chunk/token 比例只保存 raw numerator/denominator 并用 `Fraction` 比较；成本用版本化 `Decimal` basis，六位小数只在 Markdown 投影。固定 14 个门禁精确实现 9/10、1/10、1/45、1/15、1/54、1/50、3/2、5/4 边界，并封存 Phase64.3 三个 hash 与 45/54 case counts。四种终态均写 create-only canonical JSON/MD；只有真实 full-provider `selected_pass` 可额外生成独立 `rag_token_chunk_selection.v1` JSON/MD/hash，schema 不含 activation/pointer/cutover/rollback/history/receipt 字段。
+- **证据**：Phase64.4 Plan09 Task1；`src/rag/evaluation/token_chunk_ab.py`、`src/rag/evaluation/reporting.py`、`tests/eval/test_rag_token_chunk_ab.py`、`evaluation/reports/rag_token_chunk_ab/v1/README.md`；Wave-0 以缺少 module 的 collection error 正确 RED，完成后 `make lint` 通过，精确 report gate 为 `41 passed, 1 warning`。
+- **剩余风险 / 继续入口**：Task2 仍须把 exact contract 接到 production-capable full-provider CLI，并证明 character/token 使用相同 provider/retrieval 配置和隔离 inactive corpus/round owner。Plan10 才执行 live parity/A-B、cutover/rollback/restore 与 receipt chain；当前没有伪造 selected_pass，也没有修改 rollout pointer/history。
+
+## 2026-08-11 — Phase 64.4 Plan 09 Task 2 — Phase64.3 evaluator 在 COW 后缺少无 pointer 副作用的 A/B 运行面 ✅已修复验证
+
+- **子系统**：RAG evaluation / ordinary-ingestion COW / token chunk A/B。
+- **问题现象 / 根因**：Phase64.3 三格式 evaluator 以短事务提交 ingestion/cleanup；Plan08 把 ordinary ingestion 纳入正确的 active-corpus COW 后，直接复用该 evaluator 做 Plan09 A/B 会提交 evaluation tenant 的 rollout pointer/history 变化，而且原 round terminal observation 没有在 job 删除前保留 chunk、duplicate、offline/provider token 与 config fingerprint 原始统计。
+- **影响**：selection 评估可能违反“Plan09 不改 pointer”的授权边界；资源 gate 无法从已清理 round 重建，provider usage 可被不真实地推断或丢失。
+- **处理状态**：✅ 已修复验证。新增 deterministic incumbent/candidate namespace；rollback owner 是独占 `AsyncConnection` 的外层 transaction，内部 evaluator session 使用 `join_transaction_mode="create_savepoint"`，因此 production ingestion/COW 内部 commit 只释放 savepoint，完成/异常最终均 rollback connection transaction，不提交 pointer/history。提交前深审曾发现最初使用 `AsyncSession.begin()` 作为 root 会被 production `session.commit()` 提前结束，已用模拟内部 commit 的回归修正。在 exact-complete job 删除前捕获资源 proof，resume 仅从持久 projection 重算可证明字段，provider usage 不可恢复时明确标 `unavailable`。CLI 前后复验 active incumbent 与 complete inactive token candidate，且 selection 绑定真实 candidate corpus/run/lease/parity hash。
+- **证据**：Phase64.4 Plan09 Task2；`src/rag/evaluation/retrieval_rounds.py`、`src/repositories/rag_evaluation_round_repo.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；scoped gate `118 passed, 1 warning`。
+- **剩余风险 / 继续入口**：Plan09 只交付生产可运行命令与隔离 contract tests，不把 deterministic fixture 当 live evidence。Plan10 必须提供新鲜 live parity 和 complete inactive candidate 后执行命令；真实 selected_pass、cutover/rollback/restore 与 receipt chain 仍由 Plan10 独占。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 1 — activation history 缺少独立 create-only receipt chain ✅已修复验证
+
+- **子系统**：RAG corpus activation / immutable selection evidence / operator reconciliation。
+- **问题现象 / 根因**：Plan08 已把 pointer event 写入 append-only PostgreSQL history，但 `receipt_hash` 因不可变 trigger 与自引用循环保持 NULL；Plan09 的 selection、terminal run、provider parity 又必须保持只读。此前没有一个 owner 能在 DB commit 后把 exact history row、live pointer 与三份上游 artifact 绑定成可独立审计的 receipt，也无法在 DB 已提交但文件写入中断时安全补写。
+- **影响**：cutover / rollback / restore 的 from-to corpus、before-after epoch、actor/time 与 selection/provider evidence 之间缺少不可改写的文件链；若直接回写 history 或覆盖 selection，会破坏 append-only/COW/replay 边界；若普通覆盖文件，重试可能掩盖不一致。
+- **处理状态**：✅ 已修复验证。新增严格 `rag_token_chunk_activation.v1`：以 tenant + 20 位 rollout/history sequence 定址，首条为 `genesis`、后续绑定前一 receipt 文件 hash；receipt 同时封存 canonical DB row hash、event/from/to/before-after epoch、actor/commit time、selection 文件与 payload hash、terminal/parity hash、candidate run/lease、source manifest 与 config。CLI 先结束 activation transaction，再用新 session 重读 live DB、重算三个只读 artifact hash并以临时文件 + hard-link 原子 create-only 落盘。已存在 exact bytes 幂等接受，任何 bytes/history/pointer/artifact mismatch fail closed；缺失文件只按 committed history 顺序确定性 reconciliation，不修改 DB history 或上游 selection/parity。
+- **证据**：Phase64.4 Plan10 Task1；RED commit `d2a698fd` 与本条所在 GREEN commit；`src/rag/activation_receipt.py`、`scripts/reindex_policies.py`、`src/rag/policy_reindex.py`、`tests/rag/test_activation_receipt.py`、`tests/rag/test_policy_reindex.py`、`evaluation/reports/rag_token_chunk_ab/v1/activations/README.md`；完整 `make lint` 通过，scoped gate `20 passed, 1 warning`，CLI help smoke 确认 `activate` / `reconcile-receipts` 已注册。
+- **剩余风险 / 继续入口**：Task2 仍须在真实 evaluation tenant 上用真实 selected_pass artifact 执行三次 pointer event，核对三条 DB history、三份 hash-chain receipt、stale CAS no-op 与 legacy replay；本 Task1 的 deterministic test artifact 不代表 live provider 成功。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 — A/B preflight 把 Phase64.4 head031 误判为旧 schema ✅已修复验证
+
+- **子系统**：RAG full-provider A/B evaluation / database prerequisite boundary。
+- **问题现象 / 根因**：Plan09 A/B 的 `_validate_corpus_pair` 直接复用 Phase64.3 evaluator 的 `_database_prerequisites`；该旧函数为当时 canonical baseline 固定要求 Alembic revision 恰等于 029。Plan10 必须在包含 token corpus/COW 的 031 上执行，因此真实 attempt 1 尚未运行 retrieval 就被 `database_schema` 拒绝并产生 `execution_error`。
+- **影响**：即使 pgvector、evaluation tenant、canonical evidence rollout、complete token candidate 全部健康，也不可能生成真实 selected_pass；若为绕过而放松 Phase64.3 gate，会反向改变已封存 baseline 的运行契约。
+- **处理状态**：✅ 已修复验证。Phase64.3 函数保持不变；A/B 新增局部向上兼容 owner，先执行旧 tenant/evidence检查，只在旧结果含 `database_schema` 且 live DB 同时证明 evaluation rounds、corpus rollout、chunk binding、activation history、pgvector 与 exact `031_phase64_4_policy_corpus_cow` 时移除该单项。其他 missing 原样保留，未来未知 revision 不自动放行。
+- **证据**：Phase64.4 Plan10 Task2；RED commit `f3c85309` 与本条所在修复 commit；`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；RED 为缺少 Phase64.4 compatibility owner，完成后 format/full lint 通过，A/B scoped gate `94 passed, 1 warning`，真实 031 probe 从 `['database_schema']` 变为 `[]`；attempt 1 artifact `runs/3d4dae9c-a692-482d-b172-965edf5890e0.json` 保留且 pointer/history 零漂移。
+- **剩余风险 / 继续入口**：只允许因该已验证实现缺陷启动 attempt 2；若后续得到 genuine `candidate_failed`，必须停止并保留 prior active，不能再以 schema compatibility 为理由重跑或调阈值。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 — rollback-only evaluator 与合法非空 COW baseline 冲突 ✅已修复验证
+
+- **子系统**：RAG full-provider evaluation / append-only corpus COW / transaction isolation。
+- **问题现象 / 根因**：Plan09 rollback wrapper 已保护 outer connection transaction，但 Phase64.3 repository 仍把 current blocks/chunks/jobs 非空视为残留，并在 terminal cleanup DELETE current projection。Plan08 后 evaluation tenant 的 active corpus 合法绑定非空 current projection；DELETE 会破坏 append-only binding/replay，且后续格式不能在同一 root transaction 内证明回到原 baseline。
+- **影响**：真实 A/B attempt 2 在 ingestion 前 `execution_error`；若简单放宽 clean check 或继续 DELETE，可能破坏 active corpus、历史 evidence 与 pointer authority。
+- **处理状态**：✅ 已修复验证。`[Rule 4 - Architectural change]` 经用户明确批准，仅为 `rollback_only=True` 增加 baseline-aware contract：独立只读 session 封存 rollout/history、active corpus/config/manifest、exact current view/jobs、evidence rollout 与 corpus/evidence immutable counts；每个 format 使用独立 outer connection transaction，production commit 只释放 savepoint，terminal repository 只写 rollback-pending proof而不 DELETE；outer rollback 后全新 session 必须字节语义等价重读，只有完全一致才把返回 round 的 post-state/immutable flags 设 true。Phase64.3 non-rollback pre-state、cleanup DELETE 与 resume payload 调用保持原路径。
+- **证据**：Phase64.4 Plan10 Task2；用户 2026-08-11 Rule4 rollback-only baseline 批准；RED `7440b0df`、GREEN `2851d385`；`src/rag/evaluation/retrieval_rounds.py`、`src/repositories/rag_evaluation_round_repo.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；format/full lint，Plan09 `122 passed`、Plan10 `38 passed`，attempt3 前后 live baseline proof 同为 `sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3`。
+- **剩余风险 / 继续入口**：当前 rollback isolation 零漂移已由 live exact proof验证；full-provider run 仍因下条诊断证据缺口无法定位最后 execution_error，本 plan 已耗尽 attempt budget。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 — baseline proof 未规范化 pgvector ndarray ✅已修复验证
+
+- **子系统**：RAG evaluation baseline hashing / PostgreSQL pgvector adapter。
+- **问题现象 / 根因**：新 baseline proof 的 canonical JSON helper 支持 UUID/date/list，但真实 pgvector ORM 返回 NumPy `ndarray`，只读 preflight 因无法序列化 embedding 中止；单元 fixture 的 list 形态未覆盖 driver representation。
+- **影响**：即使 DB/candidate/provider prerequisites 健康，rollback baseline 无法在 live DB 封存，最后 attempt 不应启动。
+- **处理状态**：✅ 已修复验证。只接受带 `tolist()` 且归一结果为 list 的 array-like DB 值，等价 array/list 生成相同 canonical hash；不保存或输出 embedding/content。RED `55d6458d`、GREEN `c4bc6aea`，Plan09 `123 passed`、Plan10 `38 passed`，live baseline capture 与 candidate preflight `missing=[]`。
+- **证据**：Phase64.4 Plan10 Task2；`src/repositories/rag_evaluation_round_repo.py`、`tests/eval/test_rag_retrieval_round_isolation.py`；live PostgreSQL baseline proof `sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3`。
+- **剩余风险 / 继续入口**：当前无此 representation 缺口；未来更换 pgvector adapter 时仍须用 live read-only proof确认 canonical shape。
+
+## 2026-08-11 — Phase 64.4 Plan 10 Task 2 — A/B terminal broad catch 丢失 role-level failure provenance 🔴待立项
+
+- **子系统**：RAG full-provider A/B orchestration / immutable failure reporting。
+- **问题现象 / 根因**：attempt3 run `9aa10545-2350-4053-b4ef-03a57fda0535` 终态只有 `terminal_stage=execution` 与 `provider_execution_failed`；`scripts/eval_rag_token_chunk_ab.py` 在 role run 非完成时先抛 `retrieval_round_incomplete`，随后 broad catch 使用 `_terminal_without_observations`，丢弃已计算的 role rounds/reason codes。
+- **影响**：create-only artifact 能证明“没有 selected_pass”，但不能区分 provider transient、ingestion/retrieval实现错误或 baseline cleanup error；三次上限后无法用 immutable证据裁定是否允许新 attempt，也不能安全声称 genuine candidate quality fail。
+- **处理状态**：🔴 待新 reviewed diagnostic plan。当前不在 attempt 已耗尽后修改 artifact schema或重跑；三份 immutable execution_error report与 prior active corpus全部保留。
+- **证据**：Phase64.4 Plan10 attempt3；artifact JSON SHA `sha256:863a88ec87c575668712e4b56937b45d7d24d9773f0af0dbe8e6b8b89e9d7c49`；selection `30ffe6e0-6f91-4429-91b2-2dee8c20ee73` 不存在；attempt 前后 baseline proof完全相同。
+- **剩余风险 / 继续入口**：用户需决定是否新建诊断/config plan。建议先让 execution-error terminal artifact保留每个已完成/失败 role round的 safe `reason_code` 与 rollback proof，再由新的显式 provider budget决定是否允许额外 attempt；禁止在 Plan10 内第四次执行。
+
+## 2026-08-12 — Phase 64.4 Plan 11 — role failure provenance 与 execution-error bundle 提交点缺失 ✅已修复验证
+
+- **子系统**：RAG full-provider A/B orchestration / rollback isolation / immutable diagnostic publication。
+- **问题现象 / 根因**：Plan10 attempt3 已证实 top-level broad catch 会把 role/format/stage 与 rollback proof 压成 `provider_execution_failed`；旧 run JSON/Markdown 又是顺序发布，没有能同时约束 run 与 diagnostic 四文件的单一 reader-visible 提交点。进程在任一写入/link 边界中断时，消费者无法区分完整证据与 partial bundle。
+- **影响**：无法从不可变证据裁定失败属于 shared preflight、character/token role、ingestion/provider/resource proof 或 post-rollback baseline；partial/mismatched artifact 还可能误导后续 retry owner。该缺口不允许通过第四次 Plan10 provider attempt 试错。
+- **处理状态**：✅ 已修复验证。新增 frozen `SafeRoleFailureV1`，只允许 typed role/round/stage/reason、provider classification、rollback attempted/proved 与安全 hash/count；outer connection rollback 后必须经全新 session baseline 等价证明才传播 `proved=true`，所有 raw exception/trace/provider payload/content/credential/DSN/path 均无序列化入口。`rag_token_chunk_execution_diagnostic.v1` 与旧 `rag_token_chunk_ab.v1` run bytes 分离；四个 canonical 文件先在 per-run staging 写入/fsync，再 create-only link，最后以原子 rename 的 `rag_token_chunk_execution_bundle.v1` manifest 目录作为唯一 bundle commit point。byte-identical partial 可恢复，任一冲突 fail closed；diagnostic 路径不含 selection/activation/pointer/history authority。
+- **证据**：Phase64.4 Plan11；Task1 RED `628ed345`、GREEN `89516464`、Task2 RED `f822880c` 与本条所在 Task2 GREEN commit；`src/rag/evaluation/token_chunk_ab.py`、`src/rag/evaluation/retrieval_rounds.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`、`tests/eval/test_rag_retrieval_round_isolation.py`、`evaluation/reports/rag_token_chunk_ab/v1/diagnostics/README.md`。完整 `make lint` 通过，最终 prescribed gate `166 passed, 1 warning`；fault injection 覆盖 stage file write/fsync、所有 parent/final dir fsync、四个 create-only link、manifest stage/fsync/rename 及 rename 后恢复语义。
+- **剩余风险 / 继续入口**：Plan11 未调用 live provider，不能追溯重建 attempt3 的缺失 role 事实；Plan12 只能在机器预算与 retry matrix 通过后，用新 manifest-committed diagnostic 解释未来 execution error。旧三份 Plan10 run、selection 缺失事实与 active character pointer 均保持不变。
+
+## 2026-08-12 — Phase 64.4 Plan 12 Task 1 — recovery provider budget 与 retry authority 仅靠流程约束 ✅已修复验证
+
+- **子系统**：RAG full-provider A/B recovery / immutable attempt authority / failure retry classification。
+- **问题现象 / 根因**：Plan10 的三次耗尽与新 Plan12 最多两次预算原先只存在于 planning 文本和 immutable run 数量中；入口没有 plan-scoped machine counter，也无法在 provider 前原子绑定 ordinal、run/selection UUID。即使 Plan11 已提供 typed diagnostic，仓库仍没有 closed matrix 区分 genuine candidate/safety stop、manifest-committed transient execution retry、无 sidecar unavailable prerequisite transition 与 ambiguous/implementation-defect stop。
+- **影响**：并发或崩溃 executor 可能越过人工计数，第三次 Plan12 或复用 Plan10 identity 可能在 provider 已调用后才因 artifact conflict 暴露；缺失/不完整 diagnostic、未证明 rollback 或未变化 prerequisite 也可能被错误当成 retry authority。
+- **处理状态**：✅ 已修复验证。新增 frozen `rag_token_chunk_recovery_budget.v1`，固定 Plan12 identity、cap=2、三份 Plan10 terminal hash、live baseline proof、candidate/fresh-parity identity、sealed input、provider/model 与 `512/384/48`；manifest 和 `rag_token_chunk_recovery_attempt.v1` ordinal 使用 fsynced tempfile + create-only hard-link。reservation 在 provider factory 前提交，crash 消耗 slot，并发只有一个 ordinal winner；Plan10 identity、重复 UUID 和第三次 Plan12 均在 provider 构造前拒绝。retry matrix 仅允许 rollback proved 的 `retrieval_resource_proof/provider_request_failed` committed bundle，或无任何 sidecar且 prerequisite hash 已变化的 allowlisted unavailable；selected/candidate_failed/safety/unknown/missing/mismatch/rollback-unproved/resource/setup defect 全部 stop。
+- **证据**：Phase64.4 Plan12 Task1；RED `913aece8` 与本条所在 GREEN commit；`src/rag/evaluation/token_chunk_ab.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`、`evaluation/reports/rag_token_chunk_ab/v1/recovery-budgets/README.md`；Task1 focused GREEN `70 passed, 1 warning`，最终 full lint / prescribed gate 见 Plan12 SUMMARY。
+- **剩余风险 / 继续入口**：Task1 只建立 authority，不生成 live manifest/reservation，不调用 provider。Task2 必须先严格复核 Plan10 artifacts、evaluation-only DB baseline、inactive candidate 与 fresh parity，再用该入口保留 ordinal1；任何真实非通过按 closed matrix 停止，不能在本 plan 修 Python、阈值、参数或旧 evidence。
+
+## 2026-08-12 — Phase 64.4 Plan 12 Task 2 — immutable candidate 精确绑定旧 parity run hash，fresh parity 无法通过 preflight 🔴待立项
+
+- **子系统**：RAG token candidate identity / provider parity freshness / full-provider A/B recovery。
+- **问题现象 / 根因**：Plan10 complete inactive candidate 的 state artifact 与 DB corpus row 都精确绑定旧 parity report SHA `sha256:7ed994e05e52df4c93ef831669bcd120c731ab689f561c6c699d44ef239d33c5`。Plan12 按契约生成 fresh `passed/exact_match` parity run `c760c106-7e85-440e-a56d-ed7e00eb2fb7`（SHA `sha256:166aba9633018ac529ab33c7dfe65126f2850ecf275987f46cfad9eb984ec1de`）；两次的 config fingerprint、probe fixture SHA 与 submitted-content SHA 完全相同，但 create-only run UUID/timestamp 使 report SHA 必然不同。`scripts/eval_rag_token_chunk_ab.py::_validate_corpus_pair` 同时要求 candidate DB hash、immutable identity hash和 `expected_parity_hash` 精确相等，因此 unchanged candidate + mandatory fresh parity 组合必然返回 `candidate_identity_invalid`。
+- **影响**：即使 provider parity、evaluation-only PostgreSQL prerequisites、Plan10 baseline 和 candidate completeness 全部健康，也无法合法进入 Plan12 reserve-before-provider 边界。若就地改 candidate state/DB 会破坏 complete candidate 与旧 artifact 的 immutable identity；若在本 plan 放松 Python gate，则违反“verified defect 必须 stop、单独 reviewed repair”以及 Task2 no-Python 约束。
+- **处理状态**：🔴 待单独 reviewed bounded repair plan。Plan12 Task2 未修改 Python、DB、candidate、阈值、`512/384/48`、sealed hashes、provider/model 或任何旧 artifact；未创建 recovery budget manifest，未保留 ordinal，未调用 full-provider A/B。fresh parity report 如实保留为新 immutable prerequisite evidence。
+- **证据**：candidate state `evaluation/reports/rag_token_chunk_ab/v1/candidates/6ad12487-4769-48eb-8b0a-5e7efbeeccf7/06-complete.json` SHA `sha256:e643a58b6f6b195c6e6c64625efa1d44290a35f1159416a33488c4bebab4e167`；candidate `b293e0b4-ada6-4165-8e2f-4f1739c88fdf` complete/inactive，projection `3/158/60`；fresh parity report path under config `925446...584` / run `c760c106...2fb7`；read-only `_validate_corpus_pair(... expected_parity_hash=fresh_sha)` 得到 `ValueError:candidate_identity_invalid`；budget manifest absent、reserved slots `0/2`。
+- **剩余风险 / 继续入口**：新 plan 必须在不改写旧 evidence 的前提下明确 freshness 与 build-identity 的边界，例如新增独立的 fresh runtime parity binding/proof，或重建一个绑定 fresh report 的全新 candidate generation；不得静默把 exact report hash 降级成宽松字符串比较。修复需先补 RED，证明旧 candidate replay identity仍严格、fresh equivalent parity可授权新运行、parity config/content drift继续 fail closed；之后才能重新评审是否使用仍剩余的 2/2 Plan12 slots。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 1 — candidate DB commit 与 state artifact 发布之间缺少可恢复身份 ✅已修复验证
+
+- **子系统**：RAG policy reindex / candidate identity / crash-safe filesystem authority。
+- **问题现象 / 根因**：旧 `reindex_policies.py` 在 claim/build/validate transaction 提交后才用普通 `Path.open("x")` 写 state；进程在 DB commit 与文件完成之间退出时，只剩 DB current row，而 CLI 只能从旧 state 恢复并可能重新生成 run token/lease。state 写入也没有 staged file、file/directory fsync、原子 no-replace、exact replay 或截断冲突语义。
+- **影响**：同一次 rebuild 可能失去唯一恢复入口，人工重跑存在创建第二 candidate、续租或用 partial state 驱动后续 provider 的风险；descriptor/source/evidence/fresh parity identity 没有共同的 create-only forcing function。
+- **处理状态**：✅ 已修复验证。新增 frozen `policy_reindex_recovery_descriptor.v1`，在 claim 前固定 tenant/run/generation/owner、最长两小时绝对 lease、完整 config、fresh parity file/config/probe/content/capture/expiry、source manifest/current corpus/epoch 与 evidence rollout，并用 canonical payload hash自校验。`claim_from_descriptor` 不生成 UUID/lease，DB claim proof封存 descriptor/probe/content hash；`recover_identity` 只锁 exact tenant/run，要求唯一 row、descriptor、config、manifest/pointer/evidence 全匹配，返回 current identity而不 transition/renew/create。descriptor/state/legacy state writer统一使用 staging + file/directory fsync + hard-link no-replace；descriptor existing 必拒绝，state exact bytes幂等，截断或冲突 fail closed。claim/build/validate DB commit 后未发 state 的 fault tests均由同一 descriptor恢复 exact corpus/run/state_version。
+- **证据**：Phase64.4 Plan13 Task1；RED `8b2551e7` 与本条所在 GREEN commit；`src/rag/policy_reindex_artifacts.py`、`src/rag/policy_reindex.py`、`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex_artifacts.py`、`tests/rag/test_policy_reindex.py`、`evaluation/reports/rag_token_chunk_ab/v1/candidates/README.md`。RED 为缺少新 artifacts module 的预期 2 个 collection errors；完成后 full lint 与 deterministic PostgreSQL/fault gate 通过，未调用 live provider或修改 live evaluation DB。
+- **剩余风险 / 继续入口**：Task2 仍须把每文档 provider 执行次数变成 reserve-before-provider 的 create-only 机器预算；Plan13 只实现 deterministic contract，Plan15 之前不得 claim live candidate或调用 provider。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 2 — candidate build provider 执行预算仅靠流程约束 ✅已修复验证
+
+- **子系统**：RAG policy candidate rebuild / crash recovery / provider execution authority。
+- **问题现象 / 根因**：旧 reviewed candidate 流程没有 descriptor-bound per-document machine counter；并发 executor、provider 后崩溃或 DB commit/state publication 之间退出时，人工重跑无法证明本 document 已执行多少次，也没有 closed safe result matrix 决定第二次是否允许。
+- **影响**：同一 document 可能无限重复调用 provider，或在 state/candidate 已前进后再次执行；alternate root、过期 lease/parity 与 config/source/response failure 也可能在 provider 构造后才暴露。
+- **处理状态**：✅ 已修复验证。新增 create-only `policy_candidate_build_budget.v1`，固定 ordered document hashes 与 `max_build_executions_per_document=2`；每个 ordinal 在 provider client 构造前用 staged/fsynced/hard-link no-replace 预留，crash 消耗 ordinal，并发只有一个 winner。第二次只接受同 document/state/artifact/count 未变化且第一结果为 `provider_unavailable` 或 `provider_transient`；config/parity/source/response/projection、缺失 result、state advance、第三次、alternate root 和 expiry 全部 fail closed。success 必须精确前进一个 document 并绑定 post-state artifact；recover-state 可在 DB 已提交但 post-state/result 未发布时确定性补齐 success evidence，validate-reviewed 要求每文档恰一份 success。
+- **证据**：Phase64.4 Plan13 Task2；RED `8d5d6cc4` 与本条所在 GREEN 提交；`src/rag/policy_reindex_artifacts.py`、`src/rag/policy_reindex.py`、`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex_artifacts.py`、`tests/rag/test_policy_reindex.py`。deterministic concurrency/crash/fault/retry/refusal tests 与精确 PostgreSQL gate通过，未调用 live provider或修改 live evaluation DB。
+- **剩余风险 / 继续入口**：本 plan 只建立 deterministic authority；真实 candidate claim/provider build 仍属于后续 reviewed plan，必须使用新 descriptor/root，不能把旧 unreviewed CLI output 或本地 fake test 当成 live success。
+
+## 2026-08-12 — Phase 64.4 Plan 13 Task 2 — MOCA 外层 retry 与 OpenAI SDK 隐式 retry 嵌套 ✅已修复验证
+
+- **子系统**：RAG embedding provider client / retry ownership。
+- **问题现象 / 根因**：`EmbeddingService.max_retries` 已实现 MOCA 外层重试，但 `_get_client()` 构造 `AsyncOpenAI` 时未传 `max_retries`；openai-python 默认还会进行 SDK 内部重试，因此 `EmbeddingService(max_retries=1)` 不能兑现“每 batch 单次 HTTP request”的 build-budget 语义。
+- **影响**：一次 machine reservation 可能隐式产生多次 provider request，外层计数、per-document cap 与实际调用数失真；provider transient 时风险最高。
+- **处理状态**：✅ 已修复验证。按 Plan13 执行裁决的 Rule 2 correctness deviation，将 `AsyncOpenAI(..., max_retries=0)` 固定为无 SDK 隐式 retry，保留 MOCA 外层默认 `max_retries=3` 生产语义；reviewed build 显式使用外层 `max_retries=1`。新增真实 client 可观察断言 `client.max_retries == 0`，并用 fake client 证明外层 3 次行为及 `request_attempt_count` 不变。
+- **证据**：Phase64.4 Plan13 Task2；`src/rag/embedder.py`、`tests/test_embedder.py`；openai-python 官方文档确认默认 retry 与 `max_retries=0` 禁用方式；本条所在 GREEN 提交，format/full lint/精确三文件 gate通过。
+- **剩余风险 / 继续入口**：该修复不新增配置或阈值；未来若替换 provider SDK，仍须在 client 层显式关闭隐式 retry，并由 MOCA 单一 authority 计数。真实 provider 行为只能由后续获批 live plan 验证。
+
+## 2026-08-12 — Phase 64.4 Plan 14 Task 1 — A-B recovery budget root 与 candidate state 仅受 caller 参数约束 ✅已修复验证
+
+- **子系统**：RAG token-chunk A-B recovery authority / candidate lineage。
+- **问题现象 / 根因**：仓库核对确认 production `eval_rag_token_chunk_ab.py` 直接接受任意 `--output-root`，而 `reserve_recovery_attempt` 只检查 manifest 位于 caller 所给 root 下；复制整个 manifest 到另一个 root 后可重新得到 `01/02` namespace。reservation 同时只信任 caller 给出的 `prerequisite_state_sha256`，没有重新哈希并 strict-load Plan13 canonical candidate state，也没有逐字段核对 corpus/run/owner/config/parity/source/evidence identity。
+- **影响**：攻击者或误操作可通过 alternate/copied/symlink root 重置 cap=2，或把 unrelated/stale candidate state 与一个合法 manifest 组合后进入 provider-capable路径；现有 selection 也尚未携带该 ordinal/candidate authority。
+- **处理状态**：✅ 已加入 repository canonical resolved root 与 symlink/alternate/outside refusal；production CLI 在任何 provider-capable run 前校验唯一 root。manifest 现绑定 canonical candidate state path、state/descriptor file SHA、corpus/run/owner/version/config、source manifest/current corpus/epoch、evidence rollout 与 fresh parity全身份；每次 reserve 都重新哈希、经 Plan13 descriptor/state strict loader复读，并逐字段核对 fresh passed parity后才发布 ordinal。temporary root 仅保留在 unit store API。
+- **证据**：Phase64.4 Plan14 Task1；RED `2b0f56d5` 与本条所在 GREEN 提交；`src/rag/evaluation/token_chunk_ab.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`、recovery budget README。RED 用有效入口 collection 失败于缺少 `canonical_recovery_root`；完成后 format/full lint 与精确 gate `163 passed, 1 warning`。全程未调用 provider、DB、live candidate/A-B slot 或 pointer/history。
+- **剩余风险 / 继续入口**：Task1 必须保持 temporary roots 仅供 unit store API 注入，production CLI只能接受仓库唯一 canonical root；Task2 前 selection/activation authority仍未闭合，不能据此执行 live selection 或 activation。
+
+## 2026-08-12 — Phase 64.4 Plan 14 Task 2 — selection 到 activation 未绑定 recovery ordinal/candidate authority ✅已修复验证
+
+- **子系统**：RAG token-chunk recovery selection / activation authority / pointer CAS。
+- **问题现象 / 根因**：仓库核对确认 `load_activation_authority` 当前只加载并交叉验证 selection、terminal run 与 provider parity；`ImmutableSelectionDecisionV1` 不含 recovery authorization SHA，`PolicyReindexService._validate_selection_proof` 因而可让真实 selected cutover/restore 在不知道 canonical budget manifest、exact ordinal reservation 与 exact candidate state file 的情况下进入 CAS。
+- **影响**：即使 Plan14 Task1 已把 provider 前的两槽预算绑定到唯一 root/candidate，后续 selection artifact 仍可脱离该 reservation lineage；伪造或复制的 selection/terminal/parity 组合无法在 pointer mutation 前证明它来自一个合法未超额 ordinal。
+- **处理状态**：✅ 已修复验证。新增 separate create-only `rag_token_chunk_recovery_authorization.v1`，只在 strict `selected_pass` lineage 后发布，并可对 existing exact bytes 幂等 reconcile；它绑定 canonical manifest path/SHA、ordinal reservation path/SHA、exact candidate state/corpus/run/owner/config/parity/source/evidence、terminal 与 selection ID/SHA。activation loader 重读全链并在 production 校验仓库 canonical root，project authorization file SHA；真实 selection 类型缺少有效 SHA 时在 pointer/history CAS 前拒绝。Plan08 fixture 仍是独立 dataclass/schema，不借真实路径 bypass。
+- **证据**：Phase64.4 Plan14 Task2；RED `def54dcc` 与本条所在 GREEN commit；`src/rag/evaluation/token_chunk_ab.py`、`scripts/eval_rag_token_chunk_ab.py`、`src/rag/activation_receipt.py`、`src/rag/policy_reindex.py`、`scripts/reindex_policies.py`、`tests/eval/test_rag_token_chunk_ab.py`、`tests/rag/test_activation_receipt.py`、`tests/rag/test_policy_reindex.py`；最终 `make format`、完整 `make lint` 与 prescribed gate `114 passed, 1 warning`。
+- **剩余风险 / 继续入口**：本 Task2 仅验证 deterministic artifact/PostgreSQL contract，未创建 live authorization、未激活 pointer；后续 live plan 必须从 canonical root 提供全部七条 artifact paths，不能把 unit temporary root 或任意 SHA字符串当作 provider/activation 成功证据。
+
+## 2026-08-12 — Phase 64.4 Plan 15 / Plan 16 — reviewed claim 只发布 state v2，与 build 的连续 state artifact 契约冲突 ✅已修复验证
+
+- **子系统**：RAG policy candidate rebuild / crash-safe state publication / provider execution authority。
+- **问题现象 / 根因**：仓库 live 核对确认 `scripts/reindex_policies.py::_claim_reviewed`（约 286 行）在一个 DB transaction 内完成 claim v1 与 resume v2，提交后仅调用一次 `write_policy_reindex_state_create_only(owner, ...)`，所以新 candidate artifact 只有 `states/00000002.json`。同文件 `_latest_reviewed_state_artifact`（约 308 行）却把当前目录文件数映射为必须从 `00000001.json` 开始连续，并在缺 v1 时抛出 `reindex_state_invalid`。Plan13 deterministic tests验证了单状态 exact replay/fault recovery，但没有覆盖真实 `claim-reviewed` 产物随后直接进入 `build-next-reviewed` 的组合路径。
+- **影响**：经过 reviewed descriptor 成功 claim 的合法 candidate 无法进入第一份文档的 reserve-before-provider 边界；若 operator 擅自补 compatibility state、跳号或重新 claim，会破坏 create-only authority、可能制造第二 candidate，且让 per-document执行预算失去可信起点。
+- **处理状态**：✅ 已完成 deterministic 修复验证。Plan15 仍保留原始 fail-closed 证据；Plan16 将 future `claim-reviewed` 拆为 claimed/v1 commit→publish 与独立 recover/resume building/v2 commit→publish，四个 commit/publication fault boundary 重入均收敛到同一 row 与连续 v1/v2。`recover-state` 只在 current DB 与 canonical v2 精确为同 descriptor/run/corpus 的 building/v2/index0 时，允许把仅 state/version 改为 claimed/v1 的唯一逻辑前驱补齐；v3+、非零 index、terminal 或任一 identity drift 全拒绝。命令内部还在任何 artifact write 前重查绝对 lease/parity。
+- **证据**：Phase64.4 Plan15/16；descriptor commit `38378cc1`、claim artifact commit `3d01f29c`；Plan16 RED `9b4c9e9b`；`scripts/reindex_policies.py`、`src/rag/policy_reindex_artifacts.py`、`tests/rag/test_policy_reindex.py`、`tests/rag/test_policy_reindex_artifacts.py`；`make format`、完整 `make lint`、精确 gate `53 passed, 1 warning`。另修复 identical replay 两个 fast path 未 fsync target parent 的耐久性窗口。
+- **剩余风险 / 继续入口**：deterministic 代码已修；live v1 reconcile 仍必须在 Plan16 Task2 重新证明 lease/parity/source/evidence/DB/zero-budget 后执行。若 authority 过期，不得写 v1、续租、rebind、创建第二 candidate或进入 provider/A-B。
+
+## 2026-08-12 — Phase 64.4 Plan 17 Task 1 — canonical recovery manifest 缺少生产签发边界与当前时间 authority gate ✅已修复验证
+
+- **子系统**：RAG token-chunk A-B recovery manifest / live authority / provider forcing boundary。
+- **问题现象 / 根因**：Plan14 已定义 fixed cap=2 schema、reservation 与 canonical root，但仓库没有生产命令从 exact complete candidate + fresh parity + live DB authority 签发唯一 manifest；正常 A-B 仍用可由 `--generated-at` 回填的时间做 candidate/parity验证，existing manifest、reservation 与 provider construction 也没有共同的绝对 lease/parity 到期强制点。
+- **影响**：operator 无法通过受控入口创建 canonical manifest；过期 authority 可能通过 backdated evidence timestamp、既有 manifest fast path 或 provider 前长链路被继续使用，building candidate也缺少明确的签发拒绝 owner。
+- **处理状态**：✅ 已修复验证。新增 domain `issue_canonical_recovery_budget_manifest` 与 production `issue-recovery-budget`；入口内部捕获一个 UTC instant，不接受 authority timestamp 参数，严格加载 canonical descriptor/state/parity并复核 active incumbent、source manifest、rollout/evidence version、candidate row/projection/proofs、Plan10 与 Phase64.3 sealed inputs。签发、existing manifest reconcile、每次 reservation 与 provider construction 前均要求 `checked_at` 严格早于 descriptor lease和parity expiry；相等即 `recovery_authority_expired`。byte-identical manifest replay重新 fsync parent，冲突 bytes fail closed。
+- **证据**：Plan17 RED `d643a13d`；`src/rag/evaluation/token_chunk_ab.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`、两份 recovery README；最小 RED collection 因缺少新 owner失败，最小 GREEN `4 passed`，完整单文件回归 `85 passed, 1 warning`，最终 full lint/prescribed gate见 Plan17 SUMMARY。
+- **剩余风险 / 继续入口**：Task1没有生成 repository live manifest、reservation或调用 provider。Plan17 Task2只能对保留的 building/v2/index0候选执行签发拒绝验证；若绝对 lease已到期，只允许只读证明 `recovery_authority_expired` 和零副作用，不续租、不新建候选。后续 build/issuance/A-B仍由已冻结的 Plan18独占。
+
+## 2026-08-12 — Phase 64.4 Plan 17 Task 2 — 保留候选 authority 在签发验证前到期 ⚠️修复已验证但 live closeout 受阻
+
+- **子系统**：RAG token candidate recovery / absolute lease / live A-B closeout。
+- **问题现象 / 根因**：保留 descriptor 的不可续租绝对 lease 为 `2026-08-12T04:13:52.208631Z`；Task1完成完整 lint与 `198 passed` deterministic gate后，UTC已到 `04:14:12Z`。同一 canonical state/parity 的只读 strict issuance loader按新 forcing function返回 `recovery_authority_expired`，早于 candidate completeness、manifest、reservation或provider边界。
+- **影响**：当前 building/v2/index0候选不能签发 cap=2 manifest，也不能继续 Plan18 build/A-B。既有 phase计划数量冻结为20；本条不扩展计划、不续租、不新建候选，也不把过期 authority误报成candidate quality/provider结果。
+- **处理状态**：⚠️ deterministic修复与过期拒绝已验证，live closeout停在安全checkpoint。未调用production `issue-recovery-budget`，只读 loader没有写入能力；manifest absent，candidate build attempts/results `0/0`，A-B reservations/runs added/selections/authorizations/activations均为0，provider调用为0。candidate与active pointer/history/current view/evidence rollout无变化。
+- **证据**：UTC `2026-08-12T04:14:12Z`；safe code `recovery_authority_expired`；descriptor/v1/v2/build-manifest SHA依次仍为 `0c1734…82a`、`7e0dc9…d7dd`、`66ea0d…f84`、`23e5ea…4a8`；candidate `64932871…151f`仍 `building/v2/index0`、projection `0/0/0`；active `55d651e5…e007`、epoch/history `4/4`、current `3/158/13`、jobs `4`、evidence rollout `1`，read-only proof `sha256:dbefab2e86a5b8cd44a24ab1ed0f48a8f858534f78e6b10f18b2850d21051a0b` 前后相同。
+- **剩余风险 / 继续入口**：当前授权边界禁止Plan18继续。下一步必须由orchestrator依据已冻结Plans18-20与用户新授权裁决如何结束phase；本Plan17不得续租、rebind、生成第二candidate或追加Plan21。
+
+## 2026-08-12 — Phase 64.4 CR-01 — reviewed candidate budget 可被复制 artifact root 重置 ✅已修复验证
+
+- **子系统**：RAG policy candidate rebuild / provider execution budget authority。
+- **问题现象 / 根因**：`claim-reviewed`、`recover-state`、`build-next-reviewed`、`validate-reviewed` 原先把 caller 的 `--artifact-root` 同时当作 descriptor/state/budget/reservation authority；完整复制自洽目录即可获得新的 per-document ordinal namespace，重置最多两次 provider execution 的安全边界。
+- **影响**：allowlisted transient/unavailable 或 provider 后 crash 可通过重复复制目录无限重新 reserve，并在同一 DB candidate 上反复构造 provider，机器预算不再可强制。
+- **处理状态**：✅ 已修复验证。production reviewed 入口先从 resolved repository root 推导唯一 `evaluation/reports/rag_token_chunk_ab/v1/candidates`，要求 caller 路径逐字归一后等于 canonical root，并拒绝 root 到 repository boundary 的任何 symlink component；拒绝发生在 descriptor/state/budget load、reservation 与 provider factory 之前。临时 canonical root 只保留为 argparse 不可选择的测试内部注入。
+- **证据**：Phase64.4 review CR-01；`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`；copied-tree 与 symlink-root adversarial gate `1 passed`，reservation/provider 均为 0，Ruff scoped check通过。
+- **剩余风险 / 继续入口**：尚未执行 live candidate/provider，也不得用本 deterministic 修复恢复已过期 authority；Plans18-20 仍未执行。共享 PostgreSQL schema 的并发 fixture 冲突另记 `LOCAL-VALIDATION-ISSUES.md`，不作为本安全边界失败。
+
+## 2026-08-12 — Phase 64.4 WR-01 — clean/new tenant 缺少首个 policy corpus authority ✅已修复验证
+
+- **子系统**：RAG ordinary ingestion / tenant corpus bootstrap / demo seed。
+- **问题现象 / 根因**：migration 030 只遍历已有 `policy_documents` 的 tenant；clean install 与 migration 后新建 tenant 没有 manifest/corpus/rollout/history。ordinary ingestion 又在解析前要求 active scope、写入时要求 locked rollout/manifest，`seed_demo` 同样只接受已有 active projection，形成首文档 bootstrap deadlock。
+- **影响**：全新安装、零文档 tenant、未来 tenant 均无法通过受支持入口写入第一份 policy；并发首次写入若各自临时建 authority，还可能破坏 tenant isolation 或产生多个 epoch-1 pointer。
+- **处理状态**：✅ 已修复验证。migration 改为遍历全部既有 tenant并把完整性核对从 `policy_documents` 驱动改为 `tenants LEFT JOIN`。runtime repository 新增 tenant advisory transaction lock 下的 idempotent empty bootstrap：仅在 manifest/corpus/rollout 全空时创建 revision-1 empty manifest、complete character corpus、epoch-1 rollout 与唯一 bootstrap history；已有 rollout原样保留，残缺 authority拒绝。ordinary ingestion在 parser/provider前调用，seed_demo复用同一 owner且允许 empty active projection。
+- **证据**：Phase64.4 review WR-01；`src/db/migrations/versions/030_phase64_4_token_corpora.py`、`src/repositories/policy_corpus_repo.py`、`src/rag/ingestion.py`、`scripts/seed_demo.py`、三组对应测试；static migration、真实 PostgreSQL migration、clean seed、empty first-ingest、concurrent first-ingest gates分别通过。
+- **剩余风险 / 继续入口**：initializer只创建 character-compatible empty authority，不改变已有 active config，也不推断/修补残缺历史。未运行 live ingestion、provider或 live DB mutation；Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 WR-02 — reviewed claim transaction B 使用 descriptor seal time 回填授权 ✅已修复验证
+
+- **子系统**：RAG policy reindex / recovery identity / lease-parity authorization。
+- **问题现象 / 根因**：`claim-reviewed` 的 transaction A 用当前时间 claim/commit，但 transaction B 把 `descriptor.sealed_at` 同时传给 `recover_identity` 与 `resume`；`recover_identity` 又只规范化后丢弃 `now`。authority 若在 A/B 之间到期，backdated timestamp仍可把 DB row推进 building/v2并发布 budget。
+- **影响**：不可续租的 lease或 provider parity 已失效后，reviewed composition仍能完成，后续 provider budget artifacts看似获合法授权。
+- **处理状态**：✅ 已修复验证。transaction A 及 v1 publication完成后，CLI重新采一个 current UTC instant；必须严格早于 lease/parity expiry才允许打开 transaction B，并把同一 instant传给 recovery/resume。`PolicyReindexService.recover_identity` 自身也对 lease/parity执行 `checked_at >= expiry`拒绝，不依赖 CLI防线。
+- **证据**：Phase64.4 review WR-02；`scripts/reindex_policies.py`、`src/rag/policy_reindex.py`、`tests/rag/test_policy_reindex.py`；A/B 间 lease equality fault证明 DB 保持 claimed/v1、仅 v1存在、v2/budget不存在、resume调用为0；service lease/parity expiry两条 gate均返回对应 safe code。
+- **剩余风险 / 继续入口**：该修复不续租、不改变 descriptor、不构造 provider，也未作用于已过期 live candidate。Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 WR-03 — parity expiry 等号仍被当作 fresh ✅已修复验证
+
+- **子系统**：RAG policy reindex / provider parity freshness。
+- **问题现象 / 根因**：统一 candidate lock gate 对 lease使用 `lease_expires_at <= checked_at`，对 parity却只在 `checked_at > parity_expires_at` 时拒绝，导致等于 expiry 的瞬间仍可授权 lifecycle transition与 build/validation。
+- **影响**：违反所有 authorization boundary 必须严格早于 expiry 的契约；精确 equality 可让已过期 parity驱动 provider-capable work。
+- **处理状态**：✅ 已修复验证。parity gate改为 `checked_at >= parity_expires_at` 一律返回 `parity_stale`。
+- **证据**：Phase64.4 review WR-03；`src/rag/policy_reindex.py`、`tests/rag/test_policy_reindex.py`；同一 equality instant 覆盖 resume、prepare、build、validate，build拒绝时 embedder calls 为0，scoped gate通过。
+- **剩余风险 / 继续入口**：未修改 lease/parity时长、descriptor或 provider配置；未触碰 live candidate。Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 WR-04 — parity/activation create-only link 未持久化目录项 ✅已修复验证
+
+- **子系统**：RAG provider parity authority / activation committed-history receipt。
+- **问题现象 / 根因**：两类 writer均 fsync temporary file后以 hard link create-only发布，但成功返回前没有 fsync destination parent；activation existing identical reconciliation也直接返回。新建目录链只用 `mkdir(parents=True)`，没有逐级持久化目录项。
+- **影响**：调用方已观察成功后若主机崩溃，authority/evidence filename仍可能丢失；activation receipt reconciliation可能在相同窗口反复报告成功但证据目录项未 durable。
+- **处理状态**：✅ 已修复验证。新目录链逐级创建并 fsync 每一级父目录；link成功后在最终 destination parent fsync前清理 temporary link，再 fsync parent才返回。activation exact-byte replay同样 fsync parent。两类 writer暴露仅供 deterministic fault test 的 `published` 与 `parent_fsynced` 注入边界。
+- **证据**：Phase64.4 review WR-04；`src/rag/tokenizer_parity.py`、`src/rag/activation_receipt.py` 与对应 tests；四个 link/fsync fault cases通过，完整两文件 gate `17 passed, 1 warning`，full lint通过。
+- **剩余风险 / 继续入口**：fault tests验证 POSIX file/directory fsync与 hard-link顺序，不代表 live filesystem/power-loss演练；未创建或修改 repository live parity/activation evidence。Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 review iteration 2 CR-01 — canonical root 下 descendant symlink 与 namespace TOCTOU ✅已修复验证
+
+- **子系统**：RAG policy candidate rebuild / reviewed artifact authority / provider execution budget。
+- **问题现象 / 根因**：iteration 1 已把 production root 固定为仓库路径并拒绝 root/ancestor symlink，但 `tenants/<tenant>/runs/<run>` 仍由普通 `Path` 跟随；入口校验后替换 descendant directory 也可让 descriptor/state/budget/reservation I/O 转向 copied tree。
+- **影响**：攻击者或误操作可绕开唯一 per-document ordinal namespace，在同一 DB candidate 上读取或发布替代 budget/attempt evidence；一次性路径检查还留下 check-to-use 窗口。
+- **处理状态**：✅ 已修复验证。reviewed command 全生命周期固定 canonical root 与 exact run dirfd，以 `O_NOFOLLOW` 逐级解析四个 descendant，所有 artifact I/O 改为相对该句柄的 no-follow read/list/create-only publish；每次 I/O 及 reservation 后/provider construction 前重新打开 canonical chain并核对 exact run inode。临时 root仍只能通过 argparse 不可达的测试内部属性注入。
+- **证据**：Phase64.4 review iteration 2 CR-01；`src/rag/policy_reindex_artifacts.py`、`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`、`tests/rag/test_policy_reindex_artifacts.py`；四级 descendant symlink加 open 后 exact-run substitution gate `5 passed, 1 warning`，reservation/provider均为0。
+- **剩余风险 / 继续入口**：这是本地 POSIX dirfd/no-follow deterministic gate，不替代真实 power-loss演练；未读取或修改 repository live candidate、未调用 provider/新建 lease/candidate，Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 review iteration 2 WR-01 — initial parity/claim expiry equality仍可授权 ✅已修复验证
+
+- **子系统**：RAG tokenizer provider parity / policy reindex initial claim authority。
+- **问题现象 / 根因**：`require_fresh_provider_parity` 与 `PolicyReindexService._validate_claim` 均以 `>` 判断 age；current/age恰等于 expiry/maximum age 时仍视为 fresh。ordinary CLI 使用该结果继续 claim，reviewed claim也未在 transaction A 前固定 current UTC。
+- **影响**：已到绝对 expiry 的 provider parity可创建 ordinary/reviewed candidate；reviewed路径还可能发布 canonical v1，形成不应存在的恢复证据。
+- **处理状态**：✅ 已修复验证。loader与 service claim统一使用 `>=`拒绝；ordinary/reviewed入口各自捕获内部 current UTC并传入 service，reviewed在 initial DB transaction及v1前强制 lease/parity严格未到期。direct/ordinary/reviewed equality均证明无新增 candidate row，reviewed无v1。
+- **证据**：Phase64.4 review iteration 2 WR-01；`src/rag/tokenizer_parity.py`、`src/rag/policy_reindex.py`、`scripts/reindex_policies.py`、对应两份 tests；最小 RED `4 failed`、GREEN `4 passed`、完整两文件 gate `51 passed, 1 warning`。
+- **剩余风险 / 继续入口**：没有改变24小时 parity window、lease期限或 provider配置；未触碰 live DB/artifact，Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 full-suite repair — corpus bootstrap破坏 pre-030 staged migration executability ✅已修复验证
+
+- **子系统**：RAG ingestion / immutable evidence rollout / policy corpus schema boundary。
+- **问题现象 / 根因**：first-corpus bootstrap与active COW引入后，current ingestion无条件访问migration030 corpus authority；同一module的current ORM也自动携带030新增audit列，Phase64.2 revision025/028 staged tests无法再运行。immutable evidence backfill亦无条件改为active-corpus projection，但历史revision不存在该pointer。
+- **影响**：025→028 的真实部署cutover、dual-write与retryable quarantine演练失效；这不是允许当前schema回退到无authority读取的理由，而是migration-stage runtime seam缺失。
+- **处理状态**：✅ 已修复验证。table existence为false时只启用包含revision025已有列的窄四表projection与Phase64.2全tenant head路径；table存在时仍走bootstrap、active scope、bindings/COW，未弱化当前active-config authority或tenant isolation。
+- **证据**：full suite `11 failed, 4864 passed, 4 skipped`中的两条Phase64.2 failures；`src/db/pre_token_corpus_models.py`、`src/rag/ingestion.py`、`src/repositories/evidence_version_repo.py`、`src/repositories/policy_corpus_repo.py`、目标integration test；精确GREEN `2 passed, 11 warnings`，full lint PASS。
+- **剩余风险 / 继续入口**：compat seam仅支持测试覆盖的revision025/028 ingestion/evidence rollout，不扩展delete/search或其他历史revision；current migration030+仍是唯一production authority。未运行live migration或写live DB，Plans18-20仍未执行。
+
+## 2026-08-12 — Phase 64.4 full-suite repair — legacy检索fixture未表达active corpus authority ✅已修复验证
+
+- **子系统**：RAG retrieval / canonical evidence / approval graph test fixtures。
+- **问题现象 / 根因**：六条真实DB集成测试只建立current document/chunk与部分immutable identity，未建立Phase64.4要求的active character corpus及bindings；active-scoped repository因此正确返回无evidence，连带高风险approval graph不再进入approval。
+- **影响**：测试fixture仍假设裸current rows具有读authority，无法验证当前active-corpus契约，并在full suite造成6条有效回归失败。
+- **处理状态**：✅ 已修复验证。提取既有character corpus test helper为共享fixture，exact immutable binding存在时复用，否则创建；三个seed入口显式建立tenant active rollout和document/chunk bindings，production fail-closed authority保持不变。
+- **证据**：Phase64.4 review iteration 2 full-suite repair；`tests/policy_corpus_helpers.py`、`tests/conftest.py`、`tests/knowledge/test_service.py`、`tests/test_search_integration.py`、`tests/knowledge/test_hybrid_retrieval.py`；六条精确GREEN `6 passed, 9 warnings`，helper原两条回归 `2 passed, 1 warning`。
+- **剩余风险 / 继续入口**：共享helper仅用于测试且一次建立一个tenant rollout；未向argparse/production注入绕过入口。最终独占full suite由orchestrator执行。
+
+## 2026-08-12 — Phase 64.4 full-suite repair — RAG boundary gate滞后于active COW实现 ✅已修复验证
+
+- **子系统**：RAG chunk ownership / active corpus architecture guard。
+- **问题现象 / 根因**：architecture test以精确owner集合守护current row访问，但allowlist仍描述旧direct projection seam，遗漏first-corpus bootstrap、explicit source/candidate corpus bindings、evaluation active joins与pre-030 migration seam。
+- **影响**：有效production路径触发3条假红；若简单移除guard则会失去对裸current SQL的架构保护。
+- **处理状态**：✅ 已修复验证。逐条确认owner有active join、显式corpus binding或仅历史schema gate后更新精确集合；mutation断言改为当前`ensure_tenant_character_bootstrap`+`create_ingestion_cow` seam，未降低production authority。
+- **证据**：`tests/architecture/test_rag_chunking_boundaries.py`；RED `3 failed, 5 passed`，GREEN `8 passed, 1 warning`；iteration focused union `93 passed, 19 warnings`。
+- **剩余风险 / 继续入口**：allowlist是AST级结构guard，不能替代integration行为验证；本iteration focused union及最终full suite继续覆盖。
+
+## 2026-08-12 — Phase 64.4 review iteration 3 — nested artifact parent未纳入pinned namespace ✅已修复验证
+
+- **子系统**：RAG reviewed reindex artifact authority / provider execution budget。
+- **问题现象 / 根因**：secure I/O仅pin exact run directory；nested parent existence与publication使用不同reopen，且post-link只复核run inode。`attempts/<document>`在parent open后被替换时，reservation可落入detached inode，provider仍执行而canonical budget未消费。
+- **影响**：失败或成功的provider执行均可能不计入canonical最大两次预算，成功路径还可能先推进DB再在result reconciliation暴露缺失reservation。
+- **处理状态**：✅ 已修复验证。nested directory identity现按relative chain pin `(st_dev, st_ino)`并在I/O间复核；existence/link共用parent fd；post-link从run fd no-follow reopen exact chain。稳定真实替换目录可recovery-link同一reservation到canonical ordinal、用新pinned namespace strict-load并拒绝本次provider，symlink/持续漂移不follow且fail closed。
+- **证据**：Phase64.4 review iteration 3 CR-01；`src/rag/policy_reindex_artifacts.py`与两份artifact/reindex tests；pure artifact `26 passed, 1 warning`；stable directory与unsafe symlink DB integration `2 passed, 1 warning`，provider factory均为0且candidate保持`building/v2/index0`。fix前独占full suite `4883 passed, 4 skipped`。
+- **剩余风险 / 继续入口**：focused artifact/reindex gate `69 passed, 1 warning`；最终fix后独占full suite由orchestrator重跑。未触碰live provider/DB/artifact，Plans18-20未执行。
+
+## 2026-08-12 — Phase 64.4 review iteration 4 — resolve可将production canonical root改写为copy target ✅已修复验证
+
+- **子系统**：RAG reviewed reindex artifact root authority。
+- **问题现象 / 根因**：repository-defined candidates lexical path先被`resolve()`，稳定symlink因此把canonical identity改写成仓库内copy target；caller提交resolved target可通过root equality与后续resolved-chain检查。
+- **影响**：self-consistent copy可遗漏既有attempts并重置provider execution budget，绕过每文档最多两次的artifact authority。
+- **处理状态**：✅ 已修复验证。production现固定lexical `abspath`，逐级`lstat` expected component/ancestors并拒绝symlink/non-directory，再做caller lexical equality；只有argparse不可达test injection走独立resolve分支。
+- **证据**：Phase64.4 review iteration 4 CR-01；`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`；最小RED `1 failed, 1 passed`，纯CLI GREEN与既有descendant tests合计`6 passed, 1 warning`；artifact/reindex focused `71 passed, 1 warning`；fix前独占full suite `4887 passed, 4 skipped`。
+- **剩余风险 / 继续入口**：fix后最终独占full suite由orchestrator重跑。未运行live provider/DB/artifact，Plans18-20未执行。
+
+## 2026-08-12 — Phase 64.4 review iteration 5 — file-backed provider budget不是全局不可伪造authority 🟡production已关闭 / 🔴live能力待新phase
+
+- **子系统**：RAG reviewed reindex / full-provider A-B recovery / execution budget authority。
+- **问题现象 / 根因**：candidate与A/B attempt budget都以repository file artifacts表达。此前的lexical identity、`O_NOFOLLOW`、pinned descendant fd、create-only link与fsync能保护已选namespace，却无法证明repository-root到authority root在整个production命令中绝不会被替换，也无法阻止完整artifact tree被复制后隐藏已消费ordinal。file-backed budget因此不是跨拷贝/path substitution全局不可伪造的provider授权源。
+- **影响**：若`build-next-reviewed`、legacy `build-next`或`run-ab`仍由production CLI dispatch到内部算法，理论上可绕过每文档/recovery attempt上限并构造provider；Plans18-20与SC-64.4-5/6不能据此宣称完成。
+- **处理状态**：🟡 当前production暴露面已安全关闭。两个reindex build命令在parse后、A/B `run-ab`在parse/current UTC后统一以`live_provider_execution_disabled`/exit 4拒绝，且发生在DB/root/artifact/reservation/provider之前；没有CLI flag或environment override。deterministic `issue-recovery-budget`与内部算法只保留测试用途，不构成live授权。🔴 live provider能力明确defer到新的post-PR rollout phase，必须使用DB-backed unique budget后重新安全评审。
+- **证据**：Phase64.4 final review CR-01/CR-02；`scripts/reindex_policies.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/rag/test_policy_reindex.py`、`tests/eval/test_rag_token_chunk_ab.py`及三份artifact README；最小RED `3 failed, 1 passed`、最小GREEN `4 passed, 1 warning`、focused两文件`134 passed, 1 warning in 50.98s`，format/full lint PASS。
+- **剩余风险 / 继续入口**：不要通过flag、环境变量或直接包装内部函数恢复production provider可达性；新phase需先设计DB唯一约束、幂等reservation/consumption、crash reconciliation与跨进程并发证明。当前Plans18-20/SC-64.4-5/6仍未完成，本轮未运行live provider/DB/artifact或full suite。

@@ -11,7 +11,7 @@
 ## Current Planning State
 
 **Active milestone:** v2.2 Product Experience Fixes
-**Status:** Phase 64.3 complete with 5/5 plans, clean review, UAT, security, and Nyquist gates; inserted Phase 64.4 is next, followed by Phase 65
+**Status:** Phase 64.4 is an accepted partial delivery: SC-64.4-1 through SC-64.4-4 are implemented, while provider execution remains fail-closed and SC-64.4-5/6 move to inserted Phase 64.5 before Phase 65
 **Scope:** Complete the product-experience work and close source-audit gaps across runtime safety, evidence/replay/memory integrity, trace/SSE reliability, operation contracts, reproducible validation, lifecycle/data integrity, LLM runtime ownership, retrieval governance, and service boundaries without weakening accepted v2.1 contracts.
 
 ## Current Milestone: v2.2 Product Experience Fixes
@@ -47,7 +47,7 @@ Plans:
 
 ## Next
 
-Phase 64.3 is complete. Next: plan Phase 64.4 Token-Aware Policy Chunking And Reindex Validation with `$gsd-phase-autopilot 64.4` or `$gsd-plan-phase 64.4`; Phase 65 follows Phase 64.4.
+Phase 64.4 is preparing a partial-delivery PR. Next: plan Phase 64.5 Database-Backed Provider Budget And Token Rollout Completion with `$gsd-phase-autopilot 64.5`; Phase 65 follows Phase 64.5.
 
 ### Phase 62: Business Query And Drilldown Foundation
 
@@ -204,9 +204,9 @@ Plans:
 ### Phase 64.4: Token-Aware Policy Chunking And Reindex Validation (INSERTED)
 
 **Goal:** Replace character-count policy chunk sizing with a versioned tokenizer-aware assembly path that measures the final `text-embedding-v4` input while preserving parser structure, provenance, evidence identity, deterministic rebuilds, and safe rollback, then prove the change against the Phase 64.3 format-parity baseline.
-**Requirements**: TBD during Phase 64.4 planning.
+**Requirements**: SC-64.4-1, SC-64.4-2, SC-64.4-3, SC-64.4-4, SC-64.4-5, SC-64.4-6
 **Depends on:** Phase 64.3
-**Plans:** 0 plans
+**Plans:** 20 plans
 
 **Confirmed gaps owned:** Production `chunk_blocks` and legacy `chunk_markdown` enforce character budgets rather than embedding-model token budgets; final embedding text adds title, section, and source context only after chunking; dry-run/golden validation and production ingestion do not share one authoritative chunk path; chunker/tokenizer configuration and per-chunk token counts are not persisted; and a rechunk/re-embedding rollout must preserve the immutable evidence/replay contract established by Phase 64.2.
 
@@ -221,13 +221,52 @@ Plans:
 6. A versioned A/B report compares character- and token-aware candidates on Phase 64.3 Hit@1/3/5, MRR, anchor/locator coverage, format parity, duplicate rate, chunk count, latency, and embedding token cost; the selected configuration satisfies explicit non-regression gates and existing RAG tests pass.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 64.4; expected slices: tokenizer contract/parity, token-aware chunk assembly, identity/reindex compatibility, and A/B rollout gates)
+- [x] 64.4-01-PLAN.md — Pinned Tokenizer Contract And Assets (`depends_on: []`).
+- [x] 64.4-02-PLAN.md — Exact Final Input Token Chunker (`depends_on: [64.4-01]`).
+- [x] 64.4-03-PLAN.md — Provider Usage And Immutable Parity Protocol (`depends_on: [64.4-02]`).
+- [x] 64.4-04-PLAN.md — Production Dry Run Golden And A-B Convergence (`depends_on: [64.4-03]`).
+- [x] 64.4-05-PLAN.md — Corpus Schema Bootstrap And Source Identity (`depends_on: [64.4-04]`).
+- [x] 64.4-06-PLAN.md — Active Corpus Paths And Immutable Bindings (`depends_on: [64.4-05]`).
+- [x] 64.4-07-PLAN.md — Authoritative Snapshot Reindex Build And Resume (`depends_on: [64.4-06]`).
+- [x] 64.4-08-PLAN.md — Atomic Pointer Activation And Ingestion Continuity (`depends_on: [64.4-07]`).
+- [x] 64.4-09-PLAN.md — Exact A-B Runtime And Immutable Selection (`depends_on: [64.4-08]`).
+- [x] 64.4-10-PLAN.md — Activation Receipts And Bounded Initial Live Evidence (`depends_on: [64.4-09]`).
+- [x] 64.4-11-PLAN.md — Role Failure Provenance And Safe Diagnostic Artifacts (`depends_on: [64.4-10]`).
+- [x] 64.4-12-PLAN.md — Guarded Recovery Budget And Fresh-Parity Checkpoint (`depends_on: [64.4-11]`).
+- [x] 64.4-13-PLAN.md — Crash-Safe Candidate Recovery And Build Budget (`depends_on: [64.4-12]`).
+- [x] 64.4-14-PLAN.md — Canonical Recovery Budget And Pre-CAS Authority (`depends_on: [64.4-13]`).
+- [x] 64.4-15-PLAN.md — Truthful blocked fresh-candidate checkpoint: one descriptor/candidate, state v2 only, zero provider/build/A-B attempts, and no requirements completed (`depends_on: [64.4-14]`).
+- [x] 64.4-16-PLAN.md — Deterministic Claim-State Publication And Exact Candidate Recovery (`depends_on: [64.4-15]`).
+- [x] 64.4-17-PLAN.md — Canonical issuance gate implemented; truthful expired-authority checkpoint with no SC-64.4-5/6 completion (`depends_on: [64.4-16]`).
+- [ ] 64.4-18-PLAN.md — Resumed Same-Candidate Build And Canonical A-B Selection (`depends_on: [64.4-17]`).
+- [ ] 64.4-19-PLAN.md — Reversible Activation Drill And Closeout Guard (`depends_on: [64.4-18]`).
+- [ ] 64.4-20-PLAN.md — Final Documentation Ledgers And Regression Closeout (`depends_on: [64.4-19]`).
+
+**Partial-delivery closeout:** SC-64.4-1 through SC-64.4-4 are implemented and verified. SC-64.4-5/6 are not complete: the retained live authority expired, no `selected_pass` or reversible activation drill exists, and provider-capable production dispatch is intentionally hard-disabled. Completion is transferred to Phase 64.5; this phase must not be marked complete by the partial PR.
+
+### Phase 64.5: Database-Backed Provider Budget And Token Rollout Completion (INSERTED)
+
+**Goal:** Replace file-backed provider/build attempt authority with a database-backed globally unique budget, then safely re-enable the reviewed live reindex and A/B paths and complete the selected-candidate activation, rollback/restore, receipt, and closeout evidence left by Phase 64.4.
+**Requirements**: SC-64.4-5, SC-64.4-6 (carryover; final Phase 64.5 requirement IDs are defined during planning)
+**Depends on:** Phase 64.4 partial delivery
+**Plans:** 0 plans
+
+**Mandatory scope boundary:** Provider-capable production dispatch stays hard-disabled until a separately reviewed DB-backed authority serializes reservations across processes/worktrees and binds tenant, run, candidate, parity, source/evidence epochs, absolute expiry, and provider execution. Phase 64.5 must use fresh reviewed authority; it may not renew or reinterpret the expired Phase 64.4 lease.
+
+**Required outcomes:**
+1. DB constraints and transactional reservation enforce globally unique, non-forgeable build and A/B provider budgets under concurrency, crash, replay, alternate worktrees, and copied artifacts.
+2. Production provider dispatch is re-enabled only after code review, security, and before-provider negative tests prove the DB authority cannot be bypassed.
+3. A fresh token candidate completes and a canonical character-vs-token A/B run produces a truthful terminal decision; only `selected_pass` may authorize activation.
+4. Cutover, rollback to the prior corpus, restore of the selected corpus, hash-chained receipts, and fail-closed closeout checks prove SC-64.4-5/6 without mixed tenant visibility.
+
+Plans:
+- [ ] TBD (run `$gsd-phase-autopilot 64.5`; plan count stays unset until research and dual review)
 
 ### Phase 65: Trace Event And Console Label Consistency
 
 **Goal:** Make runtime observability trustworthy end to end: canonical trace/event vocabulary must match what production nodes actually emit, persist, replay, project through SSE/API, and render in the Console, while failures are redacted and database/event lifecycles remain bounded.
 **Requirements**: TBD during Phase 65 planning.
-**Depends on:** Phase 64.4
+**Depends on:** Phase 64.5
 **Plans:** 0 plans
 
 **Audit findings owned:** LLM event types are registered but production calls do not emit them; two SSE paths expose raw exceptions; long streams retain request-scoped DB sessions; audit/event persistence failures can be silently discarded; backend/replay/DB/frontend labels remain separate facts.

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, date, datetime
+import hashlib
+import json
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -14,6 +16,9 @@ from src.db.models import (
     EvidenceIdentityRollout,
     PolicyChunk,
     PolicyChunkVersion,
+    PolicyCorpusManifestRevision,
+    PolicyCorpusRollout,
+    PolicyCorpusVersion,
     PolicyDocument,
     PolicyDocumentVersion,
     Tenant,
@@ -25,7 +30,7 @@ from src.knowledge.evidence_identity import (
 from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import KnowledgeContext
 from src.knowledge.service import PolicyKnowledgeService
-from src.rag.ingestion import IngestionService
+from src.rag.ingestion import CharacterCompatibilityAssembler, IngestionService
 from src.repositories.evidence_version_repo import (
     EvidenceVersionRepository,
     RolloutEpochMismatch,
@@ -65,6 +70,67 @@ async def _seed_inactive_rollout(session) -> UUID:
     await session.execute(text("ALTER SEQUENCE evidence_ingestion_write_seq RESTART WITH 1"))
     session.add(Tenant(id=tenant_id, name=f"phase64-2-{tenant_id}", status="active"))
     session.add(EvidenceIdentityRollout(id=1, rollout_version=0, audit_counts_json={}))
+    await session.flush()
+    manifest_payload = {
+        "schema_version": "policy_corpus_source_manifest.v1",
+        "tenant_id": str(tenant_id),
+        "documents": [],
+    }
+    encoded = json.dumps(manifest_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    manifest_hash = "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
+    manifest = PolicyCorpusManifestRevision(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        revision=1,
+        manifest_schema_version="policy_corpus_source_manifest.v1",
+        manifest_json=manifest_payload,
+        manifest_hash=manifest_hash,
+        document_count=0,
+        block_count=0,
+        chunk_count=0,
+    )
+    session.add(manifest)
+    await session.flush()
+    assembler = CharacterCompatibilityAssembler()
+    corpus = PolicyCorpusVersion(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        generation_name="character.v1",
+        owner_marker="test.phase64_2.fixture",
+        run_token=None,
+        config_schema_version=assembler.config_version,
+        config_json={"schema_version": assembler.config_version},
+        config_fingerprint=assembler.config_fingerprint,
+        provider_parity_report_hash=None,
+        source_manifest_revision_id=manifest.id,
+        source_manifest_hash=manifest_hash,
+        source_active_corpus_version_id=None,
+        source_rollout_epoch=None,
+        expected_evidence_rollout_version=None,
+        state="complete",
+        state_version=1,
+        lease_owner=None,
+        lease_expires_at=None,
+        next_document_index=0,
+        bootstrap_counts_json={
+            "bound_document_count": 0,
+            "bound_block_count": 0,
+            "bound_chunk_count": 0,
+        },
+        validation_proof_json={"fixture": "empty_character_authority"},
+        terminal_at=datetime.now(UTC),
+    )
+    session.add(corpus)
+    await session.flush()
+    session.add(
+        PolicyCorpusRollout(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            active_corpus_version_id=corpus.id,
+            previous_corpus_version_id=None,
+            rollout_epoch=1,
+        )
+    )
     await session.commit()
     return tenant_id
 
@@ -618,7 +684,13 @@ async def test_current_historical_and_legacy_resolution_are_separate_and_scope_b
     old_identity = old_resolution.identity
 
     source = _write_policy(tmp_path, "historical v2 当前内容")
-    await service.ingest_document(source, _metadata(), expected_rollout_version=rollout.rollout_version)
+    second_ingestion = await service.ingest_document(
+        source,
+        _metadata(),
+        expected_rollout_version=rollout.rollout_version,
+    )
+    assert second_ingestion.status == "success"
+    assert await session.get(PolicyChunkVersion, UUID(old_identity.chunk_version_id)) is not None
     await repository.reserve_backfill_watermark(expected_rollout_version=rollout.rollout_version)
     await repository.reconcile_and_enable_canonical_reads(expected_rollout_version=rollout.rollout_version)
     await session.commit()

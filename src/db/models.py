@@ -227,12 +227,7 @@ class PolicyDocument(TimestampMixin, Base):
 class DocumentBlock(TimestampMixin, Base):
     __tablename__ = "document_blocks"
     __table_args__ = (
-        UniqueConstraint(
-            "tenant_id",
-            "doc_id",
-            "source_block_id",
-            name="uq_document_blocks_tenant_doc_source_block",
-        ),
+        UniqueConstraint("id", "tenant_id", name="uq_document_blocks_id_tenant"),
         CheckConstraint("block_index >= 0", name="ck_document_blocks_block_index_nonnegative"),
         CheckConstraint("char_length(text) <= 20000", name="ck_document_blocks_text_max_length"),
         Index("ix_document_blocks_tenant_doc_index", "tenant_id", "doc_id", "block_index"),
@@ -273,6 +268,34 @@ class RagIngestionJob(TimestampMixin, Base):
             "status IN ('pending', 'running', 'success', 'failed')",
             name="ck_rag_ingestion_jobs_status",
         ),
+        CheckConstraint(
+            "chunk_count IS NULL OR chunk_count >= 0",
+            name="ck_rag_ingestion_jobs_chunk_count_nonnegative",
+        ),
+        CheckConstraint(
+            "embedding_token_count_min IS NULL OR embedding_token_count_min >= 0",
+            name="ck_rag_ingestion_jobs_token_min_nonnegative",
+        ),
+        CheckConstraint(
+            "embedding_token_count_max IS NULL OR embedding_token_count_max >= 0",
+            name="ck_rag_ingestion_jobs_token_max_nonnegative",
+        ),
+        CheckConstraint(
+            "embedding_token_count_total IS NULL OR embedding_token_count_total >= 0",
+            name="ck_rag_ingestion_jobs_token_total_nonnegative",
+        ),
+        CheckConstraint(
+            "provider_prompt_tokens IS NULL OR provider_prompt_tokens >= 0",
+            name="ck_rag_ingestion_jobs_provider_prompt_nonnegative",
+        ),
+        CheckConstraint(
+            "provider_total_tokens IS NULL OR provider_total_tokens >= 0",
+            name="ck_rag_ingestion_jobs_provider_total_nonnegative",
+        ),
+        CheckConstraint(
+            "provider_usage_status IS NULL OR provider_usage_status IN ('available', 'unavailable')",
+            name="ck_rag_ingestion_jobs_provider_usage_status",
+        ),
         Index("ix_rag_ingestion_jobs_tenant_doc", "tenant_id", "doc_id"),
         Index("ix_rag_ingestion_jobs_tenant_doc_key", "tenant_id", "doc_key"),
         Index("ix_rag_ingestion_jobs_tenant_status", "tenant_id", "status"),
@@ -298,6 +321,14 @@ class RagIngestionJob(TimestampMixin, Base):
     warnings_json: Mapped[list[Any]] = mapped_column(JSONB, default=list, nullable=False)
     counts_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     timings_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    chunking_config_fingerprint: Mapped[str | None] = mapped_column(String(71))
+    chunk_count: Mapped[int | None] = mapped_column()
+    embedding_token_count_min: Mapped[int | None] = mapped_column()
+    embedding_token_count_max: Mapped[int | None] = mapped_column()
+    embedding_token_count_total: Mapped[int | None] = mapped_column()
+    provider_prompt_tokens: Mapped[int | None] = mapped_column()
+    provider_total_tokens: Mapped[int | None] = mapped_column()
+    provider_usage_status: Mapped[str | None] = mapped_column(String(32))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -422,8 +453,315 @@ class RagEvaluationRound(TimestampMixin, Base):
     terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+_SHA256_CHECK = "~ '^sha256:[0-9a-f]{64}$'"
+_CORPUS_STATE_CHECK = "state IN ('claimed', 'building', 'built', 'validating', 'complete', 'failed', 'source_stale')"
+
+
+class PolicyCorpusManifestRevision(TimestampMixin, Base):
+    """Append-only tenant source manifest used to seal corpus inputs."""
+
+    __tablename__ = "policy_corpus_manifest_revisions"
+    __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_policy_corpus_manifest_revisions_id_tenant"),
+        UniqueConstraint("tenant_id", "revision", name="uq_policy_corpus_manifest_revisions_tenant_revision"),
+        CheckConstraint("revision > 0", name="ck_policy_corpus_manifest_revisions_revision_positive"),
+        CheckConstraint(
+            f"manifest_hash {_SHA256_CHECK}",
+            name="ck_policy_corpus_manifest_revisions_hash",
+        ),
+        CheckConstraint(
+            "document_count >= 0 AND block_count >= 0 AND chunk_count >= 0",
+            name="ck_policy_corpus_manifest_revisions_counts_nonnegative",
+        ),
+        Index("ix_policy_corpus_manifest_revisions_tenant_created", "tenant_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False
+    )
+    revision: Mapped[int] = mapped_column(nullable=False)
+    manifest_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    manifest_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    manifest_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    document_count: Mapped[int] = mapped_column(nullable=False)
+    block_count: Mapped[int] = mapped_column(nullable=False)
+    chunk_count: Mapped[int] = mapped_column(nullable=False)
+
+
+class PolicyCorpusVersion(TimestampMixin, Base):
+    """One tenant corpus generation; active authority lives only in rollout."""
+
+    __tablename__ = "policy_corpus_versions"
+    __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_policy_corpus_versions_id_tenant"),
+        UniqueConstraint("tenant_id", "generation_name", name="uq_policy_corpus_versions_tenant_generation"),
+        ForeignKeyConstraint(
+            ["source_manifest_revision_id", "tenant_id"],
+            ["policy_corpus_manifest_revisions.id", "policy_corpus_manifest_revisions.tenant_id"],
+            name="fk_policy_corpus_versions_manifest_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_active_corpus_version_id", "tenant_id"],
+            ["policy_corpus_versions.id", "policy_corpus_versions.tenant_id"],
+            name="fk_policy_corpus_versions_source_corpus_tenant",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            f"config_fingerprint {_SHA256_CHECK}",
+            name="ck_policy_corpus_versions_config_fingerprint",
+        ),
+        CheckConstraint(
+            f"source_manifest_hash {_SHA256_CHECK}",
+            name="ck_policy_corpus_versions_manifest_hash",
+        ),
+        CheckConstraint(_CORPUS_STATE_CHECK, name="ck_policy_corpus_versions_state"),
+        CheckConstraint("state_version > 0", name="ck_policy_corpus_versions_state_version_positive"),
+        CheckConstraint("next_document_index >= 0", name="ck_policy_corpus_versions_next_document_nonnegative"),
+        CheckConstraint(
+            "source_rollout_epoch IS NULL OR source_rollout_epoch > 0",
+            name="ck_policy_corpus_versions_source_epoch_positive",
+        ),
+        CheckConstraint(
+            "expected_evidence_rollout_version IS NULL OR expected_evidence_rollout_version >= 0",
+            name="ck_policy_corpus_versions_evidence_epoch_nonnegative",
+        ),
+        Index("ix_policy_corpus_versions_tenant_state", "tenant_id", "state"),
+        Index("ix_policy_corpus_versions_run_token", "tenant_id", "run_token"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    generation_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    owner_marker: Mapped[str] = mapped_column(String(128), nullable=False)
+    run_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    config_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    config_fingerprint: Mapped[str] = mapped_column(String(71), nullable=False)
+    provider_parity_report_hash: Mapped[str | None] = mapped_column(String(71))
+    source_manifest_revision_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_manifest_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    source_active_corpus_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    source_rollout_epoch: Mapped[int | None] = mapped_column()
+    expected_evidence_rollout_version: Mapped[int | None] = mapped_column()
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    state_version: Mapped[int] = mapped_column(nullable=False, default=1, server_default=text("1"))
+    lease_owner: Mapped[str | None] = mapped_column(String(128))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_document_index: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
+    bootstrap_counts_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    validation_proof_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    deterministic_rebuild_hash: Mapped[str | None] = mapped_column(String(71))
+    validation_report_hash: Mapped[str | None] = mapped_column(String(71))
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+    safe_message: Mapped[str | None] = mapped_column(String(200))
+    terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PolicyCorpusRollout(TimestampMixin, Base):
+    """Exactly one tenant pointer and CAS epoch for current corpus visibility."""
+
+    __tablename__ = "policy_corpus_rollouts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", name="uq_policy_corpus_rollouts_tenant"),
+        ForeignKeyConstraint(
+            ["active_corpus_version_id", "tenant_id"],
+            ["policy_corpus_versions.id", "policy_corpus_versions.tenant_id"],
+            name="fk_policy_corpus_rollouts_active_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["previous_corpus_version_id", "tenant_id"],
+            ["policy_corpus_versions.id", "policy_corpus_versions.tenant_id"],
+            name="fk_policy_corpus_rollouts_previous_tenant",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("rollout_epoch > 0", name="ck_policy_corpus_rollouts_epoch_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False
+    )
+    active_corpus_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    previous_corpus_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    rollout_epoch: Mapped[int] = mapped_column(nullable=False)
+    quarantine_reason: Mapped[str | None] = mapped_column(String(200))
+    source_drifted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PolicyCorpusActivationHistory(Base):
+    """Append-only audit row for bootstrap and every later pointer flip."""
+
+    __tablename__ = "policy_corpus_activation_history"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["from_corpus_version_id", "tenant_id"],
+            ["policy_corpus_versions.id", "policy_corpus_versions.tenant_id"],
+            name="fk_policy_corpus_activation_history_from_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["to_corpus_version_id", "tenant_id"],
+            ["policy_corpus_versions.id", "policy_corpus_versions.tenant_id"],
+            name="fk_policy_corpus_activation_history_to_tenant",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "rollout_epoch",
+            name="uq_policy_corpus_activation_history_tenant_epoch",
+        ),
+        CheckConstraint("rollout_epoch > 0", name="ck_policy_corpus_activation_history_epoch_positive"),
+        CheckConstraint(
+            "prior_rollout_epoch >= 0",
+            name="ck_policy_corpus_activation_history_prior_epoch_nonnegative",
+        ),
+        Index("ix_policy_corpus_activation_history_tenant_created", "tenant_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False
+    )
+    from_corpus_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    to_corpus_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    prior_rollout_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    rollout_epoch: Mapped[int] = mapped_column(nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor: Mapped[str] = mapped_column(String(128), nullable=False)
+    selection_decision_hash: Mapped[str | None] = mapped_column(String(71))
+    receipt_hash: Mapped[str | None] = mapped_column(String(71))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class CorpusDocumentBinding(TimestampMixin, Base):
+    __tablename__ = "corpus_document_bindings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["corpus_version_id", "tenant_id"],
+            ["policy_corpus_versions.id", "policy_corpus_versions.tenant_id"],
+            name="fk_corpus_document_bindings_corpus_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["policy_document_id", "tenant_id"],
+            ["policy_documents.id", "policy_documents.tenant_id"],
+            name="fk_corpus_document_bindings_current_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["policy_document_version_id", "tenant_id"],
+            ["policy_document_versions.id", "policy_document_versions.tenant_id"],
+            name="fk_corpus_document_bindings_immutable_tenant",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id", "corpus_version_id", "policy_document_id", name="uq_corpus_document_bindings_current"
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "corpus_version_id",
+            "policy_document_version_id",
+            name="uq_corpus_document_bindings_immutable",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    corpus_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    policy_document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    policy_document_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+
+class CorpusBlockBinding(TimestampMixin, Base):
+    __tablename__ = "corpus_block_bindings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["corpus_version_id", "tenant_id"],
+            ["policy_corpus_versions.id", "policy_corpus_versions.tenant_id"],
+            name="fk_corpus_block_bindings_corpus_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["document_block_id", "tenant_id"],
+            ["document_blocks.id", "document_blocks.tenant_id"],
+            name="fk_corpus_block_bindings_current_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["policy_document_version_id", "tenant_id"],
+            ["policy_document_versions.id", "policy_document_versions.tenant_id"],
+            name="fk_corpus_block_bindings_document_version_tenant",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id", "corpus_version_id", "document_block_id", name="uq_corpus_block_bindings_current"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    corpus_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    document_block_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    policy_document_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+
+class CorpusChunkBinding(TimestampMixin, Base):
+    __tablename__ = "corpus_chunk_bindings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["corpus_version_id", "tenant_id"],
+            ["policy_corpus_versions.id", "policy_corpus_versions.tenant_id"],
+            name="fk_corpus_chunk_bindings_corpus_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["policy_chunk_id", "tenant_id"],
+            ["policy_chunks.id", "policy_chunks.tenant_id"],
+            name="fk_corpus_chunk_bindings_current_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["policy_chunk_version_id", "tenant_id"],
+            ["policy_chunk_versions.id", "policy_chunk_versions.tenant_id"],
+            name="fk_corpus_chunk_bindings_immutable_tenant",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("tenant_id", "corpus_version_id", "policy_chunk_id", name="uq_corpus_chunk_bindings_current"),
+        UniqueConstraint(
+            "tenant_id",
+            "corpus_version_id",
+            "policy_chunk_version_id",
+            name="uq_corpus_chunk_bindings_immutable",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    corpus_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    policy_chunk_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    policy_chunk_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+
 class PolicyChunk(TimestampMixin, Base):
     __tablename__ = "policy_chunks"
+    __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_policy_chunks_id_tenant"),
+        CheckConstraint(
+            "((chunking_config_fingerprint IS NULL AND embedding_input_hash IS NULL "
+            "AND embedding_token_count IS NULL) OR "
+            "(chunking_config_fingerprint ~ '^sha256:[0-9a-f]{64}$' "
+            "AND embedding_input_hash ~ '^sha256:[0-9a-f]{64}$' "
+            "AND embedding_token_count >= 0))",
+            name="ck_policy_chunks_embedding_audit_complete",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -445,6 +783,9 @@ class PolicyChunk(TimestampMixin, Base):
     risk_level: Mapped[str] = mapped_column(String(32), nullable=False)
     effective_date: Mapped[date] = mapped_column(Date, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
+    chunking_config_fingerprint: Mapped[str | None] = mapped_column(String(71))
+    embedding_input_hash: Mapped[str | None] = mapped_column(String(71))
+    embedding_token_count: Mapped[int | None] = mapped_column()
     evidence_write_sequence: Mapped[int | None] = mapped_column(BigInteger)
 
     document: Mapped["PolicyDocument"] = relationship(back_populates="chunks")
@@ -517,6 +858,14 @@ class PolicyDocumentVersion(TimestampMixin, Base):
         ),
         CheckConstraint(_EVIDENCE_SOURCE_LOCATOR_CHECK, name="ck_policy_document_versions_source_locator_allowlist"),
         CheckConstraint(_EVIDENCE_LIFECYCLE_CHECK, name="ck_policy_document_versions_lifecycle_status"),
+        CheckConstraint(
+            "((canonical_content_schema_version IS NULL AND source_checksum IS NULL "
+            "AND canonical_blocks_json IS NULL AND canonical_blocks_hash IS NULL) OR "
+            "(canonical_content_schema_version = 'canonical_document_content.v2' "
+            "AND source_checksum IS NOT NULL AND jsonb_typeof(canonical_blocks_json) = 'array' "
+            "AND canonical_blocks_hash ~ '^sha256:[0-9a-f]{64}$'))",
+            name="ck_policy_document_versions_canonical_source_complete",
+        ),
         Index("ix_policy_document_versions_tenant_doc_version", "tenant_id", "doc_key", "document_version"),
         Index("ix_policy_document_versions_retention", "retention_until"),
     )
@@ -530,6 +879,10 @@ class PolicyDocumentVersion(TimestampMixin, Base):
     document_version: Mapped[int] = mapped_column(nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    source_checksum: Mapped[str | None] = mapped_column(String(128))
+    canonical_content_schema_version: Mapped[str | None] = mapped_column(String(64))
+    canonical_blocks_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB(none_as_null=True))
+    canonical_blocks_hash: Mapped[str | None] = mapped_column(String(71))
     source_locator_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     lifecycle_status: Mapped[str] = mapped_column(String(32), default="active", server_default="active", nullable=False)
     retention_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -607,6 +960,14 @@ class PolicyChunkVersion(TimestampMixin, Base):
         ),
         CheckConstraint(_EVIDENCE_SOURCE_LOCATOR_CHECK, name="ck_policy_chunk_versions_source_locator_allowlist"),
         CheckConstraint(_EVIDENCE_LIFECYCLE_CHECK, name="ck_policy_chunk_versions_lifecycle_status"),
+        CheckConstraint(
+            "((chunking_config_fingerprint IS NULL AND embedding_input_hash IS NULL "
+            "AND embedding_token_count IS NULL) OR "
+            "(chunking_config_fingerprint ~ '^sha256:[0-9a-f]{64}$' "
+            "AND embedding_input_hash ~ '^sha256:[0-9a-f]{64}$' "
+            "AND embedding_token_count >= 0))",
+            name="ck_policy_chunk_versions_embedding_audit_complete",
+        ),
         Index(
             "ix_policy_chunk_versions_tenant_chunk_version",
             "tenant_id",
@@ -629,6 +990,11 @@ class PolicyChunkVersion(TimestampMixin, Base):
     chunk_version: Mapped[int] = mapped_column(nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     text_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    search_text: Mapped[str | None] = mapped_column(Text)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
+    chunking_config_fingerprint: Mapped[str | None] = mapped_column(String(71))
+    embedding_input_hash: Mapped[str | None] = mapped_column(String(71))
+    embedding_token_count: Mapped[int | None] = mapped_column()
     source_locator_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     lifecycle_status: Mapped[str] = mapped_column(String(32), default="active", server_default="active", nullable=False)
     retention_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

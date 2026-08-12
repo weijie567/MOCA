@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -22,7 +23,8 @@ from src.knowledge.schemas import (
 from src.knowledge.service import PolicyKnowledgeService
 from src.rag.embedder import EmbeddingService
 from src.rag.evaluation.contracts import EvaluationOutcome, FormatParityDataset, SemanticCase
-from src.rag.ingestion import IngestionService
+from src.rag.ingestion import IngestionAssemblyMode, IngestionService, PolicyInputAssembler
+from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.repositories.rag_evaluation_round_repo import (
     FORMAT_PARITY_OWNER_MARKER,
     FORMAT_PARITY_TENANT_ID,
@@ -30,9 +32,11 @@ from src.repositories.rag_evaluation_round_repo import (
     AnchorLocatorRequirement,
     EvaluationIsolationError,
     EvaluationRoundIdentity,
+    IngestionResourceProof,
     ProjectionState,
     RecordedChunkLocatorProof,
     RecordedSourceLocatorProof,
+    RollbackBaselineProof,
     RagEvaluationRoundRepository,
     validate_run_sequence,
 )
@@ -46,6 +50,77 @@ class PrerequisiteStatusV1(BaseModel):
     reason_code: str | None = Field(default=None, max_length=64)
 
 
+class SafeRoleFailureV1(BaseModel):
+    """Allowlisted runtime failure provenance with no raw exception surface."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    failing_role: Literal["character_incumbent", "token_candidate", "shared_preflight"]
+    round_format: Literal["markdown", "digital_pdf", "scanned_pdf"] | None = None
+    stage: Literal[
+        "shared_preflight",
+        "role_setup",
+        "format_ingestion",
+        "retrieval_resource_proof",
+        "post_rollback_baseline_verification",
+    ]
+    reason_code: Literal[
+        "candidate_state_invalid",
+        "sealed_input_invalid",
+        "candidate_pair_invalid",
+        "role_setup_failed",
+        "format_ingestion_failed",
+        "provider_request_failed",
+        "resource_proof_failed",
+        "rollback_proof_failed",
+        "provider_execution_failed",
+    ]
+    provider_availability: Literal["available", "unavailable", "not_checked"]
+    provider_request_classification: Literal[
+        "not_attempted",
+        "request_started",
+        "request_completed",
+        "request_failed",
+    ]
+    outer_rollback_attempted: bool
+    outer_rollback_proved: bool
+    completed_round_count: int = Field(ge=0, le=3)
+    provider_request_count: int = Field(ge=0)
+    safe_context_sha256: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_failure(self) -> SafeRoleFailureV1:
+        expected_reasons = {
+            "shared_preflight": {"candidate_state_invalid", "sealed_input_invalid", "candidate_pair_invalid"},
+            "role_setup": {"role_setup_failed"},
+            "format_ingestion": {"format_ingestion_failed", "provider_request_failed"},
+            "retrieval_resource_proof": {
+                "provider_request_failed",
+                "resource_proof_failed",
+                "provider_execution_failed",
+            },
+            "post_rollback_baseline_verification": {"rollback_proof_failed"},
+        }
+        if self.reason_code not in expected_reasons[self.stage]:
+            raise ValueError("safe_failure_stage_reason_mismatch")
+        if self.outer_rollback_proved and not self.outer_rollback_attempted:
+            raise ValueError("safe_failure_rollback_mismatch")
+        if self.provider_request_classification in {"request_started", "request_completed"}:
+            if self.provider_availability != "available":
+                raise ValueError("safe_failure_provider_mismatch")
+        if self.provider_request_classification == "not_attempted" and self.provider_request_count:
+            raise ValueError("safe_failure_request_count_mismatch")
+        return self
+
+
+class SafeRoleExecutionError(RuntimeError):
+    """Generic external error carrying only a validated safe failure value."""
+
+    def __init__(self, failure: SafeRoleFailureV1) -> None:
+        self.failure = SafeRoleFailureV1.model_validate(failure.model_dump(mode="json"))
+        super().__init__("role execution failed")
+
+
 class IngestionObservationV1(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -53,6 +128,20 @@ class IngestionObservationV1(BaseModel):
     source_checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
     status: Literal["success", "failed"]
     error_code: str | None = None
+    chunk_count: int = Field(default=0, ge=0)
+    duplicate_count: int = Field(default=0, ge=0)
+    offline_embedding_tokens: int = Field(default=0, ge=0)
+    provider_embedding_tokens: int | None = Field(default=None, ge=0)
+    provider_tokens_status: Literal["provider_reported", "unavailable"] = "unavailable"
+    config_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_resources(self) -> IngestionObservationV1:
+        if self.duplicate_count > self.chunk_count:
+            raise ValueError("ingestion_duplicate_count_invalid")
+        if (self.provider_embedding_tokens is None) != (self.provider_tokens_status == "unavailable"):
+            raise ValueError("ingestion_provider_token_status_mismatch")
+        return self
 
 
 class RetrievalCaseObservationV1(BaseModel):
@@ -91,6 +180,7 @@ class RetrievalRoundResultV1(BaseModel):
     post_state_proved: bool = False
     immutable_history_preserved: bool = False
     reason_code: str | None = None
+    safe_failure: SafeRoleFailureV1 | None = None
 
 
 class RetrievalParityRunV1(BaseModel):
@@ -119,6 +209,100 @@ class RetrievalParityRunV1(BaseModel):
         if self.owner_marker != FORMAT_PARITY_OWNER_MARKER:
             raise ValueError("provider result must use fixed owner marker")
         return self
+
+
+@dataclass(frozen=True, slots=True)
+class ABRoundNamespace:
+    """One deterministic role/corpus owner inside an A/B evaluation run."""
+
+    role: Literal["incumbent", "candidate"]
+    corpus_version_id: UUID
+    run_token: UUID
+    round_owner: str
+    evaluation_owner_marker: str = FORMAT_PARITY_OWNER_MARKER
+
+
+def build_ab_round_namespaces(
+    *,
+    run_id: UUID,
+    incumbent_corpus_version_id: UUID,
+    candidate_corpus_version_id: UUID,
+) -> tuple[ABRoundNamespace, ABRoundNamespace]:
+    """Derive stable, non-overlapping role owners without changing DB ownership."""
+
+    if (
+        run_id.int == 0
+        or incumbent_corpus_version_id.int == 0
+        or candidate_corpus_version_id.int == 0
+        or incumbent_corpus_version_id == candidate_corpus_version_id
+    ):
+        raise EvaluationIsolationError("ab_namespace_invalid")
+
+    def namespace(role: Literal["incumbent", "candidate"], corpus_version_id: UUID) -> ABRoundNamespace:
+        return ABRoundNamespace(
+            role=role,
+            corpus_version_id=corpus_version_id,
+            run_token=uuid5(NAMESPACE_URL, f"{run_id}:rag-token-chunk-ab:{role}"),
+            round_owner=f"moca.rag_token_chunk_ab.v1:{role}",
+        )
+
+    return (
+        namespace("incumbent", incumbent_corpus_version_id),
+        namespace("candidate", candidate_corpus_version_id),
+    )
+
+
+def _diagnostic_role(namespace: ABRoundNamespace) -> Literal["character_incumbent", "token_candidate"]:
+    return "character_incumbent" if namespace.role == "incumbent" else "token_candidate"
+
+
+def _safe_role_failure(
+    *,
+    role: Literal["character_incumbent", "token_candidate", "shared_preflight"],
+    round_format: Literal["markdown", "digital_pdf", "scanned_pdf"] | None,
+    stage: Literal[
+        "shared_preflight",
+        "role_setup",
+        "format_ingestion",
+        "retrieval_resource_proof",
+        "post_rollback_baseline_verification",
+    ],
+    reason_code: Literal[
+        "candidate_state_invalid",
+        "sealed_input_invalid",
+        "candidate_pair_invalid",
+        "role_setup_failed",
+        "format_ingestion_failed",
+        "provider_request_failed",
+        "resource_proof_failed",
+        "rollback_proof_failed",
+        "provider_execution_failed",
+    ],
+    run_identity_hash: str,
+    completed_round_count: int,
+    provider_request_count: int = 0,
+    provider_request_classification: Literal[
+        "not_attempted",
+        "request_started",
+        "request_completed",
+        "request_failed",
+    ] = "not_attempted",
+    rollback_attempted: bool = False,
+    rollback_proved: bool = False,
+) -> SafeRoleFailureV1:
+    return SafeRoleFailureV1(
+        failing_role=role,
+        round_format=round_format,
+        stage=stage,
+        reason_code=reason_code,
+        provider_availability=("available" if provider_request_classification != "not_attempted" else "not_checked"),
+        provider_request_classification=provider_request_classification,
+        outer_rollback_attempted=rollback_attempted,
+        outer_rollback_proved=rollback_proved,
+        completed_round_count=completed_round_count,
+        provider_request_count=provider_request_count,
+        safe_context_sha256=f"sha256:{run_identity_hash}",
+    )
 
 
 class RecordingPolicyRetrievalEngine:
@@ -184,6 +368,230 @@ def build_knowledge_query(*, question: str, generated_at: str) -> tuple[Knowledg
     return request, context
 
 
+def _round_transaction(session: AsyncSession, *, rollback_only: bool):
+    return session.begin_nested() if rollback_only else session.begin()
+
+
+async def run_rollback_only_retrieval_parity(
+    dataset: FormatParityDataset,
+    *,
+    session: AsyncSession,
+    embedder: EmbeddingService,
+    namespace: ABRoundNamespace,
+    generated_at: str,
+    run_identity_hash: str,
+    expected_rollout_version: int,
+    input_assembler: PolicyInputAssembler,
+) -> RetrievalParityRunV1:
+    """Run each format inside a rollback boundary proved against one baseline."""
+
+    bind = session.bind
+    if bind is None or not hasattr(bind, "connect"):
+        raise SafeRoleExecutionError(
+            _safe_role_failure(
+                role=_diagnostic_role(namespace),
+                round_format="markdown",
+                stage="role_setup",
+                reason_code="role_setup_failed",
+                run_identity_hash=run_identity_hash,
+                completed_round_count=0,
+            )
+        )
+    try:
+        baseline = await _capture_rollback_baseline(bind)
+    except Exception:
+        raise SafeRoleExecutionError(
+            _safe_role_failure(
+                role=_diagnostic_role(namespace),
+                round_format="markdown",
+                stage="role_setup",
+                reason_code="role_setup_failed",
+                run_identity_hash=run_identity_hash,
+                completed_round_count=0,
+            )
+        ) from None
+    proved_rounds: list[RetrievalRoundResultV1] = []
+    first_run: RetrievalParityRunV1 | None = None
+    for round_format in ROUND_FORMATS:
+        isolated_run: RetrievalParityRunV1 | None = None
+        execution_failure: SafeRoleFailureV1 | None = None
+        rollback_attempted = False
+        rollback_failed = False
+        try:
+            async with bind.connect() as connection:
+                transaction = await connection.begin()
+                rollback_session = AsyncSession(
+                    bind=connection,
+                    expire_on_commit=False,
+                    join_transaction_mode="create_savepoint",
+                )
+                try:
+                    async with rollback_session.begin():
+                        repository = RagEvaluationRoundRepository(rollback_session)
+                        owner = await repository.create_round(
+                            run_token=namespace.run_token,
+                            round_token=uuid5(NAMESPACE_URL, f"{namespace.run_token}:{round_format}"),
+                            round_format=round_format,
+                            run_identity_hash=run_identity_hash,
+                            lease_expires_at=datetime.now(UTC) + timedelta(hours=2),
+                            expected_rollout_version=expected_rollout_version,
+                        )
+                    isolated_run = await run_retrieval_parity(
+                        dataset,
+                        session=rollback_session,
+                        embedder=embedder,
+                        owner=owner,
+                        generated_at=generated_at,
+                        input_assembler=input_assembler,
+                        rollback_only=True,
+                        rollback_baseline=baseline,
+                        stop_after_current_round=True,
+                        failure_role=_diagnostic_role(namespace),
+                    )
+                except SafeRoleExecutionError as safe_error:
+                    execution_failure = safe_error.failure
+                except Exception:
+                    execution_failure = _safe_role_failure(
+                        role=_diagnostic_role(namespace),
+                        round_format=round_format,
+                        stage="role_setup",
+                        reason_code="role_setup_failed",
+                        run_identity_hash=run_identity_hash,
+                        completed_round_count=len(proved_rounds),
+                    )
+                finally:
+                    await rollback_session.close()
+                    rollback_attempted = True
+                    if transaction.is_active:
+                        try:
+                            await transaction.rollback()
+                        except Exception:
+                            rollback_failed = True
+        except Exception:
+            if execution_failure is None:
+                execution_failure = _safe_role_failure(
+                    role=_diagnostic_role(namespace),
+                    round_format=round_format,
+                    stage="role_setup",
+                    reason_code="role_setup_failed",
+                    run_identity_hash=run_identity_hash,
+                    completed_round_count=len(proved_rounds),
+                    rollback_attempted=rollback_attempted,
+                )
+        try:
+            after = await _capture_rollback_baseline(bind)
+            _require_rollback_baseline_unchanged(baseline, after)
+        except Exception:
+            raise SafeRoleExecutionError(
+                _safe_role_failure(
+                    role=_diagnostic_role(namespace),
+                    round_format=round_format,
+                    stage="post_rollback_baseline_verification",
+                    reason_code="rollback_proof_failed",
+                    run_identity_hash=run_identity_hash,
+                    completed_round_count=len(proved_rounds),
+                    rollback_attempted=rollback_attempted,
+                )
+            ) from None
+        if rollback_failed:
+            raise SafeRoleExecutionError(
+                _safe_role_failure(
+                    role=_diagnostic_role(namespace),
+                    round_format=round_format,
+                    stage="post_rollback_baseline_verification",
+                    reason_code="rollback_proof_failed",
+                    run_identity_hash=run_identity_hash,
+                    completed_round_count=len(proved_rounds),
+                    rollback_attempted=True,
+                )
+            )
+        if execution_failure is not None:
+            raise SafeRoleExecutionError(
+                execution_failure.model_copy(
+                    update={
+                        "outer_rollback_attempted": rollback_attempted,
+                        "outer_rollback_proved": rollback_attempted,
+                    }
+                )
+            )
+        if isolated_run is None or len(isolated_run.rounds) != 1:
+            raise SafeRoleExecutionError(
+                _safe_role_failure(
+                    role=_diagnostic_role(namespace),
+                    round_format=round_format,
+                    stage="role_setup",
+                    reason_code="role_setup_failed",
+                    run_identity_hash=run_identity_hash,
+                    completed_round_count=len(proved_rounds),
+                    rollback_attempted=rollback_attempted,
+                    rollback_proved=rollback_attempted,
+                )
+            )
+        if first_run is None:
+            first_run = isolated_run
+        returned_round = isolated_run.rounds[0]
+        if returned_round.outcome is EvaluationOutcome.EXECUTION_ERROR:
+            failure = returned_round.safe_failure or _safe_role_failure(
+                role=_diagnostic_role(namespace),
+                round_format=round_format,
+                stage="retrieval_resource_proof",
+                reason_code="provider_execution_failed",
+                run_identity_hash=run_identity_hash,
+                completed_round_count=len(proved_rounds),
+                provider_request_count=len(returned_round.cases),
+                provider_request_classification="request_failed",
+            )
+            raise SafeRoleExecutionError(
+                failure.model_copy(
+                    update={
+                        "outer_rollback_attempted": rollback_attempted,
+                        "outer_rollback_proved": rollback_attempted,
+                    }
+                )
+            )
+        proved_round = returned_round.model_copy(
+            update={"post_state_proved": True, "immutable_history_preserved": True}
+        )
+        proved_rounds.append(proved_round)
+
+    if first_run is None:
+        raise SafeRoleExecutionError(
+            _safe_role_failure(
+                role=_diagnostic_role(namespace),
+                round_format=None,
+                stage="role_setup",
+                reason_code="role_setup_failed",
+                run_identity_hash=run_identity_hash,
+                completed_round_count=0,
+            )
+        )
+    overall = _overall_outcome(proved_rounds)
+    return first_run.model_copy(
+        update={
+            "baseline_eligible": overall
+            in {EvaluationOutcome.COMPLETED_PASS, EvaluationOutcome.COMPLETED_QUALITY_FAIL},
+            "outcome": overall,
+            "rounds": tuple(proved_rounds),
+        }
+    )
+
+
+async def _capture_rollback_baseline(bind: object) -> RollbackBaselineProof:
+    async with AsyncSession(bind=bind, expire_on_commit=False) as read_session:
+        try:
+            return await RagEvaluationRoundRepository(read_session).capture_rollback_baseline()
+        finally:
+            await read_session.rollback()
+
+
+def _require_rollback_baseline_unchanged(
+    before: RollbackBaselineProof,
+    after: RollbackBaselineProof,
+) -> None:
+    if before != after:
+        raise EvaluationIsolationError("rollback_baseline_mismatch")
+
+
 async def run_retrieval_parity(
     dataset: FormatParityDataset,
     *,
@@ -191,6 +599,11 @@ async def run_retrieval_parity(
     embedder: EmbeddingService,
     owner: EvaluationRoundIdentity,
     generated_at: str,
+    input_assembler: PolicyInputAssembler | None = None,
+    rollback_only: bool = False,
+    rollback_baseline: RollbackBaselineProof | None = None,
+    stop_after_current_round: bool = False,
+    failure_role: Literal["character_incumbent", "token_candidate"] | None = None,
 ) -> RetrievalParityRunV1:
     """Run the real production ingestion and knowledge facade in three rounds."""
 
@@ -198,15 +611,23 @@ async def run_retrieval_parity(
         raise EvaluationIsolationError("identity_mismatch")
     if owner.round_format not in ROUND_FORMATS:
         raise EvaluationIsolationError("initial_round_mismatch")
-    ingestion_service = IngestionService(session, embedder, FORMAT_PARITY_TENANT_ID)
+    if rollback_only != (rollback_baseline is not None) or (stop_after_current_round and not rollback_only):
+        raise EvaluationIsolationError("rollback_baseline_invalid")
+    ingestion_service = IngestionService(
+        session,
+        embedder,
+        FORMAT_PARITY_TENANT_ID,
+        assembly_mode=IngestionAssemblyMode.TOKEN_AWARE,
+        input_assembler=input_assembler or PolicyEmbeddingInputAssembler(),
+    )
     recording_engine = RecordingPolicyRetrievalEngine(PolicyRetrievalEngine(session, embedder=embedder))
     knowledge_service = PolicyKnowledgeService(recording_engine)
     round_repo = RagEvaluationRoundRepository(session)
     current_owner = owner
     start_index = ROUND_FORMATS.index(owner.round_format)
     round_results: list[RetrievalRoundResultV1] = []
-    if start_index:
-        async with session.begin():
+    if start_index and not stop_after_current_round:
+        async with _round_transaction(session, rollback_only=rollback_only):
             sequence = validate_run_sequence(
                 await round_repo.lock_run_rows(owner.run_token),
                 run_token=owner.run_token,
@@ -230,19 +651,27 @@ async def run_retrieval_parity(
         observations: list[RetrievalCaseObservationV1] = []
         terminal_outcome = EvaluationOutcome.COMPLETED_PASS
         failure_reason: str | None = None
+        safe_failure: SafeRoleFailureV1 | None = None
+        failure_stage: Literal["format_ingestion", "retrieval_resource_proof"] = "format_ingestion"
         pre_state_proved = False
         post_state_proved = False
         immutable_preserved = False
         ingestion_quality_failed = False
         successful_round: RetrievalRoundResultV1 | None = None
         try:
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 progress = await round_repo.read_progress(current_owner)
             if progress.state == "claimed":
                 if current_owner.next_document_index != 0 or progress.has_attempt_reservation:
                     raise EvaluationIsolationError("claimed_progress_malformed")
-                async with session.begin():
-                    current_owner = await round_repo.prove_compatible_pre_state(current_owner)
+                async with _round_transaction(session, rollback_only=rollback_only):
+                    if rollback_baseline is None:
+                        current_owner = await round_repo.prove_compatible_pre_state(current_owner)
+                    else:
+                        current_owner = await round_repo.prove_compatible_pre_state(
+                            current_owner,
+                            rollback_baseline=rollback_baseline,
+                        )
                 progress_state = "ingesting"
             elif progress.state in {"ingesting", "retrieving"}:
                 progress_state = progress.state
@@ -252,17 +681,39 @@ async def run_retrieval_parity(
             for document_index, policy in enumerate(dataset.policies):
                 variant = next(item for item in policy.variants if item.format == round_format)
                 if document_index < current_owner.next_document_index:
-                    async with session.begin():
-                        current_owner = await round_repo.prove_advanced_document(
-                            current_owner,
-                            doc_key=policy.doc_key,
-                            source_checksum=variant.sha256,
-                        )
+                    async with _round_transaction(session, rollback_only=rollback_only):
+                        resource_reader = getattr(round_repo, "prove_advanced_document_resources", None)
+                        if callable(resource_reader):
+                            current_owner, resources = await resource_reader(
+                                current_owner,
+                                doc_key=policy.doc_key,
+                                source_checksum=variant.sha256,
+                            )
+                        else:
+                            current_owner = await round_repo.prove_advanced_document(
+                                current_owner,
+                                doc_key=policy.doc_key,
+                                source_checksum=variant.sha256,
+                            )
+                            resources = IngestionResourceProof(
+                                chunk_count=0,
+                                duplicate_count=0,
+                                offline_embedding_tokens=0,
+                                provider_embedding_tokens=None,
+                                provider_tokens_status="unavailable",
+                                config_fingerprint=None,
+                            )
                     ingestions.append(
                         IngestionObservationV1(
                             doc_key=policy.doc_key,
                             source_checksum=variant.sha256,
                             status="success",
+                            chunk_count=resources.chunk_count,
+                            duplicate_count=resources.duplicate_count,
+                            offline_embedding_tokens=resources.offline_embedding_tokens,
+                            provider_embedding_tokens=resources.provider_embedding_tokens,
+                            provider_tokens_status=resources.provider_tokens_status,
+                            config_fingerprint=resources.config_fingerprint,
                         )
                     )
                     continue
@@ -277,12 +728,12 @@ async def run_retrieval_parity(
                     "effective_date": date.fromisoformat("2026-01-01"),
                     "source_type": variant.source_type,
                 }
-                async with session.begin():
+                async with _round_transaction(session, rollback_only=rollback_only):
                     current_progress = await round_repo.read_progress(current_owner)
                 if current_progress.has_attempt_reservation:
                     report = None
                 else:
-                    async with session.begin():
+                    async with _round_transaction(session, rollback_only=rollback_only):
                         current_owner = await round_repo.reserve_document(
                             current_owner,
                             doc_key=policy.doc_key,
@@ -304,6 +755,7 @@ async def run_retrieval_parity(
                     source_checksum=variant.sha256,
                     doc_meta=doc_meta,
                     first_report=report,
+                    rollback_only=rollback_only,
                 )
                 ingestions.append(observation)
                 if ingestion_error is not None:
@@ -313,8 +765,15 @@ async def run_retrieval_parity(
             if ingestion_quality_failed:
                 terminal_outcome = EvaluationOutcome.COMPLETED_QUALITY_FAIL
             else:
-                async with session.begin():
-                    current_owner = await round_repo.prove_retrieval_ready(current_owner)
+                failure_stage = "retrieval_resource_proof"
+                async with _round_transaction(session, rollback_only=rollback_only):
+                    if rollback_baseline is None:
+                        current_owner = await round_repo.prove_retrieval_ready(current_owner)
+                    else:
+                        current_owner = await round_repo.prove_retrieval_ready(
+                            current_owner,
+                            rollback_baseline=rollback_baseline,
+                        )
                 for policy in dataset.policies:
                     anchors_by_id = {anchor.anchor_id: anchor for anchor in policy.gold.anchors}
                     for case in policy.gold.cases:
@@ -322,7 +781,7 @@ async def run_retrieval_parity(
                             question=case.question,
                             generated_at=generated_at,
                         )
-                        async with session.begin():
+                        async with _round_transaction(session, rollback_only=rollback_only):
                             current_owner = await round_repo.prove_run_identity(current_owner)
                             service_result = await knowledge_service.search(request, context)
                             recorded = recording_engine.take_recording(expected_query=case.question)
@@ -371,33 +830,121 @@ async def run_retrieval_parity(
                 pre_state_proved=pre_state_proved,
                 exactly_three_current_proved=len(ingestions) == 3
                 and all(observation.status == "success" for observation in ingestions),
-                post_state_proved=True,
-                immutable_history_preserved=True,
+                post_state_proved=not rollback_only,
+                immutable_history_preserved=not rollback_only,
             )
-            async with session.begin():
-                current_owner = await round_repo.cleanup_current_projection(
-                    current_owner,
-                    terminal_state="completed",
-                    round_result=successful_round.model_dump(mode="json"),
-                )
-            post_state_proved = True
-            immutable_preserved = True
-        except Exception as exc:
-            terminal_outcome = EvaluationOutcome.EXECUTION_ERROR
-            failure_reason = (
-                exc.reason_code if isinstance(exc, EvaluationIsolationError) else "provider_execution_failed"
-            )
-            try:
-                async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
+                if rollback_baseline is None:
                     current_owner = await round_repo.cleanup_current_projection(
                         current_owner,
-                        terminal_state="abandoned",
-                        failure_code=failure_reason,
+                        terminal_state="completed",
+                        round_result=successful_round.model_dump(mode="json"),
                     )
-                post_state_proved = True
-                immutable_preserved = True
+                else:
+                    current_owner = await round_repo.cleanup_current_projection(
+                        current_owner,
+                        terminal_state="completed",
+                        round_result=successful_round.model_dump(mode="json"),
+                        rollback_baseline=rollback_baseline,
+                    )
+            post_state_proved = not rollback_only
+            immutable_preserved = not rollback_only
+        except EvaluationIsolationError as isolation_error:
+            terminal_outcome = EvaluationOutcome.EXECUTION_ERROR
+            failure_reason = isolation_error.reason_code
+            if failure_role is not None:
+                safe_failure = _safe_role_failure(
+                    role=failure_role,
+                    round_format=round_format,
+                    stage=failure_stage,
+                    reason_code=(
+                        "format_ingestion_failed" if failure_stage == "format_ingestion" else "resource_proof_failed"
+                    ),
+                    run_identity_hash=owner.run_identity_hash,
+                    completed_round_count=len(round_results),
+                    provider_request_count=len(observations),
+                    provider_request_classification=(
+                        "not_attempted" if failure_stage == "format_ingestion" else "request_completed"
+                    ),
+                )
+            try:
+                async with _round_transaction(session, rollback_only=rollback_only):
+                    if rollback_baseline is None:
+                        current_owner = await round_repo.cleanup_current_projection(
+                            current_owner,
+                            terminal_state="abandoned",
+                            failure_code=failure_reason,
+                        )
+                    else:
+                        current_owner = await round_repo.cleanup_current_projection(
+                            current_owner,
+                            terminal_state="abandoned",
+                            failure_code=failure_reason,
+                            rollback_baseline=rollback_baseline,
+                        )
+                post_state_proved = not rollback_only
+                immutable_preserved = not rollback_only
             except Exception:
                 failure_reason = "cleanup_proof_failed"
+                if failure_role is not None:
+                    safe_failure = _safe_role_failure(
+                        role=failure_role,
+                        round_format=round_format,
+                        stage="retrieval_resource_proof",
+                        reason_code="resource_proof_failed",
+                        run_identity_hash=owner.run_identity_hash,
+                        completed_round_count=len(round_results),
+                        provider_request_count=len(observations),
+                        provider_request_classification=("not_attempted" if not observations else "request_completed"),
+                    )
+        except Exception:
+            terminal_outcome = EvaluationOutcome.EXECUTION_ERROR
+            failure_reason = "provider_execution_failed"
+            if failure_role is not None:
+                safe_failure = _safe_role_failure(
+                    role=failure_role,
+                    round_format=round_format,
+                    stage=failure_stage,
+                    reason_code=(
+                        "provider_request_failed"
+                        if failure_stage == "retrieval_resource_proof"
+                        else "format_ingestion_failed"
+                    ),
+                    run_identity_hash=owner.run_identity_hash,
+                    completed_round_count=len(round_results),
+                    provider_request_count=len(observations) + 1,
+                    provider_request_classification="request_failed",
+                )
+            try:
+                async with _round_transaction(session, rollback_only=rollback_only):
+                    if rollback_baseline is None:
+                        current_owner = await round_repo.cleanup_current_projection(
+                            current_owner,
+                            terminal_state="abandoned",
+                            failure_code=failure_reason,
+                        )
+                    else:
+                        current_owner = await round_repo.cleanup_current_projection(
+                            current_owner,
+                            terminal_state="abandoned",
+                            failure_code=failure_reason,
+                            rollback_baseline=rollback_baseline,
+                        )
+                post_state_proved = not rollback_only
+                immutable_preserved = not rollback_only
+            except Exception:
+                failure_reason = "cleanup_proof_failed"
+                if failure_role is not None:
+                    safe_failure = _safe_role_failure(
+                        role=failure_role,
+                        round_format=round_format,
+                        stage="retrieval_resource_proof",
+                        reason_code="resource_proof_failed",
+                        run_identity_hash=owner.run_identity_hash,
+                        completed_round_count=len(round_results),
+                        provider_request_count=len(observations) + 1,
+                        provider_request_classification="request_failed",
+                    )
 
         round_results.append(
             successful_round
@@ -414,13 +961,16 @@ async def run_retrieval_parity(
                 post_state_proved=post_state_proved,
                 immutable_history_preserved=immutable_preserved,
                 reason_code=failure_reason,
+                safe_failure=safe_failure,
             )
         )
         if terminal_outcome is EvaluationOutcome.EXECUTION_ERROR:
             break
+        if stop_after_current_round:
+            break
         if format_index + 1 < len(ROUND_FORMATS):
             next_format = ROUND_FORMATS[format_index + 1]
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 current_owner = await round_repo.create_round(
                     run_token=owner.run_token,
                     round_token=uuid5(NAMESPACE_URL, f"{owner.run_token}:{next_format}"),
@@ -510,30 +1060,49 @@ async def _resolve_ingestion_attempt(
     source_checksum: str,
     doc_meta: dict[str, Any],
     first_report: object,
+    rollback_only: bool = False,
 ) -> tuple[EvaluationRoundIdentity, IngestionObservationV1, str | None]:
     report = first_report
     real_report_count = int(report is not None)
     for _inspection_attempt in range(3):
-        async with session.begin():
+        async with _round_transaction(session, rollback_only=rollback_only):
             inspection = await round_repo.inspect_attempt(owner)
         if inspection.state is ProjectionState.EXACT_COMPLETE:
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 owner = await round_repo.claim_attempt_job(owner, require_null_document=False)
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 owner = await round_repo.advance_exact_complete(owner)
+            resources = getattr(
+                inspection,
+                "resources",
+                IngestionResourceProof(
+                    chunk_count=int(getattr(inspection.projection, "chunk_count", 0)),
+                    duplicate_count=0,
+                    offline_embedding_tokens=0,
+                    provider_embedding_tokens=None,
+                    provider_tokens_status="unavailable",
+                    config_fingerprint=None,
+                ),
+            )
             return (
                 owner,
                 IngestionObservationV1(
                     doc_key=str(doc_meta["doc_key"]),
                     source_checksum=source_checksum,
                     status="success",
+                    chunk_count=resources.chunk_count,
+                    duplicate_count=resources.duplicate_count,
+                    offline_embedding_tokens=resources.offline_embedding_tokens,
+                    provider_embedding_tokens=resources.provider_embedding_tokens,
+                    provider_tokens_status=resources.provider_tokens_status,
+                    config_fingerprint=resources.config_fingerprint,
                 ),
                 None,
             )
         if inspection.state in {ProjectionState.JOB_ONLY, ProjectionState.FAILURE}:
             if report is None:
                 real_report_count = max(real_report_count, 1)
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 owner = await round_repo.claim_attempt_job(
                     owner,
                     require_null_document=inspection.state is ProjectionState.JOB_ONLY,
@@ -545,7 +1114,7 @@ async def _resolve_ingestion_attempt(
                 and round_format == "scanned_pdf"
                 and error_code == "malformed_source"
             ):
-                async with session.begin():
+                async with _round_transaction(session, rollback_only=rollback_only):
                     owner = await round_repo.advance_exact_failed_quality(
                         owner,
                         error_code=error_code,
@@ -560,7 +1129,7 @@ async def _resolve_ingestion_attempt(
                     ),
                     None,
                 )
-            async with session.begin():
+            async with _round_transaction(session, rollback_only=rollback_only):
                 owner = await round_repo.retry_attempt(owner)
         elif inspection.state is not ProjectionState.RESERVATION_ONLY:
             raise EvaluationIsolationError("malformed_projection")
@@ -576,7 +1145,7 @@ async def _resolve_ingestion_attempt(
                 ),
                 f"ingestion_failed:{error_code}",
             )
-        async with session.begin():
+        async with _round_transaction(session, rollback_only=rollback_only):
             owner = await round_repo.reserve_document(
                 owner,
                 doc_key=str(doc_meta["doc_key"]),
