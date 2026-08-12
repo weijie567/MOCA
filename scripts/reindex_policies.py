@@ -71,6 +71,21 @@ from src.repositories.policy_corpus_repo import PolicyCorpusRepository
 DEFAULT_ACTIVATION_ROOT = Path("evaluation/reports/rag_token_chunk_ab/v1/activations")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 REVIEWED_CANDIDATE_RELATIVE_ROOT = Path("evaluation/reports/rag_token_chunk_ab/v1/candidates")
+LIVE_PROVIDER_EXECUTION_DISABLED = "live_provider_execution_disabled"
+
+
+def _refuse_live_provider_execution() -> int:
+    print(
+        json.dumps(
+            {
+                "error": LIVE_PROVIDER_EXECUTION_DISABLED,
+                "reason_code": LIVE_PROVIDER_EXECUTION_DISABLED,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
+    return 4
 
 
 def _parse_args() -> argparse.Namespace:
@@ -844,6 +859,8 @@ def _load_identity(path: Path) -> PolicyReindexRunIdentity:
 
 async def _main() -> int:
     args = _parse_args()
+    if args.command in {"build-next-reviewed", "build-next"}:
+        return _refuse_live_provider_execution()
     if args.command == "claim":
         owner = await _claim(args)
         _write_identity_create_only(args.state_path, owner)

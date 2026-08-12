@@ -638,6 +638,45 @@ async def test_cli_invalid_noncanonical_preflight_writes_no_terminal_or_selectio
 
 
 @pytest.mark.asyncio
+async def test_production_run_ab_dispatch_is_disabled_before_side_effects(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+
+    calls = {"db": 0, "root": 0, "artifact": 0, "reservation": 0, "provider": 0}
+
+    def forbidden(name: str):
+        def fail(*_args, **_kwargs):
+            calls[name] += 1
+            raise AssertionError(f"{name} work must not start")
+
+        return fail
+
+    async def forbidden_provider(*_args, **_kwargs):
+        calls["provider"] += 1
+        raise AssertionError("provider work must not start")
+
+    monkeypatch.setattr(
+        ab_cli,
+        "parse_args",
+        lambda _argv: SimpleNamespace(command="run-ab"),
+    )
+    monkeypatch.setattr(ab_cli, "SessionLocal", forbidden("db"))
+    monkeypatch.setattr(ab_cli, "require_canonical_recovery_root", forbidden("root"))
+    monkeypatch.setattr(ab_cli, "load_recovery_budget_manifest", forbidden("artifact"))
+    monkeypatch.setattr(ab_cli, "reserve_recovery_attempt", forbidden("reservation"))
+    monkeypatch.setattr(ab_cli, "run_full_provider_ab", forbidden_provider)
+
+    assert await ab_cli.main([]) == 4
+    assert calls == {"db": 0, "root": 0, "artifact": 0, "reservation": 0, "provider": 0}
+    assert json.loads(capsys.readouterr().out) == {
+        "error": "live_provider_execution_disabled",
+        "reason_code": "live_provider_execution_disabled",
+    }
+
+
+@pytest.mark.asyncio
 async def test_phase64_4_head_satisfies_ab_database_prerequisite(monkeypatch: pytest.MonkeyPatch) -> None:
     import scripts.eval_rag_token_chunk_ab as ab_cli
 

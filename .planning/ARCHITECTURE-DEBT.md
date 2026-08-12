@@ -2881,3 +2881,12 @@
 - **处理状态**：✅ 已修复验证。production现固定lexical `abspath`，逐级`lstat` expected component/ancestors并拒绝symlink/non-directory，再做caller lexical equality；只有argparse不可达test injection走独立resolve分支。
 - **证据**：Phase64.4 review iteration 4 CR-01；`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`；最小RED `1 failed, 1 passed`，纯CLI GREEN与既有descendant tests合计`6 passed, 1 warning`；artifact/reindex focused `71 passed, 1 warning`；fix前独占full suite `4887 passed, 4 skipped`。
 - **剩余风险 / 继续入口**：fix后最终独占full suite由orchestrator重跑。未运行live provider/DB/artifact，Plans18-20未执行。
+
+## 2026-08-12 — Phase 64.4 review iteration 5 — file-backed provider budget不是全局不可伪造authority 🟡production已关闭 / 🔴live能力待新phase
+
+- **子系统**：RAG reviewed reindex / full-provider A-B recovery / execution budget authority。
+- **问题现象 / 根因**：candidate与A/B attempt budget都以repository file artifacts表达。此前的lexical identity、`O_NOFOLLOW`、pinned descendant fd、create-only link与fsync能保护已选namespace，却无法证明repository-root到authority root在整个production命令中绝不会被替换，也无法阻止完整artifact tree被复制后隐藏已消费ordinal。file-backed budget因此不是跨拷贝/path substitution全局不可伪造的provider授权源。
+- **影响**：若`build-next-reviewed`、legacy `build-next`或`run-ab`仍由production CLI dispatch到内部算法，理论上可绕过每文档/recovery attempt上限并构造provider；Plans18-20与SC-64.4-5/6不能据此宣称完成。
+- **处理状态**：🟡 当前production暴露面已安全关闭。两个reindex build命令在parse后、A/B `run-ab`在parse/current UTC后统一以`live_provider_execution_disabled`/exit 4拒绝，且发生在DB/root/artifact/reservation/provider之前；没有CLI flag或environment override。deterministic `issue-recovery-budget`与内部算法只保留测试用途，不构成live授权。🔴 live provider能力明确defer到新的post-PR rollout phase，必须使用DB-backed unique budget后重新安全评审。
+- **证据**：Phase64.4 final review CR-01/CR-02；`scripts/reindex_policies.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/rag/test_policy_reindex.py`、`tests/eval/test_rag_token_chunk_ab.py`及三份artifact README；最小RED `3 failed, 1 passed`、最小GREEN `4 passed, 1 warning`、focused两文件`134 passed, 1 warning in 50.98s`，format/full lint PASS。
+- **剩余风险 / 继续入口**：不要通过flag、环境变量或直接包装内部函数恢复production provider可达性；新phase需先设计DB唯一约束、幂等reservation/consumption、crash reconciliation与跨进程并发证明。当前Plans18-20/SC-64.4-5/6仍未完成，本轮未运行live provider/DB/artifact或full suite。

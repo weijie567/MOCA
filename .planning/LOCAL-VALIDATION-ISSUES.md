@@ -23993,3 +23993,14 @@ production canonical由repository-relative lexical path定义，不应由filesys
 
 **已做处理 / 剩余入口**
 production branch现以`abspath(REPOSITORY_ROOT / REVIEWED_CANDIDATE_RELATIVE_ROOT)`保留lexical identity，对expected path及全部ancestor逐级`lstat`并要求真实directory，再与caller的lexical `abspath`精确比较，全程不resolve。argparse不可达的temp test injection使用显式独立分支才允许resolve。lexical symlink与resolved target两case均在root gate拒绝，reservation/provider均为0；连同既有四层descendant coverage为`6 passed, 1 warning`。按orchestrator要求，full suite运行期间未运行DB tests；独占full suite最终`4887 passed, 4 skipped`后再串行运行artifact/reindex focused两文件，结果`71 passed, 1 warning in 64.46s`。`make format`与全量`make lint`均PASS；本fixer未触碰live DB/provider/artifact。
+
+## 2026-08-12 — Phase 64.4 review-fix iteration 5 — file-backed budget无法作为不可伪造production authority
+
+**问题现象 / 如何检测**
+最终deep review确认两条同类Critical：reviewed reindex虽然已保护stable root、descendant与nested parent，但repository-root到candidate-root的pathname选择仍存在check/open竞态；A/B recovery的root/attempt目录也没有全程由repository dirfd固定。只要production dispatch仍可达，攻击者就可能用self-consistent copy或替换后的空attempt目录隐藏已消费ordinal。先补纯dispatch测试并用有效项目入口精确运行，旧实现得到`3 failed, 1 passed`：`build-next-reviewed`进入root gate，legacy `build-next`进入identity artifact路径，`run-ab`进入output-root路径；仅无override静态断言通过。
+
+**关键证据 / 当前判断 / 根因**
+文件系统中的canonical path、create-only hard-link、fsync与no-follow只能约束被选中的namespace，不能让file-backed execution budget成为跨pathname替换/拷贝都不可伪造的全局production authority。继续迭代局部pinning无法满足当前安全结论，因此本轮不再扩展filesystem matrix，而是移除所有production provider-capable CLI可达性。RED与最终测试均用monkeypatch计数锁定DB/root/artifact/reservation/provider为0，没有读取或写入live authority。
+
+**已做处理 / 剩余入口**
+`reindex_policies.py`在parse后对`build-next-reviewed`与`build-next`无条件返回exit 4；`eval_rag_token_chunk_ab.py`保留deterministic/no-provider的`issue-recovery-budget`，但普通`run-ab`在parse/current UTC后无条件返回exit 4。三者统一只输出`{"error":"live_provider_execution_disabled","reason_code":"live_provider_execution_disabled"}`，parser无CLI flag且dispatch无environment override；内部算法只保留给deterministic test。最小GREEN为`4 passed, 1 warning`，最终`make format`、完整`make lint`均PASS，focused `tests/rag/test_policy_reindex.py tests/eval/test_rag_token_chunk_ab.py`为`134 passed, 1 warning in 50.98s`。本轮未运行full suite，也未调用live provider/DB/artifact。恢复live execution必须由新的post-PR rollout phase提供DB-backed unique budget；Plans18-20与SC-64.4-5/6保持未完成。

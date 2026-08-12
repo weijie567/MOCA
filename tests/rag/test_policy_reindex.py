@@ -7,6 +7,7 @@ import json
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+import inspect
 import shutil
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -68,6 +69,54 @@ NOW = datetime(2026, 8, 11, 8, 30, tzinfo=UTC)
 TOKEN_CONFIG_FINGERPRINT = "sha256:" + "1" * 64
 PARITY_REPORT_HASH = "sha256:" + "2" * 64
 SELECTION_DECISION_HASH = "sha256:" + "3" * 64
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ("build-next-reviewed", "build-next"))
+async def test_production_dispatch_disables_live_provider_builds_before_side_effects(
+    command: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls = {"db": 0, "root": 0, "artifact": 0, "reservation": 0, "provider": 0}
+
+    def forbidden(name: str):
+        def fail(*_args, **_kwargs):
+            calls[name] += 1
+            raise AssertionError(f"{name} work must not start")
+
+        return fail
+
+    monkeypatch.setattr(reindex_cli, "_parse_args", lambda: Namespace(command=command))
+    monkeypatch.setattr(reindex_cli, "SessionLocal", forbidden("db"))
+    monkeypatch.setattr(reindex_cli, "_require_canonical_reviewed_root", forbidden("root"))
+    monkeypatch.setattr(reindex_cli, "_load_identity", forbidden("artifact"))
+    monkeypatch.setattr(reindex_cli, "reserve_candidate_build_attempt", forbidden("reservation"))
+    monkeypatch.setattr(reindex_cli, "EmbeddingService", forbidden("provider"))
+
+    assert await reindex_cli._main() == 4
+    assert calls == {"db": 0, "root": 0, "artifact": 0, "reservation": 0, "provider": 0}
+    assert json.loads(capsys.readouterr().out) == {
+        "error": "live_provider_execution_disabled",
+        "reason_code": "live_provider_execution_disabled",
+    }
+
+
+def test_live_provider_disable_has_no_cli_or_environment_override() -> None:
+    from scripts import eval_rag_token_chunk_ab as ab_cli
+
+    for parser_source in (
+        inspect.getsource(reindex_cli._parse_args),
+        inspect.getsource(ab_cli.parse_args),
+    ):
+        for override_option_prefix in ("--allow", "--enable", "--live", "--override", "--provider"):
+            assert override_option_prefix not in parser_source
+    for dispatch_source in (
+        inspect.getsource(reindex_cli._main),
+        inspect.getsource(ab_cli.main),
+    ):
+        assert "os.environ" not in dispatch_source
+        assert "os.getenv" not in dispatch_source
 
 
 def _sha256(payload: object) -> str:

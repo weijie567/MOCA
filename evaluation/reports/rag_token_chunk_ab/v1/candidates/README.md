@@ -40,11 +40,12 @@ state replay is idempotent; truncated or different bytes refuse.
    (`building/v2/index0` with only canonical v2 present) may derive only its
    field-identical `claimed/v1/index0` predecessor; no other missing history is
    inferred. Lease or parity expiry refuses before any artifact write.
-4. `build-next-reviewed` requires the canonical descriptor, current state, and
-   build budget. It reserves a per-document ordinal before constructing
-   `EmbeddingService(max_retries=1)`. A crash consumes the ordinal. Ordinal 2
-   requires the same DB document/state and an allowlisted safe result from
-   ordinal 1. Two ordinals exhaust the document permanently.
+4. `build-next-reviewed` is production-disabled. Its dispatch returns exit 4
+   with `live_provider_execution_disabled` before DB, root, artifact, budget,
+   reservation, or provider work. The file-backed per-document ordinal cannot
+   serve as globally non-forgeable production authority, even with canonical
+   path and no-follow hardening. The internal build algorithm remains available
+   only to deterministic tests.
 5. `validate-reviewed` is allowed only after every ordered document has
    advanced through the reviewed path.
 6. A complete candidate crosses into A-B authority only through
@@ -54,14 +55,17 @@ state replay is idempotent; truncated or different bytes refuse.
    DB/source/evidence proof or manifest publication. `building`, `built`, or
    `validating` candidates cannot mint a recovery budget.
 
-The older `claim`, `resume`, `build-next`, and `validate` subcommands remain
-compatibility tools. Their outputs cannot satisfy this reviewed descriptor,
-state, or budget authority and are not accepted for the future rebuild.
+The older `claim`, `resume`, and `validate` subcommands remain compatibility
+tools. Legacy `build-next` is also production-disabled with the same stable
+refusal. Their outputs cannot satisfy this reviewed descriptor, state, or
+budget authority and are not accepted for the future rebuild.
 
-This directory contains contracts only in Plan 13. It does not claim a live
-candidate, invoke the provider, mutate the evaluation DB, reserve a Plan 12 A/B
-slot, or create selection/activation evidence. Live work remains owned by the
-later reviewed plan.
+This directory contains contracts only. It does not claim a live candidate,
+invoke the provider, mutate the evaluation DB, reserve a Plan 12 A/B slot, or
+create selection/activation evidence. Restoring any provider-capable production
+build requires a new post-PR rollout phase with a DB-backed unique budget;
+there is no CLI flag or environment override. Plans 18–20 and SC-64.4-5/6
+remain incomplete.
 
 Build result artifacts retain only allowlisted safe codes, counts, and hashes.
 Raw exception text, provider payloads, policy content, credentials, DSNs, and

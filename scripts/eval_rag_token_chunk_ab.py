@@ -101,6 +101,21 @@ COST_BASIS_VERSION = "dashscope_text_embedding_v4_cost.v1"
 COST_CURRENCY = "CNY"
 COST_UNIT_TOKENS = 1_000
 COST_PRICE_PER_UNIT = Decimal("0.0007")
+LIVE_PROVIDER_EXECUTION_DISABLED = "live_provider_execution_disabled"
+
+
+def _refuse_live_provider_execution() -> int:
+    print(
+        json.dumps(
+            {
+                "error": LIVE_PROVIDER_EXECUTION_DISABLED,
+                "reason_code": LIVE_PROVIDER_EXECUTION_DISABLED,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
+    return 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -902,6 +917,8 @@ async def main(argv: list[str] | None = None) -> int:
     authority_checked_at = datetime.now(UTC)
     if args.command == "issue-recovery-budget":
         return await _issue_recovery_budget(args, checked_at=authority_checked_at)
+    if args.command == "run-ab":
+        return _refuse_live_provider_execution()
     args._authority_checked_at = authority_checked_at
     reservation_holder: dict[str, ABRecoveryAttemptReservationV1] = {}
     try:

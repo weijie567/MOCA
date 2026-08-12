@@ -1,9 +1,9 @@
 # RAG token chunk recovery budgets
 
-`rag_token_chunk_recovery_budget.v1` is the fixed, create-only authority for
-Phase 64.4 Plan 12 live selection recovery. Its identity is
+`rag_token_chunk_recovery_budget.v1` is the fixed, create-only deterministic
+record for the deferred Phase 64.4 Plan 12 selection recovery. Its identity is
 `phase64.4-plan12-live-selection-recovery`; the maximum is exactly two
-provider attempts. The manifest binds the three immutable Plan 10 terminal
+recorded attempts. The manifest binds the three immutable Plan 10 terminal
 run hashes, the unchanged live baseline proof, sealed Phase 64.3 inputs, the
 inactive candidate identity, the fresh tokenizer-parity identity, provider
 and model identity, and locked `512/384/48` chunk parameters.
@@ -29,18 +29,29 @@ rollout, candidate row/projection/proofs, and sealed Plan10/Phase64.3 inputs.
 An existing manifest never extends either expiry. Byte-identical replay fsyncs
 the manifest parent and returns the original hash; different bytes fail closed.
 
+Issuance is deterministic and does not construct a provider. Normal `run-ab`
+production dispatch is disabled unconditionally: immediately after parsing and
+capturing current UTC it returns exit 4 with
+`live_provider_execution_disabled`, before canonical-root, manifest, DB,
+reservation, artifact publication, or provider work. File-backed reservations
+cannot provide a globally non-forgeable production attempt budget; restoring
+live execution requires a new post-PR rollout phase with a DB-backed unique
+budget. There is no CLI flag or environment override. Plans 18–20 and
+SC-64.4-5/6 remain incomplete.
+
 The manifest is written once at the canonical
 `recovery-budgets/phase64.4-plan12-live-selection-recovery/manifest.json`. It
 also binds the canonical repository-relative Plan 13 state path and exact state
 file/descriptor hashes, corpus/run/lease owner/state version/config identity,
 source manifest/current corpus/epoch, evidence rollout, and fresh parity
 run/file/config/probe/content identity.
-Immediately before a provider is constructed, the entry point atomically
+The retained internal test algorithm, which is not production-dispatch
+reachable, atomically
 re-hashes and strict-loads that exact candidate state plus the fresh parity
 report, then publishes `attempts/01.json` or `attempts/02.json` with the new run
 and selection UUIDs and candidate-state SHA. The create-only hard-link is the
 reservation commit point.
-A normal A-B invocation captures a separate current UTC instant internally and
+That internal algorithm captures a separate current UTC instant and
 uses it at existing-manifest startup, reservation, and the final pre-provider
 forcing boundary. Equality with either expiry is expired authority. The
 report's optional `--generated-at` remains evidence metadata only and cannot
