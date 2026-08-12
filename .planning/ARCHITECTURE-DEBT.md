@@ -2863,3 +2863,12 @@
 - **处理状态**：✅ 已修复验证。逐条确认owner有active join、显式corpus binding或仅历史schema gate后更新精确集合；mutation断言改为当前`ensure_tenant_character_bootstrap`+`create_ingestion_cow` seam，未降低production authority。
 - **证据**：`tests/architecture/test_rag_chunking_boundaries.py`；RED `3 failed, 5 passed`，GREEN `8 passed, 1 warning`；iteration focused union `93 passed, 19 warnings`。
 - **剩余风险 / 继续入口**：allowlist是AST级结构guard，不能替代integration行为验证；本iteration focused union及最终full suite继续覆盖。
+
+## 2026-08-12 — Phase 64.4 review iteration 3 — nested artifact parent未纳入pinned namespace ✅已修复验证
+
+- **子系统**：RAG reviewed reindex artifact authority / provider execution budget。
+- **问题现象 / 根因**：secure I/O仅pin exact run directory；nested parent existence与publication使用不同reopen，且post-link只复核run inode。`attempts/<document>`在parent open后被替换时，reservation可落入detached inode，provider仍执行而canonical budget未消费。
+- **影响**：失败或成功的provider执行均可能不计入canonical最大两次预算，成功路径还可能先推进DB再在result reconciliation暴露缺失reservation。
+- **处理状态**：✅ 已修复验证。nested directory identity现按relative chain pin `(st_dev, st_ino)`并在I/O间复核；existence/link共用parent fd；post-link从run fd no-follow reopen exact chain。稳定真实替换目录可recovery-link同一reservation到canonical ordinal、用新pinned namespace strict-load并拒绝本次provider，symlink/持续漂移不follow且fail closed。
+- **证据**：Phase64.4 review iteration 3 CR-01；`src/rag/policy_reindex_artifacts.py`与两份artifact/reindex tests；pure artifact `26 passed, 1 warning`；stable directory与unsafe symlink DB integration `2 passed, 1 warning`，provider factory均为0且candidate保持`building/v2/index0`。fix前独占full suite `4883 passed, 4 skipped`。
+- **剩余风险 / 继续入口**：focused artifact/reindex gate `69 passed, 1 warning`；最终fix后独占full suite由orchestrator重跑。未触碰live provider/DB/artifact，Plans18-20未执行。

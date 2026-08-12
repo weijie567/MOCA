@@ -23971,3 +23971,14 @@ orchestrator 在 iteration 1 fixes后独占运行完整 suite，真实结果为 
 
 **已做处理 / 剩余入口**
 iteration 2聚焦gate全部通过。本fixer按任务约束没有运行完整suite；最终独占full suite由orchestrator执行并作为全量结论。未调用live provider、未续租/创建live candidate、未写live DB/artifact，Plans18-20未执行。
+
+## 2026-08-12 — Phase 64.4 review-fix iteration 3 — nested artifact parent TOCTOU与并发schema假失败
+
+**问题现象 / 如何检测**
+最小adversarial test在reservation hard-link前把`build-budget/documents/<index>/attempts`重命名并替换为新目录。修复前命令最终报`build_reservation_invalid`，但缺少canonical `01.json`且provider构造已发生，证明detached parent可绕过canonical build budget。实现初稿后尝试运行同一DB integration test时出现`evidence_identity_rollouts does not exist`；当时orchestrator正在独占full suite并重建共享schema，因此该结果是并发DDL污染的无效验证，不作代码结论，已立即暂停所有DB tests。
+
+**关键证据 / 当前判断 / 根因**
+secure publish先pin nested parent fd，却用另一轮lexical reopen做existence检查；hard-link后只验证run inode，没有比较nested parent `(st_dev, st_ino)`或从canonical chain strict-load新reservation。pure artifact RED/GREEN进一步证明：真实新目录替换可从pinned staging inode安全recovery-link同一bytes到canonical ordinal后拒绝本次命令；symlink替换必须因`O_NOFOLLOW`直接fail closed，且不得写入攻击者目录。
+
+**已做处理 / 剩余入口**
+existence与create-only link现在共用同一parent fd；所有打开的artifact directory identity会在命令生命周期内pin并复核。publish后从pinned run fd逐级no-follow reopen exact parent、比较inode、strict比对bytes；若canonical为稳定真实目录则recovery-link同一staging inode、fsync、用新pinned namespace strict-load后仍拒绝本次命令，确保provider=0且ordinal已消费；symlink/持续漂移则不follow、不写入并fail closed。pure artifact文件`26 passed, 1 warning`，DB integration两种替换`2 passed, 1 warning`，均证明provider=0且candidate保持`building/v2/index0`。最终`make format`与全量`make lint` PASS，artifact/reindex focused两文件`69 passed, 1 warning`。orchestrator在fix前独占full suite最终`4883 passed, 4 skipped`，与此前并发schema缺表结果明确区分；本fix后仍由orchestrator重跑最终独占全量。

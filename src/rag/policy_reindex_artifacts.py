@@ -38,6 +38,10 @@ class PolicyReindexArtifactError(RuntimeError):
     """Closed safe-code error for descriptor, state, and budget artifacts."""
 
 
+class _ArtifactNamespaceReconciled(PolicyReindexArtifactError):
+    """The canonical link was recovered, but this command must still stop."""
+
+
 class _SecureReviewedArtifactIO:
     """Pin one canonical run directory and use openat-style no-follow I/O."""
 
@@ -47,6 +51,7 @@ class _SecureReviewedArtifactIO:
         self.create_run = create_run
         self.root_fd = -1
         self.run_fd = -1
+        self._pinned_directories: dict[tuple[str, ...], tuple[int, int]] = {}
         self._token: object | None = None
 
     def __enter__(self) -> _SecureReviewedArtifactIO:
@@ -89,58 +94,50 @@ class _SecureReviewedArtifactIO:
         return True
 
     def read_bytes(self, path: Path) -> bytes:
-        self.verify_run_chain()
+        self.verify_namespace()
         parent_fd, name = self._open_parent(path, create=False)
         try:
-            descriptor = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent_fd)
-            try:
-                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                    raise PolicyReindexArtifactError("artifact_namespace_invalid")
-                with os.fdopen(descriptor, "rb", closefd=False) as stream:
-                    payload = stream.read()
-                self.verify_run_chain()
-                return payload
-            finally:
-                os.close(descriptor)
+            payload = self._read_regular_bytes_at(parent_fd, name)
+            if payload is None:
+                raise PolicyReindexArtifactError("artifact_namespace_invalid")
+            self._verify_and_pin_directory(path.parent, parent_fd)
+            self.verify_namespace()
+            return payload
         except OSError:
             raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
         finally:
             os.close(parent_fd)
 
     def exists(self, path: Path) -> bool:
-        self.verify_run_chain()
+        self.verify_namespace()
         try:
             parent_fd, name = self._open_parent(path, create=False)
         except FileNotFoundError:
             return False
         try:
-            try:
-                descriptor = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent_fd)
-            except FileNotFoundError:
-                return False
-            try:
-                exists = stat.S_ISREG(os.fstat(descriptor).st_mode)
-                self.verify_run_chain()
-                return exists
-            finally:
-                os.close(descriptor)
+            payload = self._read_regular_bytes_at(parent_fd, name)
+            self._verify_and_pin_directory(path.parent, parent_fd)
+            self.verify_namespace()
+            return payload is not None
         except OSError:
             raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
         finally:
             os.close(parent_fd)
 
     def list_json(self, path: Path) -> list[Path]:
-        self.verify_run_chain()
+        self.verify_namespace()
         try:
             directory_fd = self._open_directory(path, create=False)
         except FileNotFoundError:
             return []
         try:
+            self._verify_and_pin_directory(path, directory_fd)
             names = sorted(name for name in os.listdir(directory_fd) if name.endswith(".json"))
             for name in names:
                 if not self.exists(path / name):
                     raise PolicyReindexArtifactError("artifact_namespace_invalid")
-            self.verify_run_chain()
+            self._verify_and_pin_directory(path, directory_fd)
+            self.verify_namespace()
             return [path / name for name in names]
         finally:
             os.close(directory_fd)
@@ -154,14 +151,23 @@ class _SecureReviewedArtifactIO:
         identical_replay: bool,
         fault_injector: ArtifactFaultInjector | None,
     ) -> None:
-        self.verify_run_chain()
+        self.verify_namespace()
         parent_fd, name = self._open_parent(path, create=True)
         staging_fd = -1
         staging_name: str | None = None
         try:
-            if self.exists(path):
-                if identical_replay and self.read_bytes(path) == payload:
+            self._verify_and_pin_directory(path.parent, parent_fd)
+            existing = self._read_regular_bytes_at(parent_fd, name)
+            if existing is not None:
+                if identical_replay and existing == payload:
                     os.fsync(parent_fd)
+                    self._finish_verified_publication(
+                        path=path,
+                        pinned_parent_fd=parent_fd,
+                        source_fd=parent_fd,
+                        source_name=name,
+                        payload=payload,
+                    )
                     return
                 raise PolicyReindexArtifactError(conflict_code)
             staging_fd = self._open_directory_at(parent_fd, ".staging", create=True)
@@ -192,10 +198,24 @@ class _SecureReviewedArtifactIO:
             _inject_fault(fault_injector, "published")
             os.fsync(parent_fd)
             _inject_fault(fault_injector, "parent_fsynced")
-            self.verify_run_chain()
+            self._finish_verified_publication(
+                path=path,
+                pinned_parent_fd=parent_fd,
+                source_fd=staging_fd,
+                source_name=staging_name,
+                payload=payload,
+            )
         except FileExistsError:
-            if identical_replay and self.exists(path) and self.read_bytes(path) == payload:
+            existing = self._read_regular_bytes_at(parent_fd, name)
+            if identical_replay and existing == payload:
                 os.fsync(parent_fd)
+                self._finish_verified_publication(
+                    path=path,
+                    pinned_parent_fd=parent_fd,
+                    source_fd=parent_fd,
+                    source_name=name,
+                    payload=payload,
+                )
                 return
             raise PolicyReindexArtifactError(conflict_code) from None
         except PolicyReindexArtifactError:
@@ -228,6 +248,124 @@ class _SecureReviewedArtifactIO:
             raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
         finally:
             os.close(current_fd)
+
+    def verify_namespace(self) -> None:
+        self.verify_run_chain()
+        for relative_parts, expected in tuple(self._pinned_directories.items()):
+            path = self.run_path.joinpath(*relative_parts)
+            try:
+                descriptor = self._open_directory(path, create=False)
+            except OSError:
+                raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+            try:
+                current = os.fstat(descriptor)
+                if (current.st_dev, current.st_ino) != expected:
+                    raise PolicyReindexArtifactError("artifact_namespace_invalid")
+            finally:
+                os.close(descriptor)
+
+    def _finish_verified_publication(
+        self,
+        *,
+        path: Path,
+        pinned_parent_fd: int,
+        source_fd: int,
+        source_name: str,
+        payload: bytes,
+    ) -> None:
+        try:
+            canonical_parent_fd = self._open_directory(path.parent, create=False)
+        except OSError:
+            raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+        try:
+            pinned = os.fstat(pinned_parent_fd)
+            canonical = os.fstat(canonical_parent_fd)
+            if (canonical.st_dev, canonical.st_ino) != (pinned.st_dev, pinned.st_ino):
+                self._recover_publication_to_canonical_parent(
+                    path=path,
+                    canonical_parent_fd=canonical_parent_fd,
+                    source_fd=source_fd,
+                    source_name=source_name,
+                    payload=payload,
+                )
+                raise _ArtifactNamespaceReconciled("artifact_namespace_invalid")
+            if self._read_regular_bytes_at(canonical_parent_fd, path.name) != payload:
+                raise PolicyReindexArtifactError("artifact_namespace_invalid")
+            self._verify_and_pin_directory(path.parent, canonical_parent_fd)
+            self.verify_namespace()
+        finally:
+            os.close(canonical_parent_fd)
+
+    def _recover_publication_to_canonical_parent(
+        self,
+        *,
+        path: Path,
+        canonical_parent_fd: int,
+        source_fd: int,
+        source_name: str,
+        payload: bytes,
+    ) -> None:
+        existing = self._read_regular_bytes_at(canonical_parent_fd, path.name)
+        if existing is None:
+            try:
+                os.link(
+                    source_name,
+                    path.name,
+                    src_dir_fd=source_fd,
+                    dst_dir_fd=canonical_parent_fd,
+                    follow_symlinks=False,
+                )
+            except OSError:
+                raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+            os.fsync(canonical_parent_fd)
+        elif existing != payload:
+            raise PolicyReindexArtifactError("artifact_namespace_invalid")
+        try:
+            reopened_fd = self._open_directory(path.parent, create=False)
+        except OSError:
+            raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+        try:
+            canonical = os.fstat(canonical_parent_fd)
+            reopened = os.fstat(reopened_fd)
+            if (reopened.st_dev, reopened.st_ino) != (canonical.st_dev, canonical.st_ino):
+                raise PolicyReindexArtifactError("artifact_namespace_invalid")
+            if self._read_regular_bytes_at(reopened_fd, path.name) != payload:
+                raise PolicyReindexArtifactError("artifact_namespace_invalid")
+        finally:
+            os.close(reopened_fd)
+
+    def _verify_and_pin_directory(self, path: Path, descriptor: int) -> None:
+        relative = self._relative(path)
+        try:
+            reopened_fd = self._open_directory(path, create=False)
+        except OSError:
+            raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+        try:
+            opened = os.fstat(descriptor)
+            reopened = os.fstat(reopened_fd)
+            identity = (opened.st_dev, opened.st_ino)
+            if (reopened.st_dev, reopened.st_ino) != identity:
+                raise PolicyReindexArtifactError("artifact_namespace_invalid")
+            expected = self._pinned_directories.get(relative.parts)
+            if expected is not None and expected != identity:
+                raise PolicyReindexArtifactError("artifact_namespace_invalid")
+            self._pinned_directories[relative.parts] = identity
+        finally:
+            os.close(reopened_fd)
+
+    @staticmethod
+    def _read_regular_bytes_at(parent_fd: int, name: str) -> bytes | None:
+        try:
+            descriptor = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent_fd)
+        except FileNotFoundError:
+            return None
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise PolicyReindexArtifactError("artifact_namespace_invalid")
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                return stream.read()
+        finally:
+            os.close(descriptor)
 
     def _open_parent(self, path: Path, *, create: bool) -> tuple[int, str]:
         relative = self._relative(path)
@@ -315,7 +453,7 @@ def reviewed_artifact_revalidate_namespace() -> None:
     active = _ACTIVE_REVIEWED_ARTIFACT_IO.get()
     if active is None:
         raise PolicyReindexArtifactError("artifact_namespace_invalid")
-    active.verify_run_chain()
+    active.verify_namespace()
 
 
 def _active_io_for(path: Path) -> _SecureReviewedArtifactIO | None:
@@ -738,14 +876,43 @@ def reserve_candidate_build_attempt(
         document_index=document_index,
         ordinal=ordinal,
     )
-    _publish_canonical_bytes(
+    try:
+        _publish_canonical_bytes(
+            path,
+            _canonical_json_bytes(asdict(attempt)),
+            conflict_code="build_reservation_conflict",
+            identical_replay=False,
+            fault_injector=fault_injector,
+        )
+    except _ArtifactNamespaceReconciled:
+        with secure_policy_reindex_artifact_namespace(
+            root,
+            tenant_id=descriptor.tenant_id,
+            run_token=descriptor.run_token,
+        ):
+            recovered = load_candidate_build_attempt(
+                path,
+                descriptor=descriptor,
+                budget=budget,
+                budget_artifact=budget_artifact,
+                root=root,
+            )
+        if recovered != attempt:
+            raise PolicyReindexArtifactError("build_reservation_invalid") from None
+        raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+    published = load_candidate_build_attempt(
         path,
-        _canonical_json_bytes(asdict(attempt)),
-        conflict_code="build_reservation_conflict",
-        identical_replay=False,
-        fault_injector=fault_injector,
+        descriptor=descriptor,
+        budget=budget,
+        budget_artifact=budget_artifact,
+        root=root,
     )
-    return attempt
+    if published != attempt:
+        raise PolicyReindexArtifactError("build_reservation_invalid")
+    active = _active_io_for(path)
+    if active is not None:
+        active.verify_namespace()
+    return published
 
 
 def load_candidate_build_attempt(

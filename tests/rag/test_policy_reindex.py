@@ -16,6 +16,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from scripts import reindex_policies as reindex_cli
+from src.rag import policy_reindex_artifacts as artifact_module
 from src.db.models import (
     CorpusBlockBinding,
     CorpusChunkBinding,
@@ -34,10 +35,15 @@ from src.db.models import (
 from src.rag.parsers.base import ParsedBlock
 from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.rag.policy_reindex_artifacts import (
+    build_policy_candidate_build_budget,
     build_policy_reindex_recovery_descriptor,
+    load_candidate_build_attempt,
     load_policy_reindex_state,
+    policy_candidate_build_attempt_path,
     policy_candidate_build_budget_path,
     policy_reindex_state_path,
+    secure_policy_reindex_artifact_namespace,
+    write_policy_candidate_build_budget_create_only,
     write_policy_reindex_recovery_descriptor_create_only,
     write_policy_reindex_state_create_only,
 )
@@ -319,6 +325,136 @@ async def test_reviewed_build_rejects_descendant_symlink_before_budget_or_provid
         await reindex_cli._build_next_reviewed(args)
 
     assert calls == {"reservation": 0, "provider": 0}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("substitution", ["directory", "symlink"])
+async def test_reviewed_build_refuses_nested_parent_substitution_before_provider_or_db_advance(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    substitution: str,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout, _ = await _seed_bound_source_authority(session)
+    assembler = PolicyEmbeddingInputAssembler()
+    config_payload = asdict(assembler.config)
+    config_payload.pop("config_fingerprint")
+    config_payload.pop("_asset_root")
+    checked_at = datetime.now(UTC)
+    run_token = uuid4()
+    descriptor = build_policy_reindex_recovery_descriptor(
+        sealed_at=checked_at,
+        tenant_id=tenant_id,
+        run_token=run_token,
+        generation_name=f"token.v1:{run_token.hex}",
+        lease_owner="reviewed-worker",
+        lease_expires_at=checked_at + timedelta(hours=2),
+        config_schema_version=assembler.config.schema_version,
+        config_json=config_payload,
+        config_fingerprint=assembler.config.config_fingerprint,
+        parity_report_sha256=PARITY_REPORT_HASH,
+        parity_config_fingerprint=assembler.config.config_fingerprint,
+        parity_probe_fixture_sha256="sha256:" + "4" * 64,
+        parity_submitted_content_sha256="sha256:" + "5" * 64,
+        parity_captured_at=checked_at - timedelta(minutes=5),
+        parity_expires_at=checked_at + timedelta(hours=23, minutes=55),
+        source_manifest_revision_id=manifest.id,
+        source_manifest_revision=manifest.revision,
+        source_manifest_hash=manifest.manifest_hash,
+        source_active_corpus_version_id=source.id,
+        source_rollout_epoch=rollout.rollout_epoch,
+        expected_evidence_rollout_version=11,
+    )
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    service = PolicyReindexService(session)
+    claimed = await service.claim_from_descriptor(descriptor, now=checked_at)
+    await session.commit()
+    write_policy_reindex_state_create_only(claimed, descriptor=descriptor, root=tmp_path)
+    building = await service.resume(claimed, now=checked_at)
+    await session.commit()
+    write_policy_reindex_state_create_only(building, descriptor=descriptor, root=tmp_path)
+    budget = build_policy_candidate_build_budget(
+        descriptor=descriptor,
+        ordered_doc_keys=building.ordered_doc_keys,
+        created_at=checked_at,
+    )
+    budget_artifact = write_policy_candidate_build_budget_create_only(
+        budget,
+        descriptor=descriptor,
+        root=tmp_path,
+    )
+    attempts_parent = policy_candidate_build_attempt_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=run_token,
+        document_index=0,
+        ordinal=1,
+    ).parent
+    detached_parent = attempts_parent.with_name("attempts.detached")
+    attacker_parent = tmp_path / "attacker-attempts"
+    attacker_parent.mkdir()
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
+    provider_calls = 0
+
+    class ProviderForbidden:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("provider construction must follow canonical reservation verification")
+
+    monkeypatch.setattr(reindex_cli, "EmbeddingService", ProviderForbidden)
+    original_link = artifact_module.os.link
+    substituted = False
+
+    def substitute_parent_before_link(*args: object, **kwargs: object) -> None:
+        nonlocal substituted
+        if kwargs.get("dst_dir_fd") is not None and args[1] == "01.json" and not substituted:
+            attempts_parent.rename(detached_parent)
+            if substitution == "directory":
+                attempts_parent.mkdir()
+            else:
+                attempts_parent.symlink_to(attacker_parent, target_is_directory=True)
+            substituted = True
+        original_link(*args, **kwargs)
+
+    monkeypatch.setattr(artifact_module.os, "link", substitute_parent_before_link)
+
+    with pytest.raises(RuntimeError, match="reviewed_artifact_namespace_invalid"):
+        await reindex_cli._build_next_reviewed(_reviewed_args(tmp_path, descriptor=descriptor))
+
+    assert substituted is True
+    assert provider_calls == 0
+    canonical_attempt_path = policy_candidate_build_attempt_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=run_token,
+        document_index=0,
+        ordinal=1,
+    )
+    if substitution == "directory":
+        with secure_policy_reindex_artifact_namespace(
+            tmp_path,
+            tenant_id=tenant_id,
+            run_token=run_token,
+        ):
+            attempt = load_candidate_build_attempt(
+                canonical_attempt_path,
+                descriptor=descriptor,
+                budget=budget,
+                budget_artifact=budget_artifact,
+                root=tmp_path,
+            )
+        assert attempt.ordinal == 1
+    else:
+        assert attempts_parent.is_symlink()
+        assert not (attacker_parent / "01.json").exists()
+    async with session_factory() as verifier:
+        candidate = await verifier.get(PolicyCorpusVersion, building.corpus_version_id)
+        assert candidate is not None
+        assert (candidate.state, candidate.state_version, candidate.next_document_index) == ("building", 2, 0)
 
 
 @pytest.mark.asyncio

@@ -380,6 +380,116 @@ def test_concurrent_first_reservation_has_one_winner_and_crash_consumes_ordinal(
         )
 
 
+def test_nested_parent_substitution_reconciles_canonical_ordinal_then_refuses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor, owner, state, budget, artifact = _write_budget(tmp_path)
+    path = policy_candidate_build_attempt_path(
+        tmp_path,
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+        document_index=0,
+        ordinal=1,
+    )
+    attempts_parent = path.parent
+    detached_parent = attempts_parent.with_name("attempts.detached")
+    original_link = policy_reindex_artifacts.os.link
+    substituted = False
+
+    def substitute_before_link(*args: object, **kwargs: object) -> None:
+        nonlocal substituted
+        if kwargs.get("dst_dir_fd") is not None and args[1] == "01.json" and not substituted:
+            attempts_parent.rename(detached_parent)
+            attempts_parent.mkdir()
+            substituted = True
+        original_link(*args, **kwargs)
+
+    monkeypatch.setattr(policy_reindex_artifacts.os, "link", substitute_before_link)
+    with secure_policy_reindex_artifact_namespace(
+        tmp_path,
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+    ):
+        with pytest.raises(PolicyReindexArtifactError, match="artifact_namespace_invalid"):
+            reserve_candidate_build_attempt(
+                descriptor=descriptor,
+                owner=owner,
+                state_artifact=state,
+                budget=budget,
+                budget_artifact=artifact,
+                root=tmp_path,
+                reserved_at=NOW,
+                expected_input_count=1,
+                expected_batch_count=1,
+            )
+
+    assert substituted is True
+    assert path.stat().st_ino == (detached_parent / "01.json").stat().st_ino
+    with secure_policy_reindex_artifact_namespace(
+        tmp_path,
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+    ):
+        assert (
+            load_candidate_build_attempt(
+                path,
+                descriptor=descriptor,
+                budget=budget,
+                budget_artifact=artifact,
+                root=tmp_path,
+            ).ordinal
+            == 1
+        )
+
+
+def test_nested_parent_symlink_substitution_refuses_without_following_or_republishing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor, owner, state, budget, artifact = _write_budget(tmp_path)
+    path = policy_candidate_build_attempt_path(
+        tmp_path,
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+        document_index=0,
+        ordinal=1,
+    )
+    attempts_parent = path.parent
+    detached_parent = attempts_parent.with_name("attempts.detached")
+    attacker_parent = tmp_path / "attacker-attempts"
+    attacker_parent.mkdir()
+    original_link = policy_reindex_artifacts.os.link
+
+    def substitute_symlink_before_link(*args: object, **kwargs: object) -> None:
+        if kwargs.get("dst_dir_fd") is not None and args[1] == "01.json" and not attempts_parent.is_symlink():
+            attempts_parent.rename(detached_parent)
+            attempts_parent.symlink_to(attacker_parent, target_is_directory=True)
+        original_link(*args, **kwargs)
+
+    monkeypatch.setattr(policy_reindex_artifacts.os, "link", substitute_symlink_before_link)
+    with secure_policy_reindex_artifact_namespace(
+        tmp_path,
+        tenant_id=descriptor.tenant_id,
+        run_token=descriptor.run_token,
+    ):
+        with pytest.raises(PolicyReindexArtifactError, match="artifact_namespace_invalid"):
+            reserve_candidate_build_attempt(
+                descriptor=descriptor,
+                owner=owner,
+                state_artifact=state,
+                budget=budget,
+                budget_artifact=artifact,
+                root=tmp_path,
+                reserved_at=NOW,
+                expected_input_count=1,
+                expected_batch_count=1,
+            )
+
+    assert attempts_parent.is_symlink()
+    assert not (attacker_parent / "01.json").exists()
+
+
 @pytest.mark.parametrize("boundary", ["stage_written", "stage_fsynced", "published", "parent_fsynced"])
 def test_reservation_fault_boundaries_never_publish_partial_bytes(tmp_path: Path, boundary: str) -> None:
     descriptor, owner, state, budget, artifact = _write_budget(tmp_path)
