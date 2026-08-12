@@ -23685,3 +23685,14 @@ SUMMARY 初次 self-check 在文件存在性检查全部通过后，同一命令
 
 **已做处理 / 剩余入口**
 废弃该次 commit 检查结论，改用普通变量名 `item` 从全新 shell 重跑全部文件、commit、`git diff --check` 与 worktree 状态检查。后续 zsh 临时脚本禁止把 `path`、`PATH` 用作循环变量；没有剩余产品验证问题。
+
+## 2026-08-12 — Phase 64.4 Plan 12 证据哈希命令在 macOS 缺少 `sha256sum`
+
+**问题现象 / 如何检测**
+Task1 前置只读核对三份 Plan10 immutable run JSON 时调用 `sha256sum evaluation/reports/rag_token_chunk_ab/v1/runs/*.json`，当前 macOS shell 返回 `command not found: sha256sum`。改用系统自带 `shasum -a 256` 后成功得到三个预期 digest，但 Perl 同时提示当前 `C.UTF-8` locale 不受支持并回退到 `C`。
+
+**关键证据 / 当前判断 / 根因**
+这是 Linux/macOS 命令可用性与 locale 配置差异，不是 run artifact、Python 虚拟环境或产品代码问题。`shasum -a 256` 的结果与 Plan10 SUMMARY 锁定值一致：attempt1 `ccf819...5843a`、attempt2 `196468...2e8`、attempt3 `863a88...d7c49`；命令只读，未修改任何既有 evidence。
+
+**已做处理 / 剩余入口**
+废弃失败的 `sha256sum` 结果，后续本机哈希核对使用 `LC_ALL=C shasum -a 256` 或项目 `uv run` 内的标准库 helper，避免 locale 噪音；本事故不占 provider attempt，也没有剩余产品缺陷。

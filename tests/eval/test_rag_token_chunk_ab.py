@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -36,17 +38,30 @@ def _api():
         ABParityEvidenceV1,
         ABQualityMetricsV1,
         ABResourceMetricsV1,
+        ABRecoveryBudgetManifestV1,
+        ABRecoveryAttemptReservationV1,
         ABRuntimeConfigV1,
         ABSelectionBindingV1,
         ExactRatioV1,
+        PLAN10_TERMINAL_RUNS,
+        PLAN12_RECOVERY_BUDGET_ID,
+        RecoveryAttemptRefused,
         TerminalABRunV1,
+        build_plan12_recovery_budget_manifest,
         build_terminal_ab_run,
         evaluate_exact_gates,
+        evaluate_recovery_retry_authority,
         load_execution_error_bundle,
+        load_recovery_attempt_reservation,
+        load_recovery_budget_manifest,
         load_selection_decision,
         load_terminal_ab_run,
+        reserve_recovery_attempt,
+        reserve_then_create_provider,
         render_selection_markdown,
         render_terminal_markdown,
+        validate_fixed_plan10_evidence,
+        write_recovery_budget_manifest_create_only,
         write_selection_create_only,
         write_execution_error_bundle_create_only,
         write_terminal_run_create_only,
@@ -67,17 +82,30 @@ def _api():
         "ABParityEvidenceV1": ABParityEvidenceV1,
         "ABQualityMetricsV1": ABQualityMetricsV1,
         "ABResourceMetricsV1": ABResourceMetricsV1,
+        "ABRecoveryBudgetManifestV1": ABRecoveryBudgetManifestV1,
+        "ABRecoveryAttemptReservationV1": ABRecoveryAttemptReservationV1,
         "ABRuntimeConfigV1": ABRuntimeConfigV1,
         "ABSelectionBindingV1": ABSelectionBindingV1,
         "ExactRatioV1": ExactRatioV1,
+        "PLAN10_TERMINAL_RUNS": PLAN10_TERMINAL_RUNS,
+        "PLAN12_RECOVERY_BUDGET_ID": PLAN12_RECOVERY_BUDGET_ID,
+        "RecoveryAttemptRefused": RecoveryAttemptRefused,
         "TerminalABRunV1": TerminalABRunV1,
+        "build_plan12_recovery_budget_manifest": build_plan12_recovery_budget_manifest,
         "build_terminal_ab_run": build_terminal_ab_run,
         "evaluate_exact_gates": evaluate_exact_gates,
+        "evaluate_recovery_retry_authority": evaluate_recovery_retry_authority,
         "load_execution_error_bundle": load_execution_error_bundle,
+        "load_recovery_attempt_reservation": load_recovery_attempt_reservation,
+        "load_recovery_budget_manifest": load_recovery_budget_manifest,
         "load_selection_decision": load_selection_decision,
         "load_terminal_ab_run": load_terminal_ab_run,
+        "reserve_recovery_attempt": reserve_recovery_attempt,
+        "reserve_then_create_provider": reserve_then_create_provider,
         "render_selection_markdown": render_selection_markdown,
         "render_terminal_markdown": render_terminal_markdown,
+        "validate_fixed_plan10_evidence": validate_fixed_plan10_evidence,
+        "write_recovery_budget_manifest_create_only": write_recovery_budget_manifest_create_only,
         "write_selection_create_only": write_selection_create_only,
         "write_execution_error_bundle_create_only": write_execution_error_bundle_create_only,
         "write_terminal_run_create_only": write_terminal_run_create_only,
@@ -906,3 +934,424 @@ def test_diagnostic_cli_has_no_selection_activation_or_pointer_write_surface() -
     ):
         assert forbidden not in diagnostic_source.lower()
     assert "write_execution_error_bundle_create_only" in main_source
+
+
+def _recovery_budget_manifest():
+    return _api()["build_plan12_recovery_budget_manifest"](
+        created_at=GENERATED_AT,
+        tenant_id=TENANT_ID,
+        incumbent_corpus_version_id=INCUMBENT_CORPUS_ID,
+        candidate_corpus_version_id=CANDIDATE_CORPUS_ID,
+        candidate_run_token=UUID("64300000-0000-4000-8000-000000000014"),
+        candidate_state_sha256="sha256:" + "4" * 64,
+        candidate_config_fingerprint="sha256:" + "c" * 64,
+        provider_parity_run_id=_parity().run_id,
+        provider_parity_report_sha256=_parity().report_sha256,
+        provider_parity_config_fingerprint=_parity().config_fingerprint,
+        provider_parity_probe_fixture_sha256=_parity().probe_fixture_sha256,
+        provider_parity_submitted_content_sha256=_parity().submitted_content_sha256,
+    )
+
+
+def _write_recovery_budget(tmp_path: Path):
+    api = _api()
+    artifact = api["write_recovery_budget_manifest_create_only"](
+        _recovery_budget_manifest(),
+        root=tmp_path,
+    )
+    loaded = api["load_recovery_budget_manifest"](artifact.path)
+    assert loaded == _recovery_budget_manifest()
+    return loaded, artifact
+
+
+def _reserve_first(tmp_path: Path, *, prerequisite_hash: str = "sha256:" + "5" * 64):
+    api = _api()
+    manifest, artifact = _write_recovery_budget(tmp_path)
+    reservation = api["reserve_recovery_attempt"](
+        manifest_path=artifact.path,
+        root=tmp_path,
+        run_id=RUN_ID,
+        selection_id=SELECTION_ID,
+        reserved_at=GENERATED_AT,
+        prerequisite_state_sha256=prerequisite_hash,
+    )
+    return manifest, artifact, reservation
+
+
+def _unavailable_run(*, reason_code: str = "provider_request_unavailable"):
+    return _api()["TerminalABRunV1"](
+        run_id=RUN_ID,
+        generated_at=GENERATED_AT,
+        outcome="unavailable",
+        failure_class=None,
+        terminal_stage="provider",
+        safe_reason_codes=(reason_code,),
+        inputs=_inputs(),
+        runtime=_runtime(),
+        parity=_parity(),
+        incumbent=None,
+        candidate=None,
+        hard_proofs=None,
+        gates=(),
+    )
+
+
+def test_plan12_recovery_budget_is_frozen_fixed_and_binds_exact_plan10_evidence() -> None:
+    api = _api()
+    manifest = _recovery_budget_manifest()
+    assert manifest.schema_version == "rag_token_chunk_recovery_budget.v1"
+    assert manifest.budget_id == "phase64.4-plan12-live-selection-recovery"
+    assert manifest.budget_id == api["PLAN12_RECOVERY_BUDGET_ID"]
+    assert manifest.phase == "64.4" and manifest.plan == "12"
+    assert manifest.max_attempts == 2
+    assert manifest.max_embedding_tokens == 512
+    assert manifest.target_embedding_tokens == 384
+    assert manifest.overlap_tokens == 48
+    assert manifest.plan10_terminal_runs == api["PLAN10_TERMINAL_RUNS"]
+    assert manifest.plan10_baseline_proof_sha256 == (
+        "sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3"
+    )
+    assert manifest.provider_parity_config_fingerprint == manifest.candidate_config_fingerprint
+    assert manifest.manifest_payload_sha256.startswith("sha256:")
+    with pytest.raises((ValidationError, ValueError)):
+        api["ABRecoveryBudgetManifestV1"].model_validate({**manifest.model_dump(mode="json"), "max_attempts": 3})
+
+    evidence_root = Path("evaluation/reports/rag_token_chunk_ab/v1")
+    assert api["validate_fixed_plan10_evidence"](evidence_root) == api["PLAN10_TERMINAL_RUNS"]
+
+
+def test_recovery_budget_manifest_and_reservations_are_create_only(tmp_path: Path) -> None:
+    api = _api()
+    manifest, artifact, reservation = _reserve_first(tmp_path)
+    before = artifact.path.read_bytes()
+    assert reservation.ordinal == 1
+    assert reservation.run_id == RUN_ID
+    assert reservation.selection_id == SELECTION_ID
+    assert reservation.budget_manifest_sha256 == artifact.sha256
+    assert (
+        api["load_recovery_attempt_reservation"](
+            tmp_path / "recovery-budgets" / manifest.budget_id / "attempts" / "01.json",
+            manifest=manifest,
+            manifest_sha256=artifact.sha256,
+        )
+        == reservation
+    )
+    with pytest.raises(api["RecoveryAttemptRefused"], match="recovery_attempt_missing_evidence"):
+        api["reserve_recovery_attempt"](
+            manifest_path=artifact.path,
+            root=tmp_path,
+            run_id=uuid4(),
+            selection_id=uuid4(),
+            reserved_at=GENERATED_AT,
+            prerequisite_state_sha256="sha256:" + "6" * 64,
+        )
+    assert artifact.path.read_bytes() == before
+    assert len(tuple((artifact.path.parent / "attempts").glob("*.json"))) == 1
+
+
+def test_crash_consumes_slot_and_concurrent_first_reservation_has_exactly_one_winner(tmp_path: Path) -> None:
+    api = _api()
+    manifest, artifact = _write_recovery_budget(tmp_path)
+
+    def reserve(index: int):
+        return api["reserve_recovery_attempt"](
+            manifest_path=artifact.path,
+            root=tmp_path,
+            run_id=UUID(int=100 + index),
+            selection_id=UUID(int=200 + index),
+            reserved_at=GENERATED_AT,
+            prerequisite_state_sha256="sha256:" + "5" * 64,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda value: _capture_reservation_result(reserve, value), (1, 2)))
+    winners = [result for result in results if isinstance(result, api["ABRecoveryAttemptReservationV1"])]
+    losers = [result for result in results if isinstance(result, api["RecoveryAttemptRefused"])]
+    assert len(winners) == 1 and winners[0].ordinal == 1
+    assert len(losers) == 1
+    assert len(tuple((artifact.path.parent / "attempts").glob("*.json"))) == 1
+
+    authority = api["evaluate_recovery_retry_authority"](
+        manifest=manifest,
+        previous_reservation=winners[0],
+        root=tmp_path,
+        next_prerequisite_state_sha256="sha256:" + "6" * 64,
+    )
+    assert authority.allowed is False
+    assert authority.reason_code == "recovery_attempt_missing_evidence"
+
+
+def _capture_reservation_result(reserve, value: int):
+    try:
+        return reserve(value)
+    except Exception as error:
+        return error
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_reason"),
+    [
+        ("selected_pass", "selected_pass_stops_budget"),
+        ("candidate_failed_quality", "candidate_failed_stops_budget"),
+        ("candidate_failed_safety", "candidate_failed_stops_budget"),
+    ],
+)
+def test_retry_matrix_always_stops_for_selected_or_candidate_failed(
+    tmp_path: Path,
+    outcome: str,
+    expected_reason: str,
+) -> None:
+    api = _api()
+    manifest, _, reservation = _reserve_first(tmp_path)
+    if outcome == "selected_pass":
+        report = _selected_run()
+    elif outcome == "candidate_failed_quality":
+        report = api["build_terminal_ab_run"](
+            run_id=RUN_ID,
+            generated_at=GENERATED_AT,
+            inputs=_inputs(),
+            runtime=_runtime(),
+            parity=_parity(),
+            incumbent=_observation(candidate=False),
+            candidate=_observation(candidate=True, quality=_quality(hit_5=(40, 45))),
+            hard_proofs=_proofs(),
+        )
+    else:
+        report = api["build_terminal_ab_run"](
+            run_id=RUN_ID,
+            generated_at=GENERATED_AT,
+            inputs=_inputs(),
+            runtime=_runtime(),
+            parity=_parity(),
+            incumbent=_observation(candidate=False),
+            candidate=_observation(candidate=True),
+            hard_proofs=_proofs(stale_cas_safe=False),
+        )
+    api["write_terminal_run_create_only"](report, root=tmp_path)
+    authority = api["evaluate_recovery_retry_authority"](
+        manifest=manifest,
+        previous_reservation=reservation,
+        root=tmp_path,
+        next_prerequisite_state_sha256="sha256:" + "6" * 64,
+    )
+    assert authority.allowed is False
+    assert authority.reason_code == expected_reason
+
+
+@pytest.mark.parametrize(
+    ("diagnostic_updates", "allowed", "expected_reason"),
+    [
+        ({}, True, "transient_execution_error_retry_allowed"),
+        ({"outer_rollback_proved": False}, False, "rollback_unproved_stops_budget"),
+        (
+            {
+                "stage": "role_setup",
+                "reason_code": "role_setup_failed",
+                "provider_request_classification": "not_attempted",
+                "provider_request_count": 0,
+            },
+            False,
+            "implementation_defect_stops_budget",
+        ),
+        (
+            {"reason_code": "resource_proof_failed"},
+            False,
+            "implementation_defect_stops_budget",
+        ),
+    ],
+)
+def test_execution_error_retry_requires_committed_allowlisted_transient_bundle_and_rollback(
+    tmp_path: Path,
+    diagnostic_updates: dict[str, object],
+    allowed: bool,
+    expected_reason: str,
+) -> None:
+    api = _api()
+    manifest, _, reservation = _reserve_first(tmp_path)
+    report = _execution_error_run()
+    payload = canonical_run_bytes(report)
+    diagnostic_values: dict[str, object] = {
+        "terminal_run_sha256": "sha256:" + hashlib.sha256(payload).hexdigest(),
+        "stage": "retrieval_resource_proof",
+        "reason_code": "provider_request_failed",
+        "provider_request_classification": "request_failed",
+    }
+    diagnostic_values.update(diagnostic_updates)
+    diagnostic = _execution_diagnostic(**diagnostic_values)
+    api["write_execution_error_bundle_create_only"](
+        report,
+        diagnostic=diagnostic,
+        root=tmp_path,
+    )
+    authority = api["evaluate_recovery_retry_authority"](
+        manifest=manifest,
+        previous_reservation=reservation,
+        root=tmp_path,
+        next_prerequisite_state_sha256="sha256:" + "6" * 64,
+    )
+    assert authority.allowed is allowed
+    assert authority.reason_code == expected_reason
+
+
+def canonical_run_bytes(report) -> bytes:
+    from src.rag.evaluation.reporting import canonical_report_json_bytes
+
+    return canonical_report_json_bytes(report.model_dump(mode="json"))
+
+
+def test_execution_error_missing_uncommitted_or_mismatched_bundle_stops(tmp_path: Path) -> None:
+    api = _api()
+    manifest, _, reservation = _reserve_first(tmp_path)
+    report = _execution_error_run()
+    api["write_terminal_run_create_only"](report, root=tmp_path)
+    authority = api["evaluate_recovery_retry_authority"](
+        manifest=manifest,
+        previous_reservation=reservation,
+        root=tmp_path,
+        next_prerequisite_state_sha256="sha256:" + "6" * 64,
+    )
+    assert authority.allowed is False
+    assert authority.reason_code == "execution_evidence_invalid_stops_budget"
+
+
+@pytest.mark.parametrize(
+    ("reason_code", "next_hash", "sidecar", "allowed", "expected_reason"),
+    [
+        (
+            "provider_request_unavailable",
+            "sha256:" + "6" * 64,
+            False,
+            True,
+            "unavailable_prerequisite_change_retry_allowed",
+        ),
+        (
+            "provider_request_unavailable",
+            "sha256:" + "5" * 64,
+            False,
+            False,
+            "prerequisite_state_unchanged_stops_budget",
+        ),
+        (
+            "unclassified_outage",
+            "sha256:" + "6" * 64,
+            False,
+            False,
+            "unavailable_reason_not_allowlisted_stops_budget",
+        ),
+        (
+            "provider_request_unavailable",
+            "sha256:" + "6" * 64,
+            True,
+            False,
+            "unavailable_sidecar_forbidden_stops_budget",
+        ),
+    ],
+)
+def test_unavailable_retry_requires_allowlisted_terminal_no_sidecar_and_prerequisite_change(
+    tmp_path: Path,
+    reason_code: str,
+    next_hash: str,
+    sidecar: bool,
+    allowed: bool,
+    expected_reason: str,
+) -> None:
+    api = _api()
+    manifest, _, reservation = _reserve_first(tmp_path)
+    report = _unavailable_run(reason_code=reason_code)
+    api["write_terminal_run_create_only"](report, root=tmp_path)
+    if sidecar:
+        diagnostic_path = tmp_path / "diagnostics" / f"{RUN_ID}.json"
+        diagnostic_path.parent.mkdir(parents=True)
+        diagnostic_path.write_text("{}\n", encoding="utf-8")
+    authority = api["evaluate_recovery_retry_authority"](
+        manifest=manifest,
+        previous_reservation=reservation,
+        root=tmp_path,
+        next_prerequisite_state_sha256=next_hash,
+    )
+    assert authority.allowed is allowed
+    assert authority.reason_code == expected_reason
+
+
+def test_second_valid_slot_then_third_or_plan10_identity_reuse_refuses_before_provider(tmp_path: Path) -> None:
+    api = _api()
+    manifest, artifact, reservation = _reserve_first(tmp_path)
+    report = _execution_error_run()
+    diagnostic = _execution_diagnostic(
+        terminal_run_sha256="sha256:" + hashlib.sha256(canonical_run_bytes(report)).hexdigest(),
+        stage="retrieval_resource_proof",
+        reason_code="provider_request_failed",
+        provider_request_classification="request_failed",
+    )
+    api["write_execution_error_bundle_create_only"](report, diagnostic=diagnostic, root=tmp_path)
+    second = api["reserve_recovery_attempt"](
+        manifest_path=artifact.path,
+        root=tmp_path,
+        run_id=UUID("64300000-0000-4000-8000-000000000020"),
+        selection_id=UUID("64300000-0000-4000-8000-000000000021"),
+        reserved_at=GENERATED_AT,
+        prerequisite_state_sha256="sha256:" + "6" * 64,
+    )
+    assert second.ordinal == 2
+    provider_calls = 0
+
+    def provider_factory():
+        nonlocal provider_calls
+        provider_calls += 1
+        return object()
+
+    with pytest.raises(api["RecoveryAttemptRefused"], match="recovery_budget_exhausted"):
+        api["reserve_then_create_provider"](
+            reserve=lambda: api["reserve_recovery_attempt"](
+                manifest_path=artifact.path,
+                root=tmp_path,
+                run_id=uuid4(),
+                selection_id=uuid4(),
+                reserved_at=GENERATED_AT,
+                prerequisite_state_sha256="sha256:" + "7" * 64,
+            ),
+            provider_factory=provider_factory,
+        )
+    assert provider_calls == 0
+
+    other_root = tmp_path / "plan10-reuse"
+    _, other_artifact = _write_recovery_budget(other_root)
+    plan10_run_id = api["PLAN10_TERMINAL_RUNS"][0].run_id
+    with pytest.raises(api["RecoveryAttemptRefused"], match="plan10_identity_reuse_forbidden"):
+        api["reserve_then_create_provider"](
+            reserve=lambda: api["reserve_recovery_attempt"](
+                manifest_path=other_artifact.path,
+                root=other_root,
+                run_id=plan10_run_id,
+                selection_id=uuid4(),
+                reserved_at=GENERATED_AT,
+                prerequisite_state_sha256="sha256:" + "5" * 64,
+            ),
+            provider_factory=provider_factory,
+        )
+    assert provider_calls == 0
+    assert reservation.ordinal == 1 and manifest.max_attempts == 2
+
+
+def test_recovery_artifacts_are_redacted_and_cli_reserves_before_provider_factory() -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+
+    manifest = _recovery_budget_manifest()
+    serialized = manifest.model_dump_json().lower()
+    for forbidden in (
+        "traceback",
+        "raw_exception",
+        "provider_payload",
+        "prompt",
+        "credential",
+        "database_url",
+        "postgresql://",
+        "/users/",
+        "/private/",
+    ):
+        assert forbidden not in serialized
+    source = inspect.getsource(ab_cli.run_full_provider_ab)
+    assert source.index("reserve_then_create_provider") < source.index("run_rollback_only_retrieval_parity")
+    assert "max_embedding_tokens=512" not in source
+    assert "target_embedding_tokens=384" not in source
+    assert "overlap_tokens=48" not in source
