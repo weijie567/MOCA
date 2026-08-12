@@ -19,7 +19,7 @@ next_command: "$gsd-execute-phase 64.5 --wave 1 --no-cross-ai"
 - Captured and committed `64.5-CONTEXT.md` plus the auto-mode discussion audit log.
 - Began Phase 64.5 in GSD state using the SDK; provider dispatch remains hard-disabled.
 - Completed Phase 64.5 research, pattern mapping, and a frozen eight-plan/16-task serial execution design.
-- Repaired three plan-checker rounds: shared authority/cardinality, exact 108-call A/B accounting, activation lineage, real review-gate evidence, supported wave orchestration, and DB-backed post-review promotion.
+- Repaired three plan-checker rounds: shared authority/cardinality, A/B call-graph accounting, activation lineage, real review-gate evidence, supported wave orchestration, and DB-backed post-review promotion. Wave 4 source inspection corrected the provisional 108 count to 126 by including three deterministic rewrite embeddings per role/format.
 - Final GSD plan-checker verdict is `VERIFICATION PASSED`; no tests, database writes, provider calls, or live artifact mutations occurred during planning.
 - Committed the frozen reviewed plan set as `9e460a29`; external Claude plan review is the sole unfinished pre-implementation gate.
 - User explicitly waived the dual-AI/Claude plan-review layer for this run and directed Codex-only execution. The decision and final Codex review evidence are recorded in `64.5-PLAN-REVIEW-DECISIONS.md`.

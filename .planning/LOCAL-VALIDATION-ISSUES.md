@@ -24084,6 +24084,17 @@ Autopilot checkpoint 已置为 `waiting_for_quota`，`quota_waits: 1`，精确�
 **已做处理 / 剩余入口**
 立即改用位置参数 `gsd-sdk query state.begin-phase 64.5 database-backed-provider-budget-and-token-rollout-completion 8`，返回正确 phase/name/plan_count 并恢复 STATE 到 Phase64.5、Plan 1 of 8。后续本阶段所有 state SDK 调用先核对本机 handler 参数形式；错误中间态不提交、不作为进度证据。
 
+## 2026-08-13 — Phase 64.5 canonical A/B envelope 漏计 deterministic rewrite 请求
+
+**问题现象 / 如何检测**
+Plan04 最小 envelope 测试最初只按两角色、三格式、18 个原始问题计算出 108 次 query embedding，并一度转绿。补强 production call-graph 检查后发现 sealed 18 个问题中有 3 个会各自产生一个 deterministic rewrite；`PolicyRetrievalEngine._retrieve_run` 会先 embed original，再逐个 embed rewrite，因此 108 会低估真实 provider 请求。
+
+**关键证据 / 当前判断 / 根因**
+`src/knowledge/retrieval.py` 的 `_retrieve_run` 对 original 调用一次 `_retrieve_query_channel`，并对 `build_query_rewrite_plan()` 返回的每个 rewrite 再调用一次；每个 channel 都调用 `embed_query`。sealed Gold 当前精确得到 18 originals + 3 single-expansion rewrites，真实 query 请求为 `2 × 3 × 21 = 126`。此前 plan-checker 只枚举 evaluation 外层循环，未沿检索内部 rewrite call graph 继续追踪。
+
+**已做处理 / 剩余入口**
+不通过禁用 rewrite 改变检索语义；将 Plan04/07、VALIDATION、RESEARCH、review decision 与 Autopilot 证据同步为 source-derived 126，并要求 envelope 记录 original/rewrite provenance、顺序、query hash 与 exact ingestion batches。原 108 GREEN 明确作废，必须由能在旧实现下失败的新测试重新 RED→GREEN。未增加 plan、provider 尝试或 live 操作。
+
 ## 2026-08-13 — Phase 64.5 Plan 01 新 worktree 未安装 dev extra 导致 pytest 命中系统 Python 3.9
 
 **问题现象 / 如何检测**
@@ -24127,3 +24138,14 @@ fixture 先显式 flush tenant；移除未使用变量；result seal 将所有 n
 
 **已做处理 / 剩余入口**
 将旧 attempt-parent 测试改为直接断言 DB root 缺失时 reviewed build 源码不再导入/调用 legacy reservation、provider 构造数为零且 candidate cursor 不推进；将歧义行测试改为断言唯一约束拒绝、保存点回滚后仅留一行且 exact recovery 仍成立。受影响节点重跑为 `9 passed, 1 warning`；随后严格按 `make format` → 完整 `make lint` → 串行 scoped 两文件执行，最终为 `67 passed, 1 warning in 82.46s`。warning 是既有 LangGraph serializer deprecation；未回退 DB authority/唯一性约束，未调用 live provider。
+
+## 2026-08-13 — Phase 64.5 Plan 04 canonical A/B envelope RED/GREEN 与隐藏 rewrite 请求
+
+**问题现象 / 如何检测**
+最小 RED `test_canonical_ab_envelope_enumerates_every_provider_call_site` 按预期因缺少 `build_canonical_ab_request_envelope` 失败；首轮 GREEN 又因 seal 直接把 Pydantic ingestion DTO 交给 `json.dumps` 而报不可序列化，改为先 canonical `model_dump(mode="json")` 后通过。另一次只读计数命令用 `from ... import *` 调取下划线 helper，得到 `NameError`，改为显式 module import。进一步沿真实 retrieval call graph 核对时发现 18 个 sealed questions 中 3 个会生成 deterministic rewrite；当前 `_retrieve_run` 对 original 与每个 rewrite 分别调用 `_retrieve_query_channel`/`embed_query`，因此实际 query provider 上界是 `(18+3)×3×2=126`，与 Plan04 锁定的 logical `18×3×2=108` 冲突。
+
+**关键证据 / 当前判断 / 根因**
+有效项目入口 focused RED 为缺失 symbol，最终规定 gate `make format && make lint && UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_rag_token_chunk_ab.py::test_canonical_ab_envelope_enumerates_every_provider_call_site -q` 得到 `1 passed, 1 warning`；当前 envelope 按明确计划锁定 108 个 logical question sites 与 16 个 exact ingestion batches（124 requests）。但 `src/knowledge/rewrite.py` 对 `refund-case-seven-day-exception`、`refund-case-time-limits`、`refund-case-shipped-auto-review` 各产生一个 rewrite，`src/knowledge/retrieval.py` 每 channel 都调用 provider；这是已确认的请求核算矛盾，不是 live provider 结果。全程未调用 provider 或写 live DB。
+
+**已做处理 / 剩余入口**
+已实现离线 source/hash/input/batch 枚举、SDK retry 0 与显式 outer attempt 1，并将 108/16/124 的计划态证据锁入 focused test；同时向 phase orchestrator 请求裁决，未擅自通过扩大到126或静默禁用 rewrite 改变已锁契约。继续入口是明确选择：canonical A/B 显式关闭 rewrite并同步 runtime contract，或把真实 envelope/query acceptance 修为126；裁决前不能把124称为真实完整 provider 上界。
