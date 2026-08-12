@@ -314,6 +314,77 @@ def test_sealed_phase64_3_identity_and_case_counts_are_exact() -> None:
         )
 
 
+def test_canonical_ab_envelope_enumerates_every_provider_call_site() -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+    from src.rag.evaluation.contracts import load_format_parity_contract
+    from src.rag.evaluation.retrieval_rounds import (
+        ROUND_FORMATS,
+        build_knowledge_query,
+        ordered_gold_questions,
+        run_retrieval_parity,
+        run_rollback_only_retrieval_parity,
+    )
+    from src.rag.evaluation.token_chunk_ab import build_canonical_ab_request_envelope
+    from src.rag.embedder import EmbeddingService
+    from src.knowledge.rewrite import build_query_rewrite_plan
+
+    dataset = load_format_parity_contract(
+        ab_cli.DEFAULT_MANIFEST,
+        ab_cli.DEFAULT_GOLD,
+        repository_root=ab_cli.REPOSITORY_ROOT,
+    )
+    base_questions = ordered_gold_questions(dataset)
+    role_count = len((ab_cli._character_incumbent(), ab_cli._token_candidate()))
+    rewrite_plans = {
+        case_id: build_query_rewrite_plan(
+            question,
+            build_knowledge_query(question=question, generated_at=GENERATED_AT.isoformat())[1],
+        )
+        for _, case_id, question in base_questions
+    }
+    expanded = {case_id: plan.rewritten_queries for case_id, plan in rewrite_plans.items() if plan.rewritten_queries}
+
+    assert len(base_questions) == 18
+    assert len(ROUND_FORMATS) == 3
+    assert role_count == 2
+    assert expanded == {
+        "refund-case-seven-day-exception": ("哪些商品原则上不适用七天无理由退货？ 七天无理由 二次销售 退货退款",),
+        "refund-case-time-limits": ("七天无理由和普通质量问题分别有什么申请时限？ 七天无理由 二次销售 退货退款",),
+        "refund-case-shipped-auto-review": (
+            "已发货订单长时间无轨迹且商家未响应时，什么时候能自动退款，什么情况要人工复核？ 商家已发货 物流核实",
+        ),
+    }
+    per_role_format_query_count = len(base_questions) + sum(len(value) for value in expanded.values())
+    assert per_role_format_query_count == 21
+    assert role_count * len(ROUND_FORMATS) * per_role_format_query_count == 126
+    assert "for namespace, assembler in zip" in inspect.getsource(ab_cli.run_full_provider_ab)
+    assert "for round_format in ROUND_FORMATS" in inspect.getsource(run_rollback_only_retrieval_parity)
+    assert "for policy in dataset.policies" in inspect.getsource(run_retrieval_parity)
+    assert "for case in policy.gold.cases" in inspect.getsource(run_retrieval_parity)
+
+    envelope = build_canonical_ab_request_envelope(
+        dataset=dataset,
+        incumbent_assembler=ab_cli._character_incumbent(),
+        candidate_assembler=ab_cli._token_candidate(),
+    )
+    assert envelope.query_request_count == 126
+    assert envelope.ingestion_request_count == 16
+    assert len(envelope.ordered_ingestion_inputs) == role_count * len(ROUND_FORMATS) * len(dataset.policies)
+    assert envelope.ingestion_request_count == sum(
+        (item.exact_assembled_input_count + envelope.provider_batch_size - 1) // envelope.provider_batch_size
+        for item in envelope.ordered_ingestion_inputs
+    )
+    assert envelope.sdk_retries == 0
+    assert envelope.maximum_outer_attempts == 1
+    assert envelope.provider_request_envelope.maximum_attempts_per_site == (1,) * 142
+    assert envelope.provider_request_envelope.maximum_request_count == (126 + envelope.ingestion_request_count)
+    assert len(set(envelope.provider_request_envelope.ordered_call_sites)) == 142
+    assert "max_retries=0" in inspect.getsource(EmbeddingService._get_client)
+    constructor_source = inspect.getsource(ab_cli.run_full_provider_ab)
+    assert "max_retries=CANONICAL_AB_OUTER_ATTEMPTS" in constructor_source
+    assert "batch_size=CANONICAL_AB_PROVIDER_BATCH_SIZE" in constructor_source
+
+
 def test_exact_fraction_boundaries_pass_without_display_rounding() -> None:
     api = _api()
     incumbent = _observation(candidate=False)
