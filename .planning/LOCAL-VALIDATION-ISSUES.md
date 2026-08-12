@@ -23905,3 +23905,14 @@ SC-64.4-5/6要求完成隔离可回滚reindex、versioned A/B non-regression sel
 
 **已做处理 / 剩余入口**
 新增 repository-owned canonical candidate root，CLI 只能提交与其逐路径一致且无 symlink component 的根；临时 root 仅能通过 argparse 不会生成的测试内部属性注入。orchestrator 同期启动的 pre-fix full suite 因同一共享 schema 并发出现 `3 failed / 4 errors` 后被主动中止，完整 traceback 未作为结论，该 suite 结果无效。其他测试进程退出后独占运行 `make format`、完整 `make lint` 及六文件 focused union，结果 lint PASS、`63 passed, 7 warnings`；没有再出现 DDL 冲突。code-fixer 未重复运行完整 pytest，留给 orchestrator 在本报告完成后独占执行；不得把此前被中止的 `3F/4E` 当作 full-suite 结果。
+
+## 2026-08-12 — Phase 64.4 iteration 2 descendant symlink / TOCTOU 最小 RED
+
+**问题现象 / 如何检测**
+用仓库有效入口执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/rag/test_policy_reindex.py::test_reviewed_build_rejects_descendant_symlink_before_budget_or_provider`。分别把 canonical run chain 的 `tenants`、tenant UUID、`runs`、run UUID 四级替换成指向完整 copied tree 的 symlink，旧实现得到 `4 failed`：命令继续沿普通 `Path` I/O 读取替代树并返回后续 `descriptor_invalid`，没有在 namespace boundary 返回 `reviewed_artifact_namespace_invalid`。
+
+**关键证据 / 当前判断 / 根因**
+四个 case 都在测试中同时锁定 reservation/provider 计数必须为 0；失败证明 iteration 1 只校验 artifact root 及其上游祖先，未保护 root 下 descendant chain，后续实际 artifact I/O 也仍可跟随被替换的目录。另有 guard-open 后将 exact run rename 并换成 symlink 的定向用例，验证不能只做一次 lexical/realpath 检查。
+
+**已做处理 / 剩余入口**
+reviewed 命令现以 `O_DIRECTORY|O_NOFOLLOW` 逐级打开并固定 exact run dirfd；所有 reviewed artifact read/list/exists/create-only publish 都相对固定 dirfd 执行，publish 使用 no-follow temporary open 与 dirfd hard link，并在 reservation 后/provider construction 前重验 canonical run chain inode。最小 GREEN 为 `5 passed, 1 warning`，四级 symlink 均在 reservation/provider 前拒绝，open 后替换也返回 namespace safe code。未访问 live artifact/DB、未创建 provider或 reservation；后续仍需随本 iteration focused union 复跑。

@@ -242,17 +242,34 @@ def _reviewed_args(root: Path, *, descriptor) -> Namespace:
 
 
 @pytest.mark.asyncio
-async def test_reviewed_build_rejects_copied_and_symlink_roots_before_budget_or_provider(
+@pytest.mark.parametrize("symlink_level", ["tenants", "tenant", "runs", "run"])
+async def test_reviewed_build_rejects_descendant_symlink_before_budget_or_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    symlink_level: str,
 ) -> None:
     canonical_root = tmp_path / "repository" / "evaluation" / "reports" / "rag_token_chunk_ab" / "v1" / "candidates"
-    canonical_root.mkdir(parents=True)
-    (canonical_root / "complete-tree-marker.json").write_text("{}\n", encoding="utf-8")
+    tenant_id = uuid4()
+    run_token = uuid4()
+    canonical_run = canonical_root / "tenants" / str(tenant_id) / "runs" / str(run_token)
+    canonical_run.mkdir(parents=True)
+    (canonical_run / "descriptor.json").write_text('{"copied":"pre-attempt-tree"}\n', encoding="utf-8")
     copied_root = tmp_path / "copied-candidates"
     shutil.copytree(canonical_root, copied_root)
-    symlink_root = tmp_path / "symlinked-candidates"
-    symlink_root.symlink_to(canonical_root, target_is_directory=True)
+    canonical_targets = {
+        "tenants": canonical_root / "tenants",
+        "tenant": canonical_root / "tenants" / str(tenant_id),
+        "runs": canonical_root / "tenants" / str(tenant_id) / "runs",
+        "run": canonical_run,
+    }
+    copied_targets = {
+        "tenants": copied_root / "tenants",
+        "tenant": copied_root / "tenants" / str(tenant_id),
+        "runs": copied_root / "tenants" / str(tenant_id) / "runs",
+        "run": copied_root / "tenants" / str(tenant_id) / "runs" / str(run_token),
+    }
+    shutil.rmtree(canonical_targets[symlink_level])
+    canonical_targets[symlink_level].symlink_to(copied_targets[symlink_level], target_is_directory=True)
     calls = {"reservation": 0, "provider": 0}
 
     def reservation_forbidden(*_args: object, **_kwargs: object) -> None:
@@ -266,14 +283,14 @@ async def test_reviewed_build_rejects_copied_and_symlink_roots_before_budget_or_
     monkeypatch.setattr(reindex_cli, "reserve_candidate_build_attempt", reservation_forbidden)
     monkeypatch.setattr(reindex_cli, "EmbeddingService", ProviderForbidden)
 
-    for rejected_root in (copied_root, symlink_root):
-        args = Namespace(
-            artifact_root=rejected_root,
-            tenant_id=uuid4(),
-            run_token=uuid4(),
-        )
-        with pytest.raises(RuntimeError, match="reviewed_artifact_root_invalid"):
-            await reindex_cli._build_next_reviewed(args)
+    args = Namespace(
+        artifact_root=canonical_root,
+        tenant_id=tenant_id,
+        run_token=run_token,
+        _reviewed_root_for_testing=canonical_root,
+    )
+    with pytest.raises(RuntimeError, match="reviewed_artifact_namespace_invalid"):
+        await reindex_cli._build_next_reviewed(args)
 
     assert calls == {"reservation": 0, "provider": 0}
 

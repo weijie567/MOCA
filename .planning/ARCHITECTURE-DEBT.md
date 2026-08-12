@@ -2818,3 +2818,12 @@
 - **处理状态**：✅ 已修复验证。新目录链逐级创建并 fsync 每一级父目录；link成功后在最终 destination parent fsync前清理 temporary link，再 fsync parent才返回。activation exact-byte replay同样 fsync parent。两类 writer暴露仅供 deterministic fault test 的 `published` 与 `parent_fsynced` 注入边界。
 - **证据**：Phase64.4 review WR-04；`src/rag/tokenizer_parity.py`、`src/rag/activation_receipt.py` 与对应 tests；四个 link/fsync fault cases通过，完整两文件 gate `17 passed, 1 warning`，full lint通过。
 - **剩余风险 / 继续入口**：fault tests验证 POSIX file/directory fsync与 hard-link顺序，不代表 live filesystem/power-loss演练；未创建或修改 repository live parity/activation evidence。Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 review iteration 2 CR-01 — canonical root 下 descendant symlink 与 namespace TOCTOU ✅已修复验证
+
+- **子系统**：RAG policy candidate rebuild / reviewed artifact authority / provider execution budget。
+- **问题现象 / 根因**：iteration 1 已把 production root 固定为仓库路径并拒绝 root/ancestor symlink，但 `tenants/<tenant>/runs/<run>` 仍由普通 `Path` 跟随；入口校验后替换 descendant directory 也可让 descriptor/state/budget/reservation I/O 转向 copied tree。
+- **影响**：攻击者或误操作可绕开唯一 per-document ordinal namespace，在同一 DB candidate 上读取或发布替代 budget/attempt evidence；一次性路径检查还留下 check-to-use 窗口。
+- **处理状态**：✅ 已修复验证。reviewed command 全生命周期固定 canonical root 与 exact run dirfd，以 `O_NOFOLLOW` 逐级解析四个 descendant，所有 artifact I/O 改为相对该句柄的 no-follow read/list/create-only publish；每次 I/O 及 reservation 后/provider construction 前重新打开 canonical chain并核对 exact run inode。临时 root仍只能通过 argparse 不可达的测试内部属性注入。
+- **证据**：Phase64.4 review iteration 2 CR-01；`src/rag/policy_reindex_artifacts.py`、`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`、`tests/rag/test_policy_reindex_artifacts.py`；四级 descendant symlink加 open 后 exact-run substitution gate `5 passed, 1 warning`，reservation/provider均为0。
+- **剩余风险 / 继续入口**：这是本地 POSIX dirfd/no-follow deterministic gate，不替代真实 power-loss演练；未读取或修改 repository live candidate、未调用 provider/新建 lease/candidate，Plans18-20 仍未执行。

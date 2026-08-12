@@ -4,11 +4,12 @@ import argparse
 import asyncio
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
+from functools import wraps
 import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 from uuid import UUID, uuid4
 
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
@@ -36,6 +37,7 @@ from src.rag.policy_reindex import (
 )
 from src.rag.policy_reindex_artifacts import (
     CandidateBuildResultCode,
+    PolicyReindexArtifactError,
     PolicyReindexImmutableArtifactV1,
     build_policy_candidate_build_budget,
     build_policy_reindex_recovery_descriptor,
@@ -49,8 +51,13 @@ from src.rag.policy_reindex_artifacts import (
     policy_reindex_descriptor_path,
     policy_reindex_state_path,
     record_candidate_build_result_create_only,
+    reviewed_artifact_list_json,
+    reviewed_artifact_path_exists,
+    reviewed_artifact_read_bytes,
+    reviewed_artifact_revalidate_namespace,
     require_candidate_build_budget_complete,
     reserve_candidate_build_attempt,
+    secure_policy_reindex_artifact_namespace,
     write_policy_candidate_build_budget_create_only,
     write_policy_reindex_compat_identity_create_only,
     write_policy_reindex_recovery_descriptor_create_only,
@@ -178,6 +185,34 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _secure_reviewed_artifact_command(
+    *,
+    create_run: bool = False,
+) -> Callable[[Callable[[argparse.Namespace], Awaitable[Any]]], Callable[[argparse.Namespace], Awaitable[Any]]]:
+    def decorate(
+        function: Callable[[argparse.Namespace], Awaitable[Any]],
+    ) -> Callable[[argparse.Namespace], Awaitable[Any]]:
+        @wraps(function)
+        async def secured(args: argparse.Namespace) -> Any:
+            artifact_root = _require_canonical_reviewed_root(args)
+            try:
+                with secure_policy_reindex_artifact_namespace(
+                    artifact_root,
+                    tenant_id=args.tenant_id,
+                    run_token=args.run_token,
+                    create_run=create_run,
+                ):
+                    return await function(args)
+            except PolicyReindexArtifactError as error:
+                if str(error) == "artifact_namespace_invalid":
+                    raise RuntimeError("reviewed_artifact_namespace_invalid") from None
+                raise
+
+        return secured
+
+    return decorate
+
+
 async def _claim(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     now = datetime.now(UTC)
     config = load_embedding_tokenizer_config()
@@ -226,6 +261,7 @@ async def _claim(args: argparse.Namespace) -> PolicyReindexRunIdentity:
             return await PolicyReindexService(session).claim(request, now=now)
 
 
+@_secure_reviewed_artifact_command(create_run=True)
 async def _seal_descriptor(args: argparse.Namespace):
     artifact_root = _require_canonical_reviewed_root(args)
     now = datetime.now(UTC)
@@ -314,6 +350,7 @@ def _load_reviewed_budget(args: argparse.Namespace, *, descriptor):
     return budget, PolicyReindexImmutableArtifactV1(path=path, sha256=budget.budget_payload_sha256)
 
 
+@_secure_reviewed_artifact_command()
 async def _claim_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     descriptor = _reviewed_descriptor(args)
     async with SessionLocal() as session:
@@ -328,7 +365,7 @@ async def _claim_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     )
     if claimed.state == "claimed" and claimed.state_version == 1 and claimed.next_document_index == 0:
         write_policy_reindex_state_create_only(claimed, descriptor=descriptor, root=args.artifact_root)
-    elif not v1_path.exists():
+    elif not reviewed_artifact_path_exists(v1_path):
         raise RuntimeError("reindex_state_predecessor_missing")
 
     checked_at = _utc_now()
@@ -362,6 +399,7 @@ def _derive_exact_initial_claim_predecessor(
     return replace(current, state="claimed", state_version=1)
 
 
+@_secure_reviewed_artifact_command()
 async def _recover_state(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     descriptor = _reviewed_descriptor(args)
     checked_at = datetime.now(UTC)
@@ -382,8 +420,8 @@ async def _recover_state(args: argparse.Namespace) -> PolicyReindexRunIdentity:
         run_token=descriptor.run_token,
         state_version=2,
     )
-    if not v1_path.exists():
-        if v2_path.exists():
+    if not reviewed_artifact_path_exists(v1_path):
+        if reviewed_artifact_path_exists(v2_path):
             canonical_v2 = load_policy_reindex_state(
                 v2_path,
                 descriptor=descriptor,
@@ -408,9 +446,11 @@ async def _recover_state(args: argparse.Namespace) -> PolicyReindexRunIdentity:
             run_token=descriptor.run_token,
             state_version=owner.state_version,
         )
-        last_existing_version = owner.state_version if current_path.exists() else owner.state_version - 1
+        last_existing_version = (
+            owner.state_version if reviewed_artifact_path_exists(current_path) else owner.state_version - 1
+        )
         expected = [f"{version:08d}.json" for version in range(1, last_existing_version + 1)]
-        if [path.name for path in sorted(v1_path.parent.glob("*.json"))] != expected:
+        if [path.name for path in reviewed_artifact_list_json(v1_path.parent)] != expected:
             raise RuntimeError("reindex_state_invalid")
     state_artifact = write_policy_reindex_state_create_only(owner, descriptor=descriptor, root=args.artifact_root)
     budget, budget_artifact = _ensure_reviewed_budget(args, descriptor=descriptor, owner=owner)
@@ -429,7 +469,7 @@ def _latest_reviewed_state_artifact(args: argparse.Namespace, *, descriptor):
     state_root = (
         args.artifact_root / "tenants" / str(descriptor.tenant_id) / "runs" / str(descriptor.run_token) / "states"
     )
-    paths = sorted(state_root.glob("*.json")) if state_root.is_dir() else []
+    paths = reviewed_artifact_list_json(state_root)
     expected_names = [f"{ordinal:08d}.json" for ordinal in range(1, len(paths) + 1)]
     if [path.name for path in paths] != expected_names or not paths:
         raise RuntimeError("reindex_state_invalid")
@@ -437,7 +477,7 @@ def _latest_reviewed_state_artifact(args: argparse.Namespace, *, descriptor):
     owner = load_policy_reindex_state(path, descriptor=descriptor, root=args.artifact_root)
     artifact = PolicyReindexImmutableArtifactV1(
         path=path,
-        sha256="sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+        sha256="sha256:" + hashlib.sha256(reviewed_artifact_read_bytes(path)).hexdigest(),
     )
     return owner, artifact
 
@@ -466,7 +506,7 @@ def _reconcile_committed_build(
             document_index=document_index,
             ordinal=ordinal,
         )
-        if not attempt_path.exists():
+        if not reviewed_artifact_path_exists(attempt_path):
             continue
         result_path = policy_candidate_build_result_path(
             args.artifact_root,
@@ -475,7 +515,7 @@ def _reconcile_committed_build(
             document_index=document_index,
             ordinal=ordinal,
         )
-        if result_path.exists():
+        if reviewed_artifact_path_exists(result_path):
             return
         reservation = load_candidate_build_attempt(
             attempt_path,
@@ -530,6 +570,7 @@ def _safe_build_result_code(error: Exception) -> CandidateBuildResultCode:
     return CandidateBuildResultCode.PROJECTION_ERROR
 
 
+@_secure_reviewed_artifact_command()
 async def _build_next_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     descriptor = _reviewed_descriptor(args)
     state_owner, state_artifact = _latest_reviewed_state_artifact(args, descriptor=descriptor)
@@ -562,6 +603,7 @@ async def _build_next_reviewed(args: argparse.Namespace) -> PolicyReindexRunIden
                     expected_input_count=prepared.expected_input_count,
                     expected_batch_count=prepared.expected_batch_count,
                 )
+                reviewed_artifact_revalidate_namespace()
                 embedder = EmbeddingService(
                     model=str(descriptor.config_json["model"]),
                     dimensions=int(descriptor.config_json["dimensions"]),
@@ -611,6 +653,7 @@ async def _build_next_reviewed(args: argparse.Namespace) -> PolicyReindexRunIden
     return owner
 
 
+@_secure_reviewed_artifact_command()
 async def _validate_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     descriptor = _reviewed_descriptor(args)
     state_owner = _load_latest_reviewed_state(args, descriptor=descriptor)

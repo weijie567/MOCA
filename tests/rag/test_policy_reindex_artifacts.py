@@ -17,7 +17,9 @@ from src.rag.policy_reindex_artifacts import (
     load_candidate_build_attempt,
     policy_candidate_build_attempt_path,
     record_candidate_build_result_create_only,
+    reviewed_artifact_read_bytes,
     reserve_candidate_build_attempt,
+    secure_policy_reindex_artifact_namespace,
     build_policy_reindex_recovery_descriptor,
     load_policy_reindex_recovery_descriptor,
     load_policy_reindex_state,
@@ -98,6 +100,28 @@ def _identity() -> PolicyReindexRunIdentity:
         parity_captured_at=descriptor.parity_captured_at,
         parity_expires_at=descriptor.parity_expires_at,
     )
+
+
+def test_secure_namespace_rejects_run_substitution_after_open(tmp_path: Path) -> None:
+    run_path = tmp_path / "tenants" / str(TENANT_ID) / "runs" / str(RUN_TOKEN)
+    run_path.mkdir(parents=True)
+    descriptor_path = run_path / "descriptor.json"
+    descriptor_path.write_bytes(b"trusted")
+    substituted_run = tmp_path / "substituted-run"
+    substituted_run.mkdir()
+    (substituted_run / "descriptor.json").write_bytes(b"substituted")
+
+    with secure_policy_reindex_artifact_namespace(
+        tmp_path,
+        tenant_id=TENANT_ID,
+        run_token=RUN_TOKEN,
+    ):
+        pinned_run = run_path.with_name(f"{run_path.name}.pinned")
+        run_path.rename(pinned_run)
+        run_path.symlink_to(substituted_run, target_is_directory=True)
+
+        with pytest.raises(PolicyReindexArtifactError, match="artifact_namespace_invalid"):
+            reviewed_artifact_read_bytes(descriptor_path)
 
 
 def test_recovery_descriptor_is_hashed_canonical_bounded_and_create_only(tmp_path: Path) -> None:

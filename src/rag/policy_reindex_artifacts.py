@@ -8,15 +8,18 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from datetime import UTC, datetime, timedelta
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 from enum import StrEnum
-from typing import Any, Callable
-from uuid import UUID
+from typing import Any, Callable, Iterator
+from uuid import UUID, uuid4
 
 
 POLICY_REINDEX_RECOVERY_DESCRIPTOR_SCHEMA_VERSION = "policy_reindex_recovery_descriptor.v1"
@@ -33,6 +36,295 @@ ArtifactFaultInjector = Callable[[str], None]
 
 class PolicyReindexArtifactError(RuntimeError):
     """Closed safe-code error for descriptor, state, and budget artifacts."""
+
+
+class _SecureReviewedArtifactIO:
+    """Pin one canonical run directory and use openat-style no-follow I/O."""
+
+    def __init__(self, root: Path, *, tenant_id: UUID, run_token: UUID, create_run: bool) -> None:
+        self.root = Path(os.path.abspath(root))
+        self.run_path = self.root / "tenants" / str(tenant_id) / "runs" / str(run_token)
+        self.create_run = create_run
+        self.root_fd = -1
+        self.run_fd = -1
+        self._token: object | None = None
+
+    def __enter__(self) -> _SecureReviewedArtifactIO:
+        try:
+            self.root_fd = os.open(self.root, _directory_open_flags())
+            current_fd = os.dup(self.root_fd)
+            try:
+                for component in ("tenants", self.run_path.parts[-3], "runs", self.run_path.name):
+                    next_fd = self._open_directory_at(current_fd, component, create=self.create_run)
+                    os.close(current_fd)
+                    current_fd = next_fd
+                self.run_fd = current_fd
+            except Exception:
+                os.close(current_fd)
+                raise
+        except OSError:
+            self.close()
+            raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+        self._token = _ACTIVE_REVIEWED_ARTIFACT_IO.set(self)
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        if self._token is not None:
+            _ACTIVE_REVIEWED_ARTIFACT_IO.reset(self._token)  # type: ignore[arg-type]
+            self._token = None
+        self.close()
+
+    def close(self) -> None:
+        for descriptor_name in ("run_fd", "root_fd"):
+            descriptor = getattr(self, descriptor_name)
+            if descriptor >= 0:
+                os.close(descriptor)
+                setattr(self, descriptor_name, -1)
+
+    def owns(self, path: Path) -> bool:
+        try:
+            Path(os.path.abspath(path)).relative_to(self.run_path)
+        except ValueError:
+            return False
+        return True
+
+    def read_bytes(self, path: Path) -> bytes:
+        self.verify_run_chain()
+        parent_fd, name = self._open_parent(path, create=False)
+        try:
+            descriptor = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent_fd)
+            try:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    raise PolicyReindexArtifactError("artifact_namespace_invalid")
+                with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                    payload = stream.read()
+                self.verify_run_chain()
+                return payload
+            finally:
+                os.close(descriptor)
+        except OSError:
+            raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+        finally:
+            os.close(parent_fd)
+
+    def exists(self, path: Path) -> bool:
+        self.verify_run_chain()
+        try:
+            parent_fd, name = self._open_parent(path, create=False)
+        except FileNotFoundError:
+            return False
+        try:
+            try:
+                descriptor = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent_fd)
+            except FileNotFoundError:
+                return False
+            try:
+                exists = stat.S_ISREG(os.fstat(descriptor).st_mode)
+                self.verify_run_chain()
+                return exists
+            finally:
+                os.close(descriptor)
+        except OSError:
+            raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+        finally:
+            os.close(parent_fd)
+
+    def list_json(self, path: Path) -> list[Path]:
+        self.verify_run_chain()
+        try:
+            directory_fd = self._open_directory(path, create=False)
+        except FileNotFoundError:
+            return []
+        try:
+            names = sorted(name for name in os.listdir(directory_fd) if name.endswith(".json"))
+            for name in names:
+                if not self.exists(path / name):
+                    raise PolicyReindexArtifactError("artifact_namespace_invalid")
+            self.verify_run_chain()
+            return [path / name for name in names]
+        finally:
+            os.close(directory_fd)
+
+    def publish(
+        self,
+        path: Path,
+        payload: bytes,
+        *,
+        conflict_code: str,
+        identical_replay: bool,
+        fault_injector: ArtifactFaultInjector | None,
+    ) -> None:
+        self.verify_run_chain()
+        parent_fd, name = self._open_parent(path, create=True)
+        staging_fd = -1
+        staging_name: str | None = None
+        try:
+            if self.exists(path):
+                if identical_replay and self.read_bytes(path) == payload:
+                    os.fsync(parent_fd)
+                    return
+                raise PolicyReindexArtifactError(conflict_code)
+            staging_fd = self._open_directory_at(parent_fd, ".staging", create=True)
+            staging_name = f".{name}.{uuid4().hex}.tmp"
+            descriptor = os.open(
+                staging_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+                dir_fd=staging_fd,
+            )
+            try:
+                with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                    stream.write(payload)
+                    stream.flush()
+                    _inject_fault(fault_injector, "stage_written")
+                    os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            _inject_fault(fault_injector, "stage_fsynced")
+            os.fsync(staging_fd)
+            os.link(
+                staging_name,
+                name,
+                src_dir_fd=staging_fd,
+                dst_dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+            _inject_fault(fault_injector, "published")
+            os.fsync(parent_fd)
+            _inject_fault(fault_injector, "parent_fsynced")
+            self.verify_run_chain()
+        except FileExistsError:
+            if identical_replay and self.exists(path) and self.read_bytes(path) == payload:
+                os.fsync(parent_fd)
+                return
+            raise PolicyReindexArtifactError(conflict_code) from None
+        except PolicyReindexArtifactError:
+            raise
+        except OSError:
+            raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+        finally:
+            if staging_fd >= 0:
+                if staging_name is not None:
+                    try:
+                        os.unlink(staging_name, dir_fd=staging_fd)
+                        os.fsync(staging_fd)
+                    except OSError:
+                        pass
+                os.close(staging_fd)
+            os.close(parent_fd)
+
+    def verify_run_chain(self) -> None:
+        current_fd = os.dup(self.root_fd)
+        try:
+            for component in ("tenants", self.run_path.parts[-3], "runs", self.run_path.name):
+                next_fd = self._open_directory_at(current_fd, component, create=False)
+                os.close(current_fd)
+                current_fd = next_fd
+            expected = os.fstat(self.run_fd)
+            actual = os.fstat(current_fd)
+            if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+                raise PolicyReindexArtifactError("artifact_namespace_invalid")
+        except OSError:
+            raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+        finally:
+            os.close(current_fd)
+
+    def _open_parent(self, path: Path, *, create: bool) -> tuple[int, str]:
+        relative = self._relative(path)
+        if not relative.parts:
+            raise PolicyReindexArtifactError("artifact_namespace_invalid")
+        parent = self.run_path.joinpath(*relative.parts[:-1])
+        return self._open_directory(parent, create=create), relative.name
+
+    def _open_directory(self, path: Path, *, create: bool) -> int:
+        relative = self._relative(path)
+        current_fd = os.dup(self.run_fd)
+        try:
+            for component in relative.parts:
+                next_fd = self._open_directory_at(current_fd, component, create=create)
+                os.close(current_fd)
+                current_fd = next_fd
+            return current_fd
+        except Exception:
+            os.close(current_fd)
+            raise
+
+    def _open_directory_at(self, parent_fd: int, name: str, *, create: bool) -> int:
+        try:
+            return os.open(name, _directory_open_flags(), dir_fd=parent_fd)
+        except FileNotFoundError:
+            if not create:
+                raise
+            try:
+                os.mkdir(name, 0o755, dir_fd=parent_fd)
+            except FileExistsError:
+                pass
+            else:
+                os.fsync(parent_fd)
+            return os.open(name, _directory_open_flags(), dir_fd=parent_fd)
+
+    def _relative(self, path: Path) -> Path:
+        try:
+            relative = Path(os.path.abspath(path)).relative_to(self.run_path)
+        except ValueError:
+            raise PolicyReindexArtifactError("artifact_namespace_invalid") from None
+        if any(component in {"", ".", ".."} for component in relative.parts):
+            raise PolicyReindexArtifactError("artifact_namespace_invalid")
+        return relative
+
+
+_ACTIVE_REVIEWED_ARTIFACT_IO: ContextVar[_SecureReviewedArtifactIO | None] = ContextVar(
+    "active_reviewed_artifact_io",
+    default=None,
+)
+
+
+@contextmanager
+def secure_policy_reindex_artifact_namespace(
+    root: Path,
+    *,
+    tenant_id: UUID,
+    run_token: UUID,
+    create_run: bool = False,
+) -> Iterator[None]:
+    with _SecureReviewedArtifactIO(
+        root,
+        tenant_id=tenant_id,
+        run_token=run_token,
+        create_run=create_run,
+    ):
+        yield
+
+
+def reviewed_artifact_read_bytes(path: Path) -> bytes:
+    active = _active_io_for(path)
+    return active.read_bytes(path) if active is not None else path.read_bytes()
+
+
+def reviewed_artifact_path_exists(path: Path) -> bool:
+    active = _active_io_for(path)
+    return active.exists(path) if active is not None else path.is_file()
+
+
+def reviewed_artifact_list_json(path: Path) -> list[Path]:
+    active = _active_io_for(path)
+    return active.list_json(path) if active is not None else sorted(path.glob("*.json")) if path.is_dir() else []
+
+
+def reviewed_artifact_revalidate_namespace() -> None:
+    active = _ACTIVE_REVIEWED_ARTIFACT_IO.get()
+    if active is None:
+        raise PolicyReindexArtifactError("artifact_namespace_invalid")
+    active.verify_run_chain()
+
+
+def _active_io_for(path: Path) -> _SecureReviewedArtifactIO | None:
+    active = _ACTIVE_REVIEWED_ARTIFACT_IO.get()
+    return active if active is not None and active.owns(path) else None
+
+
+def _directory_open_flags() -> int:
+    return os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 
 
 class CandidateBuildResultCode(StrEnum):
@@ -299,7 +591,7 @@ def load_policy_candidate_build_budget(
     root: Path,
 ) -> PolicyCandidateBuildBudgetV1:
     try:
-        raw = path.read_bytes()
+        raw = reviewed_artifact_read_bytes(path)
         payload = json.loads(raw)
         if not isinstance(payload, dict) or set(payload) != {
             field.name for field in fields(PolicyCandidateBuildBudgetV1)
@@ -372,7 +664,7 @@ def reserve_candidate_build_attempt(
         document_index=document_index,
         ordinal=1,
     ).parent
-    paths = sorted(attempts_root.glob("*.json")) if attempts_root.is_dir() else []
+    paths = reviewed_artifact_list_json(attempts_root)
     if [path.name for path in paths] != [f"{ordinal:02d}.json" for ordinal in range(1, len(paths) + 1)]:
         raise PolicyReindexArtifactError("build_reservation_invalid")
     attempts = [
@@ -396,7 +688,7 @@ def reserve_candidate_build_attempt(
             document_index=document_index,
             ordinal=previous.ordinal,
         )
-        if not result_path.is_file():
+        if not reviewed_artifact_path_exists(result_path):
             raise PolicyReindexArtifactError("build_retry_evidence_missing")
         result = load_candidate_build_result(
             result_path,
@@ -471,7 +763,7 @@ def load_candidate_build_attempt(
             descriptor=descriptor,
             root=root,
         )
-        raw = path.read_bytes()
+        raw = reviewed_artifact_read_bytes(path)
         payload = json.loads(raw)
         if not isinstance(payload, dict) or set(payload) != {
             field.name for field in fields(PolicyCandidateBuildAttemptV1)
@@ -620,7 +912,7 @@ def load_candidate_build_result(
             root=root,
         )
         _validate_build_attempt_binding(reservation, descriptor=descriptor, budget=budget)
-        raw = path.read_bytes()
+        raw = reviewed_artifact_read_bytes(path)
         payload = json.loads(raw)
         if not isinstance(payload, dict) or set(payload) != {
             field.name for field in fields(PolicyCandidateBuildResultV1)
@@ -677,7 +969,7 @@ def require_candidate_build_budget_complete(
                 document_index=document_index,
                 ordinal=ordinal,
             )
-            if not attempt_path.exists():
+            if not reviewed_artifact_path_exists(attempt_path):
                 continue
             attempt = load_candidate_build_attempt(
                 attempt_path,
@@ -693,7 +985,7 @@ def require_candidate_build_budget_complete(
                 document_index=document_index,
                 ordinal=ordinal,
             )
-            if not result_path.exists():
+            if not reviewed_artifact_path_exists(result_path):
                 raise PolicyReindexArtifactError("build_result_missing")
             result = load_candidate_build_result(
                 result_path,
@@ -743,7 +1035,7 @@ def load_policy_reindex_recovery_descriptor(
     root: Path | None = None,
 ) -> PolicyReindexRecoveryDescriptorV1:
     try:
-        raw = path.read_bytes()
+        raw = reviewed_artifact_read_bytes(path)
         payload = json.loads(raw)
         if not isinstance(payload, dict) or set(payload) != {
             field.name for field in fields(PolicyReindexRecoveryDescriptorV1)
@@ -832,7 +1124,8 @@ def load_policy_reindex_state(
     from src.rag.policy_reindex import PolicyReindexRunIdentity
 
     try:
-        payload = json.loads(path.read_bytes())
+        raw = reviewed_artifact_read_bytes(path)
+        payload = json.loads(raw)
         if not isinstance(payload, dict) or set(payload) != {
             "schema_version",
             "descriptor_payload_sha256",
@@ -868,7 +1161,7 @@ def load_policy_reindex_state(
         )
         if path.absolute() != expected.absolute():
             raise ValueError
-        if _canonical_json_bytes(payload) != path.read_bytes():
+        if _canonical_json_bytes(payload) != raw:
             raise ValueError
     except (OSError, TypeError, ValueError, PolicyReindexArtifactError):
         raise PolicyReindexArtifactError("state_invalid") from None
@@ -1133,7 +1426,7 @@ def _validate_state_artifact(
             descriptor=descriptor,
             root=root,
         )
-        if state_artifact.sha256 != _sha256_bytes(state_artifact.path.read_bytes()) or loaded != owner:
+        if state_artifact.sha256 != _sha256_bytes(reviewed_artifact_read_bytes(state_artifact.path)) or loaded != owner:
             raise PolicyReindexArtifactError("build_state_descriptor_mismatch")
     except PolicyReindexArtifactError as error:
         if str(error) == "build_state_descriptor_mismatch":
@@ -1205,6 +1498,16 @@ def _publish_canonical_bytes(
     identical_replay: bool,
     fault_injector: ArtifactFaultInjector | None,
 ) -> None:
+    active = _active_io_for(path)
+    if active is not None:
+        active.publish(
+            path,
+            payload,
+            conflict_code=conflict_code,
+            identical_replay=identical_replay,
+            fault_injector=fault_injector,
+        )
+        return
     staging_path: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
