@@ -28,6 +28,7 @@ from src.db.models import (
 )
 from src.rag.parsers.base import ParsedBlock
 from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
+from src.rag.policy_reindex_artifacts import build_policy_reindex_recovery_descriptor
 from src.rag.policy_reindex import (
     POLICY_REINDEX_STATES,
     FreshProviderParityClaimV1,
@@ -567,6 +568,141 @@ async def test_claim_seals_fixed_identity_and_keeps_active_authority_pointer_onl
     assert rollout.active_corpus_version_id == source.id
     assert rollout.rollout_epoch == 7
     assert await session.scalar(select(func.count()).select_from(PolicyCorpusVersion)) == 2
+
+
+@pytest.mark.asyncio
+async def test_descriptor_bound_claim_recovers_exact_committed_identity_without_renewal_or_second_run(
+    session: AsyncSession,
+) -> None:
+    tenant_id, manifest, source, rollout = await _seed_source_authority(session)
+    run_token = uuid4()
+    descriptor = build_policy_reindex_recovery_descriptor(
+        sealed_at=NOW,
+        tenant_id=tenant_id,
+        run_token=run_token,
+        generation_name=f"token.v1:{run_token.hex}",
+        lease_owner="reviewed-worker",
+        lease_expires_at=NOW + timedelta(hours=2),
+        config_schema_version="embedding_tokenizer.v1",
+        config_json={
+            "max_embedding_tokens": 512,
+            "overlap_tokens": 48,
+            "target_embedding_tokens": 384,
+        },
+        config_fingerprint=TOKEN_CONFIG_FINGERPRINT,
+        parity_report_sha256=PARITY_REPORT_HASH,
+        parity_config_fingerprint=TOKEN_CONFIG_FINGERPRINT,
+        parity_probe_fixture_sha256="sha256:" + "4" * 64,
+        parity_submitted_content_sha256="sha256:" + "5" * 64,
+        parity_captured_at=NOW - timedelta(minutes=5),
+        parity_expires_at=NOW + timedelta(hours=23, minutes=55),
+        source_manifest_revision_id=manifest.id,
+        source_manifest_revision=manifest.revision,
+        source_manifest_hash=manifest.manifest_hash,
+        source_active_corpus_version_id=source.id,
+        source_rollout_epoch=rollout.rollout_epoch,
+        expected_evidence_rollout_version=11,
+    )
+    service = PolicyReindexService(session)
+
+    claimed = await service.claim_from_descriptor(descriptor, now=NOW)
+    await session.commit()  # Simulate a crash before the state artifact is published.
+    recovered = await service.recover_identity(descriptor, now=NOW + timedelta(minutes=1))
+    replayed_claim = await service.claim_from_descriptor(descriptor, now=NOW + timedelta(minutes=1))
+
+    assert recovered == replayed_claim == claimed
+    assert recovered.run_token == descriptor.run_token
+    assert recovered.generation_name == descriptor.generation_name
+    assert recovered.lease_owner == descriptor.lease_owner
+    assert recovered.lease_expires_at == descriptor.lease_expires_at
+    assert recovered.parity_expires_at == descriptor.parity_expires_at
+    assert await session.scalar(select(func.count()).select_from(PolicyCorpusVersion)) == 2
+    candidate = await session.get(PolicyCorpusVersion, claimed.corpus_version_id)
+    assert candidate is not None
+    assert candidate.state_version == 1
+    assert candidate.next_document_index == 0
+    assert candidate.validation_proof_json["recovery_descriptor"] == {
+        "schema_version": "policy_reindex_recovery_descriptor_binding.v1",
+        "descriptor_payload_sha256": descriptor.descriptor_payload_sha256,
+        "parity_probe_fixture_sha256": descriptor.parity_probe_fixture_sha256,
+        "parity_submitted_content_sha256": descriptor.parity_submitted_content_sha256,
+    }
+
+
+@pytest.mark.asyncio
+async def test_recover_identity_refuses_foreign_run_and_ambiguous_rows_without_mutation(session: AsyncSession) -> None:
+    tenant_id, manifest, source, rollout = await _seed_source_authority(session)
+    run_token = uuid4()
+    descriptor = build_policy_reindex_recovery_descriptor(
+        sealed_at=NOW,
+        tenant_id=tenant_id,
+        run_token=run_token,
+        generation_name=f"token.v1:{run_token.hex}",
+        lease_owner="reviewed-worker",
+        lease_expires_at=NOW + timedelta(hours=1),
+        config_schema_version="embedding_tokenizer.v1",
+        config_json={"max_embedding_tokens": 512},
+        config_fingerprint=TOKEN_CONFIG_FINGERPRINT,
+        parity_report_sha256=PARITY_REPORT_HASH,
+        parity_config_fingerprint=TOKEN_CONFIG_FINGERPRINT,
+        parity_probe_fixture_sha256="sha256:" + "4" * 64,
+        parity_submitted_content_sha256="sha256:" + "5" * 64,
+        parity_captured_at=NOW - timedelta(minutes=5),
+        parity_expires_at=NOW + timedelta(hours=23),
+        source_manifest_revision_id=manifest.id,
+        source_manifest_revision=manifest.revision,
+        source_manifest_hash=manifest.manifest_hash,
+        source_active_corpus_version_id=source.id,
+        source_rollout_epoch=rollout.rollout_epoch,
+        expected_evidence_rollout_version=11,
+    )
+    service = PolicyReindexService(session)
+    claimed = await service.claim_from_descriptor(descriptor, now=NOW)
+
+    foreign_run = build_policy_reindex_recovery_descriptor(
+        **{
+            field: getattr(descriptor, field)
+            for field in descriptor.__dataclass_fields__
+            if field not in {"schema_version", "descriptor_payload_sha256", "run_token", "generation_name"}
+        },
+        run_token=uuid4(),
+        generation_name="token.v1:foreign",
+    )
+    with pytest.raises(PolicyReindexError) as missing:
+        await service.recover_identity(foreign_run, now=NOW)
+    assert missing.value.code is PolicyReindexFailureCode.RUN_IDENTITY_MISMATCH
+
+    row = await session.get(PolicyCorpusVersion, claimed.corpus_version_id)
+    assert row is not None
+    duplicate = PolicyCorpusVersion(
+        id=uuid4(),
+        tenant_id=row.tenant_id,
+        generation_name=f"{row.generation_name}:duplicate",
+        owner_marker=row.owner_marker,
+        run_token=row.run_token,
+        config_schema_version=row.config_schema_version,
+        config_json=dict(row.config_json),
+        config_fingerprint=row.config_fingerprint,
+        provider_parity_report_hash=row.provider_parity_report_hash,
+        source_manifest_revision_id=row.source_manifest_revision_id,
+        source_manifest_hash=row.source_manifest_hash,
+        source_active_corpus_version_id=row.source_active_corpus_version_id,
+        source_rollout_epoch=row.source_rollout_epoch,
+        expected_evidence_rollout_version=row.expected_evidence_rollout_version,
+        state=row.state,
+        state_version=row.state_version,
+        lease_owner=row.lease_owner,
+        lease_expires_at=row.lease_expires_at,
+        next_document_index=row.next_document_index,
+        bootstrap_counts_json=dict(row.bootstrap_counts_json),
+        validation_proof_json=dict(row.validation_proof_json),
+    )
+    session.add(duplicate)
+    await session.flush()
+    with pytest.raises(PolicyReindexError) as ambiguous:
+        await service.recover_identity(descriptor, now=NOW)
+    assert ambiguous.value.code is PolicyReindexFailureCode.AUTHORITY_UNAVAILABLE
+    assert row.state_version == duplicate.state_version == 1
 
 
 @pytest.mark.asyncio
