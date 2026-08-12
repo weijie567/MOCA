@@ -31,6 +31,8 @@ from src.db.models import (
     PolicyCorpusRollout,
     PolicyCorpusVersion,
     PolicyDocument,
+    ProviderExecutionAuthority,
+    ProviderExecutionPromotion,
     Tenant,
 )
 from src.rag.parsers.base import ParsedBlock
@@ -50,6 +52,7 @@ from src.rag.policy_reindex_artifacts import (
 )
 from src.rag.policy_reindex import (
     POLICY_REINDEX_STATES,
+    PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH,
     FreshProviderParityClaimV1,
     ImmutableSelectionDecisionFixtureV1,
     ImmutableSelectionDecisionV1,
@@ -60,6 +63,12 @@ from src.rag.policy_reindex import (
     PolicyReindexFailureCode,
     PolicyReindexRunIdentity,
     PolicyReindexService,
+    ReviewedPolicyCandidateBuildService,
+)
+from src.rag.provider_execution_authority import (
+    ProviderExecutionReservationViewV1,
+    ProviderExecutionResultCode,
+    ProviderExecutionResultViewV1,
 )
 from src.repositories.document_block_repo import build_canonical_document_content
 from src.repositories.evidence_version_repo import EvidenceVersionRepository
@@ -921,6 +930,7 @@ async def _claim_bound_candidate(
     doc_keys: tuple[str, ...] = ("policy-a",),
     tenant_id: UUID | None = None,
     lease_owner: str = "worker-a",
+    checked_at: datetime = NOW,
 ) -> tuple[
     PolicyReindexService,
     PolicyEmbeddingInputAssembler,
@@ -936,18 +946,18 @@ async def _claim_bound_candidate(
     )
     assembler = PolicyEmbeddingInputAssembler()
     service = PolicyReindexService(session)
-    claimed = await service.claim(
-        _claim_request(
-            tenant_id=resolved_tenant,
-            manifest=manifest,
-            source=source,
-            rollout=rollout,
-            lease_owner=lease_owner,
-            config_fingerprint=assembler.config.config_fingerprint,
-        ),
-        now=NOW,
+    request = _claim_request(
+        tenant_id=resolved_tenant,
+        manifest=manifest,
+        source=source,
+        rollout=rollout,
+        lease_owner=lease_owner,
+        lease_expires_at=checked_at + timedelta(minutes=15),
+        config_fingerprint=assembler.config.config_fingerprint,
     )
-    building = await service.resume(claimed, now=NOW)
+    request = replace(request, parity=replace(request.parity, captured_at=checked_at - timedelta(minutes=5)))
+    claimed = await service.claim(request, now=checked_at)
+    building = await service.resume(claimed, now=checked_at)
     return service, assembler, building, source, rollout, documents
 
 
@@ -1981,6 +1991,294 @@ async def test_reviewed_build_preparation_fixes_input_and_batch_counts_without_p
     assert prepared.state_version == owner.state_version
     assert prepared.expected_input_count == 1
     assert prepared.expected_batch_count == 1
+
+
+async def _seed_reviewed_provider_authority(
+    session: AsyncSession,
+    *,
+    owner: PolicyReindexRunIdentity,
+    assembler: PolicyEmbeddingInputAssembler,
+) -> UUID:
+    authority_id = uuid4()
+    promotion_id = uuid4()
+    candidate = await session.get(PolicyCorpusVersion, owner.corpus_version_id)
+    assert candidate is not None
+    session.add(
+        ProviderExecutionPromotion(
+            id=promotion_id,
+            scope="phase64.5.reviewed-provider-execution",
+            protected_code_c0_commit="0" * 40,
+            protected_code_c0_tree_hash="1" * 40,
+            protected_code_c1_commit="2" * 40,
+            protected_code_c1_tree_hash="3" * 40,
+            c0_to_c1_diff_hash="sha256:" + "0" * 64,
+            c0_code_review_artifact_sha256="sha256:" + "1" * 64,
+            c0_security_artifact_sha256="sha256:" + "2" * 64,
+            c1_code_review_artifact_sha256="sha256:" + "3" * 64,
+            c1_security_artifact_sha256="sha256:" + "4" * 64,
+            c0_code_review_attestation_sha256="sha256:" + "5" * 64,
+            c0_security_attestation_sha256="sha256:" + "6" * 64,
+            c1_code_review_attestation_sha256="sha256:" + "7" * 64,
+            c1_security_attestation_sha256="sha256:" + "8" * 64,
+            c0_gate_report_sha256="sha256:" + "9" * 64,
+            c1_gate_report_sha256="sha256:" + "a" * 64,
+            promotion_request_hash="sha256:" + "b" * 64,
+        )
+    )
+    await session.flush()
+    session.add(
+        ProviderExecutionAuthority(
+            id=authority_id,
+            tenant_id=owner.tenant_id,
+            promotion_id=promotion_id,
+            run_token=owner.run_token,
+            candidate_id=owner.corpus_version_id,
+            owner_marker="moca.policy_reindex.v1",
+            config_schema_version=owner.config_schema_version,
+            config_json=dict(candidate.config_json),
+            config_fingerprint=owner.config_fingerprint,
+            provider_parity_run_id=uuid4(),
+            provider_parity_report_hash=owner.provider_parity_report_hash,
+            provider_parity_probe_fixture_sha256="sha256:" + "c" * 64,
+            provider_parity_submitted_content_sha256="sha256:" + "d" * 64,
+            parity_captured_at=owner.parity_captured_at,
+            parity_expires_at=owner.parity_expires_at,
+            source_manifest_revision_id=owner.source_manifest_revision_id,
+            source_manifest_hash=owner.source_manifest_hash,
+            source_active_corpus_version_id=owner.source_active_corpus_version_id,
+            source_rollout_epoch=owner.source_rollout_epoch,
+            evidence_rollout_version=owner.expected_evidence_rollout_version,
+            candidate_lease_expires_at=owner.lease_expires_at,
+            expires_at=min(owner.parity_expires_at, owner.lease_expires_at),
+            provider_name=assembler.config.provider,
+            model_name=assembler.config.model,
+            dimensions=assembler.config.dimensions,
+            envelope_contract_hash=PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH,
+        )
+    )
+    await session.flush()
+    return authority_id
+
+
+@pytest.mark.asyncio
+async def test_reviewed_build_reaches_provider_only_with_committed_db_authority(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+) -> None:
+    service, assembler, owner, _, _, _ = await _claim_bound_candidate(
+        session,
+        checked_at=datetime.now(UTC),
+    )
+    authority_id = await _seed_reviewed_provider_authority(session, owner=owner, assembler=assembler)
+    await session.commit()
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    events: list[str] = []
+    reservation_id = uuid4()
+    committed = False
+    rechecked = False
+
+    class AuthorityService:
+        async def require_current_promotion(self):
+            events.append("promotion")
+
+        async def reserve_and_commit(self, request):
+            nonlocal committed
+            assert request.purpose.value == "reviewed_build"
+            assert request.subject_kind == "candidate_document"
+            assert request.subject_index == 0
+            assert request.request_envelope.contract_hash == PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH
+            assert request.request_envelope.maximum_request_count == 1
+            assert request.request_envelope.maximum_attempts_per_site == (1,)
+            assert request.request_envelope.provider_name == assembler.config.provider
+            assert request.request_envelope.model_name == assembler.config.model
+            assert request.request_envelope.dimensions == assembler.config.dimensions
+            assert request.request_envelope.ordered_call_sites[0].startswith(
+                "reviewed_build:document:0:batch:0:input_count:1:sha256:"
+            )
+            events.append("reserve_commit")
+            committed = True
+            return ProviderExecutionReservationViewV1(
+                **request.model_dump(),
+                reservation_id=reservation_id,
+                tenant_id=owner.tenant_id,
+                predecessor_result_id=None,
+                reserved_at=NOW,
+            )
+
+        async def recheck_dispatch(self, reservation):
+            nonlocal rechecked
+            assert committed is True
+            events.append("dispatch_recheck")
+            rechecked = True
+            return reservation
+
+        async def record_result(self, request):
+            async with session_factory() as verifier:
+                candidate = await verifier.get(PolicyCorpusVersion, owner.corpus_version_id)
+                assert candidate is not None
+                assert (candidate.state, candidate.next_document_index) == ("built", 1)
+            events.append("candidate_commit")
+            events.append("result_commit")
+            return ProviderExecutionResultViewV1(
+                **request.model_dump(),
+                tenant_id=owner.tenant_id,
+                request_limit=1,
+                completed_at=NOW,
+            )
+
+        async def reconcile_projection(self, *, authority_id, projection_path):
+            events.append("projection")
+            return SimpleNamespace(authority_id=authority_id, projection_path=projection_path)
+
+    class Embedder(_RecordingEmbedder):
+        @property
+        def request_attempt_count(self) -> int:
+            return len(self.calls)
+
+        async def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            events.append("provider_call")
+            return await super().embed_documents(texts)
+
+    def provider_factory(**kwargs):
+        assert committed is True
+        assert rechecked is True
+        assert kwargs["max_retries"] == 1
+        assert kwargs["batch_size"] == 10
+        events.append("provider_factory")
+        return Embedder()
+
+    reviewed = ReviewedPolicyCandidateBuildService(
+        session_factory,
+        authority_service=AuthorityService(),
+        provider_factory=provider_factory,
+    )
+    outcome = await reviewed.build_next_document(
+        owner,
+        authority_id=authority_id,
+        assembler=assembler,
+        ordinal=1,
+        projection_path=tmp_path / "provider-authority.v2.json",
+    )
+
+    assert outcome.owner.state == "built"
+    assert outcome.result.result_code is ProviderExecutionResultCode.SUCCESS
+    assert events == [
+        "promotion",
+        "reserve_commit",
+        "dispatch_recheck",
+        "provider_factory",
+        "provider_call",
+        "candidate_commit",
+        "result_commit",
+        "projection",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reviewed_build_missing_or_mismatched_promotion_stops_before_reservation_and_provider(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+) -> None:
+    _service, assembler, owner, _, _, _ = await _claim_bound_candidate(
+        session,
+        checked_at=datetime.now(UTC),
+    )
+    authority_id = await _seed_reviewed_provider_authority(session, owner=owner, assembler=assembler)
+    await session.commit()
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    events: list[str] = []
+
+    class AuthorityService:
+        async def require_current_promotion(self):
+            events.append("promotion_refused")
+            raise RuntimeError("promotion_missing")
+
+        async def reserve_and_commit(self, request):
+            events.append("reservation")
+            raise AssertionError(request)
+
+    def provider_factory(**kwargs):
+        events.append("provider_factory")
+        raise AssertionError(kwargs)
+
+    reviewed = ReviewedPolicyCandidateBuildService(
+        session_factory,
+        authority_service=AuthorityService(),
+        provider_factory=provider_factory,
+    )
+
+    with pytest.raises(RuntimeError, match="promotion_missing"):
+        await reviewed.build_next_document(
+            owner,
+            authority_id=authority_id,
+            assembler=assembler,
+            ordinal=1,
+            projection_path=tmp_path / "provider-authority.v2.json",
+        )
+
+    assert events == ["promotion_refused"]
+
+
+@pytest.mark.asyncio
+async def test_reviewed_build_crash_after_committed_reservation_records_no_false_result(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+) -> None:
+    _service, assembler, owner, _, _, _ = await _claim_bound_candidate(
+        session,
+        checked_at=datetime.now(UTC),
+    )
+    authority_id = await _seed_reviewed_provider_authority(session, owner=owner, assembler=assembler)
+    await session.commit()
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    reservation_id = uuid4()
+    events: list[str] = []
+
+    class AuthorityService:
+        async def require_current_promotion(self):
+            return None
+
+        async def reserve_and_commit(self, request):
+            events.append("reservation_committed")
+            return ProviderExecutionReservationViewV1(
+                **request.model_dump(),
+                reservation_id=reservation_id,
+                tenant_id=owner.tenant_id,
+                predecessor_result_id=None,
+                reserved_at=NOW,
+            )
+
+        async def recheck_dispatch(self, reservation):
+            events.append("dispatch_crash")
+            raise BaseException("simulated process crash")
+
+        async def record_result(self, request):
+            events.append("result")
+            raise AssertionError(request)
+
+        async def reconcile_projection(self, **kwargs):
+            events.append("projection")
+            raise AssertionError(kwargs)
+
+    reviewed = ReviewedPolicyCandidateBuildService(
+        session_factory,
+        authority_service=AuthorityService(),
+        provider_factory=lambda **kwargs: pytest.fail(str(kwargs)),
+    )
+
+    with pytest.raises(BaseException, match="simulated process crash"):
+        await reviewed.build_next_document(
+            owner,
+            authority_id=authority_id,
+            assembler=assembler,
+            ordinal=1,
+            projection_path=tmp_path / "provider-authority.v2.json",
+        )
+
+    assert events == ["reservation_committed", "dispatch_crash"]
 
 
 @pytest.mark.asyncio

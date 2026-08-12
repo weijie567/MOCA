@@ -24105,3 +24105,14 @@ Task 1 最小 RED 按预期以缺少 `src.rag.provider_execution_authority` coll
 
 **已做处理 / 剩余入口**
 fixture 先显式 flush tenant；移除未使用变量；result seal 将所有 nullable hash 字段显式归一为 `None`；rollout 漂移改用 tenant predicate 查询；self-check 循环变量改为普通 `file_path`/`commit_hash` 后重新运行，6 个文件和 2 个 commits 全部 FOUND，删除/stub/diff-check 均无输出。最终严格按 `make format` → 完整 `make lint` → `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/rag/test_provider_execution_authority.py -q` 执行，结果为 `14 passed, 1 warning in 28.97s`；warning 是既有 LangGraph deprecation。未调用 provider、未访问 live DB、未创建 repository live projection。后续 Plans 03–05 接线时应继续用真实 PostgreSQL 串行验证 commit-before-provider 与 pre-dispatch recheck，不得把本计划的隔离 fixture GREEN 外推为 production dispatch 已恢复。
+
+## 2026-08-13 — Phase 64.5 Plan 03 Task 1 reviewed build 接线验证迭代
+
+**问题现象 / 如何检测**
+最小 RED 节点 `test_reviewed_build_reaches_provider_only_with_committed_db_authority` 按预期因 `ReviewedPolicyCandidateBuildService` 不存在而 collection 失败。首轮 GREEN 又因新 service 使用真实当前时间、测试 owner 仍由历史固定 `NOW` 签发而命中 `lease_expired`；补入真实 authority fixture 时，promotion 与 authority 同次 flush 因 ORM 没有 relationship 排序而先插 authority，触发 promotion 外键失败。
+
+**关键证据 / 当前判断 / 根因**
+有效命令均为 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` 且 PostgreSQL 节点串行运行。两个 GREEN 失败分别属于测试时间夹具与显式外键插入顺序，不是生产 authority、provider 或 candidate lifecycle 缺陷；真实实现仍要求当前 lease/parity、exact authority row、已提交 reservation 与即时 dispatch recheck。
+
+**已做处理 / 剩余入口**
+仅让新增 reviewed 节点用当前时间签发 owner，并在测试 seed 中先 flush promotion 再写 authority；未放宽任何生产时间或外键规则。精确主节点最终 `1 passed, 1 warning`，补充 promotion-before-provider 与 committed-reservation crash 节点合计 `3 passed, 1 warning`；`make format`、完整 `make lint` 均通过。warning 是既有 LangGraph serializer deprecation。Task 2 仍需完成 CLI authority issuance、copied projection RED 与完整 scoped 两文件验证；production `build-next-reviewed`/legacy `build-next` 继续最早硬拒绝。
