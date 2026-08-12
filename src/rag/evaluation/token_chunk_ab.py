@@ -16,7 +16,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Any, Callable, Literal, Mapping
+from typing import Any, Callable, Literal, Mapping, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -28,6 +28,8 @@ RUN_SCHEMA_VERSION = "rag_token_chunk_ab.v1"
 SELECTION_SCHEMA_VERSION = "rag_token_chunk_selection.v1"
 EXECUTION_DIAGNOSTIC_SCHEMA_VERSION = "rag_token_chunk_execution_diagnostic.v1"
 EXECUTION_BUNDLE_SCHEMA_VERSION = "rag_token_chunk_execution_bundle.v1"
+RECOVERY_BUDGET_SCHEMA_VERSION = "rag_token_chunk_recovery_budget.v1"
+RECOVERY_ATTEMPT_SCHEMA_VERSION = "rag_token_chunk_recovery_attempt.v1"
 GATE_PROFILE_VERSION = "rag_token_chunk_ab.v1"
 SEALED_MANIFEST_HASH = "e5544b20ecdf05c2eaf3325b4e5f89a4ef752c0b8c0d23b8bac224f006fdd53b"
 SEALED_GOLD_HASH = "c6dc12536270fa9b9532ec4595e0a91d2b4ebddf83754a0f1ec107caabb64b8e"
@@ -38,10 +40,28 @@ _SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 _FORMAT_ORDER = ("markdown", "digital_pdf", "scanned_pdf")
 _FRESH_PARITY_MAXIMUM_AGE = timedelta(hours=24)
+PLAN12_RECOVERY_BUDGET_ID = "phase64.4-plan12-live-selection-recovery"
+PLAN10_BASELINE_PROOF_SHA256 = "sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3"
+PLAN10_FORBIDDEN_SELECTION_ID = UUID("30ffe6e0-6f91-4429-91b2-2dee8c20ee73")
+_PLAN12_MAX_ATTEMPTS = 2
+_PLAN12_MAX_EMBEDDING_TOKENS = 512
+_PLAN12_TARGET_EMBEDDING_TOKENS = 384
+_PLAN12_OVERLAP_TOKENS = 48
+_TRANSIENT_EXECUTION_RETRY = ("retrieval_resource_proof", "provider_request_failed")
+_UNAVAILABLE_RETRY_REASONS = {
+    "provider_credentials_unavailable",
+    "provider_request_unavailable",
+    "provider_usage_unavailable",
+}
+_ProviderT = TypeVar("_ProviderT")
 
 
 class _FrozenModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class RecoveryAttemptRefused(ValueError):
+    """A fail-closed refusal raised before provider construction or invocation."""
 
 
 class ExactRatioV1(_FrozenModel):
@@ -516,7 +536,465 @@ class LoadedExecutionBundleV1:
     diagnostic: ABExecutionDiagnosticV1
 
 
+class RecoveryPriorRunV1(_FrozenModel):
+    run_id: UUID
+    terminal_run_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+
+PLAN10_TERMINAL_RUNS = (
+    RecoveryPriorRunV1(
+        run_id=UUID("3d4dae9c-a692-482d-b172-965edf5890e0"),
+        terminal_run_sha256="sha256:ccf81982904b795c9dd15289c437dc32a4bd8a8cac1ba65bd9cba4011035843a",
+    ),
+    RecoveryPriorRunV1(
+        run_id=UUID("1628accd-05ea-495e-8961-b74c18d6b85c"),
+        terminal_run_sha256="sha256:196468c117cfb93d996d4c36bbe9aaa190e30258c29913d558ff26700a23a2e8",
+    ),
+    RecoveryPriorRunV1(
+        run_id=UUID("9aa10545-2350-4053-b4ef-03a57fda0535"),
+        terminal_run_sha256="sha256:863a88ec87c575668712e4b56937b45d7d24d9773f0af0dbe8e6b8b89e9d7c49",
+    ),
+)
+
+
+class ABRecoveryBudgetManifestV1(_FrozenModel):
+    """Fixed Plan12 authority; it cannot be widened after live observation."""
+
+    schema_version: Literal["rag_token_chunk_recovery_budget.v1"] = RECOVERY_BUDGET_SCHEMA_VERSION
+    budget_id: Literal["phase64.4-plan12-live-selection-recovery"] = PLAN12_RECOVERY_BUDGET_ID
+    phase: Literal["64.4"] = "64.4"
+    plan: Literal["12"] = "12"
+    created_at: datetime
+    max_attempts: Literal[2] = _PLAN12_MAX_ATTEMPTS
+    plan10_terminal_runs: tuple[RecoveryPriorRunV1, RecoveryPriorRunV1, RecoveryPriorRunV1]
+    plan10_baseline_proof_sha256: Literal["sha256:4dae8f0ec1c9e4c7b2010786fbd94f05af7b2d8623f0ae4df196d14ff26823f3"] = (
+        PLAN10_BASELINE_PROOF_SHA256
+    )
+    tenant_id: UUID
+    incumbent_corpus_version_id: UUID
+    candidate_corpus_version_id: UUID
+    candidate_run_token: UUID
+    candidate_state_sha256: str = Field(pattern=_SHA256_PATTERN)
+    candidate_config_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    provider_parity_run_id: UUID
+    provider_parity_report_sha256: str = Field(pattern=_SHA256_PATTERN)
+    provider_parity_config_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    provider_parity_probe_fixture_sha256: str = Field(pattern=_SHA256_PATTERN)
+    provider_parity_submitted_content_sha256: str = Field(pattern=_SHA256_PATTERN)
+    provider: Literal["dashscope"] = "dashscope"
+    embedding_model: Literal["text-embedding-v4"] = "text-embedding-v4"
+    embedding_dimensions: Literal[1024] = 1024
+    max_embedding_tokens: Literal[512] = _PLAN12_MAX_EMBEDDING_TOKENS
+    target_embedding_tokens: Literal[384] = _PLAN12_TARGET_EMBEDDING_TOKENS
+    overlap_tokens: Literal[48] = _PLAN12_OVERLAP_TOKENS
+    manifest_hash: Literal["e5544b20ecdf05c2eaf3325b4e5f89a4ef752c0b8c0d23b8bac224f006fdd53b"] = SEALED_MANIFEST_HASH
+    gold_hash: Literal["c6dc12536270fa9b9532ec4595e0a91d2b4ebddf83754a0f1ec107caabb64b8e"] = SEALED_GOLD_HASH
+    dataset_baseline_identity: Literal["3b1ddd8c19f8fce0a37ad113f3d1161039c200e39e60ce0f2e4d0917d870e110"] = (
+        SEALED_DATASET_BASELINE_IDENTITY
+    )
+    manifest_payload_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_recovery_budget(self) -> ABRecoveryBudgetManifestV1:
+        if self.created_at.tzinfo is None:
+            raise ValueError("recovery_budget_time_invalid")
+        if self.plan10_terminal_runs != PLAN10_TERMINAL_RUNS:
+            raise ValueError("plan10_terminal_identity_mismatch")
+        if self.incumbent_corpus_version_id == self.candidate_corpus_version_id:
+            raise ValueError("recovery_candidate_not_isolated")
+        if self.provider_parity_config_fingerprint != self.candidate_config_fingerprint:
+            raise ValueError("recovery_parity_candidate_mismatch")
+        expected = _sha256_payload(self.model_dump(mode="json", exclude={"manifest_payload_sha256"}))
+        if self.manifest_payload_sha256 != expected:
+            raise ValueError("recovery_budget_hash_mismatch")
+        validate_safe_report_payload(self.model_dump(mode="json"))
+        return self
+
+
+RecoveryAuthorityReason = Literal[
+    "initial_attempt_allowed",
+    "selected_pass_stops_budget",
+    "candidate_failed_stops_budget",
+    "transient_execution_error_retry_allowed",
+    "rollback_unproved_stops_budget",
+    "implementation_defect_stops_budget",
+    "execution_evidence_invalid_stops_budget",
+    "unavailable_prerequisite_change_retry_allowed",
+    "prerequisite_state_unchanged_stops_budget",
+    "unavailable_reason_not_allowlisted_stops_budget",
+    "unavailable_sidecar_forbidden_stops_budget",
+    "recovery_attempt_missing_evidence",
+    "recovery_evidence_identity_mismatch",
+]
+
+
+class ABRecoveryRetryAuthorityV1(_FrozenModel):
+    allowed: bool
+    reason_code: RecoveryAuthorityReason
+    previous_outcome: Literal["selected_pass", "candidate_failed", "unavailable", "execution_error"] | None
+
+
+class ABRecoveryAttemptReservationV1(_FrozenModel):
+    """One immutable reserve-before-provider ordinal."""
+
+    schema_version: Literal["rag_token_chunk_recovery_attempt.v1"] = RECOVERY_ATTEMPT_SCHEMA_VERSION
+    budget_id: Literal["phase64.4-plan12-live-selection-recovery"] = PLAN12_RECOVERY_BUDGET_ID
+    budget_manifest_sha256: str = Field(pattern=_SHA256_PATTERN)
+    ordinal: Literal[1, 2]
+    reserved_at: datetime
+    run_id: UUID
+    selection_id: UUID
+    prerequisite_state_sha256: str = Field(pattern=_SHA256_PATTERN)
+    authority_reason_code: Literal[
+        "initial_attempt_allowed",
+        "transient_execution_error_retry_allowed",
+        "unavailable_prerequisite_change_retry_allowed",
+    ]
+    reservation_payload_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_reservation(self) -> ABRecoveryAttemptReservationV1:
+        if self.reserved_at.tzinfo is None:
+            raise ValueError("recovery_reservation_time_invalid")
+        expected = _sha256_payload(self.model_dump(mode="json", exclude={"reservation_payload_sha256"}))
+        if self.reservation_payload_sha256 != expected:
+            raise ValueError("recovery_reservation_hash_mismatch")
+        validate_safe_report_payload(self.model_dump(mode="json"))
+        return self
+
+
+@dataclass(frozen=True, slots=True)
+class ImmutableRecoveryBudgetManifestV1:
+    path: Path
+    sha256: str
+
+
 ExecutionBundleFaultInjector = Callable[[str], None]
+
+
+def build_plan12_recovery_budget_manifest(
+    *,
+    created_at: datetime,
+    tenant_id: UUID,
+    incumbent_corpus_version_id: UUID,
+    candidate_corpus_version_id: UUID,
+    candidate_run_token: UUID,
+    candidate_state_sha256: str,
+    candidate_config_fingerprint: str,
+    provider_parity_run_id: UUID,
+    provider_parity_report_sha256: str,
+    provider_parity_config_fingerprint: str,
+    provider_parity_probe_fixture_sha256: str,
+    provider_parity_submitted_content_sha256: str,
+) -> ABRecoveryBudgetManifestV1:
+    base: dict[str, Any] = {
+        "schema_version": RECOVERY_BUDGET_SCHEMA_VERSION,
+        "budget_id": PLAN12_RECOVERY_BUDGET_ID,
+        "phase": "64.4",
+        "plan": "12",
+        "created_at": created_at,
+        "max_attempts": _PLAN12_MAX_ATTEMPTS,
+        "plan10_terminal_runs": PLAN10_TERMINAL_RUNS,
+        "plan10_baseline_proof_sha256": PLAN10_BASELINE_PROOF_SHA256,
+        "tenant_id": tenant_id,
+        "incumbent_corpus_version_id": incumbent_corpus_version_id,
+        "candidate_corpus_version_id": candidate_corpus_version_id,
+        "candidate_run_token": candidate_run_token,
+        "candidate_state_sha256": candidate_state_sha256,
+        "candidate_config_fingerprint": candidate_config_fingerprint,
+        "provider_parity_run_id": provider_parity_run_id,
+        "provider_parity_report_sha256": provider_parity_report_sha256,
+        "provider_parity_config_fingerprint": provider_parity_config_fingerprint,
+        "provider_parity_probe_fixture_sha256": provider_parity_probe_fixture_sha256,
+        "provider_parity_submitted_content_sha256": provider_parity_submitted_content_sha256,
+        "provider": "dashscope",
+        "embedding_model": "text-embedding-v4",
+        "embedding_dimensions": 1024,
+        "max_embedding_tokens": _PLAN12_MAX_EMBEDDING_TOKENS,
+        "target_embedding_tokens": _PLAN12_TARGET_EMBEDDING_TOKENS,
+        "overlap_tokens": _PLAN12_OVERLAP_TOKENS,
+        "manifest_hash": SEALED_MANIFEST_HASH,
+        "gold_hash": SEALED_GOLD_HASH,
+        "dataset_baseline_identity": SEALED_DATASET_BASELINE_IDENTITY,
+    }
+    return ABRecoveryBudgetManifestV1(
+        **base,
+        manifest_payload_sha256=_sha256_payload(
+            ABRecoveryBudgetManifestV1.model_construct(
+                **base,
+                manifest_payload_sha256="sha256:" + "0" * 64,
+            ).model_dump(mode="json", exclude={"manifest_payload_sha256"})
+        ),
+    )
+
+
+def write_recovery_budget_manifest_create_only(
+    manifest: ABRecoveryBudgetManifestV1,
+    *,
+    root: Path,
+) -> ImmutableRecoveryBudgetManifestV1:
+    validated = ABRecoveryBudgetManifestV1.model_validate(manifest.model_dump(mode="json"))
+    payload = canonical_report_json_bytes(validated.model_dump(mode="json"))
+    path = root / "recovery-budgets" / validated.budget_id / "manifest.json"
+    _write_create_only_bytes(path, payload)
+    return ImmutableRecoveryBudgetManifestV1(path=path, sha256=_sha256_bytes(payload))
+
+
+def load_recovery_budget_manifest(path: Path) -> ABRecoveryBudgetManifestV1:
+    try:
+        return ABRecoveryBudgetManifestV1.model_validate_json(path.read_bytes())
+    except (OSError, ValidationError, ValueError):
+        raise ValueError("recovery_budget_invalid") from None
+
+
+def load_recovery_attempt_reservation(
+    path: Path,
+    *,
+    manifest: ABRecoveryBudgetManifestV1,
+    manifest_sha256: str,
+) -> ABRecoveryAttemptReservationV1:
+    try:
+        reservation = ABRecoveryAttemptReservationV1.model_validate_json(path.read_bytes())
+    except (OSError, ValidationError, ValueError):
+        raise ValueError("recovery_reservation_invalid") from None
+    if (
+        reservation.budget_id != manifest.budget_id
+        or reservation.budget_manifest_sha256 != manifest_sha256
+        or reservation.ordinal != int(path.stem)
+    ):
+        raise ValueError("recovery_reservation_invalid")
+    return reservation
+
+
+def validate_fixed_plan10_evidence(root: Path) -> tuple[RecoveryPriorRunV1, ...]:
+    """Strictly prove the three immutable exhausted Plan10 runs."""
+
+    for expected in PLAN10_TERMINAL_RUNS:
+        path = root / "runs" / f"{expected.run_id}.json"
+        try:
+            payload = path.read_bytes()
+            report = TerminalABRunV1.model_validate_json(payload)
+        except (OSError, ValidationError, ValueError):
+            raise ValueError("plan10_terminal_evidence_invalid") from None
+        if (
+            _sha256_bytes(payload) != expected.terminal_run_sha256
+            or report.run_id != expected.run_id
+            or report.outcome != "execution_error"
+            or report.runtime.execution_kind != "full_provider"
+        ):
+            raise ValueError("plan10_terminal_evidence_invalid")
+    return PLAN10_TERMINAL_RUNS
+
+
+def evaluate_recovery_retry_authority(
+    *,
+    manifest: ABRecoveryBudgetManifestV1,
+    previous_reservation: ABRecoveryAttemptReservationV1,
+    root: Path,
+    next_prerequisite_state_sha256: str,
+) -> ABRecoveryRetryAuthorityV1:
+    """Evaluate the closed Plan12 retry matrix from immutable evidence only."""
+
+    if (
+        previous_reservation.budget_id != manifest.budget_id
+        or previous_reservation.ordinal != 1
+        or not _valid_sha256(next_prerequisite_state_sha256)
+    ):
+        return _recovery_authority(False, "recovery_evidence_identity_mismatch", None)
+    run_path = root / "runs" / f"{previous_reservation.run_id}.json"
+    try:
+        run_payload = run_path.read_bytes()
+        report = TerminalABRunV1.model_validate_json(run_payload)
+    except (OSError, ValidationError, ValueError):
+        return _recovery_authority(False, "recovery_attempt_missing_evidence", None)
+    if not _recovery_report_matches_manifest(
+        report,
+        manifest=manifest,
+        expected_run_id=previous_reservation.run_id,
+    ):
+        return _recovery_authority(False, "recovery_evidence_identity_mismatch", report.outcome)
+
+    if report.outcome == "selected_pass":
+        return _recovery_authority(False, "selected_pass_stops_budget", report.outcome)
+    if report.outcome == "candidate_failed":
+        return _recovery_authority(False, "candidate_failed_stops_budget", report.outcome)
+    if report.outcome == "execution_error":
+        try:
+            bundle = load_execution_error_bundle(root=root, run_id=report.run_id)
+        except ValueError:
+            return _recovery_authority(False, "execution_evidence_invalid_stops_budget", report.outcome)
+        if bundle.report != report or bundle.manifest.terminal_run_sha256 != _sha256_bytes(run_payload):
+            return _recovery_authority(False, "execution_evidence_invalid_stops_budget", report.outcome)
+        diagnostic = bundle.diagnostic
+        if not diagnostic.outer_rollback_proved:
+            return _recovery_authority(False, "rollback_unproved_stops_budget", report.outcome)
+        transient = (
+            (diagnostic.stage, diagnostic.reason_code) == _TRANSIENT_EXECUTION_RETRY
+            and diagnostic.provider_availability == "available"
+            and diagnostic.provider_request_classification == "request_failed"
+            and diagnostic.provider_request_count > 0
+        )
+        if not transient:
+            return _recovery_authority(False, "implementation_defect_stops_budget", report.outcome)
+        return _recovery_authority(True, "transient_execution_error_retry_allowed", report.outcome)
+
+    if _recovery_unavailable_has_sidecar(root=root, run_id=report.run_id):
+        return _recovery_authority(False, "unavailable_sidecar_forbidden_stops_budget", report.outcome)
+    if len(report.safe_reason_codes) != 1 or report.safe_reason_codes[0] not in _UNAVAILABLE_RETRY_REASONS:
+        return _recovery_authority(False, "unavailable_reason_not_allowlisted_stops_budget", report.outcome)
+    if next_prerequisite_state_sha256 == previous_reservation.prerequisite_state_sha256:
+        return _recovery_authority(False, "prerequisite_state_unchanged_stops_budget", report.outcome)
+    return _recovery_authority(True, "unavailable_prerequisite_change_retry_allowed", report.outcome)
+
+
+def reserve_recovery_attempt(
+    *,
+    manifest_path: Path,
+    root: Path,
+    run_id: UUID,
+    selection_id: UUID,
+    reserved_at: datetime,
+    prerequisite_state_sha256: str,
+) -> ABRecoveryAttemptReservationV1:
+    """Atomically consume one fixed ordinal before constructing the provider."""
+
+    try:
+        manifest_payload = manifest_path.read_bytes()
+        manifest = ABRecoveryBudgetManifestV1.model_validate_json(manifest_payload)
+    except (OSError, ValidationError, ValueError):
+        raise RecoveryAttemptRefused("recovery_budget_invalid") from None
+    expected_manifest_path = root / "recovery-budgets" / manifest.budget_id / "manifest.json"
+    if manifest_path.absolute() != expected_manifest_path.absolute():
+        raise RecoveryAttemptRefused("recovery_budget_identity_mismatch")
+    if run_id in {item.run_id for item in PLAN10_TERMINAL_RUNS} or selection_id == PLAN10_FORBIDDEN_SELECTION_ID:
+        raise RecoveryAttemptRefused("plan10_identity_reuse_forbidden")
+    if not _valid_sha256(prerequisite_state_sha256):
+        raise RecoveryAttemptRefused("prerequisite_state_hash_invalid")
+
+    manifest_sha256 = _sha256_bytes(manifest_payload)
+    attempts_root = manifest_path.parent / "attempts"
+    try:
+        paths = sorted(attempts_root.glob("*.json")) if attempts_root.exists() else []
+    except OSError:
+        raise RecoveryAttemptRefused("recovery_reservation_invalid") from None
+    expected_names = [f"{ordinal:02d}.json" for ordinal in range(1, len(paths) + 1)]
+    if [path.name for path in paths] != expected_names or len(paths) > manifest.max_attempts:
+        raise RecoveryAttemptRefused("recovery_reservation_invalid")
+    reservations: list[ABRecoveryAttemptReservationV1] = []
+    for path in paths:
+        try:
+            reservations.append(
+                load_recovery_attempt_reservation(
+                    path,
+                    manifest=manifest,
+                    manifest_sha256=manifest_sha256,
+                )
+            )
+        except ValueError:
+            raise RecoveryAttemptRefused("recovery_reservation_invalid") from None
+    if len(reservations) >= manifest.max_attempts:
+        raise RecoveryAttemptRefused("recovery_budget_exhausted")
+    if any(item.run_id == run_id or item.selection_id == selection_id for item in reservations):
+        raise RecoveryAttemptRefused("recovery_identity_reuse_forbidden")
+
+    ordinal = len(reservations) + 1
+    if ordinal == 1:
+        authority_reason = "initial_attempt_allowed"
+    else:
+        authority = evaluate_recovery_retry_authority(
+            manifest=manifest,
+            previous_reservation=reservations[0],
+            root=root,
+            next_prerequisite_state_sha256=prerequisite_state_sha256,
+        )
+        if not authority.allowed:
+            raise RecoveryAttemptRefused(authority.reason_code)
+        authority_reason = authority.reason_code
+    base: dict[str, Any] = {
+        "schema_version": RECOVERY_ATTEMPT_SCHEMA_VERSION,
+        "budget_id": manifest.budget_id,
+        "budget_manifest_sha256": manifest_sha256,
+        "ordinal": ordinal,
+        "reserved_at": reserved_at,
+        "run_id": run_id,
+        "selection_id": selection_id,
+        "prerequisite_state_sha256": prerequisite_state_sha256,
+        "authority_reason_code": authority_reason,
+    }
+    reservation = ABRecoveryAttemptReservationV1(
+        **base,
+        reservation_payload_sha256=_sha256_payload(
+            ABRecoveryAttemptReservationV1.model_construct(
+                **base,
+                reservation_payload_sha256="sha256:" + "0" * 64,
+            ).model_dump(mode="json", exclude={"reservation_payload_sha256"})
+        ),
+    )
+    try:
+        _write_create_only_bytes(
+            attempts_root / f"{ordinal:02d}.json",
+            canonical_report_json_bytes(reservation.model_dump(mode="json")),
+        )
+    except ValueError as error:
+        raise RecoveryAttemptRefused("recovery_reservation_conflict") from error
+    return reservation
+
+
+def reserve_then_create_provider(
+    *,
+    reserve: Callable[[], ABRecoveryAttemptReservationV1],
+    provider_factory: Callable[[], _ProviderT],
+) -> tuple[ABRecoveryAttemptReservationV1, _ProviderT]:
+    """Make the reservation a forcing function before provider construction."""
+
+    reservation = reserve()
+    return reservation, provider_factory()
+
+
+def _recovery_authority(
+    allowed: bool,
+    reason_code: RecoveryAuthorityReason,
+    previous_outcome: Literal["selected_pass", "candidate_failed", "unavailable", "execution_error"] | None,
+) -> ABRecoveryRetryAuthorityV1:
+    return ABRecoveryRetryAuthorityV1(
+        allowed=allowed,
+        reason_code=reason_code,
+        previous_outcome=previous_outcome,
+    )
+
+
+def _recovery_report_matches_manifest(
+    report: TerminalABRunV1,
+    *,
+    manifest: ABRecoveryBudgetManifestV1,
+    expected_run_id: UUID,
+) -> bool:
+    return (
+        report.run_id == expected_run_id
+        and report.runtime.execution_kind == "full_provider"
+        and report.runtime.tenant_id == manifest.tenant_id
+        and report.runtime.incumbent.corpus_version_id == manifest.incumbent_corpus_version_id
+        and report.runtime.candidate.corpus_version_id == manifest.candidate_corpus_version_id
+        and report.parity.run_id == manifest.provider_parity_run_id
+        and report.parity.report_sha256 == manifest.provider_parity_report_sha256
+        and report.parity.config_fingerprint == manifest.provider_parity_config_fingerprint
+        and report.parity.probe_fixture_sha256 == manifest.provider_parity_probe_fixture_sha256
+        and report.parity.submitted_content_sha256 == manifest.provider_parity_submitted_content_sha256
+        and report.inputs.manifest_hash == manifest.manifest_hash
+        and report.inputs.gold_hash == manifest.gold_hash
+        and report.inputs.dataset_baseline_identity == manifest.dataset_baseline_identity
+    )
+
+
+def _recovery_unavailable_has_sidecar(*, root: Path, run_id: UUID) -> bool:
+    return any(
+        path.exists()
+        for path in (
+            root / "diagnostics" / f"{run_id}.json",
+            root / "diagnostics" / f"{run_id}.md",
+            root / "commits" / str(run_id),
+        )
+    )
 
 
 def build_candidate_observation_from_retrieval(
@@ -1247,6 +1725,29 @@ def _write_create_only_pair(
         json_sha256=_sha256_bytes(json_payload),
         markdown_sha256=_sha256_bytes(markdown_payload),
     )
+
+
+def _write_create_only_bytes(path: Path, payload: bytes) -> None:
+    """Publish one fsynced file with a create-only hard-link commit point."""
+
+    temporary: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        temporary = Path(temporary_name)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temporary, path)
+        _fsync_directory(path.parent)
+    except FileExistsError:
+        raise ValueError("create_conflict") from None
+    except OSError:
+        raise ValueError("write_failed") from None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _stage_bundle_payload(

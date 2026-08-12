@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import Any
+from typing import Any, Callable
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import text
@@ -55,11 +55,15 @@ from src.rag.evaluation.token_chunk_ab import (
     ABInputIdentityV1,
     ABNamespaceV1,
     ABParityEvidenceV1,
+    ABRecoveryAttemptReservationV1,
     ABRuntimeConfigV1,
     ABSelectionBindingV1,
+    RecoveryAttemptRefused,
     TerminalABRunV1,
     build_candidate_observation_from_retrieval,
     build_terminal_ab_run,
+    reserve_recovery_attempt,
+    reserve_then_create_provider,
     write_execution_error_bundle_create_only,
     write_selection_create_only,
     write_terminal_run_create_only,
@@ -115,6 +119,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--parity-report", type=Path, required=True)
     parser.add_argument("--probe-fixture-hash", required=True)
     parser.add_argument("--submitted-content-hash", required=True)
+    parser.add_argument("--recovery-budget-manifest", type=Path, required=True)
+    parser.add_argument("--prerequisite-state-sha256", required=True)
     parser.add_argument("--run-id", type=UUID, default=None)
     parser.add_argument("--selection-id", type=UUID, default=None)
     parser.add_argument("--generated-at", default=None)
@@ -228,6 +234,8 @@ def _terminal_without_observations(
 
 async def run_full_provider_ab(
     args: argparse.Namespace,
+    *,
+    before_provider_call: Callable[[], ABRecoveryAttemptReservationV1],
 ) -> tuple[TerminalABRunV1, ABSelectionBindingV1 | None, SafeRoleFailureV1 | None]:
     generated_at = datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC)
     candidate_identity: PolicyReindexRunIdentity | None = None
@@ -301,26 +309,6 @@ async def run_full_provider_ab(
             None,
         )
 
-    missing: list[str] = []
-    if not (settings.dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY")):
-        missing.append("provider_credentials_unavailable")
-    if not check_ocr_runtime(required_languages=("chi_sim", "eng")).available:
-        missing.append("provider_request_unavailable")
-    if missing:
-        return (
-            _terminal_without_observations(
-                args,
-                outcome="unavailable",
-                stage="provider",
-                reason_code=missing[0],
-                incumbent_corpus_id=incumbent_corpus_id,
-                candidate_corpus_id=candidate_corpus_id,
-                parity=parity,
-            ),
-            None,
-            None,
-        )
-
     try:
         candidate_snapshot = await _validate_corpus_pair(
             candidate_identity,
@@ -333,7 +321,29 @@ async def run_full_provider_ab(
             incumbent_corpus_version_id=incumbent_corpus_id,
             candidate_corpus_version_id=candidate_corpus_id,
         )
-        embedder = EmbeddingService()
+        _, embedder = reserve_then_create_provider(
+            reserve=before_provider_call,
+            provider_factory=EmbeddingService,
+        )
+        missing: list[str] = []
+        if not (settings.dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY")):
+            missing.append("provider_credentials_unavailable")
+        if not check_ocr_runtime(required_languages=("chi_sim", "eng")).available:
+            missing.append("provider_request_unavailable")
+        if missing:
+            return (
+                _terminal_without_observations(
+                    args,
+                    outcome="unavailable",
+                    stage="provider",
+                    reason_code=missing[0],
+                    incumbent_corpus_id=incumbent_corpus_id,
+                    candidate_corpus_id=candidate_corpus_id,
+                    parity=parity,
+                ),
+                None,
+                None,
+            )
         role_runs = []
         role_durations: list[Decimal] = []
         for namespace, assembler in zip(namespaces, (character_assembler, token_assembler), strict=True):
@@ -463,6 +473,8 @@ async def run_full_provider_ab(
             else None
         )
         return report, binding, None
+    except RecoveryAttemptRefused:
+        raise
     except SafeRoleExecutionError as safe_error:
         return (
             _terminal_without_observations(
@@ -743,7 +755,30 @@ def _shared_preflight_failure(
 
 async def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    report, binding, safe_failure = await run_full_provider_ab(args)
+    try:
+        report, binding, safe_failure = await run_full_provider_ab(
+            args,
+            before_provider_call=lambda: reserve_recovery_attempt(
+                manifest_path=args.recovery_budget_manifest,
+                root=args.output_root,
+                run_id=args.run_id,
+                selection_id=args.selection_id,
+                reserved_at=datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC),
+                prerequisite_state_sha256=args.prerequisite_state_sha256,
+            ),
+        )
+    except RecoveryAttemptRefused as refusal:
+        print(
+            json.dumps(
+                {
+                    "error": "recovery_attempt_refused",
+                    "reason_code": str(refusal),
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+        return 4
     try:
         if report.outcome == "execution_error":
             failure = safe_failure or _shared_preflight_failure(args, reason_code="candidate_pair_invalid")
@@ -808,3 +843,5 @@ def _execution_diagnostic_from_failure(
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
+    (reserve_recovery_attempt,)
+    (reserve_then_create_provider,)
