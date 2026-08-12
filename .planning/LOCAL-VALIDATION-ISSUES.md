@@ -24072,3 +24072,14 @@ CLI 状态输出改用 `${review_cli}:available`，后续一律通过 PATH 中�
 
 **已做处理 / 剩余入口**
 Autopilot checkpoint 已置为 `waiting_for_quota`，`quota_waits: 1`，精确重试命令为 `$gsd-review 64.5 --claude`。恢复额度后用 `$gsd-phase-autopilot --resume` 从该 gate 继续；若用户明确允许非 Claude 替代，可使用可用的独立 CLI 完成同一只读计划审阅。实现尚未开始，生产 provider dispatch 仍保持硬禁用。
+
+## 2026-08-13 — Phase 64.5 执行启动再次命中 `state.begin-phase` 参数契约差异
+
+**问题现象 / 如何检测**
+从 Codex-only 计划复核进入 Wave 1 前，按安装版 execute-phase 文档执行 `gsd-sdk query state.begin-phase --phase 64.5 --name ... --plans 8`。SDK 将命名参数按位置读取，短暂把 phase 写成 `--phase`、plan count 写成 `--name`，并错误计算 STATE 进度。
+
+**关键证据 / 当前判断 / 根因**
+命令返回 JSON `{"phase":"--phase","name":"64.5","plan_count":"--name"}`，与此前 `state.record-session` 同属安装版 SDK 对文档命名参数不兼容。该命令只修改 `.planning/STATE.md`，没有触碰源码、测试、数据库、provider 或 live artifact。
+
+**已做处理 / 剩余入口**
+立即改用位置参数 `gsd-sdk query state.begin-phase 64.5 database-backed-provider-budget-and-token-rollout-completion 8`，返回正确 phase/name/plan_count 并恢复 STATE 到 Phase64.5、Plan 1 of 8。后续本阶段所有 state SDK 调用先核对本机 handler 参数形式；错误中间态不提交、不作为进度证据。

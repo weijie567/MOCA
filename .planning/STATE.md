@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
 status: executing
-last_updated: "2026-08-12T15:16:10.497Z"
+last_updated: "2026-08-12T21:20:50.145Z"
 last_activity: 2026-08-12 -- Phase 64.5 execution started
 progress:
   total_phases: 16
   completed_phases: 7
-  total_plans: 63
+  total_plans: 71
   completed_plans: 60
-  percent: 95
+  percent: 85
 ---
 
 # Project State: MOCA
@@ -20,12 +20,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-10)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 64.5 — Database-Backed Provider Budget And Token Rollout Completion
+**Current focus:** Phase 64.5 — database-backed-provider-budget-and-token-rollout-completion
 
 ## Current Position
 
-Phase: 64.5 (Database-Backed Provider Budget And Token Rollout Completion) — EXECUTING
-Plan: 1 of 0
+Phase: 64.5 (database-backed-provider-budget-and-token-rollout-completion) — EXECUTING
+Plan: 1 of 8
 Status: Executing Phase 64.5
 Last activity: 2026-08-12 -- Phase 64.5 execution started
 Next: Merge the bounded Phase64.4 partial delivery, then run `$gsd-phase-autopilot 64.5`; do not execute old Plan18, renew its authority, or reinterpret the expired lease.
