@@ -2800,3 +2800,12 @@
 - **处理状态**：✅ 已修复验证。transaction A 及 v1 publication完成后，CLI重新采一个 current UTC instant；必须严格早于 lease/parity expiry才允许打开 transaction B，并把同一 instant传给 recovery/resume。`PolicyReindexService.recover_identity` 自身也对 lease/parity执行 `checked_at >= expiry`拒绝，不依赖 CLI防线。
 - **证据**：Phase64.4 review WR-02；`scripts/reindex_policies.py`、`src/rag/policy_reindex.py`、`tests/rag/test_policy_reindex.py`；A/B 间 lease equality fault证明 DB 保持 claimed/v1、仅 v1存在、v2/budget不存在、resume调用为0；service lease/parity expiry两条 gate均返回对应 safe code。
 - **剩余风险 / 继续入口**：该修复不续租、不改变 descriptor、不构造 provider，也未作用于已过期 live candidate。Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 WR-03 — parity expiry 等号仍被当作 fresh ✅已修复验证
+
+- **子系统**：RAG policy reindex / provider parity freshness。
+- **问题现象 / 根因**：统一 candidate lock gate 对 lease使用 `lease_expires_at <= checked_at`，对 parity却只在 `checked_at > parity_expires_at` 时拒绝，导致等于 expiry 的瞬间仍可授权 lifecycle transition与 build/validation。
+- **影响**：违反所有 authorization boundary 必须严格早于 expiry 的契约；精确 equality 可让已过期 parity驱动 provider-capable work。
+- **处理状态**：✅ 已修复验证。parity gate改为 `checked_at >= parity_expires_at` 一律返回 `parity_stale`。
+- **证据**：Phase64.4 review WR-03；`src/rag/policy_reindex.py`、`tests/rag/test_policy_reindex.py`；同一 equality instant 覆盖 resume、prepare、build、validate，build拒绝时 embedder calls 为0，scoped gate通过。
+- **剩余风险 / 继续入口**：未修改 lease/parity时长、descriptor或 provider配置；未触碰 live candidate。Plans18-20 仍未执行。

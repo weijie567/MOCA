@@ -1382,6 +1382,58 @@ async def test_resume_refuses_config_parity_owner_expiry_and_foreign_run(session
 
 
 @pytest.mark.asyncio
+async def test_parity_expiry_equality_rejects_resume_prepare_build_and_validation(
+    session: AsyncSession,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout, _ = await _seed_bound_source_authority(session)
+    assembler = PolicyEmbeddingInputAssembler()
+    service = PolicyReindexService(session)
+    claimed = await service.claim(
+        _claim_request(
+            tenant_id=tenant_id,
+            manifest=manifest,
+            source=source,
+            rollout=rollout,
+            lease_expires_at=NOW + timedelta(days=2),
+            config_fingerprint=assembler.config.config_fingerprint,
+        ),
+        now=NOW,
+    )
+    parity_expiry = claimed.parity_expires_at
+
+    with pytest.raises(PolicyReindexError) as resume_denied:
+        await service.resume(claimed, now=parity_expiry)
+    assert resume_denied.value.code is PolicyReindexFailureCode.PARITY_STALE
+
+    building = await service.resume(claimed, now=NOW)
+    with pytest.raises(PolicyReindexError) as prepare_denied:
+        await service.prepare_candidate_build(
+            building,
+            assembler=assembler,
+            provider_batch_size=10,
+            now=parity_expiry,
+        )
+    assert prepare_denied.value.code is PolicyReindexFailureCode.PARITY_STALE
+
+    embedder = _RecordingEmbedder()
+    with pytest.raises(PolicyReindexError) as build_denied:
+        await service.build_next_document(
+            building,
+            assembler=assembler,
+            embedder=embedder,
+            now=parity_expiry,
+        )
+    assert build_denied.value.code is PolicyReindexFailureCode.PARITY_STALE
+    assert embedder.calls == []
+
+    built = await service.build_next_document(building, assembler=assembler, embedder=embedder, now=NOW)
+    with pytest.raises(PolicyReindexError) as validation_denied:
+        await service.validate_candidate(built, assembler=assembler, now=parity_expiry)
+    assert validation_denied.value.code is PolicyReindexFailureCode.PARITY_STALE
+
+
+@pytest.mark.asyncio
 async def test_resume_marks_source_stale_on_manifest_or_active_pointer_epoch_drift(session: AsyncSession) -> None:
     tenant_id, manifest, source, rollout = await _seed_source_authority(session)
     service = PolicyReindexService(session)

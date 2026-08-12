@@ -1007,7 +1007,7 @@ class PolicyReindexService:
             _fail(PolicyReindexFailureCode.LEASE_OWNER_MISMATCH)
         if row.lease_expires_at is None or _as_utc(row.lease_expires_at) <= now:
             _fail(PolicyReindexFailureCode.LEASE_EXPIRED)
-        if now > owner.parity_expires_at:
+        if now >= owner.parity_expires_at:
             _fail(PolicyReindexFailureCode.PARITY_STALE)
         if (
             row.state != owner.state
