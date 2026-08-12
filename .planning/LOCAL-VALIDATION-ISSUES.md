@@ -24106,6 +24106,17 @@ Plan04 写 SUMMARY 后的首次自检脚本在 zsh 循环中使用变量名 `pat
 **已做处理 / 剩余入口**
 改用非特殊变量名并以显式命令重跑，SUMMARY self-check PASS，worktree clean；Plan04 最终仍以 format、full lint、102 scoped tests GREEN 为有效证据。后续 zsh 脚本禁止使用 `path`/`PATH`/`home` 等系统或特殊变量名。
 
+## 2026-08-13 — Phase 64.5 Plan04 SUMMARY 过早标记 carryover requirements 完成
+
+**问题现象 / 如何检测**
+orchestrator 在 Plan04 完成后的 frontmatter spot-check 中发现 `64.5-04-SUMMARY.md` 写成 `requirements-completed: [SC-64.4-5, SC-64.4-6]`，但当前 production `run-ab` 仍硬禁用，尚无 fresh live candidate、selected-pass 或 cutover→rollback→restore drill。
+
+**关键证据 / 当前判断 / 根因**
+SC-64.4-5/6 是 Phase64.5 最终 carryover requirements，只有 Plans06-08 的 live candidate/A-B/activation/closeout 全部成功后才能完成。Plan04 只完成内部 DB authority、envelope 与 checker，SUMMARY 的完成标记属于文档元数据误报，不是实现状态。
+
+**已做处理 / 剩余入口**
+立即将 Plan04 `requirements-completed` 改回空列表并单独提交。后续 plan spot-check 必须把 requirement 完成标记与真实 live/verification 状态对照；只有最终 closeout 才可更新 REQUIREMENTS/ROADMAP。
+
 ## 2026-08-13 — Phase 64.5 Plan 01 新 worktree 未安装 dev extra 导致 pytest 命中系统 Python 3.9
 
 **问题现象 / 如何检测**
