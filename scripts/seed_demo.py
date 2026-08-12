@@ -48,7 +48,12 @@ from src.db.models import (
     UserRole,
 )
 from src.db.session import SessionLocal
-from src.rag.ingestion import assembler_for_active_policy_corpus
+from src.rag.ingestion import (
+    CharacterCompatibilityAssembler,
+    assembler_for_active_policy_corpus,
+    character_compatibility_config_json,
+)
+from src.repositories.policy_corpus_repo import PolicyCorpusRepository
 from src.repositories.policy_corpus_scope import (
     ActivePolicyCorpusScope,
     PolicyCorpusScopeUnavailable,
@@ -464,6 +469,13 @@ async def seed_tickets(session, orders: dict[str, Order], refunds: dict[str, Ref
 
 async def seed_policy_documents(session, tenants: dict[str, Tenant]) -> dict[str, PolicyDocument]:
     tenant_id = tenants["demo"].id
+    assembler = CharacterCompatibilityAssembler()
+    config_json = character_compatibility_config_json(counter=assembler.counter)
+    await PolicyCorpusRepository(session).ensure_tenant_character_bootstrap(
+        tenant_id=tenant_id,
+        config_json=config_json,
+        config_fingerprint=assembler.config_fingerprint,
+    )
     scope = await ActivePolicyCorpusScope.resolve(session, tenant_id=tenant_id)
     assembler_for_active_policy_corpus(scope)
     statement = join_active_document_projection(
@@ -471,8 +483,6 @@ async def seed_policy_documents(session, tenants: dict[str, Tenant]) -> dict[str
         tenant_id=tenant_id,
     ).order_by(PolicyDocument.doc_key)
     documents = list((await session.execute(statement)).scalars())
-    if not documents:
-        raise PolicyCorpusScopeUnavailable("demo policy seed requires an active ingested policy corpus")
     return {document.doc_key: document for document in documents}
 
 

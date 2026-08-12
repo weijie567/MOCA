@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from scripts.seed_demo import deterministic_id, reset_demo_data
+from scripts.seed_demo import deterministic_id, reset_demo_data, seed_policy_documents, seed_tenants
 from src.db.models import (
     AgentRun,
     ApprovalAssignment,
@@ -16,6 +16,8 @@ from src.db.models import (
     ApprovalRequest,
     Tenant,
     User,
+    PolicyCorpusActivationHistory,
+    PolicyCorpusRollout,
 )
 
 
@@ -183,3 +185,25 @@ async def test_reset_demo_data_clears_resume_decision_reference_before_deleting_
     ):
         remaining = await session.execute(select(model.id).where(model.id == row_id))
         assert remaining.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_seed_demo_bootstraps_clean_tenants_without_requiring_preingested_policies(
+    session: AsyncSession,
+) -> None:
+    tenants = await seed_tenants(session)
+
+    assert await seed_policy_documents(session, tenants) == {}
+    assert (
+        await session.scalar(select(PolicyCorpusRollout).where(PolicyCorpusRollout.tenant_id == tenants["demo"].id))
+        is not None
+    )
+    assert (
+        await session.scalar(
+            select(PolicyCorpusActivationHistory).where(
+                PolicyCorpusActivationHistory.tenant_id == tenants["demo"].id,
+                PolicyCorpusActivationHistory.reason_code == "bootstrap_character_v1",
+            )
+        )
+        is not None
+    )

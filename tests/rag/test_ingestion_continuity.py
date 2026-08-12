@@ -4,11 +4,12 @@ from datetime import UTC, datetime, timedelta
 import hashlib
 import json
 from pathlib import Path
+import asyncio
 from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import (
     CorpusChunkBinding,
@@ -144,6 +145,10 @@ def _metadata() -> dict[str, object]:
     }
 
 
+def _metadata_for(doc_key: str) -> dict[str, object]:
+    return {**_metadata(), "doc_key": doc_key, "title": doc_key.replace("-", " ").title()}
+
+
 async def _ingest(session: AsyncSession, *, tenant_id: UUID, source: Path):
     return await IngestionService(
         session=session,
@@ -154,6 +159,105 @@ async def _ingest(session: AsyncSession, *, tenant_id: UUID, source: Path):
         _metadata(),
         expected_rollout_version=EVIDENCE_EPOCH,
     )
+
+
+@pytest.mark.asyncio
+async def test_new_empty_tenant_first_ingest_bootstraps_character_authority(
+    session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    tenant_id = uuid4()
+    session.add(Tenant(id=tenant_id, name=f"first-ingest-{tenant_id}", status="active"))
+    session.add(
+        EvidenceIdentityRollout(
+            id=1,
+            rollout_version=EVIDENCE_EPOCH,
+            dual_write_enabled_at=NOW,
+            canonical_reads_enabled=True,
+            canonical_reads_enabled_at=NOW,
+            audit_counts_json={"dual_write_health": "healthy"},
+        )
+    )
+    await session.commit()
+
+    report = await _ingest(
+        session,
+        tenant_id=tenant_id,
+        source=_write_policy(tmp_path / "first", "first tenant policy"),
+    )
+
+    assert report.status == "success"
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(PolicyCorpusActivationHistory)
+            .where(
+                PolicyCorpusActivationHistory.tenant_id == tenant_id,
+                PolicyCorpusActivationHistory.reason_code == "bootstrap_character_v1",
+            )
+        )
+        == 1
+    )
+    manifests = list(
+        (
+            await session.execute(
+                select(PolicyCorpusManifestRevision)
+                .where(PolicyCorpusManifestRevision.tenant_id == tenant_id)
+                .order_by(PolicyCorpusManifestRevision.revision)
+            )
+        ).scalars()
+    )
+    assert [(row.revision, row.document_count) for row in manifests] == [(1, 0), (2, 1)]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_first_ingests_share_one_bootstrap_and_preserve_both_documents(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+) -> None:
+    tenant_id = uuid4()
+    session.add(Tenant(id=tenant_id, name=f"concurrent-first-{tenant_id}", status="active"))
+    session.add(
+        EvidenceIdentityRollout(
+            id=1,
+            rollout_version=EVIDENCE_EPOCH,
+            dual_write_enabled_at=NOW,
+            canonical_reads_enabled=True,
+            canonical_reads_enabled_at=NOW,
+            audit_counts_json={"dual_write_health": "healthy"},
+        )
+    )
+    await session.commit()
+    session_factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+
+    async def ingest_one(doc_key: str) -> str:
+        async with session_factory() as worker:
+            report = await IngestionService(
+                session=worker,
+                embedder=_EmbeddingService(),
+                tenant_id=tenant_id,
+            ).ingest_document(
+                _write_policy(tmp_path / doc_key, f"{doc_key} authoritative content"),
+                _metadata_for(doc_key),
+                expected_rollout_version=EVIDENCE_EPOCH,
+            )
+            return report.status
+
+    assert await asyncio.gather(ingest_one("policy-a"), ingest_one("policy-b")) == ["success", "success"]
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(PolicyCorpusActivationHistory)
+            .where(
+                PolicyCorpusActivationHistory.tenant_id == tenant_id,
+                PolicyCorpusActivationHistory.reason_code == "bootstrap_character_v1",
+            )
+        )
+        == 1
+    )
+    active = await _active_corpus(session, tenant_id=tenant_id)
+    assert active.bootstrap_counts_json["bound_document_count"] == 2
 
 
 async def _active_rollout(session: AsyncSession, *, tenant_id: UUID) -> PolicyCorpusRollout:

@@ -31,6 +31,7 @@ from src.db.models import (
     PolicyCorpusVersion,
     PolicyDocument,
     PolicyDocumentVersion,
+    Tenant,
 )
 
 
@@ -105,10 +106,7 @@ class PolicyCorpusRepository:
     async def acquire_tenant_rollout_lock(self, *, tenant_id: UUID) -> PolicyCorpusRollout:
         """Serialize claims, then lock the one tenant pointer row."""
 
-        await self.session.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(CAST(:tenant_id AS text), 0))"),
-            {"tenant_id": str(tenant_id)},
-        )
+        await self._acquire_tenant_lock(tenant_id=tenant_id)
         rollout = (
             await self.session.execute(
                 select(PolicyCorpusRollout)
@@ -120,6 +118,128 @@ class PolicyCorpusRepository:
         if rollout is None:
             raise PolicyCorpusUnavailable("policy corpus rollout is unavailable")
         return rollout
+
+    async def ensure_tenant_character_bootstrap(
+        self,
+        *,
+        tenant_id: UUID,
+        config_json: dict[str, Any],
+        config_fingerprint: str,
+        now: datetime | None = None,
+    ) -> PolicyCorpusRollout:
+        """Create the sole empty first-corpus authority under the tenant lock."""
+
+        await self._acquire_tenant_lock(tenant_id=tenant_id)
+        rollout = (
+            await self.session.execute(
+                select(PolicyCorpusRollout)
+                .where(PolicyCorpusRollout.tenant_id == tenant_id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if rollout is not None:
+            return rollout
+
+        tenant_exists = (
+            await self.session.execute(select(Tenant.id).where(Tenant.id == tenant_id).with_for_update())
+        ).scalar_one_or_none()
+        if tenant_exists is None:
+            raise PolicyCorpusUnavailable("policy corpus tenant is unavailable")
+        existing_manifest = await self.session.scalar(
+            select(func.count())
+            .select_from(PolicyCorpusManifestRevision)
+            .where(PolicyCorpusManifestRevision.tenant_id == tenant_id)
+        )
+        existing_corpus = await self.session.scalar(
+            select(func.count()).select_from(PolicyCorpusVersion).where(PolicyCorpusVersion.tenant_id == tenant_id)
+        )
+        if int(existing_manifest or 0) != 0 or int(existing_corpus or 0) != 0:
+            raise PolicyCorpusUnavailable("policy corpus bootstrap authority is incomplete")
+        if (
+            config_json.get("schema_version") != CHARACTER_CORPUS_CONFIG_SCHEMA_VERSION
+            or _sha256_json(config_json) != config_fingerprint
+        ):
+            raise PolicyCorpusUnavailable("policy corpus bootstrap config is invalid")
+
+        created_at = _as_utc(now or datetime.now(UTC))
+        manifest_payload = {
+            "schema_version": "policy_corpus_source_manifest.v1",
+            "tenant_id": str(tenant_id),
+            "documents": [],
+        }
+        manifest = PolicyCorpusManifestRevision(
+            tenant_id=tenant_id,
+            revision=1,
+            manifest_schema_version="policy_corpus_source_manifest.v1",
+            manifest_json=manifest_payload,
+            manifest_hash=_sha256_json(manifest_payload),
+            document_count=0,
+            block_count=0,
+            chunk_count=0,
+        )
+        self.session.add(manifest)
+        await self.session.flush()
+        corpus = PolicyCorpusVersion(
+            tenant_id=tenant_id,
+            generation_name=CHARACTER_CORPUS_GENERATION,
+            owner_marker="moca.policy_ingestion.bootstrap.v1",
+            run_token=None,
+            config_schema_version=CHARACTER_CORPUS_CONFIG_SCHEMA_VERSION,
+            config_json=dict(config_json),
+            config_fingerprint=config_fingerprint,
+            provider_parity_report_hash=None,
+            source_manifest_revision_id=manifest.id,
+            source_manifest_hash=manifest.manifest_hash,
+            source_active_corpus_version_id=None,
+            source_rollout_epoch=None,
+            expected_evidence_rollout_version=None,
+            state="complete",
+            state_version=1,
+            lease_owner=None,
+            lease_expires_at=None,
+            next_document_index=0,
+            bootstrap_counts_json={
+                "bound_document_count": 0,
+                "bound_block_count": 0,
+                "bound_chunk_count": 0,
+            },
+            validation_proof_json={
+                "bootstrap_contract": CHARACTER_CORPUS_GENERATION,
+                "visibility": "empty_first_corpus",
+            },
+            terminal_at=created_at,
+        )
+        self.session.add(corpus)
+        await self.session.flush()
+        rollout = PolicyCorpusRollout(
+            tenant_id=tenant_id,
+            active_corpus_version_id=corpus.id,
+            previous_corpus_version_id=None,
+            rollout_epoch=1,
+        )
+        self.session.add(rollout)
+        self.session.add(
+            PolicyCorpusActivationHistory(
+                tenant_id=tenant_id,
+                from_corpus_version_id=None,
+                to_corpus_version_id=corpus.id,
+                prior_rollout_epoch=0,
+                rollout_epoch=1,
+                reason_code="bootstrap_character_v1",
+                actor="moca.policy_ingestion.bootstrap.v1",
+                selection_decision_hash=None,
+                receipt_hash=None,
+            )
+        )
+        await self.session.flush()
+        return rollout
+
+    async def _acquire_tenant_lock(self, *, tenant_id: UUID) -> None:
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(CAST(:tenant_id AS text), 0))"),
+            {"tenant_id": str(tenant_id)},
+        )
 
     async def lock_latest_manifest(self, *, tenant_id: UUID) -> PolicyCorpusManifestRevision:
         manifest = (

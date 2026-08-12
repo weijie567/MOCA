@@ -149,6 +149,7 @@ def test_migration_declares_safe_bootstrap_append_only_guards_and_downgrade_refu
     assert 'down_revision: str | None = "029_phase64_3_rag_eval_rounds"' in source
     assert "character.v1" in source
     assert "character_compatibility.v1" in source
+    assert "SELECT id FROM tenants ORDER BY id" in source
     assert "bootstrap_counts_json" in source
     assert "current_document_count" in source
     assert "bound_document_count" in source
@@ -168,6 +169,7 @@ async def _seed_legacy_heads() -> dict[UUID, dict[str, object]]:
     tenant_specs = (
         (uuid4(), "legacy-corpus-a", 2),
         (uuid4(), "legacy-corpus-b", 1),
+        (uuid4(), "legacy-corpus-empty", 0),
     )
     expected: dict[UUID, dict[str, object]] = {}
     engine = create_async_engine(DATABASE_URL, future=True, poolclass=NullPool)
@@ -334,7 +336,7 @@ async def _seed_legacy_heads() -> dict[UUID, dict[str, object]]:
                         "current_document_count": len(document_ids),
                         "current_block_count": len(block_ids),
                         "current_chunk_count": len(chunk_ids),
-                        "current_job_count": 1,
+                        "current_job_count": int(document_count > 0),
                     },
                 }
     finally:

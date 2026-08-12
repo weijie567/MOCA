@@ -490,9 +490,7 @@ def _create_block_binding_table() -> None:
 
 def _bootstrap_character_corpora() -> None:
     bind = op.get_bind()
-    tenant_ids = [
-        row[0] for row in bind.execute(sa.text("SELECT DISTINCT tenant_id FROM policy_documents ORDER BY tenant_id"))
-    ]
+    tenant_ids = [row[0] for row in bind.execute(sa.text("SELECT id FROM tenants ORDER BY id"))]
     for tenant_id in tenant_ids:
         documents = list(
             bind.execute(
@@ -734,12 +732,12 @@ def _assert_bootstrap_integrity() -> None:
         bind.execute(
             sa.text(
                 "WITH current_counts AS ("
-                " SELECT d.tenant_id, count(DISTINCT d.id) AS documents, "
+                " SELECT t.id AS tenant_id, count(DISTINCT d.id) AS documents, "
                 " count(DISTINCT b.id) AS blocks, count(DISTINCT c.id) AS chunks "
-                " FROM policy_documents d "
+                " FROM tenants t LEFT JOIN policy_documents d ON d.tenant_id = t.id "
                 " LEFT JOIN document_blocks b ON b.tenant_id = d.tenant_id AND b.doc_id = d.id "
                 " LEFT JOIN policy_chunks c ON c.tenant_id = d.tenant_id AND c.doc_id = d.id "
-                " GROUP BY d.tenant_id"
+                " GROUP BY t.id"
                 "), bootstrap AS ("
                 " SELECT r.tenant_id, count(DISTINCT r.id) AS rollouts, "
                 " count(DISTINCT v.id) FILTER (WHERE v.generation_name = 'character.v1') AS corpora, "

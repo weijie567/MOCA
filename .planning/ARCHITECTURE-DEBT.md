@@ -2782,3 +2782,12 @@
 - **处理状态**：✅ 已修复验证。production reviewed 入口先从 resolved repository root 推导唯一 `evaluation/reports/rag_token_chunk_ab/v1/candidates`，要求 caller 路径逐字归一后等于 canonical root，并拒绝 root 到 repository boundary 的任何 symlink component；拒绝发生在 descriptor/state/budget load、reservation 与 provider factory 之前。临时 canonical root 只保留为 argparse 不可选择的测试内部注入。
 - **证据**：Phase64.4 review CR-01；`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`；copied-tree 与 symlink-root adversarial gate `1 passed`，reservation/provider 均为 0，Ruff scoped check通过。
 - **剩余风险 / 继续入口**：尚未执行 live candidate/provider，也不得用本 deterministic 修复恢复已过期 authority；Plans18-20 仍未执行。共享 PostgreSQL schema 的并发 fixture 冲突另记 `LOCAL-VALIDATION-ISSUES.md`，不作为本安全边界失败。
+
+## 2026-08-12 — Phase 64.4 WR-01 — clean/new tenant 缺少首个 policy corpus authority ✅已修复验证
+
+- **子系统**：RAG ordinary ingestion / tenant corpus bootstrap / demo seed。
+- **问题现象 / 根因**：migration 030 只遍历已有 `policy_documents` 的 tenant；clean install 与 migration 后新建 tenant 没有 manifest/corpus/rollout/history。ordinary ingestion 又在解析前要求 active scope、写入时要求 locked rollout/manifest，`seed_demo` 同样只接受已有 active projection，形成首文档 bootstrap deadlock。
+- **影响**：全新安装、零文档 tenant、未来 tenant 均无法通过受支持入口写入第一份 policy；并发首次写入若各自临时建 authority，还可能破坏 tenant isolation 或产生多个 epoch-1 pointer。
+- **处理状态**：✅ 已修复验证。migration 改为遍历全部既有 tenant并把完整性核对从 `policy_documents` 驱动改为 `tenants LEFT JOIN`。runtime repository 新增 tenant advisory transaction lock 下的 idempotent empty bootstrap：仅在 manifest/corpus/rollout 全空时创建 revision-1 empty manifest、complete character corpus、epoch-1 rollout 与唯一 bootstrap history；已有 rollout原样保留，残缺 authority拒绝。ordinary ingestion在 parser/provider前调用，seed_demo复用同一 owner且允许 empty active projection。
+- **证据**：Phase64.4 review WR-01；`src/db/migrations/versions/030_phase64_4_token_corpora.py`、`src/repositories/policy_corpus_repo.py`、`src/rag/ingestion.py`、`scripts/seed_demo.py`、三组对应测试；static migration、真实 PostgreSQL migration、clean seed、empty first-ingest、concurrent first-ingest gates分别通过。
+- **剩余风险 / 继续入口**：initializer只创建 character-compatible empty authority，不改变已有 active config，也不推断/修补残缺历史。未运行 live ingestion、provider或 live DB mutation；Plans18-20 仍未执行。

@@ -302,9 +302,16 @@ class IngestionService:
         active_scope: ActivePolicyCorpusScope | None = None
         if isinstance(self.session, AsyncSession) and not self._input_assembler_explicit:
             try:
+                bootstrap_assembler = CharacterCompatibilityAssembler()
+                bootstrap_config = character_compatibility_config_json(counter=bootstrap_assembler.counter)
+                await self.corpus_repo.ensure_tenant_character_bootstrap(
+                    tenant_id=self.tenant_id,
+                    config_json=bootstrap_config,
+                    config_fingerprint=bootstrap_assembler.config_fingerprint,
+                )
                 active_scope = await ActivePolicyCorpusScope.resolve(self.session, tenant_id=self.tenant_id)
                 self.input_assembler = assembler_for_active_policy_corpus(active_scope)
-            except (PolicyCorpusConfigError, PolicyCorpusScopeUnavailable):
+            except (PolicyCorpusConfigError, PolicyCorpusScopeUnavailable, PolicyCorpusUnavailable):
                 return IngestionReport(
                     doc_key=doc_key,
                     title=title,
@@ -1020,16 +1027,24 @@ def assembler_for_active_policy_corpus(scope: ActivePolicyCorpusScope) -> Policy
 
 
 def _character_compatibility_config_fingerprint(counter: EmbeddingTokenCounter) -> str:
-    payload = {
+    payload = character_compatibility_config_json(counter=counter)
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def character_compatibility_config_json(
+    *,
+    counter: EmbeddingTokenCounter | None = None,
+) -> dict[str, object]:
+    resolved_counter = counter or _default_embedding_token_counter()
+    return {
         "schema_version": CHARACTER_COMPATIBILITY_CONFIG_VERSION,
-        "embedding_tokenizer_config_fingerprint": counter.config.config_fingerprint,
+        "embedding_tokenizer_config_fingerprint": resolved_counter.config.config_fingerprint,
         "max_chars": _CHARACTER_COMPATIBILITY_MAX_CHARS,
         "target_chars": _CHARACTER_COMPATIBILITY_TARGET_CHARS,
         "overlap_chars": _CHARACTER_COMPATIBILITY_OVERLAP_CHARS,
         "provider_input_envelope": "legacy_ingestion.v1",
     }
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 async def _embed_with_usage_audit(
