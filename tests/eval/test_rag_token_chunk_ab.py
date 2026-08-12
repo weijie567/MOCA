@@ -1711,6 +1711,7 @@ def test_second_valid_slot_then_third_or_plan10_identity_reuse_refuses_before_pr
                 reserved_at=GENERATED_AT,
                 prerequisite_state_sha256="sha256:" + "7" * 64,
             ),
+            require_current_authority=lambda: None,
             provider_factory=provider_factory,
         )
     assert provider_calls == 0
@@ -1730,6 +1731,7 @@ def test_second_valid_slot_then_third_or_plan10_identity_reuse_refuses_before_pr
                 reserved_at=GENERATED_AT,
                 prerequisite_state_sha256="sha256:" + "5" * 64,
             ),
+            require_current_authority=lambda: None,
             provider_factory=provider_factory,
         )
     assert provider_calls == 0

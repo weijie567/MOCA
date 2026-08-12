@@ -14,6 +14,21 @@ copied, outside, or symlinked `--output-root` values before loading a candidate
 or constructing a provider. Injectable temporary roots remain available only
 to unit-level store APIs.
 
+The sole production issuance entry is:
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_rag_token_chunk_ab.py issue-recovery-budget --candidate-state <canonical-complete-state.json> --parity-report <retained-fresh-parity.json> --output-root evaluation/reports/rag_token_chunk_ab/v1
+```
+
+The command captures current UTC internally; it accepts no `--checked-at` or
+`--generated-at` authority override. Before creating or reconciling the fixed
+cap=2 manifest it strict-loads the exact complete candidate and descriptor,
+requires current UTC to be strictly before both descriptor lease and parity
+expiry, checks the active incumbent, source manifest, rollout epoch, evidence
+rollout, candidate row/projection/proofs, and sealed Plan10/Phase64.3 inputs.
+An existing manifest never extends either expiry. Byte-identical replay fsyncs
+the manifest parent and returns the original hash; different bytes fail closed.
+
 The manifest is written once at the canonical
 `recovery-budgets/phase64.4-plan12-live-selection-recovery/manifest.json`. It
 also binds the canonical repository-relative Plan 13 state path and exact state
@@ -25,6 +40,11 @@ re-hashes and strict-loads that exact candidate state plus the fresh parity
 report, then publishes `attempts/01.json` or `attempts/02.json` with the new run
 and selection UUIDs and candidate-state SHA. The create-only hard-link is the
 reservation commit point.
+A normal A-B invocation captures a separate current UTC instant internally and
+uses it at existing-manifest startup, reservation, and the final pre-provider
+forcing boundary. Equality with either expiry is expired authority. The
+report's optional `--generated-at` remains evidence metadata only and cannot
+backdate authority.
 A crash after reservation consumes that ordinal; missing terminal evidence
 does not authorize the next ordinal. Concurrent writers get one winner and a
 refusal, never two attempts for one ordinal.

@@ -47,6 +47,12 @@ state replay is idempotent; truncated or different bytes refuse.
    ordinal 1. Two ordinals exhaust the document permanently.
 5. `validate-reviewed` is allowed only after every ordered document has
    advanced through the reviewed path.
+6. A complete candidate crosses into A-B authority only through
+   `eval_rag_token_chunk_ab.py issue-recovery-budget`. That command strict-loads
+   this canonical state and descriptor, captures current UTC internally, and
+   requires it to be strictly earlier than both immutable expiries before live
+   DB/source/evidence proof or manifest publication. `building`, `built`, or
+   `validating` candidates cannot mint a recovery budget.
 
 The older `claim`, `resume`, `build-next`, and `validate` subcommands remain
 compatibility tools. Their outputs cannot satisfy this reviewed descriptor,

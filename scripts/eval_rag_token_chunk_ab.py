@@ -19,7 +19,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from sqlalchemy import text
 
 from src.config import settings
-from src.db.models import EvidenceIdentityRollout
+from src.db.models import EvidenceIdentityRollout, PolicyCorpusManifestRevision
 from src.db.session import SessionLocal
 from src.knowledge.config import (
     MIN_SIMILARITY_THRESHOLD,
@@ -56,17 +56,21 @@ from src.rag.evaluation.token_chunk_ab import (
     ABNamespaceV1,
     ABParityEvidenceV1,
     ABRecoveryAttemptReservationV1,
+    RecoveryLiveAuthorityProofV1,
     ABRuntimeConfigV1,
     ABSelectionBindingV1,
     RecoveryAttemptRefused,
     TerminalABRunV1,
     build_candidate_observation_from_retrieval,
     build_terminal_ab_run,
+    issue_canonical_recovery_budget_manifest,
+    load_recovery_issuance_identity,
     load_recovery_budget_manifest,
     load_recovery_candidate_state,
     reserve_recovery_attempt,
     reserve_then_create_provider,
     require_canonical_recovery_root,
+    validate_fixed_plan10_evidence,
     write_execution_error_bundle_create_only,
     write_recovery_authorization_create_only,
     write_selection_create_only,
@@ -115,7 +119,22 @@ def _token_candidate() -> PolicyEmbeddingInputAssembler:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run full-provider immutable RAG token chunk A/B")
+    values = list(sys.argv[1:] if argv is None else argv)
+    if values and values[0] == "issue-recovery-budget":
+        parser = argparse.ArgumentParser(description="Issue the canonical RAG token chunk recovery budget")
+        parser.add_argument("command", choices=("issue-recovery-budget",))
+        parser.add_argument("--candidate-state", type=Path, required=True)
+        parser.add_argument("--parity-report", type=Path, required=True)
+        parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
+        return parser.parse_args(values)
+
+    parser = argparse.ArgumentParser(
+        description="Run full-provider immutable RAG token chunk A/B",
+        epilog=(
+            "Canonical issuance: issue-recovery-budget --candidate-state PATH "
+            "--parity-report PATH --output-root evaluation/reports/rag_token_chunk_ab/v1"
+        ),
+    )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
@@ -129,7 +148,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--selection-id", type=UUID, default=None)
     parser.add_argument("--generated-at", default=None)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
-    args = parser.parse_args(argv)
+    args = parser.parse_args(values)
+    args.command = "run-ab"
     args.run_id = args.run_id or uuid4()
     args.selection_id = args.selection_id or uuid4()
     args.generated_at = args.generated_at or datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -242,6 +262,7 @@ async def run_full_provider_ab(
     before_provider_call: Callable[[], ABRecoveryAttemptReservationV1],
 ) -> tuple[TerminalABRunV1, ABSelectionBindingV1 | None, SafeRoleFailureV1 | None]:
     generated_at = datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC)
+    authority_checked_at = getattr(args, "_authority_checked_at", datetime.now(UTC))
     candidate_identity: PolicyReindexRunIdentity | None = getattr(args, "_verified_candidate_identity", None)
     try:
         if candidate_identity is None:
@@ -251,7 +272,7 @@ async def run_full_provider_ab(
                 root=args.output_root,
                 candidate_state_path=args.candidate_state,
                 provider_parity_report_path=args.parity_report,
-                checked_at=generated_at,
+                checked_at=authority_checked_at,
             )
     except (OSError, RecoveryAttemptRefused, ValueError):
         raise RecoveryAttemptRefused("recovery_candidate_state_invalid") from None
@@ -326,6 +347,13 @@ async def run_full_provider_ab(
         )
         _, embedder = reserve_then_create_provider(
             reserve=before_provider_call,
+            require_current_authority=lambda: load_recovery_candidate_state(
+                manifest=load_recovery_budget_manifest(args.recovery_budget_manifest),
+                root=args.output_root,
+                candidate_state_path=args.candidate_state,
+                provider_parity_report_path=args.parity_report,
+                checked_at=authority_checked_at,
+            ),
             provider_factory=EmbeddingService,
         )
         missing: list[str] = []
@@ -534,6 +562,7 @@ async def _validate_corpus_pair(
             tenant_id=identity.tenant_id,
             corpus_version_id=identity.corpus_version_id,
         )
+        source_manifest = await session.get(PolicyCorpusManifestRevision, identity.source_manifest_revision_id)
         evidence_rollout = await session.get(EvidenceIdentityRollout, 1)
         candidate_counts = await corpora.get_projection_counts(
             tenant_id=identity.tenant_id,
@@ -547,14 +576,36 @@ async def _validate_corpus_pair(
             or evidence_rollout is None
             or rollout.active_corpus_version_id != incumbent.id
             or rollout.active_corpus_version_id == candidate.id
+            or rollout.active_corpus_version_id != identity.source_active_corpus_version_id
+            or rollout.rollout_epoch != identity.source_rollout_epoch
             or incumbent.state != "complete"
             or incumbent.config_fingerprint != character_fingerprint
             or candidate.state != "complete"
+            or candidate.id != identity.corpus_version_id
             or candidate.run_token != identity.run_token
             or candidate.lease_owner != identity.lease_owner
+            or candidate.lease_expires_at != identity.lease_expires_at
+            or candidate.state_version != identity.state_version
+            or candidate.next_document_index != identity.next_document_index
+            or candidate.config_schema_version != identity.config_schema_version
             or candidate.config_fingerprint != token_fingerprint
             or candidate.provider_parity_report_hash != expected_parity_hash
             or identity.provider_parity_report_hash != expected_parity_hash
+            or candidate.source_manifest_revision_id != identity.source_manifest_revision_id
+            or candidate.source_manifest_hash != identity.source_manifest_hash
+            or candidate.source_active_corpus_version_id != identity.source_active_corpus_version_id
+            or candidate.source_rollout_epoch != identity.source_rollout_epoch
+            or candidate.expected_evidence_rollout_version != identity.expected_evidence_rollout_version
+            or source_manifest is None
+            or source_manifest.tenant_id != identity.tenant_id
+            or source_manifest.revision != identity.source_manifest_revision
+            or source_manifest.manifest_hash != identity.source_manifest_hash
+            or tuple(
+                str(item.get("doc_key"))
+                for item in source_manifest.manifest_json.get("documents", ())
+                if isinstance(item, dict)
+            )
+            != identity.ordered_doc_keys
             or not _valid_sha256(candidate.deterministic_rebuild_hash)
             or candidate_counts.documents != expected_counts.get("bound_document_count")
             or candidate_counts.blocks != expected_counts.get("bound_block_count")
@@ -569,6 +620,96 @@ async def _validate_corpus_pair(
         )
         await session.rollback()
         return snapshot
+
+
+def _complete_candidate_proof(snapshot: CandidateProofSnapshot) -> bool:
+    proof = snapshot.validation_proof.get("candidate_validation")
+    return bool(
+        isinstance(proof, dict)
+        and proof.get("all_embedding_inputs_within_512_tokens") is True
+        and proof.get("complete_document_coverage") is True
+        and proof.get("complete_block_coverage") is True
+        and proof.get("immutable_binding_replay") is True
+        and proof.get("deterministic_rebuild_hash") == snapshot.deterministic_rebuild_hash
+    )
+
+
+async def _issue_recovery_budget(args: argparse.Namespace, *, checked_at: datetime) -> int:
+    try:
+        root = require_canonical_recovery_root(
+            output_root=args.output_root,
+            repository_root=REPOSITORY_ROOT,
+        )
+        identity = load_recovery_issuance_identity(
+            root=root,
+            candidate_state_path=args.candidate_state,
+            provider_parity_report_path=args.parity_report,
+            checked_at=checked_at,
+        )
+        if identity.state != "complete":
+            raise RecoveryAttemptRefused("recovery_candidate_incomplete")
+        snapshot = await _validate_corpus_pair(
+            identity,
+            character_fingerprint=_character_incumbent().config_fingerprint,
+            token_fingerprint=_token_candidate().config.config_fingerprint,
+            expected_parity_hash=_path_sha256(args.parity_report),
+        )
+        dataset = load_format_parity_contract(DEFAULT_MANIFEST, DEFAULT_GOLD, repository_root=REPOSITORY_ROOT)
+        _require_sealed_dataset(dataset)
+        _require_sealed_baseline(DEFAULT_BASELINE)
+        validate_fixed_plan10_evidence(root)
+        artifact = issue_canonical_recovery_budget_manifest(
+            root=root,
+            candidate_state_path=args.candidate_state,
+            provider_parity_report_path=args.parity_report,
+            checked_at=checked_at,
+            live_authority=RecoveryLiveAuthorityProofV1(
+                tenant_id=identity.tenant_id,
+                incumbent_corpus_version_id=identity.source_active_corpus_version_id,
+                candidate_corpus_version_id=identity.corpus_version_id,
+                candidate_run_token=identity.run_token,
+                candidate_lease_owner=identity.lease_owner,
+                candidate_state_version=identity.state_version,
+                source_manifest_revision_id=identity.source_manifest_revision_id,
+                source_manifest_revision=identity.source_manifest_revision,
+                source_manifest_hash=identity.source_manifest_hash,
+                source_rollout_epoch=identity.source_rollout_epoch,
+                expected_evidence_rollout_version=identity.expected_evidence_rollout_version,
+                deterministic_rebuild_sha256=snapshot.deterministic_rebuild_hash,
+                complete_projection_proved=_complete_candidate_proof(snapshot),
+                sealed_inputs_proved=True,
+            ),
+        )
+    except RecoveryAttemptRefused as refusal:
+        print(
+            json.dumps(
+                {"error": "recovery_attempt_refused", "reason_code": str(refusal)},
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+        return 4
+    except (FormatParityContractError, OSError, PolicyCorpusUnavailable, ValueError):
+        print(
+            json.dumps(
+                {"error": "recovery_attempt_refused", "reason_code": "recovery_live_authority_mismatch"},
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+        return 4
+    print(
+        json.dumps(
+            {
+                "manifest_sha256": artifact.sha256,
+                "path": artifact.path.relative_to(root).as_posix(),
+                "status": "issued_or_reconciled",
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
+    return 0
 
 
 async def _ab_database_prerequisites(
@@ -758,6 +899,10 @@ def _shared_preflight_failure(
 
 async def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    authority_checked_at = datetime.now(UTC)
+    if args.command == "issue-recovery-budget":
+        return await _issue_recovery_budget(args, checked_at=authority_checked_at)
+    args._authority_checked_at = authority_checked_at
     reservation_holder: dict[str, ABRecoveryAttemptReservationV1] = {}
     try:
         args.output_root = require_canonical_recovery_root(
@@ -773,7 +918,7 @@ async def main(argv: list[str] | None = None) -> int:
             root=args.output_root,
             candidate_state_path=args.candidate_state,
             provider_parity_report_path=args.parity_report,
-            checked_at=datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC),
+            checked_at=authority_checked_at,
         )
 
         def reserve() -> ABRecoveryAttemptReservationV1:
@@ -784,7 +929,7 @@ async def main(argv: list[str] | None = None) -> int:
                 provider_parity_report_path=args.parity_report,
                 run_id=args.run_id,
                 selection_id=args.selection_id,
-                reserved_at=datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC),
+                reserved_at=authority_checked_at,
                 prerequisite_state_sha256=args.prerequisite_state_sha256,
             )
             reservation_holder["reservation"] = reservation

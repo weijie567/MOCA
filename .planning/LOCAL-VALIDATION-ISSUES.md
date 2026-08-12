@@ -23861,3 +23861,14 @@ RED 失败来自计划 owner 尚未实现，不是 Python/PATH/PostgreSQL/provid
 
 **已做处理 / 剩余入口**
 停止复杂临时 probe，改用安全变量名与计划已有 strict loaders/生产 `recover-state` 命令。随后在 authority 未过期时完成精确恢复：仅新增 canonical v1（SHA256 `7e0dc98d1038132a8c05ac4b909dcb668a2561d4401bfcaf6450d04df241d7dd`），descriptor/v2/build manifest SHA 均保持不变，attempt/result 仍 `0/0`、A-B manifest absent；计划回归 `67 passed, 3 warnings`。后续 shell 临时变量禁止使用 zsh 特殊名 `path`/`PATH`。
+
+## 2026-08-12 — Phase 64.4 Plan 17 Task 1 canonical issuance 预期 RED
+
+**问题现象 / 如何检测**
+先补足最小决定性测试后，使用有效项目入口执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_token_chunk_ab.py -k 'canonical_recovery_budget_issuance or canonical_recovery_budget_refuses or reservation_and_provider_boundary or issue_recovery_budget_cli'`；collection 报 `ImportError: cannot import name 'RecoveryLiveAuthorityProofV1'`。
+
+**关键证据 / 当前判断 / 根因**
+失败精确来自 Plan17 新 domain issuance/live-authority owner尚不存在，足以证明当前缺口；不是 Python/PATH、PostgreSQL、provider或 live artifact失败。按新增硬约束，RED在证明缺口后立即运行，没有继续扩大测试矩阵。该轮仅修改测试并使用 `tmp_path` contract，未写 repository live manifest、reservation、DB、pointer/history，也未构造 provider。
+
+**已做处理 / 剩余入口**
+RED原子提交为 `d643a13d`。随后实现 canonical issuance/reconcile、内部 UTC lease/parity gate、严格 DB/source/evidence proof与 pre-provider二次 forcing；最小 GREEN为 `4 passed`，完整 `test_rag_token_chunk_ab.py` 为 `85 passed, 1 warning`。Task2开始前重新读取 UTC；若已达到 descriptor绝对 expiry `2026-08-12T04:13:52.208631Z`，禁止运行 live issuance，只做只读过期与零副作用证据。
