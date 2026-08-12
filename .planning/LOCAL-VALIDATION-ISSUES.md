@@ -24094,3 +24094,14 @@ Autopilot checkpoint 已置为 `waiting_for_quota`，`quota_waits: 1`，精确�
 
 **已做处理 / 剩余入口**
 执行 `UV_CACHE_DIR=/tmp/uv-cache uv sync --extra dev` 补齐当前 worktree 的 pytest/ruff 等开发依赖；随后相同精确命令得到有效 RED（缺少 migration 032），实现后 focused node 与完整真实 PostgreSQL 文件分别得到 `1 passed`、`5 passed, 11 warnings`。未使用裸 `pytest` 或裸 `python -m pytest`。后续新 worktree 若再次出现 `datetime.UTC` collection 错误，先核对 `.venv/bin/python` 与 `uv run which pytest`，不要把旧 Python PATH 污染误判为代码回归。
+
+## 2026-08-13 — Phase 64.5 Plan 02 authority/result 真实 PostgreSQL 验证迭代
+
+**问题现象 / 如何检测**
+Task 1 最小 RED 按预期以缺少 `src.rag.provider_execution_authority` collection 失败；首次 GREEN 随后因测试 fixture 在 tenant flush 前写入 manifest 而命中外键，首次 `make format` 又检出未使用的 `seeded` 变量。Task 2 首轮完整专项得到 `9 passed, 5 failed`：四条由 result seal 对省略的 nullable 字段与 validator 对显式 `None` 字段采用不同 canonical payload 引起，另一条是漂移测试误把 tenant ID 当成 `PolicyCorpusRollout` 主键。SUMMARY self-check 首次又在 zsh `for path in ...` 中误用了特殊数组名 `path`，覆盖当前命令的 `PATH`，导致同一 shell 后续报告 `git`/`rg` 找不到；文件存在性输出本身有效，但 commit/stub 检查结果无效。
+
+**关键证据 / 当前判断 / 根因**
+全部测试命令均使用有效项目入口和串行真实 PostgreSQL：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/rag/test_provider_execution_authority.py::test_concurrent_same_subject_reservation_has_exactly_one_winner -q` 先证明缺失契约；Task 2 的精确 crash-spent RED 以 `ProviderExecutionAuthorityService` 缺少 `get_result` 失败。上述后续失败分别属于 fixture 插入顺序、静态 lint、canonical 默认值归一化、测试 ORM 定位错误与 zsh 特殊变量覆盖，不是 provider 调用或 live 数据异常。
+
+**已做处理 / 剩余入口**
+fixture 先显式 flush tenant；移除未使用变量；result seal 将所有 nullable hash 字段显式归一为 `None`；rollout 漂移改用 tenant predicate 查询；self-check 循环变量改为普通 `file_path`/`commit_hash` 后重新运行，6 个文件和 2 个 commits 全部 FOUND，删除/stub/diff-check 均无输出。最终严格按 `make format` → 完整 `make lint` → `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/rag/test_provider_execution_authority.py -q` 执行，结果为 `14 passed, 1 warning in 28.97s`；warning 是既有 LangGraph deprecation。未调用 provider、未访问 live DB、未创建 repository live projection。后续 Plans 03–05 接线时应继续用真实 PostgreSQL 串行验证 commit-before-provider 与 pre-dispatch recheck，不得把本计划的隔离 fixture GREEN 外推为 production dispatch 已恢复。
