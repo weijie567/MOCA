@@ -11,7 +11,10 @@ from datetime import UTC, date, datetime
 from enum import StrEnum
 import hashlib
 import json
+import os
 from pathlib import Path
+import stat
+import tempfile
 from typing import Any, ClassVar, Literal, Self
 from uuid import UUID, uuid4
 
@@ -291,7 +294,16 @@ class ProviderExecutionResultRequestV1(_FrozenModel):
 
     @classmethod
     def seal(cls, **values: Any) -> Self:
-        payload = {"result_id": values.pop("result_id", uuid4()), **values}
+        payload = {
+            "result_id": values.pop("result_id", uuid4()),
+            "output_candidate_id": None,
+            "terminal_run_hash": None,
+            "terminal_report_hash": None,
+            "selection_id": None,
+            "selection_decision_hash": None,
+            "activation_authorization_hash": None,
+            **values,
+        }
         return cls(**payload, result_hash=canonical_sha256(payload))
 
     @model_validator(mode="after")
@@ -365,6 +377,39 @@ class ProviderExecutionAuthorityService:
         await self.require_current_promotion()
         return await self._repository.recheck_dispatch(reservation)
 
+    async def record_result(
+        self,
+        request: ProviderExecutionResultRequestV1,
+    ) -> ProviderExecutionResultViewV1:
+        return await self._repository.record_result(request)
+
+    async def get_result(
+        self,
+        *,
+        reservation_id: UUID,
+    ) -> ProviderExecutionResultViewV1 | None:
+        return await self._repository.get_result(reservation_id=reservation_id)
+
+    async def reconcile_projection(
+        self,
+        *,
+        authority_id: UUID,
+        projection_path: Path,
+    ) -> ProjectionReconciliationViewV1:
+        """Create one immutable audit projection from committed DB rows only."""
+
+        projection = await self._repository.read_projection(authority_id=authority_id)
+        payload = canonical_json_bytes(projection.model_dump(mode="json")) + b"\n"
+        path = projection_path.absolute()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        created = _create_projection_once(path, payload)
+        return ProjectionReconciliationViewV1(
+            projection_path=path,
+            projection_sha256=canonical_sha256(payload),
+            created=created,
+            projection=projection,
+        )
+
 
 def canonical_json_bytes(value: object) -> bytes:
     return json.dumps(
@@ -399,6 +444,48 @@ def _canonical_json_default(value: object) -> object:
     if isinstance(value, StrEnum):
         return value.value
     raise TypeError(f"unsupported canonical JSON value: {type(value).__name__}")
+
+
+def _create_projection_once(path: Path, payload: bytes) -> bool:
+    """Atomically create without replacing any pre-existing projection bytes."""
+
+    try:
+        existing_stat = path.lstat()
+    except FileNotFoundError:
+        existing_stat = None
+    if existing_stat is not None:
+        if not stat.S_ISREG(existing_stat.st_mode) or path.read_bytes() != payload:
+            _fail(ProviderExecutionAuthorityFailureCode.PROJECTION_MISMATCH)
+        return False
+
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary_path, path)
+            created = True
+        except FileExistsError:
+            created = False
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+    try:
+        final_stat = path.lstat()
+    except FileNotFoundError:
+        _fail(ProviderExecutionAuthorityFailureCode.PROJECTION_MISMATCH)
+    if not stat.S_ISREG(final_stat.st_mode) or path.read_bytes() != payload:
+        _fail(ProviderExecutionAuthorityFailureCode.PROJECTION_MISMATCH)
+    return created
 
 
 def _fail(code: ProviderExecutionAuthorityFailureCode) -> None:
