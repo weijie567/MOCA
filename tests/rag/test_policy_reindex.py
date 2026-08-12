@@ -14,10 +14,10 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from scripts import reindex_policies as reindex_cli
-from src.rag import policy_reindex_artifacts as artifact_module
 from src.db.models import (
     CorpusBlockBinding,
     CorpusChunkBinding,
@@ -40,12 +40,9 @@ from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.rag.policy_reindex_artifacts import (
     build_policy_candidate_build_budget,
     build_policy_reindex_recovery_descriptor,
-    load_candidate_build_attempt,
     load_policy_reindex_state,
-    policy_candidate_build_attempt_path,
     policy_candidate_build_budget_path,
     policy_reindex_state_path,
-    secure_policy_reindex_artifact_namespace,
     write_policy_candidate_build_budget_create_only,
     write_policy_reindex_recovery_descriptor_create_only,
     write_policy_reindex_state_create_only,
@@ -87,7 +84,7 @@ async def test_production_dispatch_disables_live_provider_builds_before_side_eff
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    calls = {"db": 0, "root": 0, "artifact": 0, "reservation": 0, "provider": 0}
+    calls = {"db": 0, "root": 0, "artifact": 0, "authority": 0, "provider": 0}
 
     def forbidden(name: str):
         def fail(*_args, **_kwargs):
@@ -100,11 +97,11 @@ async def test_production_dispatch_disables_live_provider_builds_before_side_eff
     monkeypatch.setattr(reindex_cli, "SessionLocal", forbidden("db"))
     monkeypatch.setattr(reindex_cli, "_require_canonical_reviewed_root", forbidden("root"))
     monkeypatch.setattr(reindex_cli, "_load_identity", forbidden("artifact"))
-    monkeypatch.setattr(reindex_cli, "reserve_candidate_build_attempt", forbidden("reservation"))
+    monkeypatch.setattr(reindex_cli, "_provider_execution_authority_service", forbidden("authority"))
     monkeypatch.setattr(reindex_cli, "EmbeddingService", forbidden("provider"))
 
     assert await reindex_cli._main() == 4
-    assert calls == {"db": 0, "root": 0, "artifact": 0, "reservation": 0, "provider": 0}
+    assert calls == {"db": 0, "root": 0, "artifact": 0, "authority": 0, "provider": 0}
     assert json.loads(capsys.readouterr().out) == {
         "error": "live_provider_execution_disabled",
         "reason_code": "live_provider_execution_disabled",
@@ -126,6 +123,14 @@ def test_live_provider_disable_has_no_cli_or_environment_override() -> None:
     ):
         assert "os.environ" not in dispatch_source
         assert "os.getenv" not in dispatch_source
+
+
+def test_issue_provider_authority_parser_accepts_no_purpose_or_envelope() -> None:
+    parser_source = inspect.getsource(reindex_cli._parse_args)
+
+    assert 'subcommands.add_parser("issue-provider-authority")' in parser_source
+    assert '"--purpose"' not in parser_source
+    assert '"--envelope"' not in parser_source
 
 
 def _sha256(payload: object) -> str:
@@ -348,17 +353,13 @@ async def test_production_reviewed_root_symlink_never_authorizes_copied_tree(
     (copied_run / "descriptor.json").write_text('{"copied":"pre-attempt-tree"}\n', encoding="utf-8")
     expected_root.parent.mkdir(parents=True)
     expected_root.symlink_to(copied_root, target_is_directory=True)
-    calls = {"reservation": 0, "provider": 0}
-
-    def reservation_forbidden(*_args: object, **_kwargs: object) -> None:
-        calls["reservation"] += 1
+    calls = {"provider": 0}
 
     class ProviderForbidden:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             calls["provider"] += 1
 
     monkeypatch.setattr(reindex_cli, "REPOSITORY_ROOT", repository_root)
-    monkeypatch.setattr(reindex_cli, "reserve_candidate_build_attempt", reservation_forbidden)
     monkeypatch.setattr(reindex_cli, "EmbeddingService", ProviderForbidden)
     requested = expected_root if request_form == "lexical" else copied_root
     args = Namespace(artifact_root=requested, tenant_id=tenant_id, run_token=run_token)
@@ -366,7 +367,7 @@ async def test_production_reviewed_root_symlink_never_authorizes_copied_tree(
     with pytest.raises(RuntimeError, match="reviewed_artifact_root_invalid"):
         await reindex_cli._build_next_reviewed(args)
 
-    assert calls == {"reservation": 0, "provider": 0}
+    assert calls == {"provider": 0}
 
 
 @pytest.mark.asyncio
@@ -398,17 +399,13 @@ async def test_reviewed_build_rejects_descendant_symlink_before_budget_or_provid
     }
     shutil.rmtree(canonical_targets[symlink_level])
     canonical_targets[symlink_level].symlink_to(copied_targets[symlink_level], target_is_directory=True)
-    calls = {"reservation": 0, "provider": 0}
-
-    def reservation_forbidden(*_args: object, **_kwargs: object) -> None:
-        calls["reservation"] += 1
+    calls = {"provider": 0}
 
     class ProviderForbidden:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             calls["provider"] += 1
 
     monkeypatch.setattr(reindex_cli, "REPOSITORY_ROOT", tmp_path / "repository")
-    monkeypatch.setattr(reindex_cli, "reserve_candidate_build_attempt", reservation_forbidden)
     monkeypatch.setattr(reindex_cli, "EmbeddingService", ProviderForbidden)
 
     args = Namespace(
@@ -420,133 +417,47 @@ async def test_reviewed_build_rejects_descendant_symlink_before_budget_or_provid
     with pytest.raises(RuntimeError, match="reviewed_artifact_namespace_invalid"):
         await reindex_cli._build_next_reviewed(args)
 
-    assert calls == {"reservation": 0, "provider": 0}
+    assert calls == {"provider": 0}
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("substitution", ["directory", "symlink"])
-async def test_reviewed_build_refuses_nested_parent_substitution_before_provider_or_db_advance(
+async def test_reviewed_build_never_consumes_legacy_budget_without_db_authority(
     session: AsyncSession,
     test_engine,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    substitution: str,
 ) -> None:
-    await _seed_evidence_rollout(session)
-    tenant_id, manifest, source, rollout, _ = await _seed_bound_source_authority(session)
-    assembler = PolicyEmbeddingInputAssembler()
-    config_payload = asdict(assembler.config)
-    config_payload.pop("config_fingerprint")
-    config_payload.pop("_asset_root")
-    checked_at = datetime.now(UTC)
-    run_token = uuid4()
-    descriptor = build_policy_reindex_recovery_descriptor(
-        sealed_at=checked_at,
-        tenant_id=tenant_id,
-        run_token=run_token,
-        generation_name=f"token.v1:{run_token.hex}",
-        lease_owner="reviewed-worker",
-        lease_expires_at=checked_at + timedelta(hours=2),
-        config_schema_version=assembler.config.schema_version,
-        config_json=config_payload,
-        config_fingerprint=assembler.config.config_fingerprint,
-        parity_report_sha256=PARITY_REPORT_HASH,
-        parity_config_fingerprint=assembler.config.config_fingerprint,
-        parity_probe_fixture_sha256="sha256:" + "4" * 64,
-        parity_submitted_content_sha256="sha256:" + "5" * 64,
-        parity_captured_at=checked_at - timedelta(minutes=5),
-        parity_expires_at=checked_at + timedelta(hours=23, minutes=55),
-        source_manifest_revision_id=manifest.id,
-        source_manifest_revision=manifest.revision,
-        source_manifest_hash=manifest.manifest_hash,
-        source_active_corpus_version_id=source.id,
-        source_rollout_epoch=rollout.rollout_epoch,
-        expected_evidence_rollout_version=11,
+    descriptor, building, _, _ = await _seed_descriptor_bound_reviewed_candidate(
+        session,
+        artifact_root=tmp_path,
     )
-    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
-    service = PolicyReindexService(session)
-    claimed = await service.claim_from_descriptor(descriptor, now=checked_at)
-    await session.commit()
-    write_policy_reindex_state_create_only(claimed, descriptor=descriptor, root=tmp_path)
-    building = await service.resume(claimed, now=checked_at)
-    await session.commit()
-    write_policy_reindex_state_create_only(building, descriptor=descriptor, root=tmp_path)
-    budget = build_policy_candidate_build_budget(
-        descriptor=descriptor,
-        ordered_doc_keys=building.ordered_doc_keys,
-        created_at=checked_at,
-    )
-    budget_artifact = write_policy_candidate_build_budget_create_only(
-        budget,
-        descriptor=descriptor,
-        root=tmp_path,
-    )
-    attempts_parent = policy_candidate_build_attempt_path(
-        tmp_path,
-        tenant_id=tenant_id,
-        run_token=run_token,
-        document_index=0,
-        ordinal=1,
-    ).parent
-    detached_parent = attempts_parent.with_name("attempts.detached")
-    attacker_parent = tmp_path / "attacker-attempts"
-    attacker_parent.mkdir()
     session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
-    provider_calls = 0
+    calls = {"provider": 0}
+
+    class AuthorityService:
+        async def require_current_promotion(self):
+            return None
+
+        async def reserve_and_commit(self, request):
+            raise AssertionError(request)
 
     class ProviderForbidden:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
-            nonlocal provider_calls
-            provider_calls += 1
-            raise AssertionError("provider construction must follow canonical reservation verification")
+            calls["provider"] += 1
 
+    monkeypatch.setattr(reindex_cli, "_provider_execution_authority_service", lambda: AuthorityService())
     monkeypatch.setattr(reindex_cli, "EmbeddingService", ProviderForbidden)
-    original_link = artifact_module.os.link
-    substituted = False
+    args = _reviewed_args(tmp_path, descriptor=descriptor)
+    args.authority_id = uuid4()
+    args.ordinal = 1
 
-    def substitute_parent_before_link(*args: object, **kwargs: object) -> None:
-        nonlocal substituted
-        if kwargs.get("dst_dir_fd") is not None and args[1] == "01.json" and not substituted:
-            attempts_parent.rename(detached_parent)
-            if substitution == "directory":
-                attempts_parent.mkdir()
-            else:
-                attempts_parent.symlink_to(attacker_parent, target_is_directory=True)
-            substituted = True
-        original_link(*args, **kwargs)
+    with pytest.raises(PolicyReindexError) as exc_info:
+        await reindex_cli._build_next_reviewed(args)
 
-    monkeypatch.setattr(artifact_module.os, "link", substitute_parent_before_link)
-
-    with pytest.raises(RuntimeError, match="reviewed_artifact_namespace_invalid"):
-        await reindex_cli._build_next_reviewed(_reviewed_args(tmp_path, descriptor=descriptor))
-
-    assert substituted is True
-    assert provider_calls == 0
-    canonical_attempt_path = policy_candidate_build_attempt_path(
-        tmp_path,
-        tenant_id=tenant_id,
-        run_token=run_token,
-        document_index=0,
-        ordinal=1,
-    )
-    if substitution == "directory":
-        with secure_policy_reindex_artifact_namespace(
-            tmp_path,
-            tenant_id=tenant_id,
-            run_token=run_token,
-        ):
-            attempt = load_candidate_build_attempt(
-                canonical_attempt_path,
-                descriptor=descriptor,
-                budget=budget,
-                budget_artifact=budget_artifact,
-                root=tmp_path,
-            )
-        assert attempt.ordinal == 1
-    else:
-        assert attempts_parent.is_symlink()
-        assert not (attacker_parent / "01.json").exists()
+    assert exc_info.value.code is PolicyReindexFailureCode.AUTHORITY_UNAVAILABLE
+    assert "reserve_candidate_build_attempt" not in inspect.getsource(reindex_cli._build_next_reviewed)
+    assert calls == {"provider": 0}
     async with session_factory() as verifier:
         candidate = await verifier.get(PolicyCorpusVersion, building.corpus_version_id)
         assert candidate is not None
@@ -1597,7 +1508,9 @@ async def test_recover_state_rechecks_internal_time_before_any_artifact_write(
 
 
 @pytest.mark.asyncio
-async def test_recover_identity_refuses_foreign_run_and_ambiguous_rows_without_mutation(session: AsyncSession) -> None:
+async def test_recover_identity_refuses_foreign_run_and_db_uniqueness_prevents_ambiguous_rows(
+    session: AsyncSession,
+) -> None:
     await _seed_evidence_rollout(session)
     tenant_id, manifest, source, rollout = await _seed_source_authority(session)
     run_token = uuid4()
@@ -1665,12 +1578,24 @@ async def test_recover_identity_refuses_foreign_run_and_ambiguous_rows_without_m
         bootstrap_counts_json=dict(row.bootstrap_counts_json),
         validation_proof_json=dict(row.validation_proof_json),
     )
-    session.add(duplicate)
-    await session.flush()
-    with pytest.raises(PolicyReindexError) as ambiguous:
-        await service.recover_identity(descriptor, now=NOW)
-    assert ambiguous.value.code is PolicyReindexFailureCode.AUTHORITY_UNAVAILABLE
-    assert row.state_version == duplicate.state_version == 1
+    with pytest.raises(IntegrityError):
+        async with session.begin_nested():
+            session.add(duplicate)
+            await session.flush()
+
+    assert await service.recover_identity(descriptor, now=NOW) == claimed
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(PolicyCorpusVersion)
+            .where(
+                PolicyCorpusVersion.tenant_id == row.tenant_id,
+                PolicyCorpusVersion.run_token == row.run_token,
+            )
+        )
+        == 1
+    )
+    assert row.state_version == 1
 
 
 @pytest.mark.asyncio
@@ -2279,6 +2204,187 @@ async def test_reviewed_build_crash_after_committed_reservation_records_no_false
         )
 
     assert events == ["reservation_committed", "dispatch_crash"]
+
+
+async def _seed_descriptor_bound_reviewed_candidate(
+    session: AsyncSession,
+    *,
+    artifact_root: Path,
+):
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout, _ = await _seed_bound_source_authority(session)
+    assembler = PolicyEmbeddingInputAssembler()
+    config_payload = asdict(assembler.config)
+    config_payload.pop("config_fingerprint")
+    config_payload.pop("_asset_root")
+    checked_at = datetime.now(UTC)
+    run_token = uuid4()
+    parity_payload = b"reviewed-parity-report-fixture\n"
+    parity_report_hash = "sha256:" + hashlib.sha256(parity_payload).hexdigest()
+    descriptor = build_policy_reindex_recovery_descriptor(
+        sealed_at=checked_at,
+        tenant_id=tenant_id,
+        run_token=run_token,
+        generation_name=f"token.v1:{run_token.hex}",
+        lease_owner="reviewed-worker",
+        lease_expires_at=checked_at + timedelta(minutes=15),
+        config_schema_version=assembler.config.schema_version,
+        config_json=config_payload,
+        config_fingerprint=assembler.config.config_fingerprint,
+        parity_report_sha256=parity_report_hash,
+        parity_config_fingerprint=assembler.config.config_fingerprint,
+        parity_probe_fixture_sha256="sha256:" + "4" * 64,
+        parity_submitted_content_sha256="sha256:" + "5" * 64,
+        parity_captured_at=checked_at - timedelta(minutes=5),
+        parity_expires_at=checked_at + timedelta(hours=23, minutes=55),
+        source_manifest_revision_id=manifest.id,
+        source_manifest_revision=manifest.revision,
+        source_manifest_hash=manifest.manifest_hash,
+        source_active_corpus_version_id=source.id,
+        source_rollout_epoch=rollout.rollout_epoch,
+        expected_evidence_rollout_version=11,
+    )
+    service = PolicyReindexService(session)
+    claimed = await service.claim_from_descriptor(descriptor, now=checked_at)
+    building = await service.resume(claimed, now=checked_at)
+    await session.commit()
+
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=artifact_root)
+    write_policy_reindex_state_create_only(claimed, descriptor=descriptor, root=artifact_root)
+    write_policy_reindex_state_create_only(building, descriptor=descriptor, root=artifact_root)
+    budget = build_policy_candidate_build_budget(
+        descriptor=descriptor,
+        ordered_doc_keys=building.ordered_doc_keys,
+        created_at=checked_at,
+    )
+    write_policy_candidate_build_budget_create_only(budget, descriptor=descriptor, root=artifact_root)
+    parity_path = artifact_root / "parity-report.json"
+    parity_path.write_bytes(parity_payload)
+    return descriptor, building, assembler, parity_path
+
+
+@pytest.mark.asyncio
+async def test_copied_reviewed_projection_without_db_row_stops_before_provider(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor, _, _, _ = await _seed_descriptor_bound_reviewed_candidate(session, artifact_root=tmp_path)
+    tenant_id = descriptor.tenant_id
+    run_token = descriptor.run_token
+    authority_id = uuid4()
+    copied_projection_path = (
+        tmp_path / "tenants" / str(tenant_id) / "runs" / str(run_token) / "provider-authority.v2.json"
+    )
+    copied_projection_path.write_text(
+        json.dumps({"schema_version": "provider_execution_authority_projection.v2", "authority_id": str(authority_id)}),
+        encoding="utf-8",
+    )
+
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
+    provider_calls = 0
+
+    class AuthorityService:
+        async def require_current_promotion(self):
+            return None
+
+        async def reserve_and_commit(self, request):
+            raise AssertionError(request)
+
+        async def reconcile_projection(self, **kwargs):
+            raise AssertionError(kwargs)
+
+    class ProviderForbidden:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("copied projection must not authorize provider construction")
+
+    monkeypatch.setattr(
+        reindex_cli,
+        "_provider_execution_authority_service",
+        lambda: AuthorityService(),
+        raising=False,
+    )
+    monkeypatch.setattr(reindex_cli, "EmbeddingService", ProviderForbidden)
+    args = _reviewed_args(tmp_path, descriptor=descriptor)
+    args.authority_id = authority_id
+    args.ordinal = 1
+
+    with pytest.raises(PolicyReindexError) as exc_info:
+        await reindex_cli._build_next_reviewed(args)
+
+    assert exc_info.value.code is PolicyReindexFailureCode.AUTHORITY_UNAVAILABLE
+    assert provider_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_issue_provider_authority_derives_root_then_projects_committed_db_truth(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor, owner, _, parity_path = await _seed_descriptor_bound_reviewed_candidate(
+        session,
+        artifact_root=tmp_path,
+    )
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
+    parity_run_id = uuid4()
+
+    def require_parity(path: Path, **kwargs):
+        assert path == parity_path
+        assert kwargs["expected_probe_fixture_sha256"] == descriptor.parity_probe_fixture_sha256
+        assert kwargs["expected_submitted_content_sha256"] == descriptor.parity_submitted_content_sha256
+        return SimpleNamespace(
+            run_id=parity_run_id,
+            captured_at=descriptor.parity_captured_at,
+            probe_fixture_sha256=descriptor.parity_probe_fixture_sha256,
+            submitted_content_sha256=descriptor.parity_submitted_content_sha256,
+        )
+
+    monkeypatch.setattr(reindex_cli, "require_fresh_provider_parity", require_parity)
+    expected_authority_id = uuid4()
+    events: list[str] = []
+
+    class AuthorityService:
+        async def issue_authority_root(self, request):
+            assert request.candidate_id == owner.corpus_version_id
+            assert request.run_token == owner.run_token
+            assert request.provider_parity_run_id == parity_run_id
+            assert request.expires_at == min(owner.parity_expires_at, owner.lease_expires_at)
+            assert "purpose" not in request.model_dump()
+            assert "request_envelope" not in request.model_dump()
+            events.append("authority_committed")
+            return SimpleNamespace(authority_id=expected_authority_id)
+
+        async def reconcile_projection(self, *, authority_id: UUID, projection_path: Path):
+            assert events == ["authority_committed"]
+            assert authority_id == expected_authority_id
+            assert projection_path.name == reindex_cli.REVIEWED_AUTHORITY_PROJECTION_FILENAME
+            events.append("projection")
+            return SimpleNamespace(
+                projection_path=projection_path,
+                projection_sha256="sha256:" + "9" * 64,
+            )
+
+    class ProviderForbidden:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("authority issuance must perform no provider work")
+
+    monkeypatch.setattr(reindex_cli, "_provider_execution_authority_service", lambda: AuthorityService())
+    monkeypatch.setattr(reindex_cli, "EmbeddingService", ProviderForbidden)
+    args = _reviewed_args(tmp_path, descriptor=descriptor)
+    args.parity_report = parity_path
+
+    issued, projection = await reindex_cli._issue_provider_authority(args)
+
+    assert issued.authority_id == expected_authority_id
+    assert projection.projection_path.name == reindex_cli.REVIEWED_AUTHORITY_PROJECTION_FILENAME
+    assert events == ["authority_committed", "projection"]
 
 
 @pytest.mark.asyncio
