@@ -23894,3 +23894,14 @@ SC-64.4-5/6要求完成隔离可回滚reindex、versioned A/B non-regression sel
 
 **已做处理 / 剩余入口**
 已把Plan17 SUMMARY修正为 `requirements-completed: []`，并在正文明确未完成证据；ROADMAP只把Plan17标为已处理的expired checkpoint，STATE/autopilot标blocked。未修改代码、测试、live artifact、DB或requirement勾选；Plans18-20仍禁止执行。
+
+## 2026-08-12 — Phase 64.4 CR-01 canonical candidate root RED 与共享测试库并发冲突
+
+**问题现象 / 如何检测**
+最小 adversarial RED 使用 copied candidate tree 与指向 canonical tree 的 symlink 调用 `build-next-reviewed`，旧实现均继续进入 descriptor loader，实际返回 `descriptor_invalid` 而不是入口级 `reviewed_artifact_root_invalid`。修复后该纯文件系统测试为 `1 passed`，reservation/provider 计数均为 0。随后扩大相邻 PostgreSQL tests 时，fixture 的 `drop_all/create_all` 与另一测试进程并发，出现 DDL deadlock、`pg_type_typname_nsp_index` 重复和依赖对象未清理错误。
+
+**关键证据 / 当前判断 / 根因**
+有效命令为 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`。最小 RED 精确证明 caller-selected artifact namespace 可绕过 canonical budget root；共享库错误栈位于 `tests/conftest.py` schema setup，并显示不同 PostgreSQL backend PID 互相持锁，属于并发测试进程共享同一 schema，不是 CR-01 代码语义或 Python 环境错误。全程未构造 provider、未预留 ordinal、未访问 live DB/artifact。
+
+**已做处理 / 剩余入口**
+新增 repository-owned canonical candidate root，CLI 只能提交与其逐路径一致且无 symlink component 的根；临时 root 仅能通过 argparse 不会生成的测试内部属性注入。后续数据库 gate 串行重跑；若仍遇共享 schema 并发，保留环境失败并等待其他进程退出，不把它误判为代码回归。

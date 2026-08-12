@@ -2773,3 +2773,12 @@
 - **处理状态**：⚠️ deterministic修复与过期拒绝已验证，live closeout停在安全checkpoint。未调用production `issue-recovery-budget`，只读 loader没有写入能力；manifest absent，candidate build attempts/results `0/0`，A-B reservations/runs added/selections/authorizations/activations均为0，provider调用为0。candidate与active pointer/history/current view/evidence rollout无变化。
 - **证据**：UTC `2026-08-12T04:14:12Z`；safe code `recovery_authority_expired`；descriptor/v1/v2/build-manifest SHA依次仍为 `0c1734…82a`、`7e0dc9…d7dd`、`66ea0d…f84`、`23e5ea…4a8`；candidate `64932871…151f`仍 `building/v2/index0`、projection `0/0/0`；active `55d651e5…e007`、epoch/history `4/4`、current `3/158/13`、jobs `4`、evidence rollout `1`，read-only proof `sha256:dbefab2e86a5b8cd44a24ab1ed0f48a8f858534f78e6b10f18b2850d21051a0b` 前后相同。
 - **剩余风险 / 继续入口**：当前授权边界禁止Plan18继续。下一步必须由orchestrator依据已冻结Plans18-20与用户新授权裁决如何结束phase；本Plan17不得续租、rebind、生成第二candidate或追加Plan21。
+
+## 2026-08-12 — Phase 64.4 CR-01 — reviewed candidate budget 可被复制 artifact root 重置 ✅已修复验证
+
+- **子系统**：RAG policy candidate rebuild / provider execution budget authority。
+- **问题现象 / 根因**：`claim-reviewed`、`recover-state`、`build-next-reviewed`、`validate-reviewed` 原先把 caller 的 `--artifact-root` 同时当作 descriptor/state/budget/reservation authority；完整复制自洽目录即可获得新的 per-document ordinal namespace，重置最多两次 provider execution 的安全边界。
+- **影响**：allowlisted transient/unavailable 或 provider 后 crash 可通过重复复制目录无限重新 reserve，并在同一 DB candidate 上反复构造 provider，机器预算不再可强制。
+- **处理状态**：✅ 已修复验证。production reviewed 入口先从 resolved repository root 推导唯一 `evaluation/reports/rag_token_chunk_ab/v1/candidates`，要求 caller 路径逐字归一后等于 canonical root，并拒绝 root 到 repository boundary 的任何 symlink component；拒绝发生在 descriptor/state/budget load、reservation 与 provider factory 之前。临时 canonical root 只保留为 argparse 不可选择的测试内部注入。
+- **证据**：Phase64.4 review CR-01；`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`；copied-tree 与 symlink-root adversarial gate `1 passed`，reservation/provider 均为 0，Ruff scoped check通过。
+- **剩余风险 / 继续入口**：尚未执行 live candidate/provider，也不得用本 deterministic 修复恢复已过期 authority；Plans18-20 仍未执行。共享 PostgreSQL schema 的并发 fixture 冲突另记 `LOCAL-VALIDATION-ISSUES.md`，不作为本安全边界失败。

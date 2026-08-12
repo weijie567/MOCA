@@ -7,6 +7,7 @@ import json
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+import shutil
 from uuid import UUID, uuid4
 
 import pytest
@@ -236,7 +237,45 @@ def _reviewed_args(root: Path, *, descriptor) -> Namespace:
         artifact_root=root,
         tenant_id=descriptor.tenant_id,
         run_token=descriptor.run_token,
+        _reviewed_root_for_testing=root,
     )
+
+
+@pytest.mark.asyncio
+async def test_reviewed_build_rejects_copied_and_symlink_roots_before_budget_or_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canonical_root = tmp_path / "repository" / "evaluation" / "reports" / "rag_token_chunk_ab" / "v1" / "candidates"
+    canonical_root.mkdir(parents=True)
+    (canonical_root / "complete-tree-marker.json").write_text("{}\n", encoding="utf-8")
+    copied_root = tmp_path / "copied-candidates"
+    shutil.copytree(canonical_root, copied_root)
+    symlink_root = tmp_path / "symlinked-candidates"
+    symlink_root.symlink_to(canonical_root, target_is_directory=True)
+    calls = {"reservation": 0, "provider": 0}
+
+    def reservation_forbidden(*_args: object, **_kwargs: object) -> None:
+        calls["reservation"] += 1
+
+    class ProviderForbidden:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            calls["provider"] += 1
+
+    monkeypatch.setattr(reindex_cli, "REPOSITORY_ROOT", tmp_path / "repository")
+    monkeypatch.setattr(reindex_cli, "reserve_candidate_build_attempt", reservation_forbidden)
+    monkeypatch.setattr(reindex_cli, "EmbeddingService", ProviderForbidden)
+
+    for rejected_root in (copied_root, symlink_root):
+        args = Namespace(
+            artifact_root=rejected_root,
+            tenant_id=uuid4(),
+            run_token=uuid4(),
+        )
+        with pytest.raises(RuntimeError, match="reviewed_artifact_root_invalid"):
+            await reindex_cli._build_next_reviewed(args)
+
+    assert calls == {"reservation": 0, "provider": 0}
 
 
 def _identity_for_descriptor(descriptor, **changes: object) -> PolicyReindexRunIdentity:

@@ -6,6 +6,7 @@ from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -61,6 +62,7 @@ from src.repositories.policy_corpus_repo import PolicyCorpusRepository
 
 DEFAULT_ACTIVATION_ROOT = Path("evaluation/reports/rag_token_chunk_ab/v1/activations")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+REVIEWED_CANDIDATE_RELATIVE_ROOT = Path("evaluation/reports/rag_token_chunk_ab/v1/candidates")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -142,6 +144,36 @@ def _add_reviewed_identity_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run-token", type=UUID, required=True)
 
 
+def _require_canonical_reviewed_root(args: argparse.Namespace) -> Path:
+    """Resolve reviewed artifacts from repository authority, never caller authority."""
+
+    # Tests may inject a temporary canonical root through an attribute argparse
+    # never creates. Production callers can only submit ``--artifact-root`` and
+    # must match the repository-owned namespace exactly.
+    injected = getattr(args, "_reviewed_root_for_testing", None)
+    canonical = (
+        Path(injected).resolve() if injected is not None else (REPOSITORY_ROOT / REVIEWED_CANDIDATE_RELATIVE_ROOT)
+    )
+    canonical = canonical.resolve(strict=False)
+    requested = Path(os.path.abspath(args.artifact_root))
+    if requested != canonical:
+        raise RuntimeError("reviewed_artifact_root_invalid")
+
+    boundary = Path(injected).resolve(strict=False) if injected is not None else REPOSITORY_ROOT.resolve(strict=False)
+    current = requested
+    while True:
+        if current.is_symlink():
+            raise RuntimeError("reviewed_artifact_root_invalid")
+        if current == boundary:
+            break
+        if current == current.parent or boundary not in current.parents:
+            raise RuntimeError("reviewed_artifact_root_invalid")
+        current = current.parent
+
+    args.artifact_root = canonical
+    return canonical
+
+
 async def _claim(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     now = datetime.now(UTC)
     config = load_embedding_tokenizer_config()
@@ -191,6 +223,7 @@ async def _claim(args: argparse.Namespace) -> PolicyReindexRunIdentity:
 
 
 async def _seal_descriptor(args: argparse.Namespace):
+    artifact_root = _require_canonical_reviewed_root(args)
     now = datetime.now(UTC)
     if type(args.lease_minutes) is not int or not 0 < args.lease_minutes <= 120:
         raise RuntimeError("descriptor_lease_window_invalid")
@@ -236,16 +269,17 @@ async def _seal_descriptor(args: argparse.Namespace):
         source_rollout_epoch=rollout.rollout_epoch,
         expected_evidence_rollout_version=evidence_rollout.rollout_version,
     )
-    return write_policy_reindex_recovery_descriptor_create_only(descriptor, root=args.artifact_root)
+    return write_policy_reindex_recovery_descriptor_create_only(descriptor, root=artifact_root)
 
 
 def _reviewed_descriptor(args: argparse.Namespace):
+    artifact_root = _require_canonical_reviewed_root(args)
     path = policy_reindex_descriptor_path(
-        args.artifact_root,
+        artifact_root,
         tenant_id=args.tenant_id,
         run_token=args.run_token,
     )
-    return load_policy_reindex_recovery_descriptor(path, root=args.artifact_root)
+    return load_policy_reindex_recovery_descriptor(path, root=artifact_root)
 
 
 def _ensure_reviewed_budget(args: argparse.Namespace, *, descriptor, owner):
