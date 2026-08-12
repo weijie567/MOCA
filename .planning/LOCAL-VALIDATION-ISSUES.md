@@ -23904,4 +23904,4 @@ SC-64.4-5/6要求完成隔离可回滚reindex、versioned A/B non-regression sel
 有效命令为 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`。最小 RED 精确证明 caller-selected artifact namespace 可绕过 canonical budget root；共享库错误栈位于 `tests/conftest.py` schema setup，并显示不同 PostgreSQL backend PID 互相持锁，属于并发测试进程共享同一 schema，不是 CR-01 代码语义或 Python 环境错误。全程未构造 provider、未预留 ordinal、未访问 live DB/artifact。
 
 **已做处理 / 剩余入口**
-新增 repository-owned canonical candidate root，CLI 只能提交与其逐路径一致且无 symlink component 的根；临时 root 仅能通过 argparse 不会生成的测试内部属性注入。后续数据库 gate 串行重跑；若仍遇共享 schema 并发，保留环境失败并等待其他进程退出，不把它误判为代码回归。
+新增 repository-owned canonical candidate root，CLI 只能提交与其逐路径一致且无 symlink component 的根；临时 root 仅能通过 argparse 不会生成的测试内部属性注入。orchestrator 同期启动的 pre-fix full suite 因同一共享 schema 并发出现 `3 failed / 4 errors` 后被主动中止，完整 traceback 未作为结论，该 suite 结果无效。其他测试进程退出后独占运行 `make format`、完整 `make lint` 及六文件 focused union，结果 lint PASS、`63 passed, 7 warnings`；没有再出现 DDL 冲突。code-fixer 未重复运行完整 pytest，留给 orchestrator 在本报告完成后独占执行；不得把此前被中止的 `3F/4E` 当作 full-suite 结果。
