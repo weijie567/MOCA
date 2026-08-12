@@ -67,6 +67,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _assert_downgrade_safe()
     _drop_append_only_guards()
     op.drop_table("activation_receipt_lineages")
     op.drop_constraint(
@@ -82,6 +83,22 @@ def downgrade() -> None:
         "uq_policy_corpus_versions_tenant_run_token",
         table_name="policy_corpus_versions",
     )
+
+
+def _assert_downgrade_safe() -> None:
+    bind = op.get_bind()
+    bind.execute(sa.text("LOCK TABLE " + ", ".join(_AUTHORITY_TABLES) + " IN ACCESS EXCLUSIVE MODE"))
+    any_rows_exist = bool(
+        bind.execute(
+            sa.text(
+                "SELECT EXISTS ("
+                + " UNION ALL ".join(f"SELECT 1 FROM {table_name}" for table_name in _AUTHORITY_TABLES)
+                + ")"
+            )
+        ).scalar_one()
+    )
+    if any_rows_exist:
+        raise RuntimeError("refusing downgrade: provider execution authority rows exist")
 
 
 def _create_promotion_table() -> None:
