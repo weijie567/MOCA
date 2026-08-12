@@ -24095,6 +24095,17 @@ Plan04 最小 envelope 测试最初只按两角色、三格式、18 个原始问
 **已做处理 / 剩余入口**
 不通过禁用 rewrite 改变检索语义；将 Plan04/07、VALIDATION、RESEARCH、review decision 与 Autopilot 证据同步为 source-derived 126，并要求 envelope 记录 original/rewrite provenance、顺序、query hash 与 exact ingestion batches。原 108 GREEN 明确作废，必须由能在旧实现下失败的新测试重新 RED→GREEN。未增加 plan、provider 尝试或 live 操作。
 
+## 2026-08-13 — Phase 64.5 Plan04 SUMMARY 自检误用 zsh 特殊变量 `path`
+
+**问题现象 / 如何检测**
+Plan04 写 SUMMARY 后的首次自检脚本在 zsh 循环中使用变量名 `path`，覆盖了 zsh 与 `PATH` 绑定的特殊数组，导致同一子 shell 后续 `git`、`rg` 等命令显示 `command not found`。
+
+**关键证据 / 当前判断 / 根因**
+失败发生在 docs 自检脚本，不是仓库实现、测试、数据库或 provider 失败；子 shell 退出后工作区环境正常，源码与既定 gate 未受影响。根因与项目规则已警告的 shell 系统变量复用一致。
+
+**已做处理 / 剩余入口**
+改用非特殊变量名并以显式命令重跑，SUMMARY self-check PASS，worktree clean；Plan04 最终仍以 format、full lint、102 scoped tests GREEN 为有效证据。后续 zsh 脚本禁止使用 `path`/`PATH`/`home` 等系统或特殊变量名。
+
 ## 2026-08-13 — Phase 64.5 Plan 01 新 worktree 未安装 dev extra 导致 pytest 命中系统 Python 3.9
 
 **问题现象 / 如何检测**
