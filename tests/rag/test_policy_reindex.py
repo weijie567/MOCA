@@ -274,6 +274,44 @@ def _reviewed_args(root: Path, *, descriptor) -> Namespace:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("request_form", ["lexical", "resolved"])
+async def test_production_reviewed_root_symlink_never_authorizes_copied_tree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    request_form: str,
+) -> None:
+    repository_root = tmp_path / "repository"
+    expected_root = repository_root / reindex_cli.REVIEWED_CANDIDATE_RELATIVE_ROOT
+    copied_root = repository_root / "copied-candidates"
+    tenant_id = uuid4()
+    run_token = uuid4()
+    copied_run = copied_root / "tenants" / str(tenant_id) / "runs" / str(run_token)
+    copied_run.mkdir(parents=True)
+    (copied_run / "descriptor.json").write_text('{"copied":"pre-attempt-tree"}\n', encoding="utf-8")
+    expected_root.parent.mkdir(parents=True)
+    expected_root.symlink_to(copied_root, target_is_directory=True)
+    calls = {"reservation": 0, "provider": 0}
+
+    def reservation_forbidden(*_args: object, **_kwargs: object) -> None:
+        calls["reservation"] += 1
+
+    class ProviderForbidden:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            calls["provider"] += 1
+
+    monkeypatch.setattr(reindex_cli, "REPOSITORY_ROOT", repository_root)
+    monkeypatch.setattr(reindex_cli, "reserve_candidate_build_attempt", reservation_forbidden)
+    monkeypatch.setattr(reindex_cli, "EmbeddingService", ProviderForbidden)
+    requested = expected_root if request_form == "lexical" else copied_root
+    args = Namespace(artifact_root=requested, tenant_id=tenant_id, run_token=run_token)
+
+    with pytest.raises(RuntimeError, match="reviewed_artifact_root_invalid"):
+        await reindex_cli._build_next_reviewed(args)
+
+    assert calls == {"reservation": 0, "provider": 0}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("symlink_level", ["tenants", "tenant", "runs", "run"])
 async def test_reviewed_build_rejects_descendant_symlink_before_budget_or_provider(
     tmp_path: Path,

@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 from typing import Any, Awaitable, Callable
 from uuid import UUID, uuid4
 
@@ -152,33 +153,47 @@ def _add_reviewed_identity_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _require_canonical_reviewed_root(args: argparse.Namespace) -> Path:
-    """Resolve reviewed artifacts from repository authority, never caller authority."""
+    """Establish reviewed artifact authority without resolving production identity."""
 
     # Tests may inject a temporary canonical root through an attribute argparse
     # never creates. Production callers can only submit ``--artifact-root`` and
     # must match the repository-owned namespace exactly.
     injected = getattr(args, "_reviewed_root_for_testing", None)
-    canonical = (
-        Path(injected).resolve() if injected is not None else (REPOSITORY_ROOT / REVIEWED_CANDIDATE_RELATIVE_ROOT)
-    )
-    canonical = canonical.resolve(strict=False)
     requested = Path(os.path.abspath(args.artifact_root))
+    if injected is not None:
+        injected_lexical = Path(os.path.abspath(injected))
+        if requested != injected_lexical:
+            raise RuntimeError("reviewed_artifact_root_invalid")
+        try:
+            canonical = Path(injected).resolve(strict=True)
+        except OSError:
+            raise RuntimeError("reviewed_artifact_root_invalid") from None
+        _require_real_directory_ancestors(canonical)
+        args.artifact_root = canonical
+        return canonical
+
+    canonical = Path(os.path.abspath(REPOSITORY_ROOT / REVIEWED_CANDIDATE_RELATIVE_ROOT))
+    _require_real_directory_ancestors(canonical)
     if requested != canonical:
         raise RuntimeError("reviewed_artifact_root_invalid")
-
-    boundary = Path(injected).resolve(strict=False) if injected is not None else REPOSITORY_ROOT.resolve(strict=False)
-    current = requested
-    while True:
-        if current.is_symlink():
-            raise RuntimeError("reviewed_artifact_root_invalid")
-        if current == boundary:
-            break
-        if current == current.parent or boundary not in current.parents:
-            raise RuntimeError("reviewed_artifact_root_invalid")
-        current = current.parent
-
     args.artifact_root = canonical
     return canonical
+
+
+def _require_real_directory_ancestors(path: Path) -> None:
+    """Reject every lexical symlink/non-directory before secure namespace I/O."""
+
+    current = path
+    while True:
+        try:
+            metadata = os.lstat(current)
+        except OSError:
+            raise RuntimeError("reviewed_artifact_root_invalid") from None
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise RuntimeError("reviewed_artifact_root_invalid")
+        if current == current.parent:
+            break
+        current = current.parent
 
 
 def _utc_now() -> datetime:

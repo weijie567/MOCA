@@ -23982,3 +23982,14 @@ secure publish先pin nested parent fd，却用另一轮lexical reopen做existenc
 
 **已做处理 / 剩余入口**
 existence与create-only link现在共用同一parent fd；所有打开的artifact directory identity会在命令生命周期内pin并复核。publish后从pinned run fd逐级no-follow reopen exact parent、比较inode、strict比对bytes；若canonical为稳定真实目录则recovery-link同一staging inode、fsync、用新pinned namespace strict-load后仍拒绝本次命令，确保provider=0且ordinal已消费；symlink/持续漂移则不follow、不写入并fail closed。pure artifact文件`26 passed, 1 warning`，DB integration两种替换`2 passed, 1 warning`，均证明provider=0且candidate保持`building/v2/index0`。最终`make format`与全量`make lint` PASS，artifact/reindex focused两文件`69 passed, 1 warning`。orchestrator在fix前独占full suite最终`4883 passed, 4 skipped`，与此前并发schema缺表结果明确区分；本fix后仍由orchestrator重跑最终独占全量。
+
+## 2026-08-12 — Phase 64.4 review-fix iteration 4 — production canonical root被resolve后可改写authority identity
+
+**问题现象 / 如何检测**
+production预期`evaluation/reports/rag_token_chunk_ab/v1/candidates`若是指向仓库内部copy的稳定symlink，旧root gate先`resolve()`预期路径，再与caller比较。最小两case测试中，caller传lexical symlink时原本拒绝，但传resolved copied target时root gate通过并继续读取copy，最终只因测试descriptor简化而报`descriptor_invalid`；RED为`1 failed, 1 passed`，证明拒绝发生得太晚且canonical identity已被重定义。
+
+**关键证据 / 当前判断 / 根因**
+production canonical由repository-relative lexical path定义，不应由filesystem target反向定义。旧实现把expected path与测试injection共同走`resolve(strict=False)`，随后symlink scan也从resolved target开始，因此永远看不到expected candidates component本身的symlink。该缺陷在reservation/provider之前即可纯CLI复现，不需要DB或真实provider。
+
+**已做处理 / 剩余入口**
+production branch现以`abspath(REPOSITORY_ROOT / REVIEWED_CANDIDATE_RELATIVE_ROOT)`保留lexical identity，对expected path及全部ancestor逐级`lstat`并要求真实directory，再与caller的lexical `abspath`精确比较，全程不resolve。argparse不可达的temp test injection使用显式独立分支才允许resolve。lexical symlink与resolved target两case均在root gate拒绝，reservation/provider均为0；连同既有四层descendant coverage为`6 passed, 1 warning`。按orchestrator要求，full suite运行期间未运行DB tests；独占full suite最终`4887 passed, 4 skipped`后再串行运行artifact/reindex focused两文件，结果`71 passed, 1 warning in 64.46s`。`make format`与全量`make lint`均PASS；本fixer未触碰live DB/provider/artifact。

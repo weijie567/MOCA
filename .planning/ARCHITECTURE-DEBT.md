@@ -2872,3 +2872,12 @@
 - **处理状态**：✅ 已修复验证。nested directory identity现按relative chain pin `(st_dev, st_ino)`并在I/O间复核；existence/link共用parent fd；post-link从run fd no-follow reopen exact chain。稳定真实替换目录可recovery-link同一reservation到canonical ordinal、用新pinned namespace strict-load并拒绝本次provider，symlink/持续漂移不follow且fail closed。
 - **证据**：Phase64.4 review iteration 3 CR-01；`src/rag/policy_reindex_artifacts.py`与两份artifact/reindex tests；pure artifact `26 passed, 1 warning`；stable directory与unsafe symlink DB integration `2 passed, 1 warning`，provider factory均为0且candidate保持`building/v2/index0`。fix前独占full suite `4883 passed, 4 skipped`。
 - **剩余风险 / 继续入口**：focused artifact/reindex gate `69 passed, 1 warning`；最终fix后独占full suite由orchestrator重跑。未触碰live provider/DB/artifact，Plans18-20未执行。
+
+## 2026-08-12 — Phase 64.4 review iteration 4 — resolve可将production canonical root改写为copy target ✅已修复验证
+
+- **子系统**：RAG reviewed reindex artifact root authority。
+- **问题现象 / 根因**：repository-defined candidates lexical path先被`resolve()`，稳定symlink因此把canonical identity改写成仓库内copy target；caller提交resolved target可通过root equality与后续resolved-chain检查。
+- **影响**：self-consistent copy可遗漏既有attempts并重置provider execution budget，绕过每文档最多两次的artifact authority。
+- **处理状态**：✅ 已修复验证。production现固定lexical `abspath`，逐级`lstat` expected component/ancestors并拒绝symlink/non-directory，再做caller lexical equality；只有argparse不可达test injection走独立resolve分支。
+- **证据**：Phase64.4 review iteration 4 CR-01；`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`；最小RED `1 failed, 1 passed`，纯CLI GREEN与既有descendant tests合计`6 passed, 1 warning`；artifact/reindex focused `71 passed, 1 warning`；fix前独占full suite `4887 passed, 4 skipped`。
+- **剩余风险 / 继续入口**：fix后最终独占full suite由orchestrator重跑。未运行live provider/DB/artifact，Plans18-20未执行。
