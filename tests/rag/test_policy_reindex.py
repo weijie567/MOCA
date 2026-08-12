@@ -8,6 +8,7 @@ from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 import shutil
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -191,6 +192,31 @@ def _claim_request(
     )
 
 
+@pytest.mark.asyncio
+async def test_direct_claim_rejects_initial_parity_at_exact_expiry_without_candidate_row(
+    session: AsyncSession,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout = await _seed_source_authority(session)
+    request = _claim_request(
+        tenant_id=tenant_id,
+        manifest=manifest,
+        source=source,
+        rollout=rollout,
+        lease_expires_at=NOW + timedelta(hours=1),
+    )
+    request = replace(
+        request,
+        parity=replace(request.parity, captured_at=NOW - timedelta(hours=24)),
+    )
+
+    with pytest.raises(PolicyReindexError) as exc_info:
+        await PolicyReindexService(session).claim(request, now=NOW)
+
+    assert exc_info.value.code is PolicyReindexFailureCode.INVALID_CLAIM
+    assert await session.scalar(select(func.count()).select_from(PolicyCorpusVersion)) == 1
+
+
 def _reviewed_descriptor(
     *,
     tenant_id: UUID,
@@ -293,6 +319,102 @@ async def test_reviewed_build_rejects_descendant_symlink_before_budget_or_provid
         await reindex_cli._build_next_reviewed(args)
 
     assert calls == {"reservation": 0, "provider": 0}
+
+
+@pytest.mark.asyncio
+async def test_ordinary_claim_rejects_initial_parity_at_exact_expiry_without_candidate_row(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, _manifest, _source, _rollout = await _seed_source_authority(session)
+    await session.commit()
+    config = reindex_cli.load_embedding_tokenizer_config()
+    parity_path = tmp_path / "parity.json"
+    parity_path.write_bytes(b"exact-expiry-parity")
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+    class FixedDateTime:
+        @classmethod
+        def now(cls, _timezone: object) -> datetime:
+            return NOW
+
+    monkeypatch.setattr(reindex_cli, "datetime", FixedDateTime)
+    monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
+    monkeypatch.setattr(
+        reindex_cli,
+        "require_fresh_provider_parity",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            config_fingerprint=config.config_fingerprint,
+            captured_at=NOW - timedelta(hours=24),
+        ),
+    )
+    args = Namespace(
+        tenant_id=tenant_id,
+        run_token=uuid4(),
+        lease_owner="ordinary-worker",
+        lease_minutes=30,
+        parity_report=parity_path,
+        probe_fixture_hash="sha256:" + "4" * 64,
+        submitted_content_hash="sha256:" + "5" * 64,
+    )
+
+    with pytest.raises(PolicyReindexError) as exc_info:
+        await reindex_cli._claim(args)
+
+    assert exc_info.value.code is PolicyReindexFailureCode.INVALID_CLAIM
+    async with session_factory() as verifier:
+        assert await verifier.scalar(select(func.count()).select_from(PolicyCorpusVersion)) == 1
+
+
+@pytest.mark.asyncio
+async def test_reviewed_claim_rejects_initial_parity_at_exact_expiry_without_row_or_v1(
+    session: AsyncSession,
+    test_engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed_evidence_rollout(session)
+    tenant_id, manifest, source, rollout = await _seed_source_authority(session)
+    parity_expires_at = NOW + timedelta(hours=1)
+    descriptor = _reviewed_descriptor(
+        tenant_id=tenant_id,
+        manifest=manifest,
+        source=source,
+        rollout=rollout,
+        sealed_at=NOW,
+        lease_expires_at=NOW + timedelta(hours=2),
+        parity_expires_at=parity_expires_at,
+    )
+    write_policy_reindex_recovery_descriptor_create_only(descriptor, root=tmp_path)
+    await session.commit()
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
+    monkeypatch.setattr(reindex_cli, "_utc_now", lambda: parity_expires_at)
+    original_claim = PolicyReindexService.claim_from_descriptor
+
+    async def claim_at_equality(self, sealed_descriptor, *, now=None):
+        return await original_claim(
+            self,
+            sealed_descriptor,
+            now=parity_expires_at if now is None else now,
+        )
+
+    monkeypatch.setattr(PolicyReindexService, "claim_from_descriptor", claim_at_equality)
+
+    with pytest.raises((PolicyReindexError, RuntimeError)):
+        await reindex_cli._claim_reviewed(_reviewed_args(tmp_path, descriptor=descriptor))
+
+    assert not policy_reindex_state_path(
+        tmp_path,
+        tenant_id=tenant_id,
+        run_token=descriptor.run_token,
+        state_version=1,
+    ).exists()
+    async with session_factory() as verifier:
+        assert await verifier.scalar(select(func.count()).select_from(PolicyCorpusVersion)) == 1
 
 
 def _identity_for_descriptor(descriptor, **changes: object) -> PolicyReindexRunIdentity:
@@ -951,7 +1073,8 @@ async def test_reviewed_claim_expiry_between_transactions_stops_before_resume_v2
     await session.commit()
     session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(reindex_cli, "SessionLocal", session_factory)
-    monkeypatch.setattr(reindex_cli, "_utc_now", lambda: descriptor.lease_expires_at)
+    authority_checks = iter((checked_at, descriptor.lease_expires_at))
+    monkeypatch.setattr(reindex_cli, "_utc_now", lambda: next(authority_checks))
     resume_calls = 0
     original_resume = PolicyReindexService.resume
 

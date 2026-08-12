@@ -1247,7 +1247,7 @@ class PolicyReindexService:
             or request.parity.status != "passed"
             or parity_maximum_age <= timedelta(0)
             or captured_at > now
-            or now - captured_at > parity_maximum_age
+            or now - captured_at >= parity_maximum_age
             or lease_expires_at <= now
         ):
             _fail(PolicyReindexFailureCode.INVALID_CLAIM)

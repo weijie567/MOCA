@@ -2827,3 +2827,12 @@
 - **处理状态**：✅ 已修复验证。reviewed command 全生命周期固定 canonical root 与 exact run dirfd，以 `O_NOFOLLOW` 逐级解析四个 descendant，所有 artifact I/O 改为相对该句柄的 no-follow read/list/create-only publish；每次 I/O 及 reservation 后/provider construction 前重新打开 canonical chain并核对 exact run inode。临时 root仍只能通过 argparse 不可达的测试内部属性注入。
 - **证据**：Phase64.4 review iteration 2 CR-01；`src/rag/policy_reindex_artifacts.py`、`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`、`tests/rag/test_policy_reindex_artifacts.py`；四级 descendant symlink加 open 后 exact-run substitution gate `5 passed, 1 warning`，reservation/provider均为0。
 - **剩余风险 / 继续入口**：这是本地 POSIX dirfd/no-follow deterministic gate，不替代真实 power-loss演练；未读取或修改 repository live candidate、未调用 provider/新建 lease/candidate，Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 review iteration 2 WR-01 — initial parity/claim expiry equality仍可授权 ✅已修复验证
+
+- **子系统**：RAG tokenizer provider parity / policy reindex initial claim authority。
+- **问题现象 / 根因**：`require_fresh_provider_parity` 与 `PolicyReindexService._validate_claim` 均以 `>` 判断 age；current/age恰等于 expiry/maximum age 时仍视为 fresh。ordinary CLI 使用该结果继续 claim，reviewed claim也未在 transaction A 前固定 current UTC。
+- **影响**：已到绝对 expiry 的 provider parity可创建 ordinary/reviewed candidate；reviewed路径还可能发布 canonical v1，形成不应存在的恢复证据。
+- **处理状态**：✅ 已修复验证。loader与 service claim统一使用 `>=`拒绝；ordinary/reviewed入口各自捕获内部 current UTC并传入 service，reviewed在 initial DB transaction及v1前强制 lease/parity严格未到期。direct/ordinary/reviewed equality均证明无新增 candidate row，reviewed无v1。
+- **证据**：Phase64.4 review iteration 2 WR-01；`src/rag/tokenizer_parity.py`、`src/rag/policy_reindex.py`、`scripts/reindex_policies.py`、对应两份 tests；最小 RED `4 failed`、GREEN `4 passed`、完整两文件 gate `51 passed, 1 warning`。
+- **剩余风险 / 继续入口**：没有改变24小时 parity window、lease期限或 provider配置；未触碰 live DB/artifact，Plans18-20 仍未执行。

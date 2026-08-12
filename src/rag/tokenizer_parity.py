@@ -296,7 +296,7 @@ def require_fresh_provider_parity(
     age = checked_at.astimezone(UTC) - report.captured_at.astimezone(UTC)
     if age < timedelta(0):
         _fail(ParityFailureCode.CAPTURE_TIME_INVALID)
-    if age > maximum_age:
+    if age >= maximum_age:
         _fail(ParityFailureCode.STALE)
     if report.provider_parity_status is not ProviderParityStatus.PASSED:
         _fail(ParityFailureCode.PASSED_REQUIRED)

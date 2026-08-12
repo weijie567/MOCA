@@ -235,6 +235,24 @@ def test_fresh_gate_rejects_unavailable_quarantined_stale_and_identity_drift(tmp
     assert exc_info.value.code is ParityFailureCode.FIXTURE_HASH_MISMATCH
 
 
+def test_fresh_gate_rejects_exact_maximum_age_equality(tmp_path: Path) -> None:
+    checked_at = datetime(2026, 8, 11, 7, 0, tzinfo=UTC)
+    report = _report(captured_at=checked_at - timedelta(hours=1), provider_delta=0)
+    report_path = write_parity_report_create_only(report, root=tmp_path)
+
+    with pytest.raises(TokenizerParityError) as exc_info:
+        require_fresh_provider_parity(
+            report_path,
+            config=load_embedding_tokenizer_config(),
+            expected_probe_fixture_sha256=report.probe_fixture_sha256,
+            expected_submitted_content_sha256=report.submitted_content_sha256,
+            now=checked_at,
+            maximum_age=timedelta(hours=1),
+        )
+
+    assert exc_info.value.code is ParityFailureCode.STALE
+
+
 def test_loader_rejects_unknown_fields_and_never_reflects_unsafe_values(tmp_path: Path) -> None:
     report = _report(
         captured_at=datetime(2026, 8, 11, 6, 30, tzinfo=UTC),

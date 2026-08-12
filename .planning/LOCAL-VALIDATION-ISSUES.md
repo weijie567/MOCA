@@ -23916,3 +23916,14 @@ SC-64.4-5/6要求完成隔离可回滚reindex、versioned A/B non-regression sel
 
 **已做处理 / 剩余入口**
 reviewed 命令现以 `O_DIRECTORY|O_NOFOLLOW` 逐级打开并固定 exact run dirfd；所有 reviewed artifact read/list/exists/create-only publish 都相对固定 dirfd 执行，publish 使用 no-follow temporary open 与 dirfd hard link，并在 reservation 后/provider construction 前重验 canonical run chain inode。最小 GREEN 为 `5 passed, 1 warning`，四级 symlink 均在 reservation/provider 前拒绝，open 后替换也返回 namespace safe code。未访问 live artifact/DB、未创建 provider或 reservation；后续仍需随本 iteration focused union 复跑。
+
+## 2026-08-12 — Phase 64.4 iteration 2 initial parity equality RED 与时钟 seam 回归
+
+**问题现象 / 如何检测**
+精确执行 tokenizer loader、direct service、ordinary CLI、reviewed CLI 四条 equality 测试，旧实现得到 `4 failed`：age/current 恰等于 expiry 时仍通过，ordinary/reviewed可创建 candidate row，reviewed还发布 v1。修复后四条精确测试 `4 passed`。扩大至 tokenizer/reindex 两文件时首轮为 `1 failed, 50 passed`：已有“transaction A后到期”测试把 `_utc_now` 恒定为 expiry，而新入口在 initial claim 前也采 UTC，因此提前拒绝且没有该测试原期望的 v1。
+
+**关键证据 / 当前判断 / 根因**
+四条 RED 直接证明两个 `>` 比较的 equality 漏洞；expanded suite 唯一失败不是 production倒退，而是旧 fault seam只模拟单一时点、无法表达“transaction A fresh、transaction B equality expiry”。把测试时钟改为顺序返回 fresh instant 与 expiry 后，仍证明 v1已提交而 v2/budget未发布的原始边界。
+
+**已做处理 / 剩余入口**
+tokenizer freshness与 service claim validation均改为 `>=`拒绝；ordinary/reviewed initial claim都使用内部 `_utc_now()` 并把同一 instant交给 service，reviewed在任何 row/v1前先检查 descriptor absolute lease/parity。更新两时点 fault seam后完整两文件 gate `51 passed, 1 warning`。未修改时长/阈值、未读取 live parity、未创建 live candidate/provider；后续纳入 iteration focused union。

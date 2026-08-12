@@ -214,7 +214,7 @@ def _secure_reviewed_artifact_command(
 
 
 async def _claim(args: argparse.Namespace) -> PolicyReindexRunIdentity:
-    now = datetime.now(UTC)
+    now = _utc_now()
     config = load_embedding_tokenizer_config()
     parity = require_fresh_provider_parity(
         args.parity_report,
@@ -353,10 +353,13 @@ def _load_reviewed_budget(args: argparse.Namespace, *, descriptor):
 @_secure_reviewed_artifact_command()
 async def _claim_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
     descriptor = _reviewed_descriptor(args)
+    checked_at = _utc_now()
+    if checked_at >= descriptor.lease_expires_at or checked_at >= descriptor.parity_expires_at:
+        raise RuntimeError("reindex_claim_authority_expired")
     async with SessionLocal() as session:
         async with session.begin():
             service = PolicyReindexService(session)
-            claimed = await service.claim_from_descriptor(descriptor)
+            claimed = await service.claim_from_descriptor(descriptor, now=checked_at)
     v1_path = policy_reindex_state_path(
         args.artifact_root,
         tenant_id=descriptor.tenant_id,
