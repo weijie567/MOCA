@@ -455,6 +455,19 @@ class RagEvaluationRound(TimestampMixin, Base):
 
 _SHA256_CHECK = "~ '^sha256:[0-9a-f]{64}$'"
 _CORPUS_STATE_CHECK = "state IN ('claimed', 'building', 'built', 'validating', 'complete', 'failed', 'source_stale')"
+_PROVIDER_EXECUTION_PROMOTION_SCOPE = "phase64.5.reviewed-provider-execution"
+_PROVIDER_EXECUTION_GIT_OBJECT_CHECK = "~ '^[0-9a-f]{40}$'"
+_PROVIDER_EXECUTION_PURPOSE_CHECK = "purpose IN ('reviewed_build', 'canonical_ab')"
+_PROVIDER_EXECUTION_RESULT_CODE_CHECK = (
+    "result_code IN ('success', 'provider_unavailable', 'transient_execution_error', "
+    "'quality_fail', 'safety_fail', 'configuration_error', 'parity_error', "
+    "'source_drift', 'response_error', 'projection_error', 'unknown_error')"
+)
+_ACTIVATION_RECEIPT_REASON_CHECK = "reason_code IN ('selected_cutover', 'rollback_prior', 'selected_restore')"
+
+
+def _provider_sha256_columns_check(*columns: str) -> str:
+    return " AND ".join(f"{column} {_SHA256_CHECK}" for column in columns)
 
 
 class PolicyCorpusManifestRevision(TimestampMixin, Base):
@@ -529,6 +542,13 @@ class PolicyCorpusVersion(TimestampMixin, Base):
         ),
         Index("ix_policy_corpus_versions_tenant_state", "tenant_id", "state"),
         Index("ix_policy_corpus_versions_run_token", "tenant_id", "run_token"),
+        Index(
+            "uq_policy_corpus_versions_tenant_run_token",
+            "tenant_id",
+            "run_token",
+            unique=True,
+            postgresql_where=text("run_token IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -638,6 +658,427 @@ class PolicyCorpusActivationHistory(Base):
     selection_decision_hash: Mapped[str | None] = mapped_column(String(71))
     receipt_hash: Mapped[str | None] = mapped_column(String(71))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ProviderExecutionPromotion(Base):
+    """Immutable review/security promotion required before authority issuance."""
+
+    __tablename__ = "provider_execution_promotions"
+    __table_args__ = (
+        UniqueConstraint("scope", name="uq_provider_execution_promotions_scope"),
+        CheckConstraint(
+            f"scope = '{_PROVIDER_EXECUTION_PROMOTION_SCOPE}'",
+            name="ck_provider_execution_promotions_scope",
+        ),
+        CheckConstraint(
+            f"protected_code_c0_commit {_PROVIDER_EXECUTION_GIT_OBJECT_CHECK}",
+            name="ck_provider_execution_promotions_c0_commit",
+        ),
+        CheckConstraint(
+            f"protected_code_c0_tree_hash {_PROVIDER_EXECUTION_GIT_OBJECT_CHECK}",
+            name="ck_provider_execution_promotions_c0_tree",
+        ),
+        CheckConstraint(
+            f"protected_code_c1_commit {_PROVIDER_EXECUTION_GIT_OBJECT_CHECK}",
+            name="ck_provider_execution_promotions_c1_commit",
+        ),
+        CheckConstraint(
+            f"protected_code_c1_tree_hash {_PROVIDER_EXECUTION_GIT_OBJECT_CHECK}",
+            name="ck_provider_execution_promotions_c1_tree",
+        ),
+        CheckConstraint(
+            _provider_sha256_columns_check(
+                "c0_to_c1_diff_hash",
+                "c0_code_review_artifact_sha256",
+                "c0_security_artifact_sha256",
+                "c1_code_review_artifact_sha256",
+                "c1_security_artifact_sha256",
+                "c0_code_review_attestation_sha256",
+                "c0_security_attestation_sha256",
+                "c1_code_review_attestation_sha256",
+                "c1_security_attestation_sha256",
+                "c0_gate_report_sha256",
+                "c1_gate_report_sha256",
+                "promotion_request_hash",
+            ),
+            name="ck_provider_execution_promotions_sha256_values",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scope: Mapped[str] = mapped_column(String(64), nullable=False)
+    protected_code_c0_commit: Mapped[str] = mapped_column(String(40), nullable=False)
+    protected_code_c0_tree_hash: Mapped[str] = mapped_column(String(40), nullable=False)
+    protected_code_c1_commit: Mapped[str] = mapped_column(String(40), nullable=False)
+    protected_code_c1_tree_hash: Mapped[str] = mapped_column(String(40), nullable=False)
+    c0_to_c1_diff_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    c0_code_review_artifact_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    c0_security_artifact_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    c1_code_review_artifact_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    c1_security_artifact_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    c0_code_review_attestation_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    c0_security_attestation_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    c1_code_review_attestation_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    c1_security_attestation_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    c0_gate_report_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    c1_gate_report_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    promotion_request_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    promoted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False
+    )
+
+
+class ProviderExecutionAuthority(Base):
+    """One shared immutable authority root for a fresh tenant run and candidate."""
+
+    __tablename__ = "provider_execution_authorities"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["candidate_id", "tenant_id"],
+            ["policy_corpus_versions.id", "policy_corpus_versions.tenant_id"],
+            name="fk_provider_execution_authorities_candidate_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_manifest_revision_id", "tenant_id"],
+            ["policy_corpus_manifest_revisions.id", "policy_corpus_manifest_revisions.tenant_id"],
+            name="fk_provider_execution_authorities_manifest_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_active_corpus_version_id", "tenant_id"],
+            ["policy_corpus_versions.id", "policy_corpus_versions.tenant_id"],
+            name="fk_provider_execution_authorities_source_corpus_tenant",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("id", "tenant_id", name="uq_provider_execution_authorities_id_tenant"),
+        UniqueConstraint("tenant_id", "run_token", name="uq_provider_execution_authorities_tenant_run"),
+        UniqueConstraint("tenant_id", "candidate_id", name="uq_provider_execution_authorities_tenant_candidate"),
+        CheckConstraint(
+            "jsonb_typeof(config_json) = 'object'",
+            name="ck_provider_execution_authorities_config_object",
+        ),
+        CheckConstraint(
+            _provider_sha256_columns_check(
+                "config_fingerprint",
+                "provider_parity_report_hash",
+                "provider_parity_probe_fixture_sha256",
+                "provider_parity_submitted_content_sha256",
+                "source_manifest_hash",
+                "envelope_contract_hash",
+            ),
+            name="ck_provider_execution_authorities_sha256_values",
+        ),
+        CheckConstraint(
+            "source_rollout_epoch > 0 AND evidence_rollout_version >= 0 AND dimensions > 0",
+            name="ck_provider_execution_authorities_positive_values",
+        ),
+        CheckConstraint(
+            "parity_captured_at < parity_expires_at "
+            "AND issued_at < expires_at "
+            "AND expires_at <= parity_expires_at "
+            "AND expires_at <= candidate_lease_expires_at",
+            name="ck_provider_execution_authorities_expiry_intersection",
+        ),
+        Index(
+            "ix_provider_execution_authorities_tenant_expires",
+            "tenant_id",
+            "expires_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tenants.id", name="fk_provider_execution_authorities_tenant", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    promotion_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "provider_execution_promotions.id",
+            name="fk_provider_execution_authorities_promotion",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    run_token: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    candidate_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    owner_marker: Mapped[str] = mapped_column(String(128), nullable=False)
+    config_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    config_fingerprint: Mapped[str] = mapped_column(String(71), nullable=False)
+    provider_parity_run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    provider_parity_report_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    provider_parity_probe_fixture_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    provider_parity_submitted_content_sha256: Mapped[str] = mapped_column(String(71), nullable=False)
+    parity_captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    parity_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_manifest_revision_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_manifest_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    source_active_corpus_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_rollout_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    evidence_rollout_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    candidate_lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    provider_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    dimensions: Mapped[int] = mapped_column(nullable=False)
+    envelope_contract_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False
+    )
+
+
+class ProviderExecutionReservation(Base):
+    """A committed, never-recycled provider execution ordinal."""
+
+    __tablename__ = "provider_execution_reservations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["authority_id", "tenant_id"],
+            ["provider_execution_authorities.id", "provider_execution_authorities.tenant_id"],
+            name="fk_provider_execution_reservations_authority_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["predecessor_result_id", "tenant_id"],
+            ["provider_execution_results.id", "provider_execution_results.tenant_id"],
+            name="fk_provider_execution_reservations_predecessor_result_tenant",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "max_request_count",
+            name="uq_provider_execution_reservations_id_tenant_limit",
+        ),
+        UniqueConstraint(
+            "authority_id",
+            "purpose",
+            "subject_hash",
+            "ordinal",
+            name="uq_provider_execution_reservations_subject_ordinal",
+        ),
+        CheckConstraint(
+            _PROVIDER_EXECUTION_PURPOSE_CHECK,
+            name="ck_provider_execution_reservations_purpose",
+        ),
+        CheckConstraint(
+            "subject_index >= 0 AND ordinal BETWEEN 1 AND 2 AND max_request_count > 0",
+            name="ck_provider_execution_reservations_bounded_values",
+        ),
+        CheckConstraint(
+            "((ordinal = 1 AND predecessor_result_id IS NULL) OR (ordinal = 2 AND predecessor_result_id IS NOT NULL))",
+            name="ck_provider_execution_reservations_predecessor",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(request_envelope_json) = 'object'",
+            name="ck_provider_execution_reservations_envelope_object",
+        ),
+        CheckConstraint(
+            _provider_sha256_columns_check("subject_hash", "request_envelope_hash"),
+            name="ck_provider_execution_reservations_sha256_values",
+        ),
+        Index(
+            "ix_provider_execution_reservations_authority_purpose",
+            "authority_id",
+            "purpose",
+            "subject_hash",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    authority_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_index: Mapped[int] = mapped_column(nullable=False)
+    subject_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    ordinal: Mapped[int] = mapped_column(nullable=False)
+    envelope_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_envelope_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    request_envelope_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    max_request_count: Mapped[int] = mapped_column(nullable=False)
+    predecessor_result_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    reserved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False
+    )
+
+
+class ProviderExecutionResult(Base):
+    """The single immutable terminal outcome for one reservation."""
+
+    __tablename__ = "provider_execution_results"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["reservation_id", "tenant_id", "request_limit"],
+            [
+                "provider_execution_reservations.id",
+                "provider_execution_reservations.tenant_id",
+                "provider_execution_reservations.max_request_count",
+            ],
+            name="fk_provider_execution_results_reservation_tenant_limit",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["output_candidate_id", "tenant_id"],
+            ["policy_corpus_versions.id", "policy_corpus_versions.tenant_id"],
+            name="fk_provider_execution_results_candidate_tenant",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("id", "tenant_id", name="uq_provider_execution_results_id_tenant"),
+        UniqueConstraint("reservation_id", name="uq_provider_execution_results_reservation"),
+        CheckConstraint(
+            _PROVIDER_EXECUTION_RESULT_CODE_CHECK,
+            name="ck_provider_execution_results_code",
+        ),
+        CheckConstraint(
+            "request_limit > 0 AND actual_request_count BETWEEN 0 AND request_limit",
+            name="ck_provider_execution_results_request_bound",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(result_json) = 'object'",
+            name="ck_provider_execution_results_result_object",
+        ),
+        CheckConstraint(
+            f"result_hash {_SHA256_CHECK} "
+            "AND (terminal_run_hash IS NULL OR terminal_run_hash "
+            f"{_SHA256_CHECK}) "
+            "AND (terminal_report_hash IS NULL OR terminal_report_hash "
+            f"{_SHA256_CHECK}) "
+            "AND (selection_decision_hash IS NULL OR selection_decision_hash "
+            f"{_SHA256_CHECK}) "
+            "AND (activation_authorization_hash IS NULL OR activation_authorization_hash "
+            f"{_SHA256_CHECK})",
+            name="ck_provider_execution_results_sha256_values",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    reservation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    request_limit: Mapped[int] = mapped_column(nullable=False)
+    result_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    actual_request_count: Mapped[int] = mapped_column(nullable=False)
+    result_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    result_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    output_candidate_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    terminal_run_hash: Mapped[str | None] = mapped_column(String(71))
+    terminal_report_hash: Mapped[str | None] = mapped_column(String(71))
+    selection_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    selection_decision_hash: Mapped[str | None] = mapped_column(String(71))
+    activation_authorization_hash: Mapped[str | None] = mapped_column(String(71))
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False
+    )
+
+
+class ActivationReceiptLineage(Base):
+    """DB-authoritative selected/rollback lineage for one activation event."""
+
+    __tablename__ = "activation_receipt_lineages"
+    _SELECTED_COLUMNS = (
+        "authority_id",
+        "reservation_id",
+        "result_id",
+        "selection_id",
+        "selection_decision_hash",
+        "terminal_run_hash",
+        "terminal_report_hash",
+        "activation_authorization_hash",
+    )
+    _SELECTED_PRESENT = " AND ".join(f"{column} IS NOT NULL" for column in _SELECTED_COLUMNS)
+    _SELECTED_ABSENT = " AND ".join(f"{column} IS NULL" for column in _SELECTED_COLUMNS)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["activation_history_id"],
+            ["policy_corpus_activation_history.id"],
+            name="fk_activation_receipt_lineages_history",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["prior_corpus_version_id"],
+            ["policy_corpus_versions.id"],
+            name="fk_activation_receipt_lineages_prior_corpus",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["current_corpus_version_id"],
+            ["policy_corpus_versions.id"],
+            name="fk_activation_receipt_lineages_current_corpus",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["authority_id"],
+            ["provider_execution_authorities.id"],
+            name="fk_activation_receipt_lineages_authority",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["reservation_id"],
+            ["provider_execution_reservations.id"],
+            name="fk_activation_receipt_lineages_reservation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["result_id"],
+            ["provider_execution_results.id"],
+            name="fk_activation_receipt_lineages_result",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            _ACTIVATION_RECEIPT_REASON_CHECK,
+            name="ck_activation_receipt_lineages_reason",
+        ),
+        CheckConstraint(
+            "event_ordinal BETWEEN 1 AND 3 AND prior_rollout_epoch >= 0 AND rollout_epoch = prior_rollout_epoch + 1",
+            name="ck_activation_receipt_lineages_event_sequence",
+        ),
+        CheckConstraint(
+            f"((reason_code IN ('selected_cutover', 'selected_restore') AND {_SELECTED_PRESENT}) "
+            f"OR (reason_code = 'rollback_prior' AND {_SELECTED_ABSENT}))",
+            name="ck_activation_receipt_lineages_selected_lineage",
+        ),
+        CheckConstraint(
+            _provider_sha256_columns_check("previous_receipt_hash", "receipt_hash"),
+            name="ck_activation_receipt_lineages_receipt_hashes",
+        ),
+        CheckConstraint(
+            "(selection_decision_hash IS NULL OR selection_decision_hash "
+            f"{_SHA256_CHECK}) "
+            "AND (terminal_run_hash IS NULL OR terminal_run_hash "
+            f"{_SHA256_CHECK}) "
+            "AND (terminal_report_hash IS NULL OR terminal_report_hash "
+            f"{_SHA256_CHECK}) "
+            "AND (activation_authorization_hash IS NULL OR activation_authorization_hash "
+            f"{_SHA256_CHECK})",
+            name="ck_activation_receipt_lineages_selected_hashes",
+        ),
+    )
+
+    activation_history_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    event_ordinal: Mapped[int] = mapped_column(nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    prior_corpus_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    current_corpus_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    prior_rollout_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    rollout_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    authority_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    reservation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    result_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    selection_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    selection_decision_hash: Mapped[str | None] = mapped_column(String(71))
+    terminal_run_hash: Mapped[str | None] = mapped_column(String(71))
+    terminal_report_hash: Mapped[str | None] = mapped_column(String(71))
+    activation_authorization_hash: Mapped[str | None] = mapped_column(String(71))
+    previous_receipt_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    receipt_hash: Mapped[str] = mapped_column(String(71), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False
+    )
 
 
 class CorpusDocumentBinding(TimestampMixin, Base):
