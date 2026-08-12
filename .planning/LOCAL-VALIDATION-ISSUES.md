@@ -24017,3 +24017,14 @@ production branch现以`abspath(REPOSITORY_ROOT / REVIEWED_CANDIDATE_RELATIVE_RO
 未修改 approval 实现或测试时限。保留首次完整 traceback 和两级独占 GREEN 证据，并重新运行最终完整 suite；只有最终全绿才作为 PR gate。若相同用例再次失败，应单独进入 approval single-flight 调试，核对 advisory/request lock 释放、失败后 reconciliation 状态和长负载调度，不得通过放宽断言或增加盲目重试掩盖。
 
 最终独占重跑已完成：`make lint` PASS，`UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` 为 `4893 passed, 4 skipped, 166 warnings in 2272.36s`，同一 approval 用例未再失败。当前 PR gate 采用这次完整 GREEN；首次偶发仍保留为后续若复现时的排查入口。
+
+## 2026-08-12 — Phase 64.5 Autopilot 补读 discuss workflow 路径误判
+
+**问题现象 / 如何检测**
+Autopilot 进入自动讨论阶段时，首次执行 `sed -n '1,330p' /Users/ming/.codex/skills/gsd-discuss-phase/references/workflow.md` 返回 `No such file or directory`。
+
+**关键证据 / 当前判断 / 根因**
+`gsd-discuss-phase/SKILL.md` 的真实 `execution_context` 指向 `/Users/ming/.codex/get-shit-done/workflows/discuss-phase.md`；错误来自把 skill 目录误当成 workflow 目录。该命令只读失败，没有修改仓库、数据库、provider 或 live artifact。
+
+**已做处理 / 剩余入口**
+已按 `SKILL.md` 指向的真实路径分段补读完整 workflow，并继续 Phase 64.5 自动讨论。后续技能引用先以 `SKILL.md` 的 `execution_context` 为准；当前无剩余产品问题。
