@@ -23817,3 +23817,14 @@ fixture 改为直接对 descriptor file bytes 计算 SHA，canonical-root 调用
 
 **已做处理 / 剩余入口**
 已通过类型与字段名只读检查确认应读取 `failure_code`，后续预检改用该字段并重新从头核对 freshness、DB prerequisites、exact baseline、旧 candidate/new root 与 `0/2` A-B slots。只有完整脱敏预检全部通过才允许继续；若任何 prerequisite 非空或 freshness 不足则立即停在 provider 构造前。
+
+## 2026-08-12 — Phase 64.4 Plan 15 首个 live build 在 provider reservation 前因 state 序列缺口被拒绝
+
+**问题现象 / 如何检测**
+唯一 descriptor 已按 retained fresh parity seal，`claim-reviewed` 成功创建 inactive candidate `64932871-4488-4b8b-b438-a02791a1151f` 并返回 `building / state_version=2`。随后第一次执行 `build-next-reviewed`，入口在读取 canonical state 时立即抛出 `RuntimeError: reindex_state_invalid`；artifact 根只有 `states/00000002.json`，没有 `00000001.json`。
+
+**关键证据 / 当前判断 / 根因**
+`scripts/reindex_policies.py::_claim_reviewed` 在同一事务内先 claim 为 state v1、再 resume 为 state v2，事务提交后只把最终 owner 写成 `00000002.json`；而 `_latest_reviewed_state_artifact` 要求现有文件名严格等于从 `00000001.json` 到当前数量的连续序列。live 入口因此在 `_latest_reviewed_state_artifact` 阶段失败，尚未进入 `reserve_candidate_build_attempt` 或 `EmbeddingService(...)`。核对结果为 candidate build attempts `0`、results `0`、A-B manifest absent、A-B attempts `0/2`、selection `0`、recovery authorization `0`；DB candidate仍是 building v2/index0、projection `0/0/0`，旧 candidate与 active pointer/epoch/history/current view未改。provider key只在进程环境中安全加载，未打印、复制或序列化。
+
+**已做处理 / 剩余入口**
+按 Plan15 implementation-defect stop 规则立即停止：不重试、不调用 `recover-state` 试图绕过、不创建第二 descriptor/candidate、不写 compatibility state、不改 Python/测试/阈值/旧 artifact，也不消费任何 provider或A-B ordinal。下一入口必须是单独 reviewed bounded repair，先补 live claim→build RED，明确由 `claim-reviewed` 依序发布 v1/v2 state，或经评审修改 canonical state 序列契约；修复后必须复用同一 descriptor/candidate并先证明 lease/source/parity仍有效，不能重新 claim 第二 candidate。
