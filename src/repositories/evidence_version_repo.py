@@ -18,6 +18,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, text
@@ -32,6 +33,11 @@ from src.db.models import (
     PolicyCorpusRollout,
     PolicyDocument,
     PolicyDocumentVersion,
+)
+from src.db.pre_token_corpus_models import (
+    PreTokenPolicyChunk,
+    PreTokenPolicyChunkVersion,
+    PreTokenPolicyDocumentVersion,
 )
 from src.knowledge.evidence_identity import (
     ACCEPTED_POLICY_SCOPE_TYPE,
@@ -159,6 +165,7 @@ class EvidenceVersionRepository:
 
     def __init__(self, session: AsyncSession):
         self.session = session
+        self._pre_token_corpus_schema = False
 
     async def lock_rollout(
         self,
@@ -238,6 +245,19 @@ class EvidenceVersionRepository:
     async def _active_documents_for_update(self) -> list[PolicyDocument]:
         """Lock current heads one tenant active pointer at a time."""
 
+        self._pre_token_corpus_schema = not bool(
+            await self.session.scalar(text("SELECT to_regclass('policy_corpus_rollouts') IS NOT NULL"))
+        )
+        if self._pre_token_corpus_schema:
+            return list(
+                (
+                    await self.session.execute(
+                        select(PolicyDocument)
+                        .order_by(PolicyDocument.tenant_id, PolicyDocument.doc_key)
+                        .with_for_update()
+                    )
+                ).scalars()
+            )
         tenant_ids = list(
             (
                 await self.session.execute(
@@ -260,6 +280,37 @@ class EvidenceVersionRepository:
             documents.extend(rows)
         return documents
 
+    async def _active_chunks_for_update(self, document: PolicyDocument) -> list[Any]:
+        if self._pre_token_corpus_schema:
+            return list(
+                (
+                    await self.session.execute(
+                        select(PreTokenPolicyChunk)
+                        .where(
+                            PreTokenPolicyChunk.tenant_id == document.tenant_id,
+                            PreTokenPolicyChunk.doc_id == document.id,
+                        )
+                        .order_by(PreTokenPolicyChunk.tenant_id, PreTokenPolicyChunk.doc_id, PreTokenPolicyChunk.id)
+                        .with_for_update()
+                    )
+                ).scalars()
+            )
+        return list(
+            (
+                await self.session.execute(
+                    join_active_chunk_projection(
+                        select(PolicyChunk).where(
+                            PolicyChunk.tenant_id == document.tenant_id,
+                            PolicyChunk.doc_id == document.id,
+                        ),
+                        tenant_id=document.tenant_id,
+                    )
+                    .order_by(PolicyChunk.tenant_id, PolicyChunk.doc_id, PolicyChunk.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+
     async def backfill_current_heads(
         self,
         *,
@@ -280,44 +331,46 @@ class EvidenceVersionRepository:
         resolved_count = 0
         unresolved_count = 0
         for document in documents:
-            chunks = list(
-                (
-                    await self.session.execute(
-                        join_active_chunk_projection(
-                            select(PolicyChunk).where(
-                                PolicyChunk.tenant_id == document.tenant_id,
-                                PolicyChunk.doc_id == document.id,
-                            ),
-                            tenant_id=document.tenant_id,
-                        )
-                        .order_by(PolicyChunk.tenant_id, PolicyChunk.doc_id, PolicyChunk.id)
-                        .with_for_update()
-                    )
-                ).scalars()
-            )
+            chunks = await self._active_chunks_for_update(document)
             failure = _legacy_head_failure(document, chunks)
             if failure is not None:
                 _mark_legacy_unresolved(document, chunks, failure)
                 unresolved_count += 1
                 continue
             try:
-                binding = await self.find_exact_binding(
-                    tenant_id=document.tenant_id,
-                    document=document,
-                    chunks=chunks,
-                    fingerprint=str(document.policy_version_fingerprint),
-                )
+                if self._pre_token_corpus_schema:
+                    binding = await self.find_exact_binding_pre_token_corpus(
+                        tenant_id=document.tenant_id,
+                        document=document,
+                        chunks=chunks,
+                        fingerprint=str(document.policy_version_fingerprint),
+                    )
+                else:
+                    binding = await self.find_exact_binding(
+                        tenant_id=document.tenant_id,
+                        document=document,
+                        chunks=chunks,
+                        fingerprint=str(document.policy_version_fingerprint),
+                    )
             except ImmutableBindingMismatch as exc:
                 _mark_legacy_unresolved(document, chunks, str(exc))
                 unresolved_count += 1
                 continue
             if binding is None:
-                await self.append_immutable_version(
-                    tenant_id=document.tenant_id,
-                    document=document,
-                    chunks=chunks,
-                    write_sequence=document.evidence_write_sequence or watermark,
-                )
+                if self._pre_token_corpus_schema:
+                    await self.append_immutable_version_pre_token_corpus(
+                        tenant_id=document.tenant_id,
+                        document=document,
+                        chunks=chunks,
+                        write_sequence=document.evidence_write_sequence or watermark,
+                    )
+                else:
+                    await self.append_immutable_version(
+                        tenant_id=document.tenant_id,
+                        document=document,
+                        chunks=chunks,
+                        write_sequence=document.evidence_write_sequence or watermark,
+                    )
                 resolved_count += 1
             else:
                 await self.project_write_sequence(
@@ -367,21 +420,7 @@ class EvidenceVersionRepository:
         binding_reused_after_watermark = 0
         reconciled_through = watermark
         for document in documents:
-            chunks = list(
-                (
-                    await self.session.execute(
-                        join_active_chunk_projection(
-                            select(PolicyChunk).where(
-                                PolicyChunk.tenant_id == document.tenant_id,
-                                PolicyChunk.doc_id == document.id,
-                            ),
-                            tenant_id=document.tenant_id,
-                        )
-                        .order_by(PolicyChunk.tenant_id, PolicyChunk.doc_id, PolicyChunk.id)
-                        .with_for_update()
-                    )
-                ).scalars()
-            )
+            chunks = await self._active_chunks_for_update(document)
             sequence = document.evidence_write_sequence
             failure = _legacy_head_failure(document, chunks)
             if (
@@ -393,19 +432,35 @@ class EvidenceVersionRepository:
                 unresolved_count += 1
                 continue
             try:
-                binding = await self.find_exact_binding(
-                    tenant_id=document.tenant_id,
-                    document=document,
-                    chunks=chunks,
-                    fingerprint=str(document.policy_version_fingerprint),
-                )
-                if binding is None:
-                    await self.append_immutable_version(
+                if self._pre_token_corpus_schema:
+                    binding = await self.find_exact_binding_pre_token_corpus(
                         tenant_id=document.tenant_id,
                         document=document,
                         chunks=chunks,
-                        write_sequence=int(sequence),
+                        fingerprint=str(document.policy_version_fingerprint),
                     )
+                else:
+                    binding = await self.find_exact_binding(
+                        tenant_id=document.tenant_id,
+                        document=document,
+                        chunks=chunks,
+                        fingerprint=str(document.policy_version_fingerprint),
+                    )
+                if binding is None:
+                    if self._pre_token_corpus_schema:
+                        await self.append_immutable_version_pre_token_corpus(
+                            tenant_id=document.tenant_id,
+                            document=document,
+                            chunks=chunks,
+                            write_sequence=int(sequence),
+                        )
+                    else:
+                        await self.append_immutable_version(
+                            tenant_id=document.tenant_id,
+                            document=document,
+                            chunks=chunks,
+                            write_sequence=int(sequence),
+                        )
                     reconciled_count += 1
                 elif int(sequence) > watermark:
                     binding_reused_after_watermark += 1
@@ -604,6 +659,57 @@ class EvidenceVersionRepository:
             compatible_chunks.append(max(matches, key=lambda row: row.chunk_version))
         return document_version, compatible_chunks
 
+    async def find_exact_binding_pre_token_corpus(
+        self,
+        *,
+        tenant_id: UUID,
+        document: PolicyDocument,
+        chunks: Sequence[PreTokenPolicyChunk],
+        fingerprint: str,
+    ) -> tuple[PreTokenPolicyDocumentVersion, list[PreTokenPolicyChunkVersion]] | None:
+        """Resolve Phase64.2 evidence without selecting migration-030 columns."""
+
+        scope_id = str(tenant_id)
+        document_rows = list(
+            (
+                await self.session.execute(
+                    select(PreTokenPolicyDocumentVersion).where(
+                        PreTokenPolicyDocumentVersion.tenant_id == tenant_id,
+                        PreTokenPolicyDocumentVersion.scope_type == ACCEPTED_POLICY_SCOPE_TYPE,
+                        PreTokenPolicyDocumentVersion.scope_id == scope_id,
+                        PreTokenPolicyDocumentVersion.doc_key == document.doc_key,
+                        PreTokenPolicyDocumentVersion.document_version == int(document.version or 1),
+                    )
+                )
+            ).scalars()
+        )
+        if not document_rows:
+            return None
+        if len(document_rows) != 1:
+            raise ImmutableBindingMismatch("ambiguous immutable document binding")
+        document_version = document_rows[0]
+        if document_version.content_hash != evidence_text_hash(document.content):
+            raise ImmutableBindingMismatch("immutable document hash mismatch")
+        if fingerprint != document.policy_version_fingerprint:
+            raise ImmutableBindingMismatch("immutable document fingerprint mismatch")
+        immutable_chunks = list(
+            (
+                await self.session.execute(
+                    select(PreTokenPolicyChunkVersion)
+                    .where(
+                        PreTokenPolicyChunkVersion.tenant_id == tenant_id,
+                        PreTokenPolicyChunkVersion.policy_document_version_id == document_version.id,
+                    )
+                    .order_by(PreTokenPolicyChunkVersion.chunk_id, PreTokenPolicyChunkVersion.chunk_version)
+                )
+            ).scalars()
+        )
+        expected = {(chunk.chunk_id, evidence_text_hash(chunk.content)) for chunk in chunks}
+        actual = {(chunk.chunk_id, chunk.text_hash) for chunk in immutable_chunks}
+        if len(expected) != len(chunks) or expected != actual:
+            raise ImmutableBindingMismatch("immutable chunk binding mismatch")
+        return document_version, immutable_chunks
+
     async def append_immutable_version(
         self,
         *,
@@ -742,6 +848,106 @@ class EvidenceVersionRepository:
         await self.session.flush()
         if project_current_head:
             await self.project_write_sequence(document=document, chunks=chunks, write_sequence=write_sequence)
+        return document_row, chunk_rows
+
+    async def append_immutable_version_pre_token_corpus(
+        self,
+        *,
+        tenant_id: UUID,
+        document: PolicyDocument,
+        chunks: Sequence[PreTokenPolicyChunk],
+        write_sequence: int,
+        correction_of_document_version_id: str | UUID | None = None,
+        retention_until: datetime | None = None,
+    ) -> tuple[PreTokenPolicyDocumentVersion, list[PreTokenPolicyChunkVersion]]:
+        """Append through the exact schema installed by migration 025."""
+
+        scope_id = str(tenant_id)
+        document_version_number = int(document.version or 1)
+        previous_document = (
+            await self.session.execute(
+                select(PreTokenPolicyDocumentVersion)
+                .where(
+                    PreTokenPolicyDocumentVersion.tenant_id == tenant_id,
+                    PreTokenPolicyDocumentVersion.scope_type == ACCEPTED_POLICY_SCOPE_TYPE,
+                    PreTokenPolicyDocumentVersion.scope_id == scope_id,
+                    PreTokenPolicyDocumentVersion.doc_key == document.doc_key,
+                    PreTokenPolicyDocumentVersion.document_version < document_version_number,
+                )
+                .order_by(PreTokenPolicyDocumentVersion.document_version.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        correction_id = _optional_uuid(correction_of_document_version_id)
+        if correction_id is not None:
+            correction_target = await self.session.get(PreTokenPolicyDocumentVersion, correction_id)
+            if (
+                correction_target is None
+                or correction_target.tenant_id != tenant_id
+                or correction_target.doc_key != document.doc_key
+            ):
+                raise ImmutableBindingMismatch("correction target is unavailable")
+        retained_until = retention_until or (datetime.now(UTC) + DEFAULT_EVIDENCE_RETENTION)
+        document_row = PreTokenPolicyDocumentVersion(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            policy_document_id=document.id,
+            scope_type=ACCEPTED_POLICY_SCOPE_TYPE,
+            scope_id=scope_id,
+            doc_key=document.doc_key,
+            document_version=document_version_number,
+            content=document.content,
+            content_hash=evidence_text_hash(document.content),
+            source_locator_json=_document_source_locator(document),
+            lifecycle_status="corrected" if correction_id is not None else "active",
+            retention_until=retained_until,
+            supersedes_version_id=previous_document.id if previous_document is not None else None,
+            corrects_version_id=correction_id,
+        )
+        self.session.add(document_row)
+        await self.session.flush()
+        previous_chunks: dict[str, PreTokenPolicyChunkVersion] = {}
+        if previous_document is not None:
+            previous_chunks = {
+                row.chunk_id: row
+                for row in (
+                    (
+                        await self.session.execute(
+                            select(PreTokenPolicyChunkVersion).where(
+                                PreTokenPolicyChunkVersion.tenant_id == tenant_id,
+                                PreTokenPolicyChunkVersion.policy_document_version_id == previous_document.id,
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            }
+        chunk_rows: list[PreTokenPolicyChunkVersion] = []
+        for chunk in sorted(chunks, key=lambda item: (str(item.chunk_id), str(item.id))):
+            previous_chunk = previous_chunks.get(chunk.chunk_id)
+            row = PreTokenPolicyChunkVersion(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                policy_document_version_id=document_row.id,
+                scope_type=ACCEPTED_POLICY_SCOPE_TYPE,
+                scope_id=scope_id,
+                doc_key=document.doc_key,
+                document_version=document_version_number,
+                chunk_id=chunk.chunk_id,
+                chunk_version=(previous_chunk.chunk_version + 1) if previous_chunk is not None else 1,
+                content=chunk.content,
+                text_hash=evidence_text_hash(chunk.content),
+                source_locator_json=_chunk_source_locator(document, chunk),
+                lifecycle_status="corrected" if correction_id is not None else "active",
+                retention_until=retained_until,
+                supersedes_version_id=previous_chunk.id if previous_chunk is not None else None,
+                corrects_version_id=previous_chunk.id if correction_id is not None and previous_chunk else None,
+            )
+            chunk_rows.append(row)
+        self.session.add_all(chunk_rows)
+        await self.session.flush()
+        await self.project_write_sequence(document=document, chunks=chunks, write_sequence=write_sequence)
         return document_row, chunk_rows
 
     async def project_write_sequence(

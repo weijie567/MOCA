@@ -2836,3 +2836,12 @@
 - **处理状态**：✅ 已修复验证。loader与 service claim统一使用 `>=`拒绝；ordinary/reviewed入口各自捕获内部 current UTC并传入 service，reviewed在 initial DB transaction及v1前强制 lease/parity严格未到期。direct/ordinary/reviewed equality均证明无新增 candidate row，reviewed无v1。
 - **证据**：Phase64.4 review iteration 2 WR-01；`src/rag/tokenizer_parity.py`、`src/rag/policy_reindex.py`、`scripts/reindex_policies.py`、对应两份 tests；最小 RED `4 failed`、GREEN `4 passed`、完整两文件 gate `51 passed, 1 warning`。
 - **剩余风险 / 继续入口**：没有改变24小时 parity window、lease期限或 provider配置；未触碰 live DB/artifact，Plans18-20 仍未执行。
+
+## 2026-08-12 — Phase 64.4 full-suite repair — corpus bootstrap破坏 pre-030 staged migration executability ✅已修复验证
+
+- **子系统**：RAG ingestion / immutable evidence rollout / policy corpus schema boundary。
+- **问题现象 / 根因**：first-corpus bootstrap与active COW引入后，current ingestion无条件访问migration030 corpus authority；同一module的current ORM也自动携带030新增audit列，Phase64.2 revision025/028 staged tests无法再运行。immutable evidence backfill亦无条件改为active-corpus projection，但历史revision不存在该pointer。
+- **影响**：025→028 的真实部署cutover、dual-write与retryable quarantine演练失效；这不是允许当前schema回退到无authority读取的理由，而是migration-stage runtime seam缺失。
+- **处理状态**：✅ 已修复验证。table existence为false时只启用包含revision025已有列的窄四表projection与Phase64.2全tenant head路径；table存在时仍走bootstrap、active scope、bindings/COW，未弱化当前active-config authority或tenant isolation。
+- **证据**：full suite `11 failed, 4864 passed, 4 skipped`中的两条Phase64.2 failures；`src/db/pre_token_corpus_models.py`、`src/rag/ingestion.py`、`src/repositories/evidence_version_repo.py`、`src/repositories/policy_corpus_repo.py`、目标integration test；精确GREEN `2 passed, 11 warnings`，full lint PASS。
+- **剩余风险 / 继续入口**：compat seam仅支持测试覆盖的revision025/028 ingestion/evidence rollout，不扩展delete/search或其他历史revision；current migration030+仍是唯一production authority。未运行live migration或写live DB，Plans18-20仍未执行。

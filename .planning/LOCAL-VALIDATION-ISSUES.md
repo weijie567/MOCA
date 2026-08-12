@@ -23927,3 +23927,14 @@ reviewed 命令现以 `O_DIRECTORY|O_NOFOLLOW` 逐级打开并固定 exact run d
 
 **已做处理 / 剩余入口**
 tokenizer freshness与 service claim validation均改为 `>=`拒绝；ordinary/reviewed initial claim都使用内部 `_utc_now()` 并把同一 instant交给 service，reviewed在任何 row/v1前先检查 descriptor absolute lease/parity。更新两时点 fault seam后完整两文件 gate `51 passed, 1 warning`。未修改时长/阈值、未读取 live parity、未创建 live candidate/provider；后续纳入 iteration focused union。
+
+## 2026-08-12 — Phase 64.4 iteration 1 后独占 full suite 的 11 个有效失败与旧 migration兼容
+
+**问题现象 / 如何检测**
+orchestrator 在 iteration 1 fixes后独占运行完整 suite，真实结果为 `11 failed, 4864 passed, 4 skipped`。失败分三类：3个 architecture boundary allowlist/seam文字过期；2个 Phase64.2 staged migration在 revision025/028执行当前 ingestion时提前查询 migration030 corpus tables；另6个服务/approval/search测试只seed裸 documents/chunks，未建立当前 active corpus/bindings。
+
+**关键证据 / 当前判断 / 根因**
+旧 migration两条用有效入口精确复现为 `2 failed`，最先均是 `policy_corpus_rollouts does not exist`。加table-existence gate后又依次暴露当前ORM自动选择/写入 migration030新增列，以及 Phase64.2 backfill owner被改为active-corpus scoped的同类兼容问题；这些均属于“当前 runtime module必须仍能在它自己的历史 migration阶段执行”，不能通过创建未来表或放宽当前 active authority解决。与此前并发共享schema导致并被中止的 `3F/4E` 不同，本次11失败来自独占full suite，是有效回归输入。
+
+**已做处理 / 剩余入口**
+只在 `to_regclass('policy_corpus_rollouts') IS NULL` 的 staged migration seam启用revision025已有列的窄ORM projection，覆盖该历史 ingestion/backfill必需的job/current chunk/document version/chunk version；migration030存在时仍强制bootstrap、active scope与COW，current schema路径不变。目标两条最终 `2 passed, 11 warnings`，format/full lint PASS。其余9个失败按原分类继续修复；本code-fixer不再运行full suite，最终独占全量由orchestrator执行。

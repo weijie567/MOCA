@@ -83,6 +83,19 @@ class PolicyCorpusRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def authority_schema_available(self) -> bool:
+        """Report whether migration 030's corpus authority tables exist."""
+
+        return bool(
+            await self.session.scalar(
+                text(
+                    "SELECT to_regclass('policy_corpus_rollouts') IS NOT NULL "
+                    "AND to_regclass('policy_corpus_manifest_revisions') IS NOT NULL "
+                    "AND to_regclass('policy_corpus_versions') IS NOT NULL"
+                )
+            )
+        )
+
     async def get_corpus(
         self,
         *,

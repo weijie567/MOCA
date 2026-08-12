@@ -16,10 +16,12 @@ from typing import Protocol
 from uuid import UUID
 from uuid import uuid4
 
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.conversation.schemas import FORBIDDEN_MESSAGE_KEYS
 from src.db.models import DocumentBlock, PolicyChunk, PolicyDocument, RagIngestionJob
+from src.db.pre_token_corpus_models import PreTokenPolicyChunk, PreTokenRagIngestionJob
 from src.knowledge.text_hash import evidence_text_hash
 from src.rag.chunker import BlockChunkResult, chunk_blocks
 from src.rag.embedding_tokenizer import EmbeddingTokenCounter, load_embedding_tokenizer_config
@@ -273,6 +275,7 @@ class IngestionService:
         self.corpus_repo = PolicyCorpusRepository(session)
         self.job_repo = RagIngestionJobRepository(session)
         self.parser_registry = ParserRegistry()
+        self._pre_token_corpus_schema = False
 
     async def ingest_document(
         self,
@@ -300,7 +303,11 @@ class IngestionService:
             )
         doc_key = str(raw_doc_key)
         active_scope: ActivePolicyCorpusScope | None = None
-        if isinstance(self.session, AsyncSession) and not self._input_assembler_explicit:
+        corpus_authority_available = False
+        if isinstance(self.session, AsyncSession):
+            corpus_authority_available = await self.corpus_repo.authority_schema_available()
+            self._pre_token_corpus_schema = not corpus_authority_available
+        if corpus_authority_available and not self._input_assembler_explicit:
             try:
                 bootstrap_assembler = CharacterCompatibilityAssembler()
                 bootstrap_config = character_compatibility_config_json(counter=bootstrap_assembler.counter)
@@ -423,11 +430,13 @@ class IngestionService:
             # they keep exercising parser/sanitizer behavior without claiming
             # rollout coverage.
             use_immutable_writer = isinstance(self.session, AsyncSession)
+            use_corpus_writer = use_immutable_writer and corpus_authority_available
             if use_immutable_writer:
                 writer_rollout = await self.evidence_repo.lock_for_writer(
                     expected_rollout_version=expected_rollout_version,
                 )
                 writer_rollout_version = writer_rollout.rollout_version
+            if use_corpus_writer:
                 corpus_rollout = await self.corpus_repo.acquire_tenant_rollout_lock(tenant_id=self.tenant_id)
                 source_manifest = await self.corpus_repo.lock_latest_manifest(tenant_id=self.tenant_id)
                 active_corpus = await self.corpus_repo.get_corpus(
@@ -445,7 +454,21 @@ class IngestionService:
             # re-imports cannot write the same next content version.
             existing_doc = await self.doc_repo.get_by_doc_key_for_update(doc_key, self.tenant_id)
             locked_chunks: list[PolicyChunk] = []
-            if use_immutable_writer and existing_doc is not None:
+            if self._pre_token_corpus_schema and existing_doc is not None:
+                locked_chunks = list(
+                    (
+                        await self.session.execute(
+                            select(PreTokenPolicyChunk)
+                            .where(
+                                PreTokenPolicyChunk.doc_id == existing_doc.id,
+                                PreTokenPolicyChunk.tenant_id == self.tenant_id,
+                            )
+                            .order_by(PreTokenPolicyChunk.chunk_id)
+                            .with_for_update()
+                        )
+                    ).scalars()
+                )
+            elif use_corpus_writer and existing_doc is not None:
                 locked_chunks = await self.chunk_repo.list_by_document_id_for_update(existing_doc.id, self.tenant_id)
 
             content = canonical_source.content
@@ -463,7 +486,7 @@ class IngestionService:
                 getattr(existing_doc, "policy_version_fingerprint", None) if existing_doc is not None else None
             )
             source_identity_changed = False
-            if use_immutable_writer and existing_doc is not None:
+            if use_corpus_writer and existing_doc is not None:
                 bound_document_version = await self.corpus_repo.get_bound_document_version(
                     tenant_id=self.tenant_id,
                     corpus_version_id=active_corpus.id,
@@ -551,15 +574,25 @@ class IngestionService:
                 assembled_inputs=assembled_inputs,
                 embeddings=embeddings,
             )
+            if self._pre_token_corpus_schema:
+                db_chunks = [_pre_token_policy_chunk(chunk) for chunk in db_chunks]
             reused_binding = None
             if use_immutable_writer and existing_doc is not None and not fingerprint_changed:
-                reused_binding = await self.evidence_repo.find_exact_binding(
-                    tenant_id=self.tenant_id,
-                    document=doc,
-                    chunks=db_chunks,
-                    fingerprint=fingerprint,
-                    canonical_source=canonical_source,
-                )
+                if self._pre_token_corpus_schema:
+                    reused_binding = await self.evidence_repo.find_exact_binding_pre_token_corpus(
+                        tenant_id=self.tenant_id,
+                        document=doc,
+                        chunks=db_chunks,
+                        fingerprint=fingerprint,
+                    )
+                else:
+                    reused_binding = await self.evidence_repo.find_exact_binding(
+                        tenant_id=self.tenant_id,
+                        document=doc,
+                        chunks=db_chunks,
+                        fingerprint=fingerprint,
+                        canonical_source=canonical_source,
+                    )
 
             if reused_binding is not None:
                 await self.evidence_repo.project_write_sequence(
@@ -573,31 +606,62 @@ class IngestionService:
                 if not use_immutable_writer:
                     await self.block_repo.delete_by_document_id(doc.id, self.tenant_id)
                     await self.chunk_repo.delete_by_document_id(doc.id, self.tenant_id)
-                await self.block_repo.bulk_insert(db_blocks)
-                await self.chunk_repo.bulk_insert(db_chunks)
+                elif self._pre_token_corpus_schema:
+                    await self.session.execute(
+                        delete(DocumentBlock).where(
+                            DocumentBlock.doc_id == doc.id,
+                            DocumentBlock.tenant_id == self.tenant_id,
+                        )
+                    )
+                    await self.session.execute(
+                        delete(PreTokenPolicyChunk).where(
+                            PreTokenPolicyChunk.doc_id == doc.id,
+                            PreTokenPolicyChunk.tenant_id == self.tenant_id,
+                        )
+                    )
+                if self._pre_token_corpus_schema:
+                    self.session.add_all(db_blocks)
+                    self.session.add_all(db_chunks)
+                    await self.session.flush()
+                else:
+                    await self.block_repo.bulk_insert(db_blocks)
+                    await self.chunk_repo.bulk_insert(db_chunks)
                 persisted_chunks = db_chunks
                 chunks_created = len(db_chunks)
                 if use_immutable_writer:
-                    document_version, chunk_versions = await self.evidence_repo.append_immutable_version(
-                        tenant_id=self.tenant_id,
-                        document=doc,
-                        chunks=persisted_chunks,
-                        write_sequence=write_sequence,
-                        canonical_source=canonical_source,
-                        correction_of_document_version_id=doc_meta.get("correction_of_document_version_id"),
-                    )
-                    await self.corpus_repo.create_ingestion_cow(
-                        rollout=corpus_rollout,
-                        source_manifest=source_manifest,
-                        active_corpus=active_corpus,
-                        document=doc,
-                        blocks=db_blocks,
-                        chunks=persisted_chunks,
-                        document_version=document_version,
-                        chunk_versions=chunk_versions,
-                        expected_evidence_rollout_version=writer_rollout_version,
-                        actor="moca.policy_ingestion.v1",
-                    )
+                    if self._pre_token_corpus_schema:
+                        (
+                            document_version,
+                            chunk_versions,
+                        ) = await self.evidence_repo.append_immutable_version_pre_token_corpus(
+                            tenant_id=self.tenant_id,
+                            document=doc,
+                            chunks=persisted_chunks,
+                            write_sequence=write_sequence,
+                            correction_of_document_version_id=doc_meta.get("correction_of_document_version_id"),
+                        )
+                    else:
+                        document_version, chunk_versions = await self.evidence_repo.append_immutable_version(
+                            tenant_id=self.tenant_id,
+                            document=doc,
+                            chunks=persisted_chunks,
+                            write_sequence=write_sequence,
+                            canonical_source=canonical_source,
+                            correction_of_document_version_id=doc_meta.get("correction_of_document_version_id"),
+                        )
+                    if use_corpus_writer:
+                        await self.corpus_repo.create_ingestion_cow(
+                            rollout=corpus_rollout,
+                            source_manifest=source_manifest,
+                            active_corpus=active_corpus,
+                            document=doc,
+                            blocks=db_blocks,
+                            chunks=persisted_chunks,
+                            document_version=document_version,
+                            chunk_versions=chunk_versions,
+                            expected_evidence_rollout_version=writer_rollout_version,
+                            actor="moca.policy_ingestion.v1",
+                        )
             if job is not None:
                 _mark_job_success(
                     job,
@@ -628,7 +692,10 @@ class IngestionService:
             safe_message = _safe_message(str(exc), default="Document replacement failed safely.")
             failure_job = job
             if isinstance(self.session, AsyncSession) and durable_job_id is not None:
-                failure_job = await self.session.get(RagIngestionJob, durable_job_id)
+                failure_job = await self.session.get(
+                    PreTokenRagIngestionJob if self._pre_token_corpus_schema else RagIngestionJob,
+                    durable_job_id,
+                )
             if failure_job is not None:
                 await self._mark_job_failed(
                     job=failure_job,
@@ -755,7 +822,8 @@ class IngestionService:
         status: str,
         commit_immediately: bool = True,
     ) -> RagIngestionJob | None:
-        job = RagIngestionJob(
+        job_model = PreTokenRagIngestionJob if self._pre_token_corpus_schema else RagIngestionJob
+        job = job_model(
             id=uuid4(),
             tenant_id=self.tenant_id,
             doc_id=doc_id,
@@ -1148,6 +1216,24 @@ def _policy_chunks_from_embedding_inputs(
             )
         )
     return db_chunks
+
+
+def _pre_token_policy_chunk(chunk: PolicyChunk) -> PreTokenPolicyChunk:
+    return PreTokenPolicyChunk(
+        id=chunk.id or uuid4(),
+        tenant_id=chunk.tenant_id,
+        doc_id=chunk.doc_id,
+        chunk_id=chunk.chunk_id,
+        section=chunk.section,
+        content=chunk.content,
+        search_text=chunk.search_text,
+        source_block_refs_json=list(chunk.source_block_refs_json),
+        ocr_metadata_json=dict(chunk.ocr_metadata_json),
+        risk_level=chunk.risk_level,
+        effective_date=chunk.effective_date,
+        embedding=chunk.embedding,
+        evidence_write_sequence=chunk.evidence_write_sequence,
+    )
 
 
 def _chunk_ocr_metadata(chunk: PolicyEmbeddingInputV1) -> dict[str, Any]:
