@@ -23949,3 +23949,14 @@ orchestrator 在 iteration 1 fixes后独占运行完整 suite，真实结果为 
 
 **已做处理 / 剩余入口**
 把既有helper提取为`tests/policy_corpus_helpers.py`共享fixture，并在建新immutable version前复用exact binding；mock graph、knowledge目标test与search seed完成后均建立active character corpus及tenant-scoped bindings。六条精确GREEN为`6 passed, 9 warnings`，原helper两条回归为`2 passed, 1 warning`。未修改production查询或authority规则；最终仍需由orchestrator独占full suite确认无遗漏。
+
+## 2026-08-12 — Phase 64.4 iteration 2 — RAG architecture boundary精确清单与COW seam文字过期
+
+**问题现象 / 如何检测**
+`UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/architecture/test_rag_chunking_boundaries.py`得到`3 failed, 5 passed`：character compatibility constructor与current SQL owner精确allowlist缺少已实现路径，ingestion仍断言旧`bind_active_policy_projection` seam。
+
+**关键证据 / 当前判断 / 根因**
+逐条核对新增owner后确认：ingestion first-corpus bootstrap、seed/eval incumbent构造均由active config或固定character基线控制；reindex与authoritative snapshot通过显式`CorpusChunkBinding`/`CorpusBlockBinding`固定source/candidate corpus；evaluation paths都包含active projection join；ingestion直接delete只存在于`_pre_token_corpus_schema`历史migration seam。其余current ingestion已经改由`ensure_tenant_character_bootstrap`与`create_ingestion_cow`维护authority。因此三条均是boundary test事实清单/文字过期，不是production绕过。
+
+**已做处理 / 剩余入口**
+仅更新精确owner allowlist、认可的显式corpus binding/历史schema token，以及current COW seam断言；未改production。目标文件GREEN为`8 passed, 1 warning`。最终需纳入iteration focused union和orchestrator独占full suite。

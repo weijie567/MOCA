@@ -110,9 +110,12 @@ def test_only_named_compatibility_owner_may_call_legacy_block_chunking() -> None
     assert markdown_callers == []
     assert block_callers == [("src/rag/ingestion.py", "CharacterCompatibilityAssembler.assemble", "chunk_blocks")]
     assert compatibility_constructors == {
+        ("src/rag/ingestion.py", "IngestionService.ingest_document"),
         ("src/rag/ingestion.py", "_assembler_for_mode"),
         ("src/rag/ingestion.py", "assembler_for_active_policy_corpus"),
         ("scripts/eval_rag_format_parity.py", "_character_baseline"),
+        ("scripts/eval_rag_token_chunk_ab.py", "_character_incumbent"),
+        ("scripts/seed_demo.py", "seed_policy_documents"),
     }
 
 
@@ -222,8 +225,13 @@ def test_every_current_policy_chunk_or_document_block_sql_path_is_active_scoped(
             "select:DocumentBlock",
         ),
         (
+            "src/repositories/document_block_repo.py",
+            "DocumentBlockRepository.load_authoritative_snapshot",
+            "select:DocumentBlock",
+        ),
+        (
             "src/repositories/evidence_version_repo.py",
-            "EvidenceVersionRepository.backfill_current_heads",
+            "EvidenceVersionRepository._active_chunks_for_update",
             "select:PolicyChunk",
         ),
         (
@@ -231,11 +239,8 @@ def test_every_current_policy_chunk_or_document_block_sql_path_is_active_scoped(
             "EvidenceVersionRepository.get_current_identities_by_keys",
             "select:PolicyChunk",
         ),
-        (
-            "src/repositories/evidence_version_repo.py",
-            "EvidenceVersionRepository.reconcile_and_enable_canonical_reads",
-            "select:PolicyChunk",
-        ),
+        ("src/rag/ingestion.py", "IngestionService.ingest_document", "delete:DocumentBlock"),
+        ("src/rag/policy_reindex.py", "PolicyReindexService.validate_candidate", "select:PolicyChunk"),
         (
             "src/repositories/policy_chunk_repo.py",
             "PolicyChunkRepository.delete_by_document_id",
@@ -270,8 +275,11 @@ def test_every_current_policy_chunk_or_document_block_sql_path_is_active_scoped(
                 f"select:{model}",
             )
             for method, model in {
+                ("capture_rollback_baseline", "DocumentBlock"),
+                ("capture_rollback_baseline", "PolicyChunk"),
                 ("_head_projection", "DocumentBlock"),
                 ("_head_projection", "PolicyChunk"),
+                ("_head_resource_proof", "PolicyChunk"),
                 ("_inspect_locked", "DocumentBlock"),
                 ("_inspect_locked", "PolicyChunk"),
                 ("prove_recorded_anchor_locators", "DocumentBlock"),
@@ -286,6 +294,9 @@ def test_every_current_policy_chunk_or_document_block_sql_path_is_active_scoped(
         "join_active_block_projection",
         "active_chunk_ids",
         "active_block_ids",
+        "CorpusChunkBinding",
+        "CorpusBlockBinding",
+        "_pre_token_corpus_schema",
     }
     assert all(any(token in source for token in scope_tokens) for _, _, _, source in operations)
 
@@ -299,7 +310,8 @@ def test_current_mutation_and_maintenance_paths_require_active_scope() -> None:
 
     assert "await ActivePolicyCorpusScope.resolve(" in ingestion
     assert "assembler_for_active_policy_corpus" in ingestion
-    assert "bind_active_policy_projection" in ingestion
+    assert "ensure_tenant_character_bootstrap" in ingestion
+    assert "create_ingestion_cow" in ingestion
     assert "join_active_chunk_projection" in backfill
     assert "tenant_id: UUID," in backfill
     assert "ActivePolicyCorpusScope.resolve" in seed

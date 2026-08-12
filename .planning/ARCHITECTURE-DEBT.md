@@ -2854,3 +2854,12 @@
 - **处理状态**：✅ 已修复验证。提取既有character corpus test helper为共享fixture，exact immutable binding存在时复用，否则创建；三个seed入口显式建立tenant active rollout和document/chunk bindings，production fail-closed authority保持不变。
 - **证据**：Phase64.4 review iteration 2 full-suite repair；`tests/policy_corpus_helpers.py`、`tests/conftest.py`、`tests/knowledge/test_service.py`、`tests/test_search_integration.py`、`tests/knowledge/test_hybrid_retrieval.py`；六条精确GREEN `6 passed, 9 warnings`，helper原两条回归 `2 passed, 1 warning`。
 - **剩余风险 / 继续入口**：共享helper仅用于测试且一次建立一个tenant rollout；未向argparse/production注入绕过入口。最终独占full suite由orchestrator执行。
+
+## 2026-08-12 — Phase 64.4 full-suite repair — RAG boundary gate滞后于active COW实现 ✅已修复验证
+
+- **子系统**：RAG chunk ownership / active corpus architecture guard。
+- **问题现象 / 根因**：architecture test以精确owner集合守护current row访问，但allowlist仍描述旧direct projection seam，遗漏first-corpus bootstrap、explicit source/candidate corpus bindings、evaluation active joins与pre-030 migration seam。
+- **影响**：有效production路径触发3条假红；若简单移除guard则会失去对裸current SQL的架构保护。
+- **处理状态**：✅ 已修复验证。逐条确认owner有active join、显式corpus binding或仅历史schema gate后更新精确集合；mutation断言改为当前`ensure_tenant_character_bootstrap`+`create_ingestion_cow` seam，未降低production authority。
+- **证据**：`tests/architecture/test_rag_chunking_boundaries.py`；RED `3 failed, 5 passed`，GREEN `8 passed, 1 warning`。
+- **剩余风险 / 继续入口**：allowlist是AST级结构guard，不能替代integration行为验证；本iteration focused union及最终full suite继续覆盖。
