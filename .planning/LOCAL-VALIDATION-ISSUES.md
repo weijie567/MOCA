@@ -23872,3 +23872,14 @@ RED 失败来自计划 owner 尚未实现，不是 Python/PATH/PostgreSQL/provid
 
 **已做处理 / 剩余入口**
 RED原子提交为 `d643a13d`。随后实现 canonical issuance/reconcile、内部 UTC lease/parity gate、严格 DB/source/evidence proof与 pre-provider二次 forcing；最小 GREEN为 `4 passed`，完整 `test_rag_token_chunk_ab.py` 为 `85 passed, 1 warning`。Task2开始前重新读取 UTC；若已达到 descriptor绝对 expiry `2026-08-12T04:13:52.208631Z`，禁止运行 live issuance，只做只读过期与零副作用证据。
+
+## 2026-08-12 — Phase 64.4 Plan 17 Task 2 lease window 在 live issuance 前耗尽
+
+**问题现象 / 如何检测**
+Task1按质量优先完成两轮 `make format`、完整 `make lint` 与 prescribed `198 passed, 1 warning` 后，UTC为 `2026-08-12T04:14:12Z`，已经晚于 descriptor不可续租 expiry `2026-08-12T04:13:52.208631Z`。遵循用户新增硬边界，没有调用可能签发manifest的production命令；仅调用只读 `load_recovery_issuance_identity` strict loader核对exact state/parity，得到safe code `recovery_authority_expired`。
+
+**关键证据 / 当前判断 / 根因**
+到期前只读快照确认同一 run/candidate为 `f8e190f1…dc46` / `64932871…151f`、`building/v2/index0`、projection `0/0/0`，active/epoch/history/current/jobs为 `55d651e5…e007 / 4 / 4 / 3-158-13 / 4`。到期后 descriptor、v1、v2、build manifest SHA不变；candidate attempts/results `0/0`、canonical A-B manifest absent、A-B attempts `0`、runs仍仅原3份JSON、diagnostics/selections/authorizations/activations新增均为0。DB同一candidate/active/current/evidence proof完全相同，provider factory与外部provider均未触发。根因是窄绝对lease自然耗尽，不是implementation defect、candidate quality failure或provider failure。
+
+**已做处理 / 剩余入口**
+Plan17停在truthful fail-closed checkpoint；不续租、不rebind、不创建第二candidate、不写manifest/reservation、不调用provider、不进入Plan18，也不新增Plan21。完成Task2 deterministic回归后提交本证据与checkpoint SUMMARY；由orchestrator决定已冻结Plans18-20的后续处置。
