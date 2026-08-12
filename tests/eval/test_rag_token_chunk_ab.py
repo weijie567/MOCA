@@ -41,6 +41,7 @@ def _api():
         ABResourceMetricsV1,
         ABRecoveryBudgetManifestV1,
         ABRecoveryAttemptReservationV1,
+        ABRecoveryAuthorizationV1,
         ABRuntimeConfigV1,
         ABSelectionBindingV1,
         ExactRatioV1,
@@ -55,6 +56,7 @@ def _api():
         evaluate_recovery_retry_authority,
         load_execution_error_bundle,
         load_recovery_attempt_reservation,
+        load_recovery_authorization,
         load_recovery_budget_manifest,
         load_selection_decision,
         load_terminal_ab_run,
@@ -65,6 +67,7 @@ def _api():
         render_terminal_markdown,
         validate_fixed_plan10_evidence,
         write_recovery_budget_manifest_create_only,
+        write_recovery_authorization_create_only,
         write_selection_create_only,
         write_execution_error_bundle_create_only,
         write_terminal_run_create_only,
@@ -87,6 +90,7 @@ def _api():
         "ABResourceMetricsV1": ABResourceMetricsV1,
         "ABRecoveryBudgetManifestV1": ABRecoveryBudgetManifestV1,
         "ABRecoveryAttemptReservationV1": ABRecoveryAttemptReservationV1,
+        "ABRecoveryAuthorizationV1": ABRecoveryAuthorizationV1,
         "ABRuntimeConfigV1": ABRuntimeConfigV1,
         "ABSelectionBindingV1": ABSelectionBindingV1,
         "ExactRatioV1": ExactRatioV1,
@@ -101,6 +105,7 @@ def _api():
         "evaluate_recovery_retry_authority": evaluate_recovery_retry_authority,
         "load_execution_error_bundle": load_execution_error_bundle,
         "load_recovery_attempt_reservation": load_recovery_attempt_reservation,
+        "load_recovery_authorization": load_recovery_authorization,
         "load_recovery_budget_manifest": load_recovery_budget_manifest,
         "load_selection_decision": load_selection_decision,
         "load_terminal_ab_run": load_terminal_ab_run,
@@ -111,6 +116,7 @@ def _api():
         "render_terminal_markdown": render_terminal_markdown,
         "validate_fixed_plan10_evidence": validate_fixed_plan10_evidence,
         "write_recovery_budget_manifest_create_only": write_recovery_budget_manifest_create_only,
+        "write_recovery_authorization_create_only": write_recovery_authorization_create_only,
         "write_selection_create_only": write_selection_create_only,
         "write_execution_error_bundle_create_only": write_execution_error_bundle_create_only,
         "write_terminal_run_create_only": write_terminal_run_create_only,
@@ -1016,6 +1022,48 @@ def _reserve_first(tmp_path: Path, *, prerequisite_hash: str = "sha256:" + "5" *
     return manifest, artifact, reservation, candidate_state_path, parity_path
 
 
+def _write_selected_recovery_lineage(tmp_path: Path):
+    api = _api()
+    manifest, budget_artifact, reservation, candidate_state_path, parity_path = _reserve_first(tmp_path)
+    report = _selected_run(parity=_recovery_parity(manifest))
+    terminal = api["write_terminal_run_create_only"](report, root=tmp_path)
+    selection = api["write_selection_create_only"](
+        report,
+        binding=api["ABSelectionBindingV1"](
+            selection_id=reservation.selection_id,
+            tenant_id=manifest.tenant_id,
+            candidate_corpus_version_id=manifest.candidate_corpus_version_id,
+            candidate_run_token=manifest.candidate_run_token,
+            candidate_lease_owner=manifest.candidate_lease_owner,
+            source_manifest_hash=manifest.candidate_source_manifest_hash,
+        ),
+        terminal_run_sha256=terminal.json_sha256,
+        root=tmp_path,
+    )
+    reservation_path = budget_artifact.path.parent / "attempts" / f"{reservation.ordinal:02d}.json"
+    authorization = api["write_recovery_authorization_create_only"](
+        root=tmp_path,
+        manifest_path=budget_artifact.path,
+        reservation_path=reservation_path,
+        candidate_state_path=candidate_state_path,
+        provider_parity_report_path=parity_path,
+        terminal_run_path=terminal.json_path,
+        selection_path=selection.json_path,
+        checked_at=GENERATED_AT,
+    )
+    return SimpleNamespace(
+        manifest=manifest,
+        budget_artifact=budget_artifact,
+        reservation=reservation,
+        reservation_path=reservation_path,
+        candidate_state_path=candidate_state_path,
+        parity_path=parity_path,
+        terminal=terminal,
+        selection=selection,
+        authorization=authorization,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _CandidateStateArtifact:
     path: Path
@@ -1143,6 +1191,11 @@ def _write_recovery_candidate_authority(
 
 def _file_sha256(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _payload_sha256(payload: object) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def _recovery_parity(manifest):
@@ -1666,3 +1719,103 @@ def test_recovery_artifacts_are_redacted_and_cli_reserves_before_provider_factor
     assert "max_embedding_tokens=512" not in source
     assert "target_embedding_tokens=384" not in source
     assert "overlap_tokens=48" not in source
+
+
+def test_selected_pass_writes_create_only_reconciled_recovery_authorization(tmp_path: Path) -> None:
+    api = _api()
+    lineage = _write_selected_recovery_lineage(tmp_path)
+    loaded = api["load_recovery_authorization"](lineage.authorization.path)
+    before = lineage.authorization.path.read_bytes()
+
+    reconciled = api["write_recovery_authorization_create_only"](
+        root=tmp_path,
+        manifest_path=lineage.budget_artifact.path,
+        reservation_path=lineage.reservation_path,
+        candidate_state_path=lineage.candidate_state_path,
+        provider_parity_report_path=lineage.parity_path,
+        terminal_run_path=lineage.terminal.json_path,
+        selection_path=lineage.selection.json_path,
+        checked_at=GENERATED_AT,
+    )
+
+    assert reconciled == lineage.authorization
+    assert reconciled.path.read_bytes() == before
+    assert loaded.schema_version == "rag_token_chunk_recovery_authorization.v1"
+    assert loaded.budget_manifest_sha256 == lineage.budget_artifact.sha256
+    assert loaded.reservation_ordinal == lineage.reservation.ordinal == 1
+    assert loaded.reservation_sha256 == _file_sha256(lineage.reservation_path)
+    assert loaded.candidate_state_sha256 == lineage.manifest.candidate_state_sha256
+    assert loaded.candidate_corpus_version_id == CANDIDATE_CORPUS_ID
+    assert loaded.candidate_run_token == lineage.manifest.candidate_run_token
+    assert loaded.candidate_config_fingerprint == lineage.manifest.candidate_config_fingerprint
+    assert loaded.provider_parity_report_sha256 == lineage.manifest.provider_parity_report_sha256
+    assert loaded.source_manifest_hash == lineage.manifest.candidate_source_manifest_hash
+    assert loaded.terminal_run_id == RUN_ID
+    assert loaded.terminal_run_sha256 == lineage.terminal.json_sha256
+    assert loaded.selection_id == SELECTION_ID
+    assert loaded.selection_sha256 == lineage.selection.json_sha256
+    assert loaded.authorization_payload_sha256.startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("alternate_manifest", "wrong_state", "wrong_reservation", "fabricated_authorization", "over_budget"),
+)
+def test_recovery_authorization_refuses_noncanonical_or_fabricated_lineage(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    api = _api()
+    lineage = _write_selected_recovery_lineage(tmp_path)
+    manifest_path = lineage.budget_artifact.path
+    reservation_path = lineage.reservation_path
+    candidate_state_path = lineage.candidate_state_path
+    authorization_path = lineage.authorization.path
+
+    if mutation == "alternate_manifest":
+        manifest_path = tmp_path / "copied" / "manifest.json"
+        manifest_path.parent.mkdir(parents=True)
+        manifest_path.write_bytes(lineage.budget_artifact.path.read_bytes())
+    elif mutation == "wrong_state":
+        candidate_state_path = tmp_path / "copied" / "state.json"
+        candidate_state_path.parent.mkdir(parents=True)
+        candidate_state_path.write_bytes(lineage.candidate_state_path.read_bytes())
+    elif mutation == "wrong_reservation":
+        reservation_path = tmp_path / "copied" / "01.json"
+        reservation_path.parent.mkdir(parents=True)
+        reservation_path.write_bytes(lineage.reservation_path.read_bytes())
+    else:
+        payload = json.loads(authorization_path.read_text(encoding="utf-8"))
+        if mutation == "fabricated_authorization":
+            payload["candidate_run_token"] = str(uuid4())
+        else:
+            payload["reservation_ordinal"] = 3
+        payload["authorization_payload_sha256"] = _payload_sha256(
+            {key: value for key, value in payload.items() if key != "authorization_payload_sha256"}
+        )
+        authorization_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises((ValueError, api["RecoveryAttemptRefused"])):
+        if mutation in {"fabricated_authorization", "over_budget"}:
+            api["load_recovery_authorization"](
+                authorization_path,
+                root=tmp_path,
+                manifest_path=manifest_path,
+                reservation_path=reservation_path,
+                candidate_state_path=candidate_state_path,
+                provider_parity_report_path=lineage.parity_path,
+                terminal_run_path=lineage.terminal.json_path,
+                selection_path=lineage.selection.json_path,
+                checked_at=GENERATED_AT,
+            )
+        else:
+            api["write_recovery_authorization_create_only"](
+                root=tmp_path,
+                manifest_path=manifest_path,
+                reservation_path=reservation_path,
+                candidate_state_path=candidate_state_path,
+                provider_parity_report_path=lineage.parity_path,
+                terminal_run_path=lineage.terminal.json_path,
+                selection_path=lineage.selection.json_path,
+                checked_at=GENERATED_AT,
+            )

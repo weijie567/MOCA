@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
-import hashlib
 from pathlib import Path
 from uuid import UUID
 
@@ -25,107 +25,32 @@ from src.rag.activation_receipt import (
     load_activation_authority,
     load_activation_receipt,
 )
-from src.rag.embedding_tokenizer import ProviderParityStatus
-from src.rag.evaluation.token_chunk_ab import ABParityEvidenceV1
-from src.rag.tokenizer_parity import (
-    EmbeddingTokenizerParityReportV1,
-    ParityProbeResultV1,
-    parity_content_sha256,
-    write_parity_report_create_only,
-)
 from tests.eval.test_rag_token_chunk_ab import (
     CANDIDATE_CORPUS_ID,
     GENERATED_AT,
     INCUMBENT_CORPUS_ID,
-    SELECTION_ID,
     TENANT_ID,
-    _api,
-    _selected_run,
+    _write_selected_recovery_lineage,
 )
 
 
 TOKEN_CONFIG_FINGERPRINT = "sha256:" + "c" * 64
 CANDIDATE_RUN_TOKEN = UUID("64300000-0000-4000-8000-000000000014")
-CANDIDATE_LEASE_OWNER = "moca.rag_token_chunk_ab.v1:candidate"
+CANDIDATE_LEASE_OWNER = "phase64.4-plan13"
 SOURCE_MANIFEST_HASH = "sha256:" + "4" * 64
 ACTOR = "operator.phase64_4.live"
 
 
-def _sha256_bytes(payload: bytes) -> str:
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
-
-
 def _write_strict_artifacts(root: Path) -> ActivationArtifactPaths:
-    probes = tuple(
-        ParityProbeResultV1(
-            probe_id=f"probe-{index}",
-            category="safe_synthetic",
-            embedding_input_sha256="sha256:" + f"{index:x}" * 64,
-            offline_tokens=index + 2,
-            provider_prompt_tokens=index + 2,
-            provider_total_tokens=index + 2,
-            exact_match=True,
-        )
-        for index in range(10)
-    )
-    content_sha256 = parity_content_sha256(probes)
-    parity = EmbeddingTokenizerParityReportV1(
-        schema_version="embedding_tokenizer_parity.v1",
-        run_id=UUID("64300000-0000-4000-8000-000000000013"),
-        captured_at=datetime(2026, 8, 11, 8, 30, tzinfo=UTC),
-        region_class="dashscope_public",
-        provider="dashscope",
-        model="text-embedding-v4",
-        dimensions=1024,
-        tokenizer_contract_version="embedding_tokenizer.v1",
-        config_fingerprint=TOKEN_CONFIG_FINGERPRINT,
-        assembly_schema_version="policy_embedding_input.v1",
-        probe_fixture_sha256="sha256:" + "2" * 64,
-        submitted_content_sha256=content_sha256,
-        provider_parity_status=ProviderParityStatus.PASSED,
-        reason_code="exact_match",
-        probes=probes,
-        aggregate_input_count=10,
-        aggregate_offline_tokens=sum(item.offline_tokens for item in probes),
-        aggregate_provider_prompt_tokens=sum(item.offline_tokens for item in probes),
-        aggregate_provider_total_tokens=sum(item.offline_tokens for item in probes),
-        aggregate_exact_match=True,
-    )
-    parity_path = write_parity_report_create_only(parity, root=root / "parity")
-    parity_sha256 = _sha256_bytes(parity_path.read_bytes())
-
-    api = _api()
-    selected_payload = _selected_run().model_dump(mode="json")
-    selected_payload["parity"] = ABParityEvidenceV1(
-        report_sha256=parity_sha256,
-        run_id=parity.run_id,
-        captured_at=parity.captured_at,
-        status="passed",
-        config_fingerprint=parity.config_fingerprint,
-        probe_fixture_sha256=parity.probe_fixture_sha256,
-        submitted_content_sha256=parity.submitted_content_sha256,
-        reason_code=parity.reason_code,
-    ).model_dump(mode="json")
-    selected = api["TerminalABRunV1"].model_validate(selected_payload)
-    terminal_pair = api["write_terminal_run_create_only"](selected, root=root / "ab")
-    binding = api["ABSelectionBindingV1"](
-        selection_id=SELECTION_ID,
-        tenant_id=TENANT_ID,
-        candidate_corpus_version_id=CANDIDATE_CORPUS_ID,
-        candidate_run_token=CANDIDATE_RUN_TOKEN,
-        candidate_lease_owner=CANDIDATE_LEASE_OWNER,
-        source_manifest_hash=SOURCE_MANIFEST_HASH,
-    )
-    selection_pair = api["write_selection_create_only"](
-        selected,
-        binding=binding,
-        terminal_run_sha256=terminal_pair.json_sha256,
-        root=root / "ab",
-    )
+    lineage = _write_selected_recovery_lineage(root)
     return ActivationArtifactPaths(
-        selection_path=selection_pair.json_path,
-        terminal_run_path=terminal_pair.json_path,
-        parity_report_path=parity_path,
+        selection_path=lineage.selection.json_path,
+        terminal_run_path=lineage.terminal.json_path,
+        parity_report_path=lineage.parity_path,
+        recovery_authorization_path=lineage.authorization.path,
+        recovery_budget_manifest_path=lineage.budget_artifact.path,
+        recovery_reservation_path=lineage.reservation_path,
+        candidate_state_path=lineage.candidate_state_path,
     )
 
 
@@ -191,7 +116,7 @@ async def _seed_activation_authority(session: AsyncSession) -> PolicyCorpusRollo
         provider_parity_report_hash=None,
         source_active_corpus_version_id=INCUMBENT_CORPUS_ID,
         source_rollout_epoch=7,
-        expected_evidence_rollout_version=11,
+        expected_evidence_rollout_version=13,
         lease_owner=CANDIDATE_LEASE_OWNER,
         lease_expires_at=datetime(2026, 8, 12, tzinfo=UTC),
         **common,
@@ -246,6 +171,39 @@ async def _commit_event(
     await session.commit()
 
 
+def test_activation_authority_requires_complete_recovery_lineage(tmp_path: Path) -> None:
+    paths = _write_strict_artifacts(tmp_path / "valid")
+    authority = load_activation_authority(paths)
+    assert authority.recovery_authorization_sha256.startswith("sha256:")
+
+    missing = tmp_path / "missing-authorization.json"
+    with pytest.raises(ActivationReceiptError) as missing_authority:
+        load_activation_authority(replace(paths, recovery_authorization_path=missing))
+    assert missing_authority.value.code is ActivationReceiptFailureCode.ARTIFACT_MISMATCH
+
+    copied_manifest = tmp_path / "copied" / "manifest.json"
+    copied_manifest.parent.mkdir(parents=True)
+    copied_manifest.write_bytes(paths.recovery_budget_manifest_path.read_bytes())
+    with pytest.raises(ActivationReceiptError) as alternate_manifest:
+        load_activation_authority(replace(paths, recovery_budget_manifest_path=copied_manifest))
+    assert alternate_manifest.value.code is ActivationReceiptFailureCode.ARTIFACT_MISMATCH
+
+    wrong_state = tmp_path / "copied" / "state.json"
+    wrong_state.write_bytes(paths.candidate_state_path.read_bytes())
+    with pytest.raises(ActivationReceiptError) as candidate_mismatch:
+        load_activation_authority(replace(paths, candidate_state_path=wrong_state))
+    assert candidate_mismatch.value.code is ActivationReceiptFailureCode.ARTIFACT_MISMATCH
+
+    tampered_paths = _write_strict_artifacts(tmp_path / "tampered")
+    payload = tampered_paths.recovery_authorization_path.read_bytes()
+    tampered_paths.recovery_authorization_path.write_bytes(
+        payload.replace(b'"reservation_ordinal":1', b'"reservation_ordinal":2')
+    )
+    with pytest.raises(ActivationReceiptError) as fabricated:
+        load_activation_authority(tampered_paths)
+    assert fabricated.value.code is ActivationReceiptFailureCode.ARTIFACT_MISMATCH
+
+
 @pytest.mark.asyncio
 async def test_committed_event_writes_create_only_receipt_bound_to_live_pointer_and_artifacts(
     session: AsyncSession,
@@ -253,10 +211,11 @@ async def test_committed_event_writes_create_only_receipt_bound_to_live_pointer_
 ) -> None:
     paths = _write_strict_artifacts(tmp_path / "evidence")
     authority = load_activation_authority(paths)
-    proof = authority.to_selection_proof(expected_evidence_rollout_version=11)
+    proof = authority.to_selection_proof(expected_evidence_rollout_version=13)
     assert proof.schema_version == "rag_token_chunk_selection.v1"
     assert proof.selection_decision_sha256 == authority.selection_decision_sha256
     assert proof.provider_parity_report_hash == authority.provider_parity_report_sha256
+    assert proof.recovery_authorization_sha256 == authority.recovery_authorization_sha256
     await _seed_activation_authority(session)
     await _commit_event(
         session,
@@ -295,6 +254,7 @@ async def test_committed_event_writes_create_only_receipt_bound_to_live_pointer_
     assert receipt.selection_decision_sha256 == authority.selection_decision_sha256
     assert receipt.terminal_run_sha256 == authority.terminal_run_sha256
     assert receipt.provider_parity_report_sha256 == authority.provider_parity_report_sha256
+    assert receipt.recovery_authorization_sha256 == authority.recovery_authorization_sha256
     assert receipt.db_history_sha256.startswith("sha256:")
     assert receipt.actor == ACTOR
     assert receipt.previous_receipt_sha256 == ACTIVATION_RECEIPT_GENESIS

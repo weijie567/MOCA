@@ -23795,3 +23795,14 @@ Plan13 descriptor artifact 的 `artifact.sha256` 是 descriptor 自校验 payloa
 
 **已做处理 / 剩余入口**
 fixture 改为直接对 descriptor file bytes 计算 SHA，canonical-root 调用显式传 `output_root=`；随后重跑 `make format`、完整 `make lint` 与相同 scoped gate，结果 `163 passed, 1 warning`。后续 authority artifact 测试须明确区分 schema self-hash 与 file-byte hash，不能用字段名相似代替真实 rehash oracle。
+
+## 2026-08-12 — Phase 64.4 Plan 14 Task 2 recovery authorization 预期 RED
+
+**问题现象 / 如何检测**
+先补 recovery authorization create-only/reconcile、完整 activation lineage 与真实 selection pre-CAS 拒绝测试，再运行 `make format`、完整 `make lint` 和 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/eval/test_rag_token_chunk_ab.py tests/rag/test_activation_receipt.py tests/rag/test_policy_reindex.py tests/replay/test_production_evidence_binding.py`。format/lint 通过，pytest collection 报 `ImportError: cannot import name 'ABRecoveryAuthorizationV1'`。
+
+**关键证据 / 当前判断 / 根因**
+失败精确证明当前仓库尚无 `rag_token_chunk_recovery_authorization.v1` owner；现有 activation authority 只严格读取 selection/terminal/parity，真实 `ImmutableSelectionDecisionV1` 也没有 recovery authorization SHA，因此 budget ordinal/candidate state authority 尚未进入 pointer CAS。该次仅使用 deterministic `tmp_path` artifacts 与测试数据库；没有调用 provider、claim/build live candidate、消费 A-B slot或修改 live pointer/history。
+
+**已做处理 / 剩余入口**
+将该 collection failure 作为 Task2 tests-first 预期 RED 原子保留；下一步实现 separate create-only authorization、完整 lineage strict loader、production activation canonical root检查，以及真实 selection proof 的必填 SHA，再用同一精确 gate 转绿。Plan08 fixture 继续走独立 fixture 类型/schema，不用伪造 authorization 绕过真实路径。

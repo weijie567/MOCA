@@ -2737,3 +2737,12 @@
 - **处理状态**：✅ 已加入 repository canonical resolved root 与 symlink/alternate/outside refusal；production CLI 在任何 provider-capable run 前校验唯一 root。manifest 现绑定 canonical candidate state path、state/descriptor file SHA、corpus/run/owner/version/config、source manifest/current corpus/epoch、evidence rollout 与 fresh parity全身份；每次 reserve 都重新哈希、经 Plan13 descriptor/state strict loader复读，并逐字段核对 fresh passed parity后才发布 ordinal。temporary root 仅保留在 unit store API。
 - **证据**：Phase64.4 Plan14 Task1；RED `2b0f56d5` 与本条所在 GREEN 提交；`src/rag/evaluation/token_chunk_ab.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`、recovery budget README。RED 用有效入口 collection 失败于缺少 `canonical_recovery_root`；完成后 format/full lint 与精确 gate `163 passed, 1 warning`。全程未调用 provider、DB、live candidate/A-B slot 或 pointer/history。
 - **剩余风险 / 继续入口**：Task1 必须保持 temporary roots 仅供 unit store API 注入，production CLI只能接受仓库唯一 canonical root；Task2 前 selection/activation authority仍未闭合，不能据此执行 live selection 或 activation。
+
+## 2026-08-12 — Phase 64.4 Plan 14 Task 2 — selection 到 activation 未绑定 recovery ordinal/candidate authority 🔴修复中
+
+- **子系统**：RAG token-chunk recovery selection / activation authority / pointer CAS。
+- **问题现象 / 根因**：仓库核对确认 `load_activation_authority` 当前只加载并交叉验证 selection、terminal run 与 provider parity；`ImmutableSelectionDecisionV1` 不含 recovery authorization SHA，`PolicyReindexService._validate_selection_proof` 因而可让真实 selected cutover/restore 在不知道 canonical budget manifest、exact ordinal reservation 与 exact candidate state file 的情况下进入 CAS。
+- **影响**：即使 Plan14 Task1 已把 provider 前的两槽预算绑定到唯一 root/candidate，后续 selection artifact 仍可脱离该 reservation lineage；伪造或复制的 selection/terminal/parity 组合无法在 pointer mutation 前证明它来自一个合法未超额 ordinal。
+- **处理状态**：🔴 修复中。Task2 RED 已要求 separate create-only `rag_token_chunk_recovery_authorization.v1`、完整 lineage loader、真实 selection proof 必填 SHA及 pre-CAS fail closed；Plan08 fixture 类型/schema 保持显式隔离。
+- **证据**：Phase64.4 Plan14 Task2；预期 RED collection 缺少 `ABRecoveryAuthorizationV1`；`src/rag/activation_receipt.py`、`src/rag/policy_reindex.py`、`tests/eval/test_rag_token_chunk_ab.py`、`tests/rag/test_activation_receipt.py`、`tests/rag/test_policy_reindex.py`。
+- **剩余风险 / 继续入口**：GREEN 必须同时证明 missing/tampered/alternate manifest、wrong state/reservation、over-budget/fabricated authorization及直接真实 activation 全部在 pointer/history mutation 前拒绝；不得改写既有 run/selection v1 bytes或把 fixture schema开放给生产 authority。

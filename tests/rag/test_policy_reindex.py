@@ -1307,7 +1307,7 @@ async def test_fixture_cutover_rollback_and_restore_are_exactly_one_pointer_even
 
 
 @pytest.mark.asyncio
-async def test_real_selection_projection_authorizes_cutover_without_fixture_schema(
+async def test_real_selection_requires_verified_recovery_authority_before_pointer_cas(
     session: AsyncSession,
 ) -> None:
     service, owner, source, rollout = await _complete_bound_candidate(session)
@@ -1325,16 +1325,22 @@ async def test_real_selection_projection_authorizes_cutover_without_fixture_sche
         expected_evidence_rollout_version=owner.expected_evidence_rollout_version,
     )
 
-    activated = await service.activate_corpus(
-        _activation_request(
-            owner,
-            expected_active_corpus_version_id=source.id,
-            expected_rollout_epoch=rollout.rollout_epoch,
-            reason=PolicyCorpusActivationReason.SELECTED_CUTOVER,
-            selection=selection,
-        ),
-        now=NOW,
+    request = _activation_request(
+        owner,
+        expected_active_corpus_version_id=source.id,
+        expected_rollout_epoch=rollout.rollout_epoch,
+        reason=PolicyCorpusActivationReason.SELECTED_CUTOVER,
+        selection=selection,
     )
+    with pytest.raises(PolicyReindexError) as missing_authority:
+        await service.activate_corpus(request, now=NOW)
+    assert missing_authority.value.code is PolicyReindexFailureCode.SELECTION_PROOF_INVALID
+    await session.refresh(rollout)
+    assert (rollout.active_corpus_version_id, rollout.rollout_epoch) == (source.id, 7)
+    assert await session.scalar(select(func.count()).select_from(PolicyCorpusActivationHistory)) == 0
+
+    authorized = replace(selection, recovery_authorization_sha256="sha256:" + "a" * 64)
+    activated = await service.activate_corpus(replace(request, selection=authorized), now=NOW)
 
     assert activated.active_corpus_version_id == owner.corpus_version_id
     history = (
