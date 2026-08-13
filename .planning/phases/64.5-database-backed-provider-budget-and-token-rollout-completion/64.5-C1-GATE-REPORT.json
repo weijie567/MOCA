@@ -1,0 +1,52 @@
+{
+  "schema_version": "phase64_5.gate_report.v1",
+  "stage": "c1",
+  "result": "pass",
+  "captured_at": "2026-08-13T06:01:16Z",
+  "protected_code_commit": "3b8ca36b8cabb11b695f5dc72c45df04181e2b8e",
+  "protected_code_tree_hash": "4c6bd3f28be83602b0d5b71a6739b8dd1f694729",
+  "candidate_path": "evaluation/reports/rag_provider_execution_authority/v2/promotion-candidates/3b8ca36b8cabb11b695f5dc72c45df04181e2b8e.json",
+  "candidate_sha256": "sha256:63ce061b3e0aff30dd70bcb1161964016d644d501182a149647c532bee3a771d",
+  "format": {
+    "command": "make format",
+    "result": "pass",
+    "files_unchanged": 560
+  },
+  "lint": {
+    "command": "make lint",
+    "result": "pass",
+    "files_checked": 560
+  },
+  "full_suite": {
+    "command": "UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q",
+    "result": "partial_then_repaired",
+    "passed": 4965,
+    "skipped": 4,
+    "failed": 1,
+    "duration_seconds": 2275.39,
+    "only_failure": "tests/architecture/test_rag_chunking_boundaries.py::test_provider_capable_build_and_ab_helpers_are_owned_by_the_db_authority_boundary",
+    "classification": "stale architecture inventory repaired without production changes"
+  },
+  "post_repair_focused": {
+    "command": "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_rag_chunking_boundaries.py::test_provider_capable_build_and_ab_helpers_are_owned_by_the_db_authority_boundary tests/rag/test_policy_reindex.py tests/eval/test_rag_token_chunk_ab.py -q",
+    "result": "pass",
+    "passed": 166,
+    "warnings": 1
+  },
+  "code_review": {
+    "canonical_task": "/root/phase64_5_c1_code_review",
+    "actual_role": "gsd-code-reviewer",
+    "workflow_invocation": "$gsd-code-review 64.5 --depth=deep",
+    "status": "clean",
+    "findings_total": 0
+  },
+  "security_review": {
+    "canonical_task": "/root/phase64_5_c1_security",
+    "actual_role": "gsd-security-auditor",
+    "workflow_invocation": "$gsd-secure-phase 64.5",
+    "status": "verified",
+    "threats_open": 0
+  },
+  "promotion": "absent",
+  "provider_called": false
+}
