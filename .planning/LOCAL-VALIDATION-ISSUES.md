@@ -24282,3 +24282,14 @@ CLI 在 legacy `build-next` 最早 hard-disable 之后、调用 decorated review
 
 **已做处理 / 剩余入口**
 `issue-recovery-budget` 保持原独立分支；canonical `run-ab` 在该分支之后立即构造 authority service 并要求 current promotion，然后才访问 recovery root、candidate、dataset、envelope。同一 service 注入 execution service，原 service-level promotion、reservation 与紧贴 provider dispatch 的 recheck 全保留。最小 GREEN `3 passed, 1 warning`。首次完整 A/B focused 得到 `2 failed, 106 passed, 1 warning`：两条 downstream noncanonical-root 测试未注入 promotion，因而先误连默认未迁移 DB 并报 promotion 表不存在/跨 event-loop；给它们显式注入 current-promotion stub 后，仍只验证目标 root refusal，不放宽 production gate。最终 `make format`、完整 `make lint` 与 A/B focused `108 passed, 1 warning` 全绿。该 ordering 逻辑需 human verification，新 protected HEAD 必须重新 C1 review/attest。
+
+## 2026-08-13 — Phase 64.5 C1 ordering 修复后完整 suite 命中 stale architecture inventory
+
+**问题现象 / 如何检测**
+修复 WR-01/WR-02 后串行执行 `make format`、完整 `make lint`、`UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q`，结果为 `4965 passed, 4 skipped, 1 failed in 2275.39s`。唯一失败是 `tests/architecture/test_rag_chunking_boundaries.py::test_provider_capable_build_and_ab_helpers_are_owned_by_the_db_authority_boundary`，其静态字符串仍要求 `build-next-reviewed` 直接调用 `_build_next_reviewed(args)`。
+
+**关键证据 / 当前判断 / 根因**
+production 现在按 C1 code review 要求先取得同一 authority service 并 `require_current_promotion()`，再把该 service 注入 `_build_next_reviewed`；A/B 也在 root preflight 前执行同义 gate。旧 inventory 没有表达 promotion-before-preflight 的新必须顺序，故把正确修复当成结构漂移。其余 `4965` 条均通过。
+
+**已做处理 / 剩余入口**
+仅更新该 architecture inventory，锁定 legacy hard-disable、reviewed build promotion→preflight 注入顺序，以及 A/B promotion→canonical root 顺序；没有修改 production、authority、预算、envelope 或阈值。最终 `make format`、完整 `make lint` 与 architecture+reviewed-build+A/B focused 合集为 `166 passed, 1 warning`。新的 C1 exact HEAD 仍需 fresh code/security re-review；不得把旧 e16 candidate或旧review artifact当作当前。
