@@ -2,9 +2,9 @@
   "schema_version": "phase64_5.gate_report.v1",
   "stage": "c0",
   "result": "pass",
-  "captured_at": "2026-08-13T03:38:00Z",
-  "protected_code_commit": "049963d5f32929d807513c6a1ece8baecc68bf62",
-  "protected_code_tree_hash": "3296ead54464e06c44f3a32d613623fe5524b92e",
+  "captured_at": "2026-08-13T04:03:18Z",
+  "protected_code_commit": "995afd9fdd742561f9b16d8336e0b2e1352db473",
+  "protected_code_tree_hash": "5976e077a2774ddcd1fdc661717648739c14fbad",
   "format": {
     "command": "make format",
     "result": "pass",
@@ -28,16 +28,19 @@
   "current_delta": {
     "scope": [
       "scripts/check_phase64_5_gate.py",
+      "src/rag/provider_execution_authority.py",
+      "src/repositories/provider_execution_authority_repo.py",
+      "tests/rag/test_provider_execution_authority.py",
       "tests/architecture/test_phase64_5_gate.py"
     ],
-    "reason": "Canonicalize YAML-native date and datetime values symmetrically before attestation frontmatter comparison.",
+    "reason": "Canonicalize attestation frontmatter and preserve reviewed runtime authority across evidence-only commits with a race-closed shared protected-code equivalence gate.",
     "format_command": "make format",
     "format_result": "pass",
     "lint_command": "make lint",
     "lint_result": "pass",
-    "test_command": "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase64_5_gate.py -q",
+    "test_command": "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase64_5_gate.py tests/rag/test_provider_execution_authority.py -q",
     "test_result": "pass",
-    "passed": 17,
+    "passed": 36,
     "warnings": 1
   }
 }
