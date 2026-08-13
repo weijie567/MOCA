@@ -3025,3 +3025,9 @@
 - **处理状态**：⚠️ 修复已聚焦验证。reviewed commit/tree 继续作为 artifact/promotion 的精确审计 identity；current equivalence 改为祖先关系 + protected pathspec clean + reviewed commit 到 HEAD 的 protected diff 为空。checker `review-attestations`、promotion request、repository promotion/create/use 均消费相同 protected graph；`.planning`-only commit 允许，`src`/provider scripts/checker 的 committed 或 dirty drift 仍拒绝。
 - **证据**：Phase64.5 C0 gate；`scripts/check_phase64_5_gate.py`、`src/repositories/provider_execution_authority_repo.py`、`tests/architecture/test_phase64_5_gate.py`、`tests/rag/test_provider_execution_authority.py`；最小 RED 为 evidence-only commit 后 `attestation_not_current`，三节点 GREEN 覆盖 checker、promotion request 与 DB promotion readback。
 - **剩余风险 / 继续入口**：checker/repository 属 protected graph，修复后必须在新 exact HEAD 上做 bounded Codex code/security 复核并重新封存 C0；旧 attestations 不可复用。最终需在 evidence docs commit 之后再次 strict-load，才能把此项标为 ✅。
+
+### 同轮 bounded re-review 补充：current-equivalence 存在 status/diff TOCTOU
+
+- **核实结论**：原修复在 checker/repository 分别执行 `status → diff(reviewed, HEAD)`，没有固定 HEAD；两次命令之间发生的 dirty change 不在 commit diff 内，HEAD 切换也可能让 ancestry/diff观察不同快照，属于成立的 provider authorization race。
+- **处理**：把 git current-equivalence 收敛为 domain 层单一 helper；固定 HEAD 后做 ancestor 与 committed diff，随后采样 protected dirty、复核 HEAD、再采样 dirty。checker 与 repository 不再维护两份命令顺序。最小 fault test 在 diff 后注入 dirty，要求 fail closed；evidence-only commit、protected committed drift、dirty drift原覆盖继续保留。
+- **状态**：⚠️ 修复已聚焦验证，待新 exact HEAD bounded code/security re-review和 attestation docs 提交后 strict-load 再转 ✅。

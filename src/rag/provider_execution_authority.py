@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import tempfile
 from typing import Any, ClassVar, Final, Literal, Self
 from uuid import UUID, uuid4
@@ -106,6 +107,72 @@ class CurrentProtectedCodeIdentityV1(_FrozenModel):
     commit: str = Field(pattern=GIT_OBJECT_PATTERN)
     tree_hash: str = Field(pattern=GIT_OBJECT_PATTERN)
     protected_paths: tuple[str, ...] = Field(min_length=1)
+
+
+class ProtectedCodeIdentityError(RuntimeError):
+    """Disclosure-safe protected-code equivalence refusal."""
+
+    def __init__(self, reason_code: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(reason_code)
+
+
+def require_current_protected_code_equivalence(
+    project_root: Path,
+    *,
+    reviewed_commit: str,
+    reviewed_tree_hash: str,
+) -> None:
+    """Prove one reviewed runtime graph is still current.
+
+    HEAD is pinned for ancestry/diff checks. Dirty state is sampled only after
+    that commit diff and again after HEAD stability, closing the practical
+    commit/worktree race immediately before a protected operation.
+    """
+
+    try:
+        actual_tree = _protected_git_text(project_root, "rev-parse", f"{reviewed_commit}^{{tree}}")
+        pinned_head = _protected_git_text(project_root, "rev-parse", "HEAD")
+        _protected_git_bytes(project_root, "merge-base", "--is-ancestor", reviewed_commit, pinned_head)
+        committed_diff = _protected_git_bytes(
+            project_root,
+            "diff",
+            "--binary",
+            "--full-index",
+            reviewed_commit,
+            pinned_head,
+            "--",
+            *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+        )
+        dirty_after_diff = _protected_git_bytes(
+            project_root,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--",
+            *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+        )
+        head_after_dirty = _protected_git_text(project_root, "rev-parse", "HEAD")
+        final_dirty = _protected_git_bytes(
+            project_root,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--",
+            *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+        )
+        final_head = _protected_git_text(project_root, "rev-parse", "HEAD")
+    except (OSError, subprocess.CalledProcessError, UnicodeDecodeError) as exc:
+        raise ProtectedCodeIdentityError("protected_code_not_current") from exc
+    if dirty_after_diff or final_dirty:
+        raise ProtectedCodeIdentityError("protected_code_dirty")
+    if (
+        actual_tree != reviewed_tree_hash
+        or committed_diff
+        or head_after_dirty != pinned_head
+        or final_head != pinned_head
+    ):
+        raise ProtectedCodeIdentityError("protected_code_not_current")
 
 
 class ExecutionPromotionRequestV1(_FrozenModel):
@@ -437,6 +504,18 @@ def canonical_json_bytes(value: object) -> bytes:
         separators=(",", ":"),
         default=_canonical_json_default,
     ).encode("utf-8")
+
+
+def _protected_git_bytes(project_root: Path, *args: str) -> bytes:
+    return subprocess.run(
+        ["git", "-C", str(project_root), *args],
+        check=True,
+        capture_output=True,
+    ).stdout
+
+
+def _protected_git_text(project_root: Path, *args: str) -> str:
+    return _protected_git_bytes(project_root, *args).decode("ascii").strip()
 
 
 def canonical_sha256(value: object) -> str:

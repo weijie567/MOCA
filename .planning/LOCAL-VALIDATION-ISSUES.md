@@ -24236,3 +24236,5 @@ C0 code/security attestation strict-load 在封存前通过；把 gate report、
 
 **已做处理 / 剩余入口**
 保留 reviewed commit/tree 作为不可变审计身份；current gate 现在要求该 commit 是当前 HEAD 祖先、受保护 pathspec 工作树 clean、且 reviewed commit 到当前 HEAD 的受保护 diff 为空。仅证据 commit 因而保持有效，任何受保护文件的 committed 或 dirty 变化仍 fail closed。checker 与 repository 各有 RED/GREEN 覆盖，promotion request 也覆盖 evidence-only commit。旧 C0 attestations 因 checker 本身属于 protected graph，需删除并在修复 commit 的 bounded code/security 复核后重新封存；不得复用旧 hash。
+
+首次 bounded code re-review 进一步指出 status 先于 commit-only diff 且 `HEAD` 未固定，二者之间的 protected dirty/commit race 可能漏检；该结论成立。新增最小竞态测试在 diff 返回后注入 protected dirty，旧实现因共享 helper 不存在先得到有效 RED。最终 current-equivalence 由 `src.rag.provider_execution_authority` 单一 helper 执行：先固定 HEAD，验证 reviewed ancestor 与 reviewed→固定HEAD diff，再采样 protected dirty，复核 HEAD，并再次采样 dirty；checker 与 repository 只做 reason-code 映射。该修复仍需新 exact HEAD 的 bounded re-review，不能沿用本次发现问题的 REVIEW。
