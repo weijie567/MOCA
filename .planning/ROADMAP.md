@@ -260,14 +260,16 @@ Plans:
 4. Cutover, rollback to the prior corpus, restore of the selected corpus, hash-chained receipts, and fail-closed closeout checks prove SC-64.4-5/6 without mixed tenant visibility.
 
 Plans:
-- [ ] 64.5-01-PLAN.md — Migration 032 authority/reservation/result/activation-lineage schema and guarded downgrade
-- [ ] 64.5-02-PLAN.md — DB-time exact authority domain/repository, capped reservations, results, and reconciliation
-- [ ] 64.5-03-PLAN.md — Reviewed candidate build integrated behind the unchanged production hard-disable
-- [ ] 64.5-04-PLAN.md — Canonical A/B envelope, DB promotion barrier, checker, and dispatch integrated behind hard-disable
-- [ ] 64.5-05-PLAN.md — Clean-C0 validation and unpromoted gate-only C1 candidate with full no-promotion proof
-- [ ] 64.5-06-PLAN.md — Standard-reviewed C0→C1 DB promotion, then fresh authority and one live inactive token candidate
-- [ ] 64.5-07-PLAN.md — Fresh canonical live A/B with selected-pass-only continuation
+- [x] 64.5-01-PLAN.md — Migration 032 authority/reservation/result/activation-lineage schema and guarded downgrade
+- [x] 64.5-02-PLAN.md — DB-time exact authority domain/repository, capped reservations, results, and reconciliation
+- [x] 64.5-03-PLAN.md — Reviewed candidate build integrated behind the unchanged production hard-disable
+- [x] 64.5-04-PLAN.md — Canonical A/B envelope, DB promotion barrier, checker, and dispatch integrated behind hard-disable
+- [x] 64.5-05-PLAN.md — Clean-C0 validation and unpromoted gate-only C1 candidate with full no-promotion proof
+- [x] 64.5-06-PLAN.md — Standard-reviewed C0→C1 DB promotion, then fresh authority and one live inactive token candidate
+- [x] 64.5-07-PLAN.md — Truthful canonical A/B checkpoint: one immutable nonretryable `source_drift` result, zero A/B provider requests, no selection or activation
 - [ ] 64.5-08-PLAN.md — Cutover→rollback→restore, DB-linked receipts, closeout docs, and full regression
+
+**Partial-delivery closeout:** Plans 01–06 completed the PostgreSQL authority, bounded reviewed-build path, and one fresh complete inactive token candidate. Plan 07 consumed one canonical ordinal and stopped honestly at immutable `source_drift` before any A/B provider request; the character corpus remains active and no selection/activation exists. Plan 08 was therefore not dispatched, SC-64.4-5/6 remain open, and this phase must not be marked complete by the partial PR.
 
 **This run's active Phase 64.5 Autopilot-root orchestration (not default GSD behavior):** the root invokes `$gsd-execute-phase 64.5 --wave 1` through `--wave 4` individually (or uses an equivalent supported wave filter), records the boundary in `.planning/autopilot/phase-64.5.md`, actually invokes standard `$gsd-code-review` and `$gsd-secure-phase`, and only after those agents return clean calls the phase checker to create-only seal the two C0 attestations. It then invokes wave 5 alone, repeats the standard independent review/security agents and root-owned sealing for C1, and only then invokes waves 6, 7, and 8 serially; wave 6 first creates/read-backs the immutable DB promotion. A standalone operator/orchestrator must reproduce this exact sequence and must never run an unparameterized execute-all. No plan-local checkpoint or user approval substitutes for either review boundary, attestation, or DB promotion.
 

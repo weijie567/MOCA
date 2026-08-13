@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Product Experience Fixes
-status: executing
-last_updated: "2026-08-12T21:20:50.145Z"
-last_activity: 2026-08-12 -- Phase 64.5 execution started
+status: blocked
+last_updated: "2026-08-13T08:45:00Z"
+last_activity: 2026-08-13 -- Phase 64.5 reached a truthful canonical nonpass; partial PR closeout prepared with character still active
 progress:
   total_phases: 16
   completed_phases: 7
   total_plans: 71
-  completed_plans: 60
-  percent: 85
+  completed_plans: 67
+  percent: 94
 ---
 
 # Project State: MOCA
@@ -24,16 +24,16 @@ See: `.planning/PROJECT.md` (updated 2026-08-10)
 
 ## Current Position
 
-Phase: 64.5 (database-backed-provider-budget-and-token-rollout-completion) — EXECUTING
-Plan: 1 of 8
-Status: Executing Phase 64.5
-Last activity: 2026-08-12 -- Phase 64.5 execution started
-Next: Merge the bounded Phase64.4 partial delivery, then run `$gsd-phase-autopilot 64.5`; do not execute old Plan18, renew its authority, or reinterpret the expired lease.
+Phase: 64.5 (database-backed-provider-budget-and-token-rollout-completion) — BLOCKED
+Plan: 8 of 8 — blocked before selected activation because canonical A/B did not produce `selected_pass`
+Status: Partial delivery ready for PR; Plans 01–06 complete, Plan 07 checkpointed at immutable `source_drift`, and Plan 08 unexecuted. Character remains active and the complete token candidate remains inactive.
+Last activity: 2026-08-13 -- clean final review, 7/7 implemented-scope threats closed, full suite 4970 passed/4 skipped, partial verification 24/29
+Next: Merge the truthful Phase64.5 partial PR. Do not retry the spent canonical ordinal, reuse its stale promotion, or dispatch Plan08 without a separately authorized fresh lineage.
 After: Phase 65 follows Phase 64.5.
 
-Resume file: .planning/phases/64.5-database-backed-provider-budget-and-token-rollout-completion/64.5-CONTEXT.md
+Resume file: .planning/phases/64.5-database-backed-provider-budget-and-token-rollout-completion/64.5-VERIFICATION.md
 
-Progress: [████░░░░░░] 44%
+Progress: [█████████░] 94%
 
 ## Last Completed Milestone
 
