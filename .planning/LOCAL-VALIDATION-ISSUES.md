@@ -24368,6 +24368,28 @@ candidate DB 已 `complete` v7/cursor 3 后，标准 `candidate --stage complete
 
 **已做处理 / 剩余入口**
 按 active root裁决，从同一新 session权威读取唯一 candidate、promotion/authority/run/incumbent与全部计数，重封同一既有 `LiveVerificationIdentityV1` 为 complete/v7，再让标准 verifier覆盖其实际验证的lineage/counts；最终 handoff hash `sha256:c9d2621351be06e2c0852adc671be4f429e07aafaad3c4d23dc9aee11abf02f0`。未修改 protected checker或授权。后续 phase 应修复 infer/bootstrap 与 candidate-state DB readback，但不能在当前 immutable promotion 后改变 protected code。
+
+## 2026-08-13 — Phase 64.5 Plan 07 两个只读辅助命令写法错误
+
+**问题现象 / 如何检测**
+冻结 canonical envelope 时首次误从不存在的 `src.rag.evaluation.format_parity` 导入 loader，命令以 `ModuleNotFoundError` 退出；首次安全读取主仓 `.env` 时又把条件表达式写进 `raise`，在 key 非空分支触发 `TypeError: exceptions must derive from BaseException`。
+
+**关键证据 / 当前判断 / 根因**
+两个错误都发生在 canonical `run-ab` 入口之前。第二个错误后立即重跑标准 `--expect-no-ab-reservation` 门禁，仍为 canonical reservation/result `0/0`；因此没有 provider 构造、DB reservation、ordinal 消耗或 credential 输出。根因分别是手写了错误模块路径，以及错误使用 Python 条件 `raise` 表达式。
+
+**已做处理 / 剩余入口**
+按当前脚本真实 import 改用 `src.rag.evaluation.contracts`；credential loader 改为只把 `DASHSCOPE_API_KEY` 写入进程变量的 `sys.exit/sys.stdout.write` 分支，未打印 key。修正后 envelope 严格得到 ingestion `16`、query `126`、总 cap `142`，且 live invocation 前标准 0/0 门禁再次 PASS。
+
+## 2026-08-13 — Phase 64.5 Plan 07 canonical A/B 在 032 schema 上零请求终止
+
+**问题现象 / 如何检测**
+唯一 ordinal-1 `run-ab` 在 provider 调用前提交 `execution_error`：DB result code `source_drift`、`actual_request_count=0/142`；terminal diagnostic 为 `shared_preflight / candidate_pair_invalid / provider not_checked`。严格 readback 得到 reservation `b0e3a1b2-0a06-4bc9-a73b-c5ef2f57031d`、result `a17f70e7-1ae9-4eff-87a3-ee2ff4de35d3`、result hash `sha256:d2cb99b7c32bff90f678301d2472b9187cefe18a21f4001bfc8f04a8fe6d210e`。
+
+**关键证据 / 当前判断 / 根因**
+默认 eval DB 按 Plan06 要求已迁移到 `032_phase64_5_provider_execution_authority`；但 canonical A/B 的 `_phase64_4_schema_available()` 仅把 exact `031_phase64_4_policy_corpus_cow` 视为 Phase64.4-compatible，所以 `_ab_database_prerequisites()` 返回 `('database_schema',)`。独立只读逐项核对显示 candidate/source/rollout/manifest/evidence/parity/config/counts全部通过，candidate projection为 `3 documents / 158 blocks / 60 chunks`。因此这是向前 migration compatibility 缺口，不是 live source 实际漂移。
+
+**已做处理 / 剩余入口**
+按 honest-terminal 裁决不修改 protected helper、不使用 ordinal 2、不续租、不新建 authority/candidate/run、不激活。character `55d651e5-634f-4b64-b057-350b22054007` 保持 active，canonical DB 终态为 reservation/result `1/1`、selected null；Plan08 不派发，SC-64.4-5/6 不关闭。后续只能在新的 reviewed protected identity/promotion 流程中修复 schema compatibility 后重新规划，不能复用本轮已消费的 terminal lineage。
 ## 2026-08-13 — Phase 64.5 reviewed-identity 修复后临时 worktree 仍用旧 C0 attestation
 
 **问题现象 / 如何检测**
