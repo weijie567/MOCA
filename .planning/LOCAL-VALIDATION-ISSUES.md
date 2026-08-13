@@ -24346,6 +24346,28 @@ CLI parser 声明了 `--infer-unique-phase-run`，但 `_verify_live_state()` 完
 
 **已做处理 / 剩余入口**
 按 D-30 在 Task1 verifier 诚实停止；未进入 Task2，未创建 reviewed-build reservation/result，除已通过的 parity 外未执行 candidate provider build。没有临时自签 identity、没有绕过 verifier，也没有在 immutable promotion 后修改 protected checker。继续入口必须由 active root 裁定；任何源码修复都会使当前 promotion 失去 current-code 等价，不能在本轮静默补丁后继续 live。
+
+## 2026-08-13 — Phase 64.5 Plan 06 DB build 成功后 legacy completeness 缺少文件投影
+
+**问题现象 / 如何检测**
+三个 reviewed-build 文档均在 DB 中以 ordinal 1 成功终结（actual/max 分别 `2/2`、`2/2`、`3/3`），candidate 已到 `built` v5/cursor 3；首次且唯一的计划内 `validate-reviewed` 仍报 `PolicyReindexArtifactError: build_document_incomplete`，未进入 validating 状态。
+
+**关键证据 / 当前判断 / 根因**
+DB authority projections 与 state 3/4/5 均存在，但 legacy build-budget validator 仍要求既有 `documents/*/attempts/01.json` 与 `results/01.json`。reviewed DB path 有意不调用 legacy file reservation，`_reconcile_committed_build()` 又只能在 file attempt 已存在时补 result，导致 DB success 到 legacy completeness 的投影缺口。首次投影脚本还误把 budget 文件 SHA 当成契约要求的 `budget_payload_sha256`，被 validator 在任何文件发布前以 `build_budget_artifact_invalid` 拒绝；确认 documents目录为空后按仓库真实语义重跑。
+
+**已做处理 / 剩余入口**
+经 active root 裁决，仅从三组已提交 DB reservation/result、sealed envelope 与 state 2→5 唯一推出既有 attempt/result 字段，使用仓库现有 seal/canonical/create-only writer 投影；未新增 schema/DTO/证据类型、DB row、provider、reservation或 ordinal。投影 strict-load 后逐项核对 DB reserved/completed time、ordinal、envelope/result hash与input/batch/request counts，budget completeness通过；修复后第二次 validate（只消费缺失投影、不消费 provider/budget）成功到 `complete` v7。
+
+## 2026-08-13 — Phase 64.5 complete verifier 透传旧 candidate state
+
+**问题现象 / 如何检测**
+candidate DB 已 `complete` v7/cursor 3 后，标准 `candidate --stage complete --identity-file ...` 返回 PASS，但最初输出仍是 issued identity 的 `candidate_state=building`、`candidate_state_version=2`，同时 reservation/result 已更新为 `3/3`。
+
+**关键证据 / 当前判断 / 根因**
+`_verify_live_state()` 从 DB projection 校验 promotion/authority/run/candidate/incumbent并统计 reservation/result，却没有读取 candidate row，而是直接复制 prior identity 的 state/version；因此它不能独立证明 candidate complete。新 session DB readback确认唯一 candidate `complete` v7/cursor 3、7 actual requests，active corpus仍为 character `55d651e5-...`。
+
+**已做处理 / 剩余入口**
+按 active root裁决，从同一新 session权威读取唯一 candidate、promotion/authority/run/incumbent与全部计数，重封同一既有 `LiveVerificationIdentityV1` 为 complete/v7，再让标准 verifier覆盖其实际验证的lineage/counts；最终 handoff hash `sha256:c9d2621351be06e2c0852adc671be4f429e07aafaad3c4d23dc9aee11abf02f0`。未修改 protected checker或授权。后续 phase 应修复 infer/bootstrap 与 candidate-state DB readback，但不能在当前 immutable promotion 后改变 protected code。
 ## 2026-08-13 — Phase 64.5 reviewed-identity 修复后临时 worktree 仍用旧 C0 attestation
 
 **问题现象 / 如何检测**

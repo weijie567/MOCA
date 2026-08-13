@@ -3100,3 +3100,21 @@
 - **处理状态**：🔴 待 active root 裁定。Plan06已在 verifier前诚实停止，reservation/result与candidate build provider调用均为0；未修改 protected checker，因为任何 post-promotion源码变更都会使 singleton promotion stale。
 - **证据**：Phase64.5 Plan06；`scripts/check_phase64_5_gate.py` parser 含 `--infer-unique-phase-run`，`_verify_live_state()` 返回 `live_identity_required`；DB IDs promotion `243bafb3-...`、candidate `63fde3fc-...`、authority `92c9188b-...`。
 - **剩余风险 / 继续入口**：必须先决定 immutable promotion后的恢复策略，并经新代码/security review与promotion语义重新闭环；禁止删除/篡改单例 promotion、续 lease、另建 candidate/root或继续 Task2。
+
+## 2026-08-13 — Phase 64.5 DB reviewed-build 与 legacy validation projection 脱节 🟡有意妥协
+
+- **子系统**：RAG reviewed policy build / DB provider authority / candidate validation artifacts。
+- **问题现象 / 根因**：DB-backed reviewed build正确以数据库 reservation/result 为唯一 provider预算与终态权威，但 legacy `require_candidate_build_budget_complete()` 仍只识别 file attempt/result；production build path不写 legacy attempt，既有 reconcile又不能从纯 DB row自举，导致三文档DB success后首次validate报 `build_document_incomplete`。
+- **影响**：live build本身正确且无重复请求，但 candidate validation不可达；若误把 validate重跑当 provider retry会破坏预算语义，若伪造文件则破坏审计。
+- **处理状态**：🟡 本轮按Plan06“reconcile only DB→file”和active root裁决，使用既有DTO/canonical/create-only writer做一次性DB→file投影；三组投影逐项绑定DB timestamps、ordinal、envelope/result hashes、19/18/23 inputs及2/2/3 requests，未新增DB row/provider/ordinal。修复后validate到complete v7。
+- **证据**：promotion `243bafb3-...`、authority `92c9188b-...`、candidate `63fde3fc-...`；首次validate `build_document_incomplete`；strict projection readback `budget_complete=True`；第二次validate `complete/v7`。
+- **剩余风险 / 继续入口**：post-Phase64.5应把DB→legacy projection收敛为受测项目入口，或让validation直接消费DB authority，消除手工一次性恢复；当前不得修改protected code使已提交promotion stale。
+
+## 2026-08-13 — Phase 64.5 live verifier 不校验 candidate state/version 🟡有意妥协
+
+- **子系统**：RAG provider execution authority / live verification handoff。
+- **问题现象 / 根因**：`_verify_live_state()`严格回读authority projection与reservation/result，却把candidate state/version从prior identity原样复制；complete命令可在DB complete v7时输出旧building v2并PASS。
+- **影响**：`64.5-06-LIVE-VERIFY.json`的lineage/counts由标准verifier覆盖，但candidate完成态不能单靠该checker证明，Plan07若盲信state字段会继承未经DB校验的输入。
+- **处理状态**：🟡 当前immutable promotion下不修改protected checker；由同一新session精确读取唯一candidate complete/v7/cursor3及promotion/authority/incumbent/counts，重封既有LiveVerificationIdentityV1，再运行标准verifier覆盖其可验证字段。未新增类型、授权或DB/provider副作用。
+- **证据**：首次complete verifier输出building/v2但3/3；DB readback complete/v7/cursor3；最终verifier hash `sha256:c9d2621351be06e2c0852adc671be4f429e07aafaad3c4d23dc9aee11abf02f0`。
+- **剩余风险 / 继续入口**：后续修复须让checker查询并精确比较candidate row（含state/version/cursor），并在新protected identity上重新review/promotion；Plan07执行前继续以DB readback补强该已知盲点。
