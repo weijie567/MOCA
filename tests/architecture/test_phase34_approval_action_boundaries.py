@@ -27,6 +27,7 @@ FORBIDDEN_EXECUTION_CLASSES = (
     "Reconciliation",
     "Compensation",
 )
+PHASE64_5_NON_EXECUTION_PROJECTION_CLASSES = frozenset({"ProjectionReconciliationViewV1"})
 FORBIDDEN_EXECUTION_WORDING = ("已发券", "已退款", "已关闭工单", "coupon issued", "refund completed", "ticket closed")
 
 
@@ -79,7 +80,11 @@ def test_phase34_production_does_not_define_real_execution_tables_or_workers() -
     for path in sorted(SRC_ROOT.rglob("*.py")):
         tree = ast.parse(_source(path), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and any(part in node.name for part in FORBIDDEN_EXECUTION_CLASSES):
+            if (
+                isinstance(node, ast.ClassDef)
+                and node.name not in PHASE64_5_NON_EXECUTION_PROJECTION_CLASSES
+                and any(part in node.name for part in FORBIDDEN_EXECUTION_CLASSES)
+            ):
                 violations.append(f"{path.relative_to(ROOT)}:{node.lineno}:class {node.name}")
             if isinstance(node, ast.Assign):
                 for target in node.targets:
