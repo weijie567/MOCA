@@ -359,6 +359,89 @@ def test_candidate_indexes_c0_by_kind_and_rejects_same_commit_replacement(tmp_pa
             )
 
 
+def test_missing_candidate_lookup_is_strictly_noncreating(tmp_path: Path) -> None:
+    from scripts.check_phase64_5_gate import GateRefusal, _candidate_from_directory
+
+    root, _, _, _, _ = _reviewed_root(tmp_path)
+    missing = root / "read-only" / "missing-candidates"
+
+    with pytest.raises(GateRefusal, match="promotion_candidate_not_unique"):
+        _candidate_from_directory(missing, project_root=root)
+
+    assert not (root / "read-only").exists()
+
+
+def test_symlinked_output_descendant_cannot_create_outside_repository(tmp_path: Path) -> None:
+    from scripts.check_phase64_5_gate import GateRefusal, seal_review_attestation
+
+    root, _, _, _, _ = _reviewed_root(tmp_path)
+    external = tmp_path / "external"
+    external.mkdir()
+    linked = root / "linked-output"
+    linked.symlink_to(external, target_is_directory=True)
+    artifact, gate = _write_evidence(root, kind="code", suffix="nofollow")
+
+    with pytest.raises(GateRefusal, match="output_symlink_forbidden"):
+        seal_review_attestation(
+            stage="c1",
+            kind="code",
+            collaboration_canonical_task_name="/root/nofollow_code",
+            actual_agent_role="gsd-code-reviewer",
+            workflow_invocation="$gsd-code-review 64.5 --depth=deep",
+            standard_artifact_path=artifact,
+            gate_report_path=gate,
+            output_root=linked / "missing" / "attestations",
+            project_root=root,
+        )
+
+    assert list(external.iterdir()) == []
+    assert linked.is_symlink()
+
+
+def test_output_parent_swap_is_detected_without_publishing_to_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.check_phase64_5_gate as gate
+
+    root, _, _, _, _ = _reviewed_root(tmp_path)
+    output = root / "race-output"
+    output.mkdir()
+    detached = root / "detached-output"
+    external = tmp_path / "race-external"
+    external.mkdir()
+    artifact, gate_report = _write_evidence(root, kind="code", suffix="parent-swap")
+    write_temporary_file = gate._write_temporary_file
+
+    def swap_after_temporary_write(parent_descriptor: int, *, destination_name: str, payload: bytes) -> str:
+        temporary_name = write_temporary_file(
+            parent_descriptor,
+            destination_name=destination_name,
+            payload=payload,
+        )
+        output.rename(detached)
+        output.symlink_to(external, target_is_directory=True)
+        return temporary_name
+
+    monkeypatch.setattr(gate, "_write_temporary_file", swap_after_temporary_write)
+    with pytest.raises(gate.GateRefusal, match="output_parent_changed"):
+        gate.seal_review_attestation(
+            stage="c1",
+            kind="code",
+            collaboration_canonical_task_name="/root/parent_swap_code",
+            actual_agent_role="gsd-code-reviewer",
+            workflow_invocation="$gsd-code-review 64.5 --depth=deep",
+            standard_artifact_path=artifact,
+            gate_report_path=gate_report,
+            output_root=output,
+            project_root=root,
+        )
+
+    assert list(external.iterdir()) == []
+    assert list(detached.iterdir()) == []
+    assert output.is_symlink()
+
+
 def test_four_attestations_bind_exact_git_transition_and_promotion_candidate(tmp_path: Path) -> None:
     from scripts.check_phase64_5_gate import (
         GateRefusal,

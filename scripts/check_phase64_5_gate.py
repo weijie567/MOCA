@@ -9,11 +9,11 @@ from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
-import tempfile
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 import yaml
@@ -229,9 +229,12 @@ def seal_review_attestation(
         )
     except ValidationError as exc:
         raise GateRefusal("attestation_input_invalid") from exc
-    destination_root = _trusted_output_root(output_root, root=root)
-    destination = destination_root / _ATTESTATION_FILENAMES[(stage, kind)]
-    _write_create_only(destination, canonical_json_bytes(attestation.model_dump(mode="json")) + b"\n")
+    destination = _trusted_output_path(output_root / _ATTESTATION_FILENAMES[(stage, kind)], root=root)
+    _write_create_only(
+        destination,
+        canonical_json_bytes(attestation.model_dump(mode="json")) + b"\n",
+        root=root,
+    )
     return destination
 
 
@@ -367,9 +370,12 @@ def create_promotion_candidate(
         c0_gate_report_sha256=code.gate_report_sha256,
         created_at=created_at or datetime.now(UTC),
     )
-    destination_root = _trusted_output_root(output_root, root=root)
-    destination = destination_root / f"{c1_commit}.json"
-    _write_create_only(destination, canonical_json_bytes(candidate.model_dump(mode="json")) + b"\n")
+    destination = _trusted_output_path(output_root / f"{c1_commit}.json", root=root)
+    _write_create_only(
+        destination,
+        canonical_json_bytes(candidate.model_dump(mode="json")) + b"\n",
+        root=root,
+    )
     return destination
 
 
@@ -464,9 +470,12 @@ async def promote_reviewed_execution(
     readback = await authority_service.require_current_promotion()
     if promoted != readback:
         raise GateRefusal("promotion_readback_mismatch")
-    root = _trusted_output_root(projection_root, root=REPOSITORY_ROOT)
-    destination = root / f"{promoted.promotion_id}.json"
-    _write_create_only(destination, canonical_json_bytes(promoted.model_dump(mode="json")) + b"\n")
+    destination = _trusted_output_path(projection_root / f"{promoted.promotion_id}.json", root=REPOSITORY_ROOT)
+    _write_create_only(
+        destination,
+        canonical_json_bytes(promoted.model_dump(mode="json")) + b"\n",
+        root=REPOSITORY_ROOT,
+    )
     return destination
 
 
@@ -564,7 +573,11 @@ async def _verify_live_state(
         selected_result_id=selected[0].result_id if selected_pass and selected else None,
     )
     output = _trusted_output_path(args.output, root=REPOSITORY_ROOT)
-    _replace_bytes(output, canonical_json_bytes(checked.model_dump(mode="json")) + b"\n")
+    _replace_bytes(
+        output,
+        canonical_json_bytes(checked.model_dump(mode="json")) + b"\n",
+        root=REPOSITORY_ROOT,
+    )
     return {"result": "pass", "output": output.relative_to(REPOSITORY_ROOT).as_posix()}
 
 
@@ -681,82 +694,255 @@ def _trusted_existing_path(path: Path, *, root: Path) -> tuple[Path, str]:
     return resolved, relative.as_posix()
 
 
-def _trusted_output_root(path: Path, *, root: Path) -> Path:
+def _trusted_output_path(path: Path, *, root: Path) -> Path:
     candidate = path if path.is_absolute() else root / path
     candidate = Path(os.path.abspath(candidate))
     try:
-        candidate.relative_to(root)
+        relative = candidate.relative_to(root)
     except ValueError as exc:
         raise GateRefusal("output_outside_repository") from exc
-    candidate.mkdir(parents=True, exist_ok=True)
-    current = root
-    for part in candidate.relative_to(root).parts:
-        current /= part
-        if current.is_symlink():
-            raise GateRefusal("output_symlink_forbidden")
+    if not relative.parts or candidate.name in {"", ".", ".."}:
+        raise GateRefusal("output_path_invalid")
     return candidate
 
 
-def _trusted_output_path(path: Path, *, root: Path) -> Path:
+def _trusted_existing_directory(path: Path, *, root: Path) -> Path:
     candidate = path if path.is_absolute() else root / path
-    parent = _trusted_output_root(candidate.parent, root=root)
-    destination = parent / candidate.name
-    if destination.exists() and destination.is_symlink():
-        raise GateRefusal("output_symlink_forbidden")
-    return destination
-
-
-def _replace_bytes(path: Path, payload: bytes) -> None:
-    descriptor: int | None = None
-    temporary: Path | None = None
+    candidate = Path(os.path.abspath(candidate))
     try:
-        descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-        temporary = Path(name)
-        with os.fdopen(descriptor, "wb", closefd=True) as handle:
-            descriptor = None
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        temporary = None
-        directory = os.open(path.parent, os.O_RDONLY)
+        relative = candidate.relative_to(root)
+    except ValueError as exc:
+        raise GateRefusal("path_outside_repository") from exc
+    current = root
+    for part in relative.parts:
+        current /= part
         try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+            metadata = current.lstat()
+        except FileNotFoundError as exc:
+            raise GateRefusal("trusted_directory_missing") from exc
+        except OSError as exc:
+            raise GateRefusal("trusted_directory_invalid") from exc
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise GateRefusal("trusted_directory_invalid")
+    return candidate
+
+
+def _directory_identity(descriptor: int) -> tuple[int, int]:
+    metadata = os.fstat(descriptor)
+    return metadata.st_dev, metadata.st_ino
+
+
+def _open_output_component(parent_descriptor: int, part: str) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    while True:
+        try:
+            return os.open(part, flags, dir_fd=parent_descriptor)
+        except FileNotFoundError:
+            try:
+                os.mkdir(part, mode=0o755, dir_fd=parent_descriptor)
+                os.fsync(parent_descriptor)
+            except FileExistsError:
+                continue
+            except OSError as exc:
+                raise GateRefusal("output_directory_invalid") from exc
+        except OSError as exc:
+            try:
+                metadata = os.stat(part, dir_fd=parent_descriptor, follow_symlinks=False)
+            except OSError:
+                raise GateRefusal("output_directory_invalid") from exc
+            if stat.S_ISLNK(metadata.st_mode):
+                raise GateRefusal("output_symlink_forbidden") from exc
+            raise GateRefusal("output_directory_invalid") from exc
+
+
+def _open_pinned_output_parent(
+    path: Path,
+    *,
+    root: Path,
+) -> tuple[int, int, str, tuple[str, ...], tuple[tuple[int, int], ...]]:
+    destination = _trusted_output_path(path, root=root)
+    parent_parts = destination.relative_to(root).parts[:-1]
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    root_descriptor: int | None = None
+    try:
+        root_descriptor = os.open(root, flags)
+        parent_descriptor = os.dup(root_descriptor)
+    except OSError as exc:
+        if root_descriptor is not None:
+            os.close(root_descriptor)
+        raise GateRefusal("output_root_invalid") from exc
+    identities = [_directory_identity(root_descriptor)]
+    try:
+        for part in parent_parts:
+            next_descriptor = _open_output_component(parent_descriptor, part)
+            os.close(parent_descriptor)
+            parent_descriptor = next_descriptor
+            identities.append(_directory_identity(parent_descriptor))
+    except BaseException:
+        os.close(parent_descriptor)
+        os.close(root_descriptor)
+        raise
+    return root_descriptor, parent_descriptor, destination.name, parent_parts, tuple(identities)
+
+
+def _pinned_output_parent_is_current(
+    *,
+    root: Path,
+    parent_parts: tuple[str, ...],
+    identities: tuple[tuple[int, int], ...],
+) -> bool:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    descriptors: list[int] = []
+    try:
+        current = os.open(root, flags)
+        descriptors.append(current)
+        if _directory_identity(current) != identities[0]:
+            return False
+        for index, part in enumerate(parent_parts, start=1):
+            current = os.open(part, flags, dir_fd=current)
+            descriptors.append(current)
+            if _directory_identity(current) != identities[index]:
+                return False
+        return True
+    except OSError:
+        return False
     finally:
-        if descriptor is not None:
+        for descriptor in reversed(descriptors):
             os.close(descriptor)
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
 
 
-def _write_create_only(path: Path, payload: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor: int | None = None
-    temporary: Path | None = None
-    try:
-        descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-        temporary = Path(name)
-        with os.fdopen(descriptor, "wb", closefd=True) as handle:
-            descriptor = None
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
+def _write_temporary_file(parent_descriptor: int, *, destination_name: str, payload: bytes) -> str:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    for _ in range(32):
+        temporary_name = f".{destination_name}.{uuid4().hex}.tmp"
         try:
-            os.link(temporary, path)
+            descriptor = os.open(temporary_name, flags, 0o600, dir_fd=parent_descriptor)
+        except FileExistsError:
+            continue
+        except OSError as exc:
+            raise GateRefusal("output_write_failed") from exc
+        descriptor_open = True
+        try:
+            with os.fdopen(descriptor, "wb", closefd=True) as handle:
+                descriptor_open = False
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except BaseException:
+            if descriptor_open:
+                os.close(descriptor)
+            try:
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
+            except OSError:
+                pass
+            raise
+        return temporary_name
+    raise GateRefusal("output_temporary_conflict")
+
+
+def _replace_bytes(path: Path, payload: bytes, *, root: Path) -> None:
+    root_descriptor, parent_descriptor, destination_name, parent_parts, identities = _open_pinned_output_parent(
+        path,
+        root=root,
+    )
+    temporary_name: str | None = None
+    try:
+        try:
+            destination_metadata = os.stat(destination_name, dir_fd=parent_descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            destination_metadata = None
+        except OSError as exc:
+            raise GateRefusal("output_path_invalid") from exc
+        if destination_metadata is not None and stat.S_ISLNK(destination_metadata.st_mode):
+            raise GateRefusal("output_symlink_forbidden")
+        temporary_name = _write_temporary_file(
+            parent_descriptor,
+            destination_name=destination_name,
+            payload=payload,
+        )
+        if not _pinned_output_parent_is_current(
+            root=root,
+            parent_parts=parent_parts,
+            identities=identities,
+        ):
+            raise GateRefusal("output_parent_changed")
+        try:
+            os.replace(
+                temporary_name,
+                destination_name,
+                src_dir_fd=parent_descriptor,
+                dst_dir_fd=parent_descriptor,
+            )
+        except OSError as exc:
+            raise GateRefusal("output_write_failed") from exc
+        temporary_name = None
+        os.fsync(parent_descriptor)
+        if not _pinned_output_parent_is_current(
+            root=root,
+            parent_parts=parent_parts,
+            identities=identities,
+        ):
+            raise GateRefusal("output_parent_changed")
+    finally:
+        if temporary_name is not None:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
+            except OSError:
+                pass
+        os.close(parent_descriptor)
+        os.close(root_descriptor)
+
+
+def _write_create_only(path: Path, payload: bytes, *, root: Path) -> None:
+    root_descriptor, parent_descriptor, destination_name, parent_parts, identities = _open_pinned_output_parent(
+        path,
+        root=root,
+    )
+    temporary_name: str | None = None
+    try:
+        temporary_name = _write_temporary_file(
+            parent_descriptor,
+            destination_name=destination_name,
+            payload=payload,
+        )
+        if not _pinned_output_parent_is_current(
+            root=root,
+            parent_parts=parent_parts,
+            identities=identities,
+        ):
+            raise GateRefusal("output_parent_changed")
+        try:
+            os.link(
+                temporary_name,
+                destination_name,
+                src_dir_fd=parent_descriptor,
+                dst_dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
         except FileExistsError as exc:
             raise GateRefusal("create_only_conflict") from exc
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        except OSError as exc:
+            raise GateRefusal("output_write_failed") from exc
+        os.fsync(parent_descriptor)
+        if not _pinned_output_parent_is_current(
+            root=root,
+            parent_parts=parent_parts,
+            identities=identities,
+        ):
+            try:
+                os.unlink(destination_name, dir_fd=parent_descriptor)
+                os.fsync(parent_descriptor)
+            except OSError:
+                pass
+            raise GateRefusal("output_parent_changed")
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+        if temporary_name is not None:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
+            except OSError:
+                pass
+        os.close(parent_descriptor)
+        os.close(root_descriptor)
 
 
 def _path_sha256(path: Path) -> str:
@@ -782,8 +968,15 @@ def _git_text(root: Path, *args: str) -> str:
 
 
 def _candidate_from_directory(directory: Path, *, project_root: Path) -> tuple[Path, PromotionCandidateV1]:
-    root = _trusted_output_root(directory, root=project_root.resolve(strict=True))
-    candidates = sorted(path for path in root.glob("*.json") if path.is_file() and not path.is_symlink())
+    try:
+        root = _trusted_existing_directory(directory, root=project_root.resolve(strict=True))
+        candidates = sorted(path for path in root.glob("*.json") if not path.is_symlink() and path.is_file())
+    except GateRefusal as exc:
+        if str(exc) == "trusted_directory_missing":
+            raise GateRefusal("promotion_candidate_not_unique") from None
+        raise
+    except OSError:
+        raise GateRefusal("promotion_candidate_not_unique") from None
     if len(candidates) != 1:
         raise GateRefusal("promotion_candidate_not_unique")
     return candidates[0], load_promotion_candidate(candidates[0], project_root=project_root)
