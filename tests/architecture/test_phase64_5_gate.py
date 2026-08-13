@@ -432,6 +432,38 @@ def test_review_attestations_remain_current_across_evidence_only_commits(tmp_pat
         )
 
 
+def test_shared_current_equivalence_detects_protected_race_after_diff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.rag.provider_execution_authority as authority_module
+    from src.rag.provider_execution_authority import (
+        ProtectedCodeIdentityError,
+        require_current_protected_code_equivalence,
+    )
+
+    root, _, _, reviewed_commit, reviewed_tree = _reviewed_root(tmp_path)
+    original = authority_module._protected_git_bytes
+    mutated = False
+
+    def racing_git(project_root: Path, *args: str) -> bytes:
+        nonlocal mutated
+        result = original(project_root, *args)
+        if not mutated and args and args[0] == "diff":
+            protected = root / PROTECTED_GRAPH_FIXTURE_PATHS[0]
+            protected.write_text(protected.read_text(encoding="utf-8") + "raced\n", encoding="utf-8")
+            mutated = True
+        return result
+
+    monkeypatch.setattr(authority_module, "_protected_git_bytes", racing_git)
+    with pytest.raises(ProtectedCodeIdentityError):
+        require_current_protected_code_equivalence(
+            root,
+            reviewed_commit=reviewed_commit,
+            reviewed_tree_hash=reviewed_tree,
+        )
+
+
 def test_same_stage_code_and_security_must_bind_the_exact_same_gate_report(tmp_path: Path) -> None:
     from scripts.check_phase64_5_gate import GateRefusal, validate_review_attestations
 

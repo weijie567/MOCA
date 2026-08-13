@@ -43,8 +43,10 @@ from src.rag.provider_execution_authority import (
     ProviderExecutionResultRequestV1,
     ProviderExecutionResultViewV1,
     ProviderRequestEnvelopeV1,
+    ProtectedCodeIdentityError,
     as_utc,
     canonical_sha256,
+    require_current_protected_code_equivalence,
 )
 
 
@@ -586,29 +588,12 @@ class ProviderExecutionAuthorityRepository:
         """Prove current runtime equivalence without binding evidence commits."""
 
         try:
-            actual_tree = _git_text(self._project_root, "rev-parse", f"{commit}^{{tree}}")
-            _git_bytes(self._project_root, "merge-base", "--is-ancestor", commit, "HEAD")
-            dirty = _git_bytes(
+            require_current_protected_code_equivalence(
                 self._project_root,
-                "status",
-                "--porcelain=v1",
-                "--untracked-files=all",
-                "--",
-                *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+                reviewed_commit=commit,
+                reviewed_tree_hash=tree_hash,
             )
-            diff = _git_bytes(
-                self._project_root,
-                "diff",
-                "--binary",
-                "--full-index",
-                commit,
-                "HEAD",
-                "--",
-                *PROTECTED_PROVIDER_EXECUTION_GRAPH,
-            )
-        except (OSError, subprocess.CalledProcessError):
-            _fail(failure_code)
-        if actual_tree != tree_hash or dirty or diff:
+        except ProtectedCodeIdentityError:
             _fail(failure_code)
 
     async def _lock_current_inputs(

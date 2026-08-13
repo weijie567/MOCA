@@ -21,10 +21,12 @@ import yaml
 from src.rag.provider_execution_authority import (
     ExecutionPromotionRequestV1,
     PROTECTED_PROVIDER_EXECUTION_GRAPH,
+    ProtectedCodeIdentityError,
     ProviderExecutionAuthorityError,
     ProviderExecutionAuthorityService,
     canonical_json_bytes,
     canonical_sha256,
+    require_current_protected_code_equivalence,
 )
 from src.repositories.provider_execution_authority_repo import ProviderExecutionAuthorityRepository
 
@@ -672,32 +674,14 @@ def _require_current_protected_identity(
     """
 
     try:
-        _require_git_identity(root, commit=commit, tree_hash=tree_hash)
-        _git_bytes(root, "merge-base", "--is-ancestor", commit, "HEAD")
-        dirty = _git_bytes(
+        require_current_protected_code_equivalence(
             root,
-            "status",
-            "--porcelain=v1",
-            "--untracked-files=all",
-            "--",
-            *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+            reviewed_commit=commit,
+            reviewed_tree_hash=tree_hash,
         )
-        diff = _git_bytes(
-            root,
-            "diff",
-            "--binary",
-            "--full-index",
-            commit,
-            "HEAD",
-            "--",
-            *PROTECTED_PROVIDER_EXECUTION_GRAPH,
-        )
-    except GateRefusal as exc:
-        raise GateRefusal(mismatch_reason) from exc
-    if dirty:
-        raise GateRefusal("protected_code_dirty")
-    if diff:
-        raise GateRefusal(mismatch_reason)
+    except ProtectedCodeIdentityError as exc:
+        reason = "protected_code_dirty" if exc.reason_code == "protected_code_dirty" else mismatch_reason
+        raise GateRefusal(reason) from exc
 
 
 def _require_transition(
