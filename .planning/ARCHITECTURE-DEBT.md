@@ -2935,3 +2935,12 @@
 - **处理状态**：✅ 已修复验证。`src/rag/provider_execution_authority.py` 现在定义唯一 authoritative `PROTECTED_PROVIDER_EXECUTION_GRAPH`；repository 与 checker 均直接消费同一 tuple，覆盖 authority storage、两条 dispatch/hard-disable、provider/parity、A/B/reindex enumeration、parser/ingestion/rewrite transitive graph及 checker。逐路径 dirty 参数测试验证 seal、candidate、promote、issue、reserve、recheck 全部先拒绝，后续 mutation/provider seam 未进入。
 - **证据**：Phase64.5 C0 review CR-01；`src/rag/provider_execution_authority.py`、`src/repositories/provider_execution_authority_repo.py`、`scripts/check_phase64_5_gate.py`、两份 authority/gate tests；最小 RED 为新 authoritative constant 缺失导致 collection error，GREEN 为 `37 passed, 1 warning`。
 - **剩余风险 / 继续入口**：该测试证明当前显式 graph 的 dirty fail-closed；未来新增 provider constructor、dispatch helper或 request-enumeration module 时必须同步加入唯一 tuple 与 architecture inventory。最终独占 full suite 由 orchestrator 执行，本 fixer 不运行 live provider/DB command/artifact。
+
+## 2026-08-13 — Phase 64.5 C0 review WR-01 — A/B error terminal 丢失 exact input identity ✅已修复验证
+
+- **子系统**：RAG canonical full-provider A-B / DB reservation-result lineage。
+- **问题现象 / 根因**：reservation 前已经计算真实 `ordered_questions_sha256`，但 unavailable/execution-error 分支调用 `_terminal_without_observations()` 时再次构造 `_inputs(args)`，把问题序列 hash 写成全零 sentinel。service 因 `report.inputs != inputs` 在 reservation 已提交后拒绝，无法落 terminal result/projection，也不能以真实 `provider_unavailable` 允许 exact ordinal-two retry。
+- **影响**：parity/provider unavailable 与 typed/unknown runtime failure 都会退化为无 result 的 crash-spent ordinal，数据库失去真实 terminal 分类与 input lineage。
+- **处理状态**：✅ 已修复验证。`ABInputIdentityV1` 只在 reservation 前计算一次，并作为 `run_full_provider_ab()` 与所有 zero-observation terminal 的必填参数；内部 preflight 只重算后做 equality proof，不再生成 sentinel identity。四类 terminal 均复用 exact reserved object，既有 service equality gate 保持 fail-closed。
+- **证据**：Phase64.5 C0 review WR-01；`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；最小 RED `4 failed`（旧 helper 不接受 exact inputs），GREEN `4 passed, 1 warning`。
+- **剩余风险 / 继续入口**：typed failure 的 DB result 分类与 exact diagnostic 由同轮 WR-03 单独收口；最终 full suite 由 orchestrator 独占执行，本 fixer不启用 production `run-ab` 或调用 provider。

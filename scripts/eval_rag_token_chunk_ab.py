@@ -234,13 +234,13 @@ def _runtime(
     )
 
 
-def _inputs(args: argparse.Namespace, *, ordered_questions_sha256: str | None = None) -> ABInputIdentityV1:
+def _inputs(args: argparse.Namespace, *, ordered_questions_sha256: str) -> ABInputIdentityV1:
     return ABInputIdentityV1(
         manifest_hash=SEALED_MANIFEST_HASH,
         gold_hash=SEALED_GOLD_HASH,
         dataset_baseline_identity=SEALED_DATASET_BASELINE_IDENTITY,
         baseline_report_sha256=_path_sha256(args.baseline),
-        ordered_questions_sha256=ordered_questions_sha256 or "sha256:" + "0" * 64,
+        ordered_questions_sha256=ordered_questions_sha256,
         answerable_case_count=SEALED_ANSWERABLE_CASE_COUNT,
         total_case_count=SEALED_TOTAL_CASE_COUNT,
     )
@@ -263,6 +263,7 @@ def _unavailable_parity(*, run_id: UUID, generated_at: datetime, reason_code: st
 def _terminal_without_observations(
     args: argparse.Namespace,
     *,
+    inputs: ABInputIdentityV1,
     outcome: str,
     stage: str,
     reason_code: str,
@@ -280,7 +281,7 @@ def _terminal_without_observations(
         failure_class=None,
         terminal_stage=stage,
         safe_reason_codes=(reason_code,),
-        inputs=_inputs(args),
+        inputs=inputs,
         runtime=_runtime(run_id=args.run_id, incumbent_corpus_id=incumbent_id, candidate_corpus_id=candidate_id),
         parity=parity or _unavailable_parity(run_id=args.run_id, generated_at=generated_at, reason_code=reason_code),
         incumbent=None,
@@ -293,6 +294,7 @@ def _terminal_without_observations(
 async def run_full_provider_ab(
     args: argparse.Namespace,
     *,
+    inputs: ABInputIdentityV1,
     embedder: EmbeddingService | None = None,
 ) -> tuple[
     TerminalABRunV1,
@@ -324,7 +326,8 @@ async def run_full_provider_ab(
         _require_sealed_dataset(dataset)
         _require_sealed_baseline(args.baseline)
         questions_hash = _ordered_questions_sha256(ordered_gold_questions(dataset))
-        inputs = _inputs(args, ordered_questions_sha256=questions_hash)
+        if _inputs(args, ordered_questions_sha256=questions_hash) != inputs:
+            raise ValueError("canonical_ab_input_identity_mismatch")
         build_canonical_ab_request_envelope(
             dataset=dataset,
             incumbent_assembler=_character_incumbent(),
@@ -335,6 +338,7 @@ async def run_full_provider_ab(
         return (
             _terminal_without_observations(
                 args,
+                inputs=inputs,
                 outcome="execution_error",
                 stage="execution",
                 reason_code="sealed_input_invalid",
@@ -371,6 +375,7 @@ async def run_full_provider_ab(
         return (
             _terminal_without_observations(
                 args,
+                inputs=inputs,
                 outcome="unavailable",
                 stage="parity",
                 reason_code="provider_usage_unavailable",
@@ -406,6 +411,7 @@ async def run_full_provider_ab(
             return (
                 _terminal_without_observations(
                     args,
+                    inputs=inputs,
                     outcome="unavailable",
                     stage="provider",
                     reason_code=missing[0],
@@ -563,6 +569,7 @@ async def run_full_provider_ab(
         return (
             _terminal_without_observations(
                 args,
+                inputs=inputs,
                 outcome="execution_error",
                 stage="execution",
                 reason_code="provider_execution_failed",
@@ -579,6 +586,7 @@ async def run_full_provider_ab(
         return (
             _terminal_without_observations(
                 args,
+                inputs=inputs,
                 outcome="execution_error",
                 stage="execution",
                 reason_code="provider_execution_failed",
@@ -1067,6 +1075,7 @@ async def main(argv: list[str] | None = None) -> int:
         async def run(embedder):
             report, binding, _failure, actual, result_code = await run_full_provider_ab(
                 args,
+                inputs=inputs,
                 embedder=embedder,
             )
             return report, binding, actual, result_code
