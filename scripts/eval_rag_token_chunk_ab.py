@@ -65,9 +65,11 @@ from src.rag.evaluation.token_chunk_ab import (
     TerminalABRunV1,
     CanonicalABRequestEnvelopeV1,
     CanonicalABExecutionService,
+    CanonicalABRunResultV1,
     build_canonical_ab_request_envelope,
     build_candidate_observation_from_retrieval,
     build_terminal_ab_run,
+    canonical_ab_typed_failure_result_code,
     issue_canonical_recovery_budget_manifest,
     load_recovery_issuance_identity,
     load_recovery_budget_manifest,
@@ -291,18 +293,55 @@ def _terminal_without_observations(
     )
 
 
+def canonical_ab_failure_result_code(failure: SafeRoleFailureV1) -> ProviderExecutionResultCode:
+    """Map one validated failure to DB retry authority without broadening retry."""
+
+    return canonical_ab_typed_failure_result_code(
+        stage=failure.stage,
+        reason_code=failure.reason_code,
+        provider_availability=failure.provider_availability,
+        provider_request_classification=failure.provider_request_classification,
+        outer_rollback_attempted=failure.outer_rollback_attempted,
+        outer_rollback_proved=failure.outer_rollback_proved,
+        provider_request_count=failure.provider_request_count,
+    )
+
+
+def _typed_failure_execution_result(
+    *,
+    args: argparse.Namespace,
+    inputs: ABInputIdentityV1,
+    failure: SafeRoleFailureV1,
+    incumbent_corpus_id: UUID,
+    candidate_corpus_id: UUID,
+    parity: ABParityEvidenceV1 | None,
+    actual_request_count: int,
+) -> CanonicalABRunResultV1:
+    report = _terminal_without_observations(
+        args,
+        inputs=inputs,
+        outcome="execution_error",
+        stage="execution",
+        reason_code=failure.reason_code,
+        incumbent_corpus_id=incumbent_corpus_id,
+        candidate_corpus_id=candidate_corpus_id,
+        parity=parity,
+    )
+    return CanonicalABRunResultV1(
+        report=report,
+        binding=None,
+        diagnostic=_execution_diagnostic_from_failure(report, failure),
+        actual_request_count=actual_request_count,
+        result_code=canonical_ab_failure_result_code(failure),
+    )
+
+
 async def run_full_provider_ab(
     args: argparse.Namespace,
     *,
     inputs: ABInputIdentityV1,
     embedder: EmbeddingService | None = None,
-) -> tuple[
-    TerminalABRunV1,
-    ABSelectionBindingV1 | None,
-    SafeRoleFailureV1 | None,
-    int,
-    ProviderExecutionResultCode,
-]:
+) -> CanonicalABRunResultV1:
     generated_at = datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC)
     authority_checked_at = getattr(args, "_authority_checked_at", datetime.now(UTC))
     candidate_identity: PolicyReindexRunIdentity | None = getattr(args, "_verified_candidate_identity", None)
@@ -335,20 +374,14 @@ async def run_full_provider_ab(
             repository_root=REPOSITORY_ROOT,
         )
     except (FormatParityContractError, OSError, ValueError):
-        return (
-            _terminal_without_observations(
-                args,
-                inputs=inputs,
-                outcome="execution_error",
-                stage="execution",
-                reason_code="sealed_input_invalid",
-                incumbent_corpus_id=incumbent_corpus_id,
-                candidate_corpus_id=candidate_corpus_id,
-            ),
-            None,
-            _shared_preflight_failure(args, reason_code="sealed_input_invalid"),
-            0,
-            ProviderExecutionResultCode.CONFIGURATION_ERROR,
+        return _typed_failure_execution_result(
+            args=args,
+            inputs=inputs,
+            failure=_shared_preflight_failure(args, reason_code="sealed_input_invalid"),
+            incumbent_corpus_id=incumbent_corpus_id,
+            candidate_corpus_id=candidate_corpus_id,
+            parity=None,
+            actual_request_count=0,
         )
 
     token_assembler = _token_candidate()
@@ -372,8 +405,8 @@ async def run_full_provider_ab(
             reason_code=parity_report.reason_code,
         )
     except (OSError, TokenizerParityError, ValueError):
-        return (
-            _terminal_without_observations(
+        return CanonicalABRunResultV1(
+            report=_terminal_without_observations(
                 args,
                 inputs=inputs,
                 outcome="unavailable",
@@ -382,12 +415,16 @@ async def run_full_provider_ab(
                 incumbent_corpus_id=incumbent_corpus_id,
                 candidate_corpus_id=candidate_corpus_id,
             ),
-            None,
-            None,
-            0,
-            ProviderExecutionResultCode.PROVIDER_UNAVAILABLE,
+            binding=None,
+            diagnostic=None,
+            actual_request_count=0,
+            result_code=ProviderExecutionResultCode.PROVIDER_UNAVAILABLE,
         )
 
+    active_namespace: Any | None = None
+    active_role_run: Any | None = None
+    active_assembler_fingerprint = token_assembler.config.config_fingerprint
+    role_runs = []
     try:
         candidate_snapshot = await _validate_corpus_pair(
             candidate_identity,
@@ -408,8 +445,8 @@ async def run_full_provider_ab(
         if not check_ocr_runtime(required_languages=("chi_sim", "eng")).available:
             missing.append("provider_request_unavailable")
         if missing:
-            return (
-                _terminal_without_observations(
+            return CanonicalABRunResultV1(
+                report=_terminal_without_observations(
                     args,
                     inputs=inputs,
                     outcome="unavailable",
@@ -419,14 +456,20 @@ async def run_full_provider_ab(
                     candidate_corpus_id=candidate_corpus_id,
                     parity=parity,
                 ),
-                None,
-                None,
-                0,
-                ProviderExecutionResultCode.PROVIDER_UNAVAILABLE,
+                binding=None,
+                diagnostic=None,
+                actual_request_count=0,
+                result_code=ProviderExecutionResultCode.PROVIDER_UNAVAILABLE,
             )
-        role_runs = []
         role_durations: list[Decimal] = []
         for namespace, assembler in zip(namespaces, (character_assembler, token_assembler), strict=True):
+            active_namespace = namespace
+            active_role_run = None
+            active_assembler_fingerprint = (
+                character_assembler.config_fingerprint
+                if namespace.role == "incumbent"
+                else token_assembler.config.config_fingerprint
+            )
             started = time.monotonic_ns()
             async with SessionLocal() as session:
                 role_run = await run_rollback_only_retrieval_parity(
@@ -447,13 +490,36 @@ async def run_full_provider_ab(
                     expected_rollout_version=candidate_identity.expected_evidence_rollout_version,
                     input_assembler=assembler,
                 )
+            active_role_run = role_run
             role_runs.append(role_run)
             role_durations.append(Decimal(time.monotonic_ns() - started) / Decimal(1_000_000))
-        if any(
-            item.outcome not in {EvaluationOutcome.COMPLETED_PASS, EvaluationOutcome.COMPLETED_QUALITY_FAIL}
-            for item in role_runs
-        ):
-            raise RuntimeError("retrieval_round_incomplete")
+        for failed_namespace, failed_run in zip(namespaces, role_runs, strict=True):
+            if failed_run.outcome in {
+                EvaluationOutcome.COMPLETED_PASS,
+                EvaluationOutcome.COMPLETED_QUALITY_FAIL,
+            }:
+                continue
+            typed_failure = next(
+                (
+                    round_result.safe_failure
+                    for round_result in reversed(failed_run.rounds)
+                    if round_result.safe_failure
+                ),
+                None,
+            )
+            if typed_failure is None:
+                typed_failure = _unexpected_provider_failure(
+                    args=args,
+                    namespace=failed_namespace,
+                    role_run=failed_run,
+                    assembler_fingerprint=(
+                        character_assembler.config_fingerprint
+                        if failed_namespace.role == "incumbent"
+                        else token_assembler.config.config_fingerprint
+                    ),
+                    provider_request_count=embedder.request_attempt_count,
+                )
+            raise SafeRoleExecutionError(typed_failure)
         try:
             final_snapshot = await _validate_corpus_pair(
                 candidate_identity,
@@ -552,12 +618,12 @@ async def run_full_provider_ab(
             if report.outcome == "selected_pass"
             else None
         )
-        return (
-            report,
-            binding,
-            None,
-            embedder.request_attempt_count,
-            (
+        return CanonicalABRunResultV1(
+            report=report,
+            binding=binding,
+            diagnostic=None,
+            actual_request_count=embedder.request_attempt_count,
+            result_code=(
                 ProviderExecutionResultCode.SUCCESS
                 if report.outcome == "selected_pass"
                 else ProviderExecutionResultCode.QUALITY_FAIL
@@ -566,38 +632,31 @@ async def run_full_provider_ab(
     except RecoveryAttemptRefused:
         raise
     except SafeRoleExecutionError as safe_error:
-        return (
-            _terminal_without_observations(
-                args,
-                inputs=inputs,
-                outcome="execution_error",
-                stage="execution",
-                reason_code="provider_execution_failed",
-                incumbent_corpus_id=incumbent_corpus_id,
-                candidate_corpus_id=candidate_corpus_id,
-                parity=parity,
-            ),
-            None,
-            safe_error.failure,
-            embedder.request_attempt_count if embedder is not None else 0,
-            ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR,
+        return _typed_failure_execution_result(
+            args=args,
+            inputs=inputs,
+            failure=safe_error.failure,
+            incumbent_corpus_id=incumbent_corpus_id,
+            candidate_corpus_id=candidate_corpus_id,
+            parity=parity,
+            actual_request_count=embedder.request_attempt_count if embedder is not None else 0,
         )
     except Exception:
-        return (
-            _terminal_without_observations(
-                args,
-                inputs=inputs,
-                outcome="execution_error",
-                stage="execution",
-                reason_code="provider_execution_failed",
-                incumbent_corpus_id=incumbent_corpus_id,
-                candidate_corpus_id=candidate_corpus_id,
-                parity=parity,
-            ),
-            None,
-            _shared_preflight_failure(args, reason_code="candidate_pair_invalid"),
-            embedder.request_attempt_count if embedder is not None else 0,
-            ProviderExecutionResultCode.UNKNOWN_ERROR,
+        failure = _unexpected_provider_failure(
+            args=args,
+            namespace=active_namespace,
+            role_run=active_role_run,
+            assembler_fingerprint=active_assembler_fingerprint,
+            provider_request_count=embedder.request_attempt_count if embedder is not None else 0,
+        )
+        return _typed_failure_execution_result(
+            args=args,
+            inputs=inputs,
+            failure=failure,
+            incumbent_corpus_id=incumbent_corpus_id,
+            candidate_corpus_id=candidate_corpus_id,
+            parity=parity,
+            actual_request_count=embedder.request_attempt_count if embedder is not None else 0,
         )
 
 
@@ -951,6 +1010,39 @@ def _completed_role_resource_failure(
     )
 
 
+def _unexpected_provider_failure(
+    *,
+    args: argparse.Namespace,
+    namespace: Any | None,
+    role_run: Any | None,
+    assembler_fingerprint: str,
+    provider_request_count: int,
+) -> SafeRoleFailureV1:
+    """Describe an otherwise-untyped provider-path failure without raw details."""
+
+    if namespace is None:
+        return _shared_preflight_failure(args, reason_code="candidate_pair_invalid")
+    rounds = tuple(role_run.rounds) if role_run is not None else ()
+    return SafeRoleFailureV1(
+        failing_role="character_incumbent" if namespace.role == "incumbent" else "token_candidate",
+        round_format=rounds[-1].round_format if rounds else None,
+        stage="retrieval_resource_proof",
+        reason_code="provider_execution_failed",
+        provider_availability="available",
+        provider_request_classification="request_started" if provider_request_count else "not_attempted",
+        outer_rollback_attempted=bool(rounds),
+        outer_rollback_proved=bool(rounds) and all(round_result.post_state_proved for round_result in rounds),
+        completed_round_count=len(rounds),
+        provider_request_count=provider_request_count,
+        safe_context_sha256="sha256:"
+        + _round_identity_hash(
+            args=args,
+            role=namespace.role,
+            assembler_fingerprint=assembler_fingerprint,
+        ),
+    )
+
+
 def _valid_sha256(value: object) -> bool:
     return bool(
         isinstance(value, str)
@@ -1034,12 +1126,15 @@ async def main(argv: list[str] | None = None) -> int:
         questions_hash = _ordered_questions_sha256(ordered_gold_questions(dataset))
         inputs = _inputs(args, ordered_questions_sha256=questions_hash)
 
-        def persist_terminal(report, binding, reservation, result_id):
+        def persist_terminal(execution, reservation, result_id):
+            report = execution.report
+            binding = execution.binding
             if report.outcome == "execution_error":
-                failure = _shared_preflight_failure(args, reason_code="candidate_pair_invalid")
+                if execution.diagnostic is None:
+                    raise ValueError("canonical_ab_execution_diagnostic_missing")
                 bundle = write_execution_error_bundle_create_only(
                     report,
-                    diagnostic=_execution_diagnostic_from_failure(report, failure),
+                    diagnostic=execution.diagnostic,
                     root=args.output_root,
                 )
                 terminal = bundle.run
@@ -1073,12 +1168,7 @@ async def main(argv: list[str] | None = None) -> int:
             return values
 
         async def run(embedder):
-            report, binding, _failure, actual, result_code = await run_full_provider_ab(
-                args,
-                inputs=inputs,
-                embedder=embedder,
-            )
-            return report, binding, actual, result_code
+            return await run_full_provider_ab(args, inputs=inputs, embedder=embedder)
 
         outcome = await CanonicalABExecutionService(
             authority_service=_provider_execution_authority_service(),

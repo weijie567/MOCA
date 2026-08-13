@@ -444,6 +444,7 @@ async def test_persisted_selected_pass_binds_db_result_lineage(tmp_path: Path) -
     from src.rag.evaluation.contracts import load_format_parity_contract
     from src.rag.evaluation.token_chunk_ab import (
         CanonicalABExecutionService,
+        CanonicalABRunResultV1,
         build_canonical_ab_request_envelope,
     )
     from src.rag.provider_execution_authority import (
@@ -530,16 +531,18 @@ async def test_persisted_selected_pass_binds_db_result_lineage(tmp_path: Path) -
 
     async def run(_provider):
         events.append("provider")
-        return (
-            selected,
-            expected_binding,
-            envelope.provider_request_envelope.maximum_request_count,
-            ProviderExecutionResultCode.SUCCESS,
+        return CanonicalABRunResultV1(
+            report=selected,
+            binding=expected_binding,
+            diagnostic=None,
+            actual_request_count=envelope.provider_request_envelope.maximum_request_count,
+            result_code=ProviderExecutionResultCode.SUCCESS,
         )
 
-    def persist_terminal(report, binding, reservation, result_id):
-        assert report == selected
-        assert binding == expected_binding
+    def persist_terminal(execution, reservation, result_id):
+        assert execution.report == selected
+        assert execution.binding == expected_binding
+        assert execution.diagnostic is None
         assert reservation.reservation_id == UUID("64300000-0000-4000-8000-000000000098")
         assert isinstance(result_id, UUID)
         events.append("terminal_selection_authorization")
@@ -1344,6 +1347,137 @@ def test_typed_runtime_failure_drives_exact_diagnostic_without_raw_exception() -
         assert forbidden not in serialized
 
 
+@pytest.mark.parametrize(
+    (
+        "stage",
+        "reason_code",
+        "provider_availability",
+        "provider_request_classification",
+        "outer_rollback_attempted",
+        "outer_rollback_proved",
+        "provider_request_count",
+        "expected_result_code",
+    ),
+    (
+        (
+            "shared_preflight",
+            "candidate_state_invalid",
+            "not_checked",
+            "not_attempted",
+            False,
+            False,
+            0,
+            "source_drift",
+        ),
+        (
+            "shared_preflight",
+            "sealed_input_invalid",
+            "not_checked",
+            "not_attempted",
+            False,
+            False,
+            0,
+            "configuration_error",
+        ),
+        ("shared_preflight", "candidate_pair_invalid", "not_checked", "not_attempted", False, False, 0, "source_drift"),
+        ("role_setup", "role_setup_failed", "not_checked", "not_attempted", False, False, 0, "configuration_error"),
+        (
+            "format_ingestion",
+            "format_ingestion_failed",
+            "not_checked",
+            "not_attempted",
+            False,
+            False,
+            0,
+            "projection_error",
+        ),
+        ("format_ingestion", "provider_request_failed", "available", "request_failed", True, True, 1, "response_error"),
+        (
+            "retrieval_resource_proof",
+            "provider_request_failed",
+            "available",
+            "request_failed",
+            True,
+            True,
+            1,
+            "transient_execution_error",
+        ),
+        (
+            "retrieval_resource_proof",
+            "resource_proof_failed",
+            "available",
+            "request_completed",
+            True,
+            True,
+            1,
+            "projection_error",
+        ),
+        (
+            "post_rollback_baseline_verification",
+            "rollback_proof_failed",
+            "available",
+            "request_completed",
+            True,
+            False,
+            1,
+            "projection_error",
+        ),
+        (
+            "retrieval_resource_proof",
+            "provider_execution_failed",
+            "available",
+            "request_started",
+            True,
+            True,
+            1,
+            "unknown_error",
+        ),
+    ),
+)
+def test_every_typed_failure_maps_to_exact_db_code_and_only_explicit_transient_can_retry(
+    stage: str,
+    reason_code: str,
+    provider_availability: str,
+    provider_request_classification: str,
+    outer_rollback_attempted: bool,
+    outer_rollback_proved: bool,
+    provider_request_count: int,
+    expected_result_code: str,
+) -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+    from src.rag.evaluation.retrieval_rounds import SafeRoleFailureV1
+    from src.rag.provider_execution_authority import RETRYABLE_RESULT_CODES, ProviderExecutionResultCode
+
+    failure = SafeRoleFailureV1(
+        failing_role="shared_preflight" if stage == "shared_preflight" else "token_candidate",
+        round_format=None if stage in {"shared_preflight", "role_setup"} else "markdown",
+        stage=stage,
+        reason_code=reason_code,
+        provider_availability=provider_availability,
+        provider_request_classification=provider_request_classification,
+        outer_rollback_attempted=outer_rollback_attempted,
+        outer_rollback_proved=outer_rollback_proved,
+        completed_round_count=0,
+        provider_request_count=provider_request_count,
+    )
+
+    result_code = ab_cli.canonical_ab_failure_result_code(failure)
+
+    assert result_code is ProviderExecutionResultCode(expected_result_code)
+    assert (result_code in RETRYABLE_RESULT_CODES) is (expected_result_code == "transient_execution_error")
+
+
+def test_typed_failure_code_and_diagnostic_are_validated_before_terminal_file_writes() -> None:
+    from src.rag.evaluation.token_chunk_ab import CanonicalABExecutionService
+
+    service_source = inspect.getsource(CanonicalABExecutionService.execute)
+    persistence_offset = service_source.index("persist_terminal(execution")
+
+    assert service_source.index("canonical_ab_execution_diagnostic_mismatch") < persistence_offset
+    assert service_source.index("canonical_ab_typed_failure_result_code(") < persistence_offset
+    assert service_source.index("canonical_ab_result_code_invalid") < persistence_offset
+
+
 def test_diagnostic_cli_has_no_selection_activation_or_pointer_write_surface() -> None:
     import scripts.eval_rag_token_chunk_ab as ab_cli
 
@@ -1358,6 +1492,8 @@ def test_diagnostic_cli_has_no_selection_activation_or_pointer_write_surface() -
     ):
         assert forbidden not in diagnostic_source.lower()
     assert "write_execution_error_bundle_create_only" in main_source
+    assert "_failure" not in main_source
+    assert "diagnostic=execution.diagnostic" in main_source
 
 
 def _recovery_budget_manifest(
