@@ -1300,20 +1300,36 @@ async def test_production_run_ab_routes_invalid_promotion_before_reservation_and
 
 
 @pytest.mark.asyncio
-async def test_phase64_4_head_satisfies_ab_database_prerequisite(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_phase64_5_head_satisfies_real_ab_schema_capability_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import scripts.eval_rag_token_chunk_ab as ab_cli
 
     async def phase64_3_prerequisites(_session, *, expected_rollout_version: int):
         assert expected_rollout_version == 1
         return ("database_schema",)
 
-    async def phase64_4_schema_available(_session) -> bool:
-        return True
+    class Result:
+        def one(self):
+            return (True, True, True, True, True, "032_phase64_5_provider_execution_authority")
+
+    class Session:
+        async def execute(self, _statement):
+            return Result()
 
     monkeypatch.setattr(ab_cli, "_database_prerequisites", phase64_3_prerequisites)
-    monkeypatch.setattr(ab_cli, "_phase64_4_schema_available", phase64_4_schema_available)
 
-    assert await ab_cli._ab_database_prerequisites(object(), expected_rollout_version=1) == ()
+    session = Session()
+    assert await ab_cli._phase64_4_schema_available(session) is True
+    assert await ab_cli._ab_database_prerequisites(session, expected_rollout_version=1) == ()
+
+    for capabilities in (
+        (False, True, True, True, True, "032_phase64_5_provider_execution_authority"),
+        (True, True, True, True, False, "032_phase64_5_provider_execution_authority"),
+        (True, True, True, True, True, "999_unknown_future"),
+    ):
+        Result.one = lambda self, row=capabilities: row
+        assert await ab_cli._phase64_4_schema_available(session) is False
 
 
 def _execution_error_run(*, parity=None):
