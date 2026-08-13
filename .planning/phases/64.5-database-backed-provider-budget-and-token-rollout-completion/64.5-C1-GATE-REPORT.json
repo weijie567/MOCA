@@ -2,11 +2,11 @@
   "schema_version": "phase64_5.gate_report.v1",
   "stage": "c1",
   "result": "pass",
-  "captured_at": "2026-08-13T06:01:16Z",
-  "protected_code_commit": "3b8ca36b8cabb11b695f5dc72c45df04181e2b8e",
-  "protected_code_tree_hash": "4c6bd3f28be83602b0d5b71a6739b8dd1f694729",
-  "candidate_path": "evaluation/reports/rag_provider_execution_authority/v2/promotion-candidates/3b8ca36b8cabb11b695f5dc72c45df04181e2b8e.json",
-  "candidate_sha256": "sha256:63ce061b3e0aff30dd70bcb1161964016d644d501182a149647c532bee3a771d",
+  "captured_at": "2026-08-13T06:40:52Z",
+  "protected_code_commit": "5eee5288efdf38a8959a0b646627b2e2fc748c1c",
+  "protected_code_tree_hash": "57cf3fc4939428cbc870832e07024eed6034927d",
+  "candidate_path": "evaluation/reports/rag_provider_execution_authority/v2/promotion-candidates/5eee5288efdf38a8959a0b646627b2e2fc748c1c.json",
+  "candidate_sha256": "pending_create_only_candidate",
   "format": {
     "command": "make format",
     "result": "pass",
@@ -30,18 +30,18 @@
   "post_repair_focused": {
     "command": "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_rag_chunking_boundaries.py::test_provider_capable_build_and_ab_helpers_are_owned_by_the_db_authority_boundary tests/rag/test_policy_reindex.py tests/eval/test_rag_token_chunk_ab.py -q",
     "result": "pass",
-    "passed": 166,
+    "passed": 22,
     "warnings": 1
   },
   "code_review": {
-    "canonical_task": "/root/phase64_5_c1_code_review",
+    "canonical_task": "/root/phase64_5_current_baseline_code_review",
     "actual_role": "gsd-code-reviewer",
     "workflow_invocation": "$gsd-code-review 64.5 --depth=deep",
     "status": "clean",
     "findings_total": 0
   },
   "security_review": {
-    "canonical_task": "/root/phase64_5_c1_security",
+    "canonical_task": "/root/phase64_5_current_baseline_security",
     "actual_role": "gsd-security-auditor",
     "workflow_invocation": "$gsd-secure-phase 64.5",
     "status": "verified",

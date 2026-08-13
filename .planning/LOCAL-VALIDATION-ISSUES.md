@@ -24335,3 +24335,23 @@ seal 已从 gate report 取受审 identity，但 load 路径仍把嵌入 gate �
 
 **已做处理 / 剩余入口**
 seal/load 现共用严格 identity parser，要求嵌入 gate 的 `protected_code_commit/tree_hash` 均存在且为合法 40 位 Git object id；load 在 Git/current/promotion 使用前要求它们与顶层 attestation identity 精确相等。最小 GREEN 为 `1 passed, 1 warning`。未修改 create-only seal、candidate equality、DB/provider/live 或任何 attestation 文件；继续入口是 format、完整 lint、focused architecture tests及新 exact HEAD C1复核。
+## 2026-08-13 — Phase 64.5 reviewed-identity 修复后临时 worktree 仍用旧 C0 attestation
+
+**问题现象 / 如何检测**
+尝试在 exact `5eee5288` detached 临时 worktree 生成 replacement C1 candidate 时，命令在任何输出前以 `attestation_gate_identity_mismatch` 拒绝。该尝试没有生成 candidate或修改 live状态。
+
+**关键证据 / 当前判断 / 根因**
+新的 strict loader 正确要求 embedded gate identity 等于 attestation 顶层 identity；仓库现有 C0/C1 attestation都是旧 seal 逻辑产物，因此 C0 同样是 gate reviewed identity `995afd9f...` 对 carrier `b5f00942...`，不能再被新 loader接受。根因是修复需要对四份 root-owned attestation统一重新 seal，而不是只替换 C1。
+
+**已做处理 / 剩余入口**
+立即移除临时 worktree；未生成/移动 candidate。后续在当前 protected-equivalent checkout用原 C0/C1 review与gate bytes重新 create-only封存四份 attestation，再生成新 candidate；必须先归档旧 attestations到非active evidence目录并保留原bytes，不可覆盖后伪称原文件未存在。
+## 2026-08-13 — Phase 64.5 尝试用历史 C0 gate 重新 seal 被 current-equivalence 正确拒绝
+
+**问题现象 / 如何检测**
+归档旧四份 attestation 后，尝试以历史 C0 gate report（reviewed identity `995afd9f...`）重新 seal C0，checker返回 `gate_report_not_current`，没有创建新 attestation。
+
+**关键证据 / 当前判断 / 根因**
+从 C0 到当前 `5eee5288...` 的 protected graph不仅有 Plan05 reviewed-route改动，还有后续 attestation checker修复，因此旧 C0 identity不再 current-equivalent。新 seal 正确拒绝；不能把旧 C0 review结果重新贴到当前代码，也不能靠 carrier语义绕过。
+
+**已做处理 / 剩余入口**
+保留旧四份 attestation于 superseded目录以供审计；当前 active路径保持空。必须以当前 exact protected identity重新取得 code/security verdict与一个current gate report，再 seal一组新的 C0/C1-equivalent root attestations，或由当前计划明确重基线；不得复用历史 C0 gate冒充当前。
