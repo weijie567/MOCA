@@ -24215,3 +24215,13 @@ ordinal-2 旧逻辑只看 predecessor result code 与 subject/envelope，同一�
 
 **已做处理 / 剩余入口**
 任何 transient 在 terminal 文件写前必须满足 `0 < diagnostic.provider_request_count <= actual_request_count`。domain DTO 与 repository write/read 均禁止 transient actual 为零，ordinal-2 也显式拒绝遗留/绕过形成的 transient-zero predecessor。测试既用 `model_construct` 绕过 DTO 证明 repository 拒写/无 result/无 ordinal-2，也直接注入 legacy-invalid DB row 证明 retry 仍 fail closed。最小 GREEN `3 passed, 1 warning`，legacy-invalid predecessor 精确节点 `1 passed, 1 warning`；`make format`、完整 `make lint` PASS，authority + A/B focused 为 `122 passed, 1 warning in 63.69s`。仅使用 localhost `moca_test` fixture，未访问外部/live DB、未运行 provider/live/full suite；下一入口是 orchestrator 独占 full suite 与 C1 re-review。
+## 2026-08-13 — Phase 64.5 C0 attestation YAML 日期类型重载误拒绝
+
+**问题现象 / 如何检测**
+在最终 C0 code/security artifact 与 gate report 均 clean 后，根任务分别调用 `seal-review-attestation` 成功，但随后的独立 `review-attestations --require-stage c0 --require-current-protected-base` 以 `attestation_frontmatter_mismatch` 拒绝。进一步用项目入口只读解码两份 attestation，确认 code frontmatter 的 `reviewed` 被 YAML 解析为 `datetime`，security 的 `created`/`updated` 被解析为 `date`；Pydantic/JSON 存储后这些值变成字符串，旧 loader 直接比较 Python 对象类型，因此对相同 artifact bytes 产生假拒绝。
+
+**关键证据 / 当前判断 / 根因**
+无效重载命令使用 `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/check_phase64_5_gate.py review-attestations ...`，明确 reason 为 `attestation_frontmatter_mismatch`。最小回归测试 `test_attestation_frontmatter_canonicalizes_yaml_dates_before_replay` 在旧实现下 `1 failed`，失败点与真实 C0 完全一致。artifact bytes 与 `standard_artifact_sha256` 从未不一致，未发生 DB/provider/live side effect；根因仅是 YAML native date/datetime 与 JSON canonical string 的类型差异。
+
+**已做处理 / 剩余入口**
+checker 现在在 seal 与 strict-load 两侧都通过现有 `canonical_json_bytes` 做 frontmatter JSON 规范化，再进行内容比较；原始 artifact bytes/hash、真实 frontmatter clean gate、role、git identity 与 create-only 语义均未放宽。最小 RED 转 GREEN `1 passed, 1 warning`；随后 `make format`、完整 `make lint` 与 checker 文件回归 `17 passed, 1 warning` 全绿。首次生成的两份未提交 attestation 被判为无效本地产物，必须删除后以修复后的 checker 重新 create-only 封存；C0 gate report 可保留，因为其真实门禁内容未变化。
