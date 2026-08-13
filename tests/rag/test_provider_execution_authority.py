@@ -61,7 +61,8 @@ def _git(repo: Path, *args: str) -> str:
 def _reviewed_git_root(tmp_path: Path) -> tuple[Path, str, str, str, str, str]:
     root = tmp_path / "reviewed"
     protected = PROTECTED_PROVIDER_EXECUTION_GRAPH
-    for relative in protected:
+    fixture_paths = tuple("src/rag/provider_execution_authority.py" if scope == "src" else scope for scope in protected)
+    for relative in fixture_paths:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("c0\n", encoding="utf-8")

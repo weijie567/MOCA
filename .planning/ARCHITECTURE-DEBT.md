@@ -2989,3 +2989,12 @@
 - **处理状态**：✅ 已修复验证。新增 pattern-specific Phase64.5 allowlist，仅允许 `src/rag/evaluation/token_chunk_ab.py` 与 `tests/eval/test_rag_token_chunk_ab.py` 使用 `build_query_rewrite_plan`，其他 Phase23 pattern 与所有其他文件仍由原 guard 拒绝；测试锁定 exact mapping，未修改 production query rewrite或provider authority。
 - **证据**：完整 suite `4923 passed, 4 skipped, 2 failed in 2826.27s` 的 Phase21 failure；精确复现与另一 stale guard 合计 `2 failed, 1 warning`；修复后相关两节点 `2 passed, 1 warning`，完整 Phase21 boundary 文件 `17 passed, 1 warning in 0.26s`。
 - **剩余风险 / 继续入口**：fixer 按独占约束未重跑 full suite；orchestrator 需最终重跑并确认架构 guard 仍能拒绝 A/B 文件中的其他 Phase23 surface。production `run-ab` authority/hard-disable 未被放宽。
+
+## 2026-08-13 — Phase 64.5 C0 iteration 2 CR-01 — protected graph 共享但未形成递归 runtime closure ⚠️修复已聚焦验证
+
+- **子系统**：RAG provider execution promotion / reviewed build / canonical A-B security closure。
+- **问题现象 / 根因**：iteration 1 把 repository/checker 收敛到同一 `PROTECTED_PROVIDER_EXECUTION_GRAPH`，但该值仍是手工 39 文件清单。递归 AST closure 从两条 provider dispatch CLI 与 checker 出发检出 112 个未覆盖本地模块；输入 repository、corpus/evidence、parser parity 与 search text 等间接依赖可 dirty 而不使 promotion 失效。
+- **影响**：已 promotion 的 checkout 可在 commit/tree 不变时加载未受 dirty/diff identity 约束的本地代码，从而改变 provider 输入、request count、source/parity proof、retrieval observation 或 selected evidence。
+- **处理状态**：⚠️ 修复已聚焦验证。authoritative manifest 现以 `src` 目录级 Git pathspec 覆盖全部 loadable application code/migrations，并精确覆盖 `scripts/__init__.py`、两个 provider CLI、其 parity helper 与 checker；tests/`.planning` 明确不进入执行 identity。repository 与 checker 未定义副本，继续直接消费同一常量。递归 architecture guard 的 audited exclusion 为空，任何未来排除必须给 exact path 与理由。
+- **证据**：Phase64.5 C0 iteration 2 CR-01；`src/rag/provider_execution_authority.py`、`tests/architecture/test_phase64_5_gate.py`、`tests/rag/test_provider_execution_authority.py`；最小 RED `1 failed, 1 warning`（112 个 unprotected closure files），GREEN `1 passed, 1 warning`，完整 `make lint` PASS，focused checker architecture `16 passed, 1 warning in 5.74s`。
+- **剩余风险 / 继续入口**：属于 promotion/security identity 逻辑修复，仍需 orchestrator 的独占 full suite 与 C1 code/security re-review；本 fixer未启用 provider dispatch、未访问外部 DB、未写 live promotion/artifact。

@@ -24182,3 +24182,14 @@ orchestrator 的独占完整 suite 结果为 `4923 passed, 4 skipped, 2 failed i
 
 **已做处理 / 剩余入口**
 Phase34 guard 只增加 exact 非执行 projection class allowlist，完整文件 `10 passed, 1 warning`；Phase21 guard 只为 `build_query_rewrite_plan` 增加上述两份 Phase64.5 文件的 pattern-specific exact ownership allowlist，完整文件 `17 passed, 1 warning`。未修改 production authority、provider dispatch或 live artifacts。fixer 按约束未重跑完整 suite；下一入口是 orchestrator 独占重跑 full suite，确认两条 stale guard 消失且无其他回归。
+
+## 2026-08-13 — Phase 64.5 C0 iteration 2 protected graph 递归闭包仍不完整
+
+**问题现象 / 如何检测**
+新增递归 AST import closure 架构测试，从 `scripts/reindex_policies.py`、`scripts/eval_rag_token_chunk_ab.py` 与 `scripts/check_phase64_5_gate.py` 出发解析所有仓库内 `src`/`scripts` import。有效最小 RED 为 `1 failed, 1 warning`，旧 39 项 tuple 实际留下 112 个递归本地模块未保护，首项为 `scripts/__init__.py`；因此此前只验证 tuple 内路径 dirty 的测试不能证明 runtime graph 闭合。
+
+**关键证据 / 当前判断 / 根因**
+根因是安全边界采用易漂移的手工文件清单，而 repository 与 checker 虽共享该清单，却不会发现新建或间接加载的本地模块。tests 与 `.planning` 不是执行身份输入，不应为普通测试或审阅文档改动永久制造 protected dirty；需要把 pathspec 绑定到可执行源码而非审核 artifact。
+
+**已做处理 / 剩余入口**
+唯一 `PROTECTED_PROVIDER_EXECUTION_GRAPH` 改为 broad `src` Git pathspec，并精确加入两个 provider CLI、其本地 parity helper、checker 与 `scripts/__init__.py`；repository/checker 继续直接消费同一常量。递归 closure 无 audited exclusion，测试同时禁止把 `tests/` 或 `.planning/` 纳入 protected graph，并用嵌套 `src/rag/provider_execution_authority.py` 验证目录级 dirty refusal。最小 GREEN `1 passed, 1 warning`；`make format`、完整 `make lint` 通过，focused checker 架构文件为 `16 passed, 1 warning in 5.74s`。未运行 full suite、provider/live 命令或外部 DB；下一入口是 orchestrator 独占 full suite 与 C1 复审。
