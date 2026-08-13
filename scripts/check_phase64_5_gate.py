@@ -306,18 +306,13 @@ def validate_review_attestations(
         )
     if require_current_protected_base:
         root = project_root.resolve(strict=True)
-        if _git_bytes(
-            root,
-            "status",
-            "--porcelain=v1",
-            "--untracked-files=all",
-            "--",
-            *PROTECTED_PROVIDER_EXECUTION_GRAPH,
-        ):
-            raise GateRefusal("protected_code_dirty")
-        current = (_git_text(root, "rev-parse", "HEAD"), _git_text(root, "rev-parse", "HEAD^{tree}"))
-        if any((item.protected_code_commit, item.protected_code_tree_hash) != current for item in attestations):
-            raise GateRefusal("attestation_not_current")
+        for commit, tree_hash in {(item.protected_code_commit, item.protected_code_tree_hash) for item in attestations}:
+            _require_current_protected_identity(
+                root,
+                commit=commit,
+                tree_hash=tree_hash,
+                mismatch_reason="attestation_not_current",
+            )
     return attestations
 
 
@@ -430,9 +425,12 @@ def build_promotion_request(
     )
     if actual_diff != candidate.c0_to_c1_diff_hash:
         raise GateRefusal("promotion_candidate_diff_mismatch")
-    current = (_git_text(root, "rev-parse", "HEAD"), _git_text(root, "rev-parse", "HEAD^{tree}"))
-    if current != (candidate.protected_code_c1_commit, candidate.protected_code_c1_tree_hash):
-        raise GateRefusal("promotion_candidate_not_current")
+    _require_current_protected_identity(
+        root,
+        commit=candidate.protected_code_c1_commit,
+        tree_hash=candidate.protected_code_c1_tree_hash,
+        mismatch_reason="promotion_candidate_not_current",
+    )
     return ExecutionPromotionRequestV1.seal(
         protected_code_c0_commit=candidate.protected_code_c0_commit,
         protected_code_c0_tree_hash=candidate.protected_code_c0_tree_hash,
@@ -657,6 +655,49 @@ def _require_git_identity(root: Path, *, commit: str, tree_hash: str) -> None:
         raise GateRefusal("attestation_git_identity_missing") from exc
     if actual_tree != tree_hash:
         raise GateRefusal("attestation_git_tree_mismatch")
+
+
+def _require_current_protected_identity(
+    root: Path,
+    *,
+    commit: str,
+    tree_hash: str,
+    mismatch_reason: str,
+) -> None:
+    """Require reviewed runtime bytes to remain the current protected graph.
+
+    Evidence-only commits intentionally do not invalidate a review. The exact
+    reviewed commit/tree remain the audit identity while ancestry, a clean
+    protected worktree, and an empty protected diff prove current equivalence.
+    """
+
+    try:
+        _require_git_identity(root, commit=commit, tree_hash=tree_hash)
+        _git_bytes(root, "merge-base", "--is-ancestor", commit, "HEAD")
+        dirty = _git_bytes(
+            root,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--",
+            *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+        )
+        diff = _git_bytes(
+            root,
+            "diff",
+            "--binary",
+            "--full-index",
+            commit,
+            "HEAD",
+            "--",
+            *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+        )
+    except GateRefusal as exc:
+        raise GateRefusal(mismatch_reason) from exc
+    if dirty:
+        raise GateRefusal("protected_code_dirty")
+    if diff:
+        raise GateRefusal(mismatch_reason)
 
 
 def _require_transition(

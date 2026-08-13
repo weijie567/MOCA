@@ -533,12 +533,11 @@ class ProviderExecutionAuthorityRepository:
             _fail(ProviderExecutionAuthorityFailureCode.PROMOTION_MISMATCH)
         if c0_tree != request.protected_code_c0_tree_hash or c1_tree != request.protected_code_c1_tree_hash:
             _fail(ProviderExecutionAuthorityFailureCode.PROMOTION_MISMATCH)
-        current = await self.inspect_current_code_identity()
-        if (
-            current.commit != request.protected_code_c1_commit
-            or current.tree_hash != request.protected_code_c1_tree_hash
-        ):
-            _fail(ProviderExecutionAuthorityFailureCode.PROMOTION_MISMATCH)
+        self._require_current_protected_identity(
+            commit=request.protected_code_c1_commit,
+            tree_hash=request.protected_code_c1_tree_hash,
+            failure_code=ProviderExecutionAuthorityFailureCode.PROMOTION_MISMATCH,
+        )
         diff = _git_bytes(
             self._project_root,
             "diff",
@@ -567,18 +566,50 @@ class ProviderExecutionAuthorityRepository:
         ).scalar_one_or_none()
         if row is None:
             _fail(ProviderExecutionAuthorityFailureCode.PROMOTION_MISSING)
-        try:
-            current = await self.inspect_current_code_identity()
-        except Exception as exc:
-            if getattr(exc, "reason_code", None) == ProviderExecutionAuthorityFailureCode.PROMOTION_STALE.value:
-                raise
-            _fail(ProviderExecutionAuthorityFailureCode.PROMOTION_STALE)
-        if current.commit != row.protected_code_c1_commit or current.tree_hash != row.protected_code_c1_tree_hash:
-            _fail(ProviderExecutionAuthorityFailureCode.PROMOTION_STALE)
+        self._require_current_protected_identity(
+            commit=row.protected_code_c1_commit,
+            tree_hash=row.protected_code_c1_tree_hash,
+            failure_code=ProviderExecutionAuthorityFailureCode.PROMOTION_STALE,
+        )
         try:
             return _promotion_view(row)
         except ValueError:
             _fail(ProviderExecutionAuthorityFailureCode.PROMOTION_MISMATCH)
+
+    def _require_current_protected_identity(
+        self,
+        *,
+        commit: str,
+        tree_hash: str,
+        failure_code: ProviderExecutionAuthorityFailureCode,
+    ) -> None:
+        """Prove current runtime equivalence without binding evidence commits."""
+
+        try:
+            actual_tree = _git_text(self._project_root, "rev-parse", f"{commit}^{{tree}}")
+            _git_bytes(self._project_root, "merge-base", "--is-ancestor", commit, "HEAD")
+            dirty = _git_bytes(
+                self._project_root,
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+                "--",
+                *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+            )
+            diff = _git_bytes(
+                self._project_root,
+                "diff",
+                "--binary",
+                "--full-index",
+                commit,
+                "HEAD",
+                "--",
+                *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            _fail(failure_code)
+        if actual_tree != tree_hash or dirty or diff:
+            _fail(failure_code)
 
     async def _lock_current_inputs(
         self,

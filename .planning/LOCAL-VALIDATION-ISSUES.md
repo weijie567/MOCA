@@ -24225,3 +24225,14 @@ ordinal-2 旧逻辑只看 predecessor result code 与 subject/envelope，同一�
 
 **已做处理 / 剩余入口**
 checker 现在在 seal 与 strict-load 两侧都通过现有 `canonical_json_bytes` 做 frontmatter JSON 规范化，再进行内容比较；原始 artifact bytes/hash、真实 frontmatter clean gate、role、git identity 与 create-only 语义均未放宽。最小 RED 转 GREEN `1 passed, 1 warning`；随后 `make format`、完整 `make lint` 与 checker 文件回归 `17 passed, 1 warning` 全绿。首次生成的两份未提交 attestation 被判为无效本地产物，必须删除后以修复后的 checker 重新 create-only 封存；C0 gate report 可保留，因为其真实门禁内容未变化。
+
+## 2026-08-13 — Phase 64.5 C0 证据提交后 attestation 被错误判为过期
+
+**问题现象 / 如何检测**
+C0 code/security attestation strict-load 在封存前通过；把 gate report、REVIEW、SECURITY 与两份 attestation 作为纯 `.planning/` 证据提交后，再运行同一项目入口 `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/check_phase64_5_gate.py review-attestations ... --require-stage c0 --require-current-protected-base` 却得到 `attestation_not_current`。最小测试先封存同一受审源码，再提交仅 evidence 文件，旧实现稳定复现 `1 failed, 1 warning`。
+
+**关键证据 / 当前判断 / 根因**
+旧 checker、promotion request 和 repository current-promotion gate 都把“当前”定义为整个 checkout 的 `HEAD/tree` 必须等于被审 commit/tree。attestation 本身又必须在审阅完成后才产生并提交，因此合法证据提交必然改变整仓 HEAD/tree，使刚生成的证据自我失效；这不是 protected runtime 漂移。受保护边界已经由单一 `PROTECTED_PROVIDER_EXECUTION_GRAPH` 定义为 `src` 与精确 provider/checker scripts，`.planning` 不应改变 execution identity。
+
+**已做处理 / 剩余入口**
+保留 reviewed commit/tree 作为不可变审计身份；current gate 现在要求该 commit 是当前 HEAD 祖先、受保护 pathspec 工作树 clean、且 reviewed commit 到当前 HEAD 的受保护 diff 为空。仅证据 commit 因而保持有效，任何受保护文件的 committed 或 dirty 变化仍 fail closed。checker 与 repository 各有 RED/GREEN 覆盖，promotion request 也覆盖 evidence-only commit。旧 C0 attestations 因 checker 本身属于 protected graph，需删除并在修复 commit 的 bounded code/security 复核后重新封存；不得复用旧 hash。

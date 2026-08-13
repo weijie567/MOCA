@@ -714,6 +714,45 @@ async def test_dirty_promotion_refuses_before_reservation(test_engine, tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_promotion_remains_current_after_evidence_only_commit(test_engine, tmp_path: Path) -> None:
+    session_factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+    git_root, c0_commit, c0_tree, c1_commit, c1_tree, diff_hash = _reviewed_git_root(tmp_path)
+    evidence = git_root / ".planning/C0-ATTESTATION.json"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text('{"result":"clean"}\n', encoding="utf-8")
+    _git(git_root, "add", ".planning/C0-ATTESTATION.json")
+    _git(git_root, "commit", "-qm", "seal evidence")
+    service = ProviderExecutionAuthorityService(
+        ProviderExecutionAuthorityRepository(
+            session_factory,
+            project_entry=git_root / "src/rag/provider_execution_authority.py",
+        )
+    )
+
+    promotion = await service.promote_reviewed_execution(
+        _promotion_request(
+            c0_commit=c0_commit,
+            c0_tree=c0_tree,
+            c1_commit=c1_commit,
+            c1_tree=c1_tree,
+            diff_hash=diff_hash,
+        )
+    )
+    followup = git_root / ".planning/C0-GATE-RECEIPT.json"
+    followup.write_text('{"result":"pass"}\n', encoding="utf-8")
+    _git(git_root, "add", ".planning/C0-GATE-RECEIPT.json")
+    _git(git_root, "commit", "-qm", "record gate receipt")
+    assert (await service.require_current_promotion()).promotion_id == promotion.promotion_id
+
+    protected = git_root / "src/rag/provider_execution_authority.py"
+    protected.write_text(protected.read_text(encoding="utf-8") + "changed\n", encoding="utf-8")
+    _git(git_root, "add", "src/rag/provider_execution_authority.py")
+    _git(git_root, "commit", "-qm", "change protected runtime")
+    with pytest.raises(ProviderExecutionAuthorityError, match="promotion_stale"):
+        await service.require_current_promotion()
+
+
+@pytest.mark.asyncio
 async def test_promotion_is_singleton_and_different_review_bytes_are_refused(test_engine, tmp_path: Path) -> None:
     session_factory, service, _, seeded = await _build_service_and_authority(test_engine, tmp_path)
     promotion = seeded["promotion"]

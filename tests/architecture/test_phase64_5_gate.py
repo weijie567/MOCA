@@ -390,6 +390,48 @@ def test_review_attestations_reject_embedded_hash_role_agent_and_gate_mismatch(t
             )
 
 
+def test_review_attestations_remain_current_across_evidence_only_commits(tmp_path: Path) -> None:
+    from scripts.check_phase64_5_gate import GateRefusal, validate_review_attestations
+
+    root, _, _, _, _ = _reviewed_root(tmp_path)
+    output = root / ".planning"
+    paths = _seal_pair(root, stage="c0", suffix="c0", output_root=output)
+    _git(
+        root,
+        "add",
+        ".planning",
+        "code-c0-code.md",
+        "security-c0-security.md",
+        "gate-c0-code.json",
+        "gate-c0-security.json",
+    )
+    _git(root, "commit", "-qm", "seal reviewed evidence")
+
+    assert (
+        len(
+            validate_review_attestations(
+                paths,
+                project_root=root,
+                require_stage="c0",
+                require_current_protected_base=True,
+            )
+        )
+        == 2
+    )
+
+    protected = root / PROTECTED_GRAPH_FIXTURE_PATHS[0]
+    protected.write_text(protected.read_text(encoding="utf-8") + "changed\n", encoding="utf-8")
+    _git(root, "add", PROTECTED_GRAPH_FIXTURE_PATHS[0])
+    _git(root, "commit", "-qm", "change protected runtime")
+    with pytest.raises(GateRefusal, match="attestation_not_current"):
+        validate_review_attestations(
+            paths,
+            project_root=root,
+            require_stage="c0",
+            require_current_protected_base=True,
+        )
+
+
 def test_same_stage_code_and_security_must_bind_the_exact_same_gate_report(tmp_path: Path) -> None:
     from scripts.check_phase64_5_gate import GateRefusal, validate_review_attestations
 
@@ -614,6 +656,8 @@ def test_four_attestations_bind_exact_git_transition_and_promotion_candidate(tmp
     candidate = load_promotion_candidate(candidate_path, project_root=root)
     assert (candidate.protected_code_c0_commit, candidate.protected_code_c0_tree_hash) == (c0_commit, c0_tree)
     assert (candidate.protected_code_c1_commit, candidate.protected_code_c1_tree_hash) == (c1_commit, c1_tree)
+    _git(root, "add", ".planning", "candidates", "code-*.md", "security-*.md", "gate-*.json")
+    _git(root, "commit", "-qm", "seal promotion evidence")
     request = build_promotion_request(
         candidate=candidate,
         attestations=tuple(zip(paths, loaded, strict=True)),

@@ -3016,3 +3016,12 @@
 - **处理状态**：⚠️ 修复已聚焦验证。service 在任何 terminal 文件写前要求 transient 满足 `0 < diagnostic.provider_request_count <= actual_request_count`。DTO validator、repository write/read 都拒绝 transient-zero；retry predecessor 对 legacy/corrupt transient-zero row 也 fail closed。unavailable 与非 transient error 仍保留合法 bounded zero/partial count。
 - **证据**：Phase64.5 C0 iteration 2 WR-02；`src/rag/evaluation/token_chunk_ab.py`、`src/rag/provider_execution_authority.py`、`src/repositories/provider_execution_authority_repo.py` 与两份 focused tests；最小 RED `3 failed, 1 warning`，GREEN `3 passed, 1 warning`；完整 `make lint` PASS，authority + A/B focused `122 passed, 1 warning in 63.69s`。
 - **剩余风险 / 继续入口**：逻辑修复仍需 human verification、orchestrator 独占 full suite 与 C1 re-review；当前 repository 兼容旧 DB schema并在应用边界拒绝 legacy-invalid row，本轮未修改既有 migration、未访问外部/live DB或provider。
+
+## 2026-08-13 — Phase 64.5 C0 attestation/promotion 把证据提交误算为 runtime 漂移 ⚠️修复已聚焦验证
+
+- **子系统**：RAG provider execution review attestation / promotion current-code authority。
+- **问题现象 / 根因**：review attestation 封存后提交 `.planning` 证据会改变整仓 HEAD/tree；旧 checker 与 DB promotion gate 要求当前整仓 identity 与 reviewed identity 完全相等，导致合法 evidence commit 自我吊销。根因是审计提交 identity 与 protected runtime equivalence 混为一个概念。
+- **影响**：C0/C1 无法在“审阅源码 → 生成并提交证据 → promotion”顺序下同时满足 create-only、Git 可追溯和 current-code 门禁；若通过跳过提交绕开，又会失去可审计证据。
+- **处理状态**：⚠️ 修复已聚焦验证。reviewed commit/tree 继续作为 artifact/promotion 的精确审计 identity；current equivalence 改为祖先关系 + protected pathspec clean + reviewed commit 到 HEAD 的 protected diff 为空。checker `review-attestations`、promotion request、repository promotion/create/use 均消费相同 protected graph；`.planning`-only commit 允许，`src`/provider scripts/checker 的 committed 或 dirty drift 仍拒绝。
+- **证据**：Phase64.5 C0 gate；`scripts/check_phase64_5_gate.py`、`src/repositories/provider_execution_authority_repo.py`、`tests/architecture/test_phase64_5_gate.py`、`tests/rag/test_provider_execution_authority.py`；最小 RED 为 evidence-only commit 后 `attestation_not_current`，三节点 GREEN 覆盖 checker、promotion request 与 DB promotion readback。
+- **剩余风险 / 继续入口**：checker/repository 属 protected graph，修复后必须在新 exact HEAD 上做 bounded Codex code/security 复核并重新封存 C0；旧 attestations 不可复用。最终需在 evidence docs commit 之后再次 strict-load，才能把此项标为 ✅。
