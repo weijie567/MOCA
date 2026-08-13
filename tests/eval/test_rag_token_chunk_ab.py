@@ -408,6 +408,36 @@ def test_terminal_ab_result_cannot_reserve_ordinal_two() -> None:
     assert canonical_ab_result_code(candidate_failed) not in RETRYABLE_RESULT_CODES
 
 
+@pytest.mark.parametrize(
+    ("outcome", "stage", "reason_code"),
+    (
+        ("unavailable", "parity", "provider_usage_unavailable"),
+        ("unavailable", "provider", "provider_request_unavailable"),
+        ("execution_error", "execution", "rollback_proof_failed"),
+        ("execution_error", "execution", "provider_execution_failed"),
+    ),
+)
+def test_all_zero_observation_terminals_reuse_the_exact_reserved_input_identity(
+    outcome: str,
+    stage: str,
+    reason_code: str,
+) -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+
+    reserved_inputs = _inputs()
+    report = ab_cli._terminal_without_observations(
+        SimpleNamespace(run_id=RUN_ID, generated_at=GENERATED_AT.isoformat()),
+        inputs=reserved_inputs,
+        outcome=outcome,
+        stage=stage,
+        reason_code=reason_code,
+        incumbent_corpus_id=INCUMBENT_CORPUS_ID,
+        candidate_corpus_id=CANDIDATE_CORPUS_ID,
+    )
+
+    assert report.inputs is reserved_inputs
+
+
 @pytest.mark.asyncio
 async def test_persisted_selected_pass_binds_db_result_lineage(tmp_path: Path) -> None:
     import scripts.eval_rag_token_chunk_ab as ab_cli
