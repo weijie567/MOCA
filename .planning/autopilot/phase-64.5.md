@@ -4,7 +4,7 @@ status: running
 current_step: c0_attested_wave5
 plan_review_loop: 1
 quota_waits: 1
-updated_at: "2026-08-13T03:41:54Z"
+updated_at: "2026-08-13T04:03:18Z"
 next_command: "$gsd-execute-phase 64.5 --wave 5 --no-cross-ai"
 ---
 
@@ -25,9 +25,9 @@ next_command: "$gsd-execute-phase 64.5 --wave 5 --no-cross-ai"
 - User explicitly waived the dual-AI/Claude plan-review layer for this run and directed Codex-only execution. The decision and final Codex review evidence are recorded in `64.5-PLAN-REVIEW-DECISIONS.md`.
 - Phase execution begins with Wave 1 only; all C0/C1 code/security, promotion, budget, live, and honest-stop gates remain mandatory.
 - Completed Plans 64.5-01 through 64.5-04 with atomic commits and plan-specific format/lint/scoped PostgreSQL gates.
-- C0 deep code review found 1 critical and 5 warnings; two bounded fix/re-review iterations closed all findings. The final protected code HEAD is `049963d5f32929d807513c6a1ece8baecc68bf62` with tree `3296ead54464e06c44f3a32d613623fe5524b92e`.
-- C0 full-suite gates passed after the review fixes (`4956 passed, 4 skipped`); the final checker-only YAML frontmatter canonicalization delta passed format, full lint, and all 17 checker tests.
-- Final Codex tasks `/root/phase64_5_c0_attestation_delta_review` (`gsd-code-reviewer`) and `/root/phase64_5_c0_attestation_delta_security` (`gsd-security-auditor`) returned clean / `threats_open: 0` for the exact protected HEAD.
+- C0 deep code review found 1 critical and 5 warnings; two bounded fix/re-review iterations closed all findings. The baseline full-suite gates then passed (`4956 passed, 4 skipped`).
+- Two attestation lifecycle defects were subsequently found and fixed: YAML date/datetime replay normalization, then current-code equivalence across evidence-only commits plus its protected dirty/HEAD race. The final protected code HEAD is `995afd9fdd742561f9b16d8336e0b2e1352db473` with tree `5976e077a2774ddcd1fdc661717648739c14fbad`; final delta gates were format/full lint plus `36 passed, 1 warning`.
+- Final Codex tasks `/root/phase64_5_c0_evidence_commit_review` (`gsd-code-reviewer`, `$gsd-code-review 64.5 --depth=deep`) and `/root/phase64_5_c0_evidence_commit_security` (`gsd-security-auditor`, `$gsd-secure-phase 64.5`) returned clean / `threats_open: 0` for that exact protected HEAD.
 - The active root invoked `seal-review-attestation` separately for code and security, then independently strict-loaded both create-only C0 attestations with `review-attestations --require-stage c0 --require-current-protected-base`; result: pass.
 - Wave 5 is now authorized. No DB promotion exists yet, so reservation/provider construction remains unreachable.
 
