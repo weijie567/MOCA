@@ -367,8 +367,15 @@ def test_provider_capable_build_and_ab_helpers_are_owned_by_the_db_authority_bou
     ab_main = next(
         node for node in ast.parse(ab).body if isinstance(node, ast.AsyncFunctionDef) and node.name == "main"
     )
-    assert "return _refuse_live_provider_execution()" in ast.unparse(reindex_main)
-    assert "return _refuse_live_provider_execution()" in ast.unparse(ab_main)
+    reindex_dispatch = ast.unparse(reindex_main)
+    ab_dispatch = ast.unparse(ab_main)
+    assert "if args.command == 'build-next':\n        return _refuse_live_provider_execution()" in reindex_dispatch
+    assert (
+        "elif args.command == 'build-next-reviewed':\n        owner = await _build_next_reviewed(args)"
+        in reindex_dispatch
+    )
+    assert "_refuse_live_provider_execution" not in ab_dispatch
+    assert "CanonicalABExecutionService" in ab_dispatch
 
     production_constructors: set[tuple[str, str]] = set()
     for path in (

@@ -3031,3 +3031,12 @@
 - **核实结论**：原修复在 checker/repository 分别执行 `status → diff(reviewed, HEAD)`，没有固定 HEAD；两次命令之间发生的 dirty change 不在 commit diff 内，HEAD 切换也可能让 ancestry/diff观察不同快照，属于成立的 provider authorization race。
 - **处理**：把 git current-equivalence 收敛为 domain 层单一 helper；固定 HEAD 后做 ancestor 与 committed diff，随后采样 protected dirty、复核 HEAD、再采样 dirty。checker 与 repository 不再维护两份命令顺序。最小 fault test 在 diff 后注入 dirty，要求 fail closed；evidence-only commit、protected committed drift、dirty drift原覆盖继续保留。
 - **状态**：⚠️ 修复已聚焦验证，待新 exact HEAD bounded code/security re-review和 attestation docs 提交后 strict-load 再转 ✅。
+
+## 2026-08-13 — Phase 64.5 Plan 05 reviewed provider CLI 路由从全局 hard-disable 解封 ⚠️待 C1 复审
+
+- **子系统**：RAG reviewed policy build / canonical A-B / DB provider execution authority。
+- **问题现象 / 根因**：C0 阶段为安全默认值把 `build-next-reviewed`、legacy `build-next` 与 canonical `run-ab` 全部在 CLI 入口 hard-disable；在 root-sealed C0 review/security 已 clean 后，reviewed routes 仍无法进入现有 DB promotion guard。根因是晚期开关尚未执行，不是 authority service 缺少 promotion 检查。
+- **影响**：若保持旧入口，Plan 06 无法在 root-owned C1 复审与 DB promotion 后执行 reviewed build/A-B；若粗暴移除全部 hard-disable，则 legacy `build-next` 会绕过 reviewed authority boundary。
+- **处理状态**：⚠️ 已实现并聚焦验证，待 root C1 code/security 复审。仅 `build-next-reviewed` 与 canonical `run-ab` 进入既有 authority service；legacy `build-next` 继续在任何 DB/artifact/provider side effect 前返回 `live_provider_execution_disabled`。missing/stale/mismatch（foreign）promotion 三类负例均在 reservation/provider factory 前拒绝。
+- **证据**：Phase64.5 Plan05 Task1；`scripts/reindex_policies.py`、`scripts/eval_rag_token_chunk_ab.py` 与三份计划测试；最小 RED `1 failed`，route GREEN `9 passed`，`make format`、完整 `make lint`、四文件专项 `191 passed, 1 warning`。
+- **剩余风险 / 继续入口**：Task 2 尚需独占 full suite、create-only C1 candidate 与 fresh DB promotion absent 证明；随后必须由 active root 独立执行 C1 code/security agents 并封存两份 C1 attestations，executor 不得自审或创建 attestation。当前没有 DB promotion、reservation、provider call 或 live artifact。
