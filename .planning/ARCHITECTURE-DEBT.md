@@ -2971,3 +2971,12 @@
 - **处理状态**：✅ 已修复验证。创建与 request 构造均按 `(stage, kind)` 索引；每阶段 code/security 必须绑定相同 commit/tree 与相同 gate hash。promotion 在 transition/current 检查前逐项比较 candidate 存储的两份 attestation、两份 artifact 与 gate hash，任一 replacement 都以 `promotion_candidate_attestation_mismatch` fail closed。
 - **证据**：Phase64.5 C0 review WR-04；`scripts/check_phase64_5_gate.py`、`tests/architecture/test_phase64_5_gate.py`；最小 RED `2 failed`，最小 GREEN `2 passed, 1 warning`，完整 checker focused gate `43 passed, 1 warning in 17.18s`，format/full lint PASS。
 - **剩余风险 / 继续入口**：本修复约束 repository 内 checker evidence lineage，不签发或修改 live promotion；最终独占 full suite 与 C1 复审由 orchestrator执行。
+
+## 2026-08-13 — Phase 64.5 C0 review WR-05 — checker read path 误创建且 output 可经 symlink/parent swap 越界 ✅已修复验证
+
+- **子系统**：RAG provider execution promotion checker / repository-local secure artifact I/O。
+- **问题现象 / 根因**：candidate directory lookup 复用了 mutating output helper，因此 read-only `promotion-status` 在路径缺失时会先创建目录；output helper 又在检查 symlink 前执行递归 `mkdir`，repository 内指向外部目录的 symlink 可先在外部创建 descendant。路径检查与 create-only/replace 写之间还会重新按 pathname 打开 parent，存在 parent-swap TOCTOU。
+- **影响**：非 promotion checker mode 违反只读契约；恶意或漂移路径能在 fail-closed 返回前产生仓库内/外副作用，review/promotion evidence 也可能发布到非预期 namespace。
+- **处理状态**：✅ 已修复验证。candidate lookup 改为 lexical containment 下逐组件 `lstat` 的 strict noncreating existing-directory reader。output 先以 repository root descriptor 为锚，逐组件 `O_DIRECTORY|O_NOFOLLOW` 打开，缺失目录只用 parent `dir_fd` 创建后立即 no-follow reopen；temp、hard-link create-only 与 replace 全部相对 pinned parent descriptor 执行，并在 publish 前后按 `(st_dev, st_ino)` 从 root 重开复核，parent swap 时清理未发布 temp/新 link并拒绝。
+- **证据**：Phase64.5 C0 review WR-05；`scripts/check_phase64_5_gate.py`、`tests/architecture/test_phase64_5_gate.py`；最小 RED `2 failed`（missing read path 与外部 symlink descendant 均留下目录），GREEN 覆盖两项及真实 parent rename→symlink swap `3 passed, 1 warning`，完整 checker focused gate `46 passed, 1 warning in 17.95s`，format/full lint PASS。
+- **剩余风险 / 继续入口**：该边界依赖 POSIX `dir_fd`、`O_NOFOLLOW` 与 inode identity（当前支持平台已聚焦验证）；不写 live promotion/DB/artifact。最终独占 full suite 与 C1 security re-review由 orchestrator执行。
