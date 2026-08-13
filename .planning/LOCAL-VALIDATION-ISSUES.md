@@ -24324,3 +24324,14 @@ checker 已允许 planning-only evidence commit 保持 protected-code current-eq
 
 **已做处理 / 剩余入口**
 attestation seal 现在从已验证 passing gate report 读取 `protected_code_commit/tree`，要求两字段存在、格式合法、Git object/tree 匹配并与当前 protected graph 等价；不再把后续 evidence carrier 冒充受审代码。新增 evidence-only carrier 回归与 missing identity fail-closed 回归，最小 gate `4 passed, 1 warning`。旧 C1 attestations必须删除后以同一真实 review/gate bytes重新 create-only seal，再由 bounded Codex复核；不得修改 candidate或放宽 promotion equality。
+
+## 2026-08-13 — Phase 64.5 C1 attestation loader 未交叉绑定嵌入 gate identity
+
+**问题现象 / 如何检测**
+新鲜 C1 review 发现 strict loader 只校验嵌入 gate report 为 passing、顶层 attestation identity 为合法当前 Git identity，却没有要求两者相等。最小伪造回归复制旧 passing gate bytes，随后把 attestation 顶层 commit/tree 改写成新的当前受保护 identity；修复前 `load_review_attestation()` 未拒绝，RED 为 `1 failed, 1 warning`，失败原因是预期的 `GateRefusal` 没有抛出。
+
+**关键证据 / 当前判断 / 根因**
+seal 已从 gate report 取受审 identity，但 load 路径仍把嵌入 gate 与顶层字段当成两份独立证据。攻击者只要重新计算顶层 JSON 内容，就能把旧 passing review gate 搬到新的当前源码 identity，随后进入 promotion chain；create-only seal与candidate exact equality本身不能弥补 loader 的缺失绑定。
+
+**已做处理 / 剩余入口**
+seal/load 现共用严格 identity parser，要求嵌入 gate 的 `protected_code_commit/tree_hash` 均存在且为合法 40 位 Git object id；load 在 Git/current/promotion 使用前要求它们与顶层 attestation identity 精确相等。最小 GREEN 为 `1 passed, 1 warning`。未修改 create-only seal、candidate equality、DB/provider/live 或任何 attestation 文件；继续入口是 format、完整 lint、focused architecture tests及新 exact HEAD C1复核。

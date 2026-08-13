@@ -350,6 +350,37 @@ def test_attestation_binds_gate_reviewed_identity_across_evidence_only_carrier_c
     assert loaded["protected_code_tree_hash"] == reviewed_tree
 
 
+def test_strict_attestation_loader_rejects_rewritten_identity_over_copied_passing_gate(tmp_path: Path) -> None:
+    from scripts.check_phase64_5_gate import GateRefusal, load_review_attestation, seal_review_attestation
+
+    root, _, _, _, _ = _reviewed_root(tmp_path)
+    artifact, gate = _write_evidence(root, kind="code", suffix="copied-old-gate")
+    path = seal_review_attestation(
+        stage="c1",
+        kind="code",
+        collaboration_canonical_task_name="/root/copied_old_gate",
+        actual_agent_role="gsd-code-reviewer",
+        workflow_invocation="$gsd-code-review 64.5 --depth=deep",
+        standard_artifact_path=artifact,
+        gate_report_path=gate,
+        output_root=root / ".planning",
+        project_root=root,
+    )
+
+    protected = root / PROTECTED_GRAPH_FIXTURE_PATHS[0]
+    protected.write_text(protected.read_text(encoding="utf-8") + "current\n", encoding="utf-8")
+    _git(root, "add", PROTECTED_GRAPH_FIXTURE_PATHS[0])
+    _git(root, "commit", "-qm", "new protected identity")
+    forged = json.loads(path.read_bytes())
+    forged["protected_code_commit"] = _git(root, "rev-parse", "HEAD")
+    forged["protected_code_tree_hash"] = _git(root, "rev-parse", "HEAD^{tree}")
+    forged_path = root / "forged-current-identity.json"
+    forged_path.write_text(json.dumps(forged), encoding="utf-8")
+
+    with pytest.raises(GateRefusal, match="attestation_gate_identity_mismatch"):
+        load_review_attestation(forged_path, project_root=root)
+
+
 def test_attestation_rejects_gate_report_without_reviewed_identity(tmp_path: Path) -> None:
     from scripts.check_phase64_5_gate import GateRefusal, seal_review_attestation
 

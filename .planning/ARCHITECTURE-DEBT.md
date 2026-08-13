@@ -3082,3 +3082,12 @@
 - **处理状态**：⚠️ 修复已聚焦验证。seal 必须绑定 passing gate report 的受审 identity，并独立验证 Git identity + current protected equivalence；carrier commit只承载证据，不再取代审计 identity。promotion 的 exact equality 未放宽。
 - **证据**：Phase64.5 Plan06 preflight；`scripts/check_phase64_5_gate.py`、`tests/architecture/test_phase64_5_gate.py`；promotion拒绝 reason `promotion_candidate_attestation_mismatch`；最小修复 gate `4 passed, 1 warning`。
 - **剩余风险**：checker 属 protected graph，须在修复 commit上做 bounded code/security复核并重新封存 C1 attestation；随后提交证据后再次 strict-load，Plan06才能恢复。
+
+## 2026-08-13 — Phase 64.5 passing gate identity 未与 attestation 顶层 identity 绑定 ⚠️修复已聚焦验证
+
+- **子系统**：RAG provider execution review attestation / immutable promotion authority。
+- **问题现象 / 根因**：strict loader 验证嵌入 gate bytes/hash/schema/result，也独立验证顶层 commit/tree，但未比较两组 identity；复制旧 passing gate并把顶层字段改成当前 protected identity后仍可加载。
+- **影响**：旧 review 结论可被错误嫁接到未审的新 protected code，并沿 attestation validation进入 promotion request，破坏 exact reviewed-code authority；create-only seal与candidate equality不能阻止外部伪造 attestation JSON。
+- **处理状态**：⚠️ 修复已聚焦验证。seal/load 共用嵌入 gate identity严格解析；字段必须存在、为合法40位Git object id，且 loader 在任何 promotion使用前要求与顶层 attestation identity精确相等。create-only与candidate exact equality保持不变。
+- **证据**：fresh C1 finding；`scripts/check_phase64_5_gate.py`、`tests/architecture/test_phase64_5_gate.py`；最小 RED `1 failed, 1 warning`（`DID NOT RAISE`），GREEN `1 passed, 1 warning`。
+- **剩余风险 / 继续入口**：checker本身属于 protected graph，完成 format、完整 lint与focused architecture tests后仍需在新 exact HEAD 上重新 C1 code/security review；旧 gate/attestation不得用于新identity。

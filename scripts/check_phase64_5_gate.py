@@ -209,15 +209,7 @@ def seal_review_attestation(
     _require_standard_artifact(kind=kind, frontmatter=frontmatter)
     gate_bytes = gate_path.read_bytes()
     gate_report = _require_clean_gate_report(gate_bytes)
-    commit = gate_report.get("protected_code_commit")
-    tree_hash = gate_report.get("protected_code_tree_hash")
-    if (
-        not isinstance(commit, str)
-        or not isinstance(tree_hash, str)
-        or not re.fullmatch(_GIT_OBJECT_PATTERN, commit)
-        or not re.fullmatch(_GIT_OBJECT_PATTERN, tree_hash)
-    ):
-        raise GateRefusal("gate_report_protected_identity_missing")
+    commit, tree_hash = _require_gate_report_protected_identity(gate_report)
     _require_git_identity(root, commit=commit, tree_hash=tree_hash)
     _require_current_protected_identity(
         root,
@@ -276,7 +268,10 @@ def load_review_attestation(path: Path, *, project_root: Path = REPOSITORY_ROOT)
     if frontmatter != attestation.standard_artifact_frontmatter:
         raise GateRefusal("attestation_frontmatter_mismatch")
     _require_standard_artifact(kind=attestation.kind, frontmatter=frontmatter)
-    _require_clean_gate_report(gate_bytes)
+    gate_report = _require_clean_gate_report(gate_bytes)
+    gate_identity = _require_gate_report_protected_identity(gate_report)
+    if gate_identity != (attestation.protected_code_commit, attestation.protected_code_tree_hash):
+        raise GateRefusal("attestation_gate_identity_mismatch")
     _require_git_identity(
         root,
         commit=attestation.protected_code_commit,
@@ -663,6 +658,19 @@ def _require_clean_gate_report(payload: bytes) -> dict[str, Any]:
     ):
         raise GateRefusal("gate_report_not_clean")
     return value
+
+
+def _require_gate_report_protected_identity(gate_report: dict[str, Any]) -> tuple[str, str]:
+    commit = gate_report.get("protected_code_commit")
+    tree_hash = gate_report.get("protected_code_tree_hash")
+    if (
+        not isinstance(commit, str)
+        or not isinstance(tree_hash, str)
+        or not re.fullmatch(_GIT_OBJECT_PATTERN, commit)
+        or not re.fullmatch(_GIT_OBJECT_PATTERN, tree_hash)
+    ):
+        raise GateRefusal("gate_report_protected_identity_missing")
+    return commit, tree_hash
 
 
 def _require_git_identity(root: Path, *, commit: str, tree_hash: str) -> None:
