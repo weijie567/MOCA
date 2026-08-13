@@ -314,6 +314,46 @@ def test_attestation_seals_real_standard_bytes_and_rejects_fabricated_fields(tmp
         ReviewAttestationV1.model_validate(fabricated)
 
 
+def test_attestation_frontmatter_canonicalizes_yaml_dates_before_replay(tmp_path: Path) -> None:
+    from scripts.check_phase64_5_gate import load_review_attestation, seal_review_attestation
+
+    root, _, _, _, _ = _reviewed_root(tmp_path)
+    artifact = root / "dated-review.md"
+    artifact.write_text(
+        "---\n"
+        "status: clean\n"
+        "reviewed: 2026-08-13T03:28:29Z\n"
+        "created: 2026-08-13\n"
+        "findings:\n"
+        "  total: 0\n"
+        "---\n"
+        "# Review\n",
+        encoding="utf-8",
+    )
+    gate = root / "gate-dated.json"
+    gate.write_text(
+        json.dumps({"schema_version": "phase64_5.gate_report.v1", "result": "pass"}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    path = seal_review_attestation(
+        stage="c0",
+        kind="code",
+        collaboration_canonical_task_name="/root/dated_review",
+        actual_agent_role="gsd-code-reviewer",
+        workflow_invocation="$gsd-code-review 64.5 --depth=deep",
+        standard_artifact_path=artifact,
+        gate_report_path=gate,
+        output_root=root / ".planning",
+        project_root=root,
+        sealed_at=datetime(2026, 8, 13, tzinfo=UTC),
+    )
+
+    loaded = load_review_attestation(path, project_root=root)
+    assert loaded.standard_artifact_frontmatter["reviewed"] == "2026-08-13T03:28:29+00:00"
+    assert loaded.standard_artifact_frontmatter["created"] == "2026-08-13"
+
+
 def test_review_attestations_reject_embedded_hash_role_agent_and_gate_mismatch(tmp_path: Path) -> None:
     from scripts.check_phase64_5_gate import GateRefusal, validate_review_attestations
 

@@ -204,7 +204,7 @@ def seal_review_attestation(
     commit = _git_text(root, "rev-parse", "HEAD")
     tree_hash = _git_text(root, "rev-parse", "HEAD^{tree}")
     artifact_bytes = artifact_path.read_bytes()
-    frontmatter = _parse_frontmatter(artifact_bytes)
+    frontmatter = _canonical_frontmatter(_parse_frontmatter(artifact_bytes))
     _require_standard_artifact(kind=kind, frontmatter=frontmatter)
     gate_bytes = gate_path.read_bytes()
     _require_clean_gate_report(gate_bytes)
@@ -255,7 +255,7 @@ def load_review_attestation(path: Path, *, project_root: Path = REPOSITORY_ROOT)
         or canonical_sha256(gate_bytes) != attestation.gate_report_sha256
     ):
         raise GateRefusal("attestation_embedded_hash_mismatch")
-    frontmatter = _parse_frontmatter(artifact_bytes)
+    frontmatter = _canonical_frontmatter(_parse_frontmatter(artifact_bytes))
     if frontmatter != attestation.standard_artifact_frontmatter:
         raise GateRefusal("attestation_frontmatter_mismatch")
     _require_standard_artifact(kind=attestation.kind, frontmatter=frontmatter)
@@ -600,6 +600,12 @@ def _parse_frontmatter(payload: bytes) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise GateRefusal("standard_artifact_frontmatter_invalid")
     return parsed
+
+
+def _canonical_frontmatter(value: dict[str, Any]) -> dict[str, Any]:
+    """Normalize YAML-native date types to their canonical JSON values."""
+
+    return json.loads(canonical_json_bytes(value))
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
