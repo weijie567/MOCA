@@ -24355,3 +24355,6 @@ seal/load 现共用严格 identity parser，要求嵌入 gate 的 `protected_cod
 
 **已做处理 / 剩余入口**
 保留旧四份 attestation于 superseded目录以供审计；当前 active路径保持空。必须以当前 exact protected identity重新取得 code/security verdict与一个current gate report，再 seal一组新的 C0/C1-equivalent root attestations，或由当前计划明确重基线；不得复用历史 C0 gate冒充当前。
+## 2026-08-13 — Phase 64.5 当前证据链收口
+
+在不新增 attestation 类型、计划或恢复层的前提下，用修正后的 strict seal 重放既有真实两阶段证据：历史 C0 review/gate绑定 `995afd9f...`，当前 code/security review/gate绑定 `5eee5288...`。四份 attestation strict-load通过，唯一 replacement candidate 对 `995→5eee` canonical protected diff构建 promotion request成功；旧candidate/attestation只移入非active superseded目录，原bytes保留。该步骤没有DB/provider/live side effect。

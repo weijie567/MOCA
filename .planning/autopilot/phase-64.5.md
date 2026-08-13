@@ -31,7 +31,7 @@ next_command: "$gsd-execute-phase 64.5 --wave 6 --no-cross-ai"
 - The active root invoked `seal-review-attestation` separately for code and security, then independently strict-loaded both create-only C0 attestations with `review-attestations --require-stage c0 --require-current-protected-base`; result: pass.
 - Wave 5 is now authorized. No DB promotion exists yet, so reservation/provider construction remains unreachable.
 - Completed Wave 5 and the bounded C1 repair loop. Fresh Codex code review `/root/phase64_5_c1_code_review` returned clean and fresh Codex security audit `/root/phase64_5_c1_security` closed 7/7 threats for protected C1 commit `3b8ca36b8cabb11b695f5dc72c45df04181e2b8e` / tree `4c6bd3f28be83602b0d5b71a6739b8dd1f694729`.
-- The active root created the passing C1 gate report, separately sealed code/security attestations, and strict-loaded both with `review-attestations --require-stage c1 --require-current-protected-base`; result: pass. Wave 6 is authorized, while DB promotion remains absent until Plan 06 executes its sole promotion command.
+- The original evidence-carrier attestations were superseded after Plan 06 correctly exposed their reviewed-identity mismatch. The single reviewed-identity fix is now complete: C0 attestations bind historical reviewed `995afd9f...`, C1 attestations bind current reviewed `5eee5288...`, all four strict-load, and the unique active promotion candidate produces an exact `995→5eee` request. Wave 6 is authorized; DB promotion remains absent until Plan 06 executes its sole promotion command.
 
 ## Evidence
 
