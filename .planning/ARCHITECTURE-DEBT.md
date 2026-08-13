@@ -3040,3 +3040,12 @@
 - **处理状态**：⚠️ 已实现并完成 executor 验证，待 root C1 code/security 复审。仅 `build-next-reviewed` 与 canonical `run-ab` 进入既有 authority service；legacy `build-next` 继续在任何 DB/artifact/provider side effect 前返回 `live_provider_execution_disabled`。missing/stale/mismatch（foreign）promotion 三类负例均在 reservation/provider factory 前拒绝。
 - **证据**：Phase64.5 Plan05；`scripts/reindex_policies.py`、`scripts/eval_rag_token_chunk_ab.py` 与三份计划测试；最小 RED `1 failed`，route GREEN `9 passed`，`make format`、完整 `make lint`、四文件专项 `191 passed, 1 warning`、独占 full suite `4964 passed, 4 skipped`。唯一 create-only C1 candidate 绑定 protected C1 commit `e16fefc8af9436ce477942e5ce6b475aed337db9` / tree `61104030c81e4f430792301f9ef7476eb3a3e9a8` / diff `sha256:a04f7db7f0106f2feed3607be1396cd04c5f34bba2385422da06ba99193beb7c`；隔离 fresh DB 检查为 promotion absent。
 - **剩余风险 / 继续入口**：active root 必须独立执行 C1 code/security agents并封存两份 C1 attestations，executor 未自审、未创建 attestation。当前没有 DB promotion、reservation、provider call 或 live artifact；Plan 06 在 root strict-load C1 attestations 前不得运行。
+
+## 2026-08-13 — Phase 64.5 C1 review WR-01 — reviewed build CLI promotion gate 晚于 secure artifact preflight ⚠️修复已聚焦验证
+
+- **子系统**：RAG reviewed policy build / DB provider execution promotion / secure artifact namespace。
+- **问题现象 / 根因**：`build-next-reviewed` 虽进入 service 后会检查 current promotion，但 decorator 在此前已经规范化 secure root 并进入 artifact namespace；CLI route 缺少不依赖 reviewed 输入的最前置 DB authority decision。
+- **影响**：missing/stale/mismatch promotion 不能保证在 root、descriptor/state artifact preflight 前 fail closed，破坏“promotion 是 reviewed route 第一 authority gate”的边界；reservation/provider 仍未越过。
+- **处理状态**：⚠️ 修复已聚焦验证。legacy `build-next` 继续最早无条件 hard-disable；reviewed dispatch 紧接其后先构造 authority service 并 `require_current_promotion()`，再把同一 service 显式注入 decorated reviewed command。service 自身的 promotion、reservation 与 dispatch recheck 全部保留。
+- **证据**：Phase64.5 C1 review WR-01；`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`；参数化 RED 为 root forbidden 三例 `3 failed, 1 warning`，最小 GREEN `3 passed, 1 warning`，并断言 root、descriptor/state、reservation、provider 计数全为零。
+- **剩余风险 / 继续入口**：这是 promotion ordering 逻辑修复，仍需 human verification、规定的 format/full lint/focused tests 与新 exact HEAD 的 C1 code/security review；不得复用旧 candidate 或 attestation。

@@ -24260,3 +24260,14 @@ checker 使用 `src.db.session.SessionLocal`，默认读取 `postgresql+asyncpg:
 
 **已做处理 / 剩余入口**
 创建精确隔离数据库 `moca_phase64_5_plan05`，安装当前 ORM schema后，以新的 checker 进程和显式 `DATABASE_URL` 重跑同一命令，得到 `{"promotion":"absent","result":"pass"}`。未执行 promotion mutation，也未重复生成 candidate。该临时数据库只含空当前 schema，可由 root 在 wave 5 证据合并后安全删除；后续 production-like 验证若使用默认 `moca`，应先明确执行受控 migration，而不能把“表不存在”解释为“promotion absent”。
+
+## 2026-08-13 — Phase 64.5 C1 review WR-01 reviewed build 在 promotion 前读取 secure artifact root
+
+**问题现象 / 如何检测**
+C1 deep review 发现 `build-next-reviewed` 的 decorator 会先规范化 secure root 并进入 artifact namespace，service 内的 `require_current_promotion()` 才随后执行。参数化最小 RED 把 root、descriptor/state loader、reservation 与 provider factory 全设为 forbidden，旧实现三类 `promotion_missing/stale/mismatch` 均先触发 `root work must not start`，结果为 `3 failed, 1 warning`。
+
+**关键证据 / 当前判断 / 根因**
+根因是 CLI dispatch 只把 reviewed route 接到已受 promotion 保护的 service，却忽略 decorator 自身也是 service 外的 preflight。这样无效 promotion 仍可观察 secure-root/artifact 状态，虽然 reservation/provider 还未启动。有效命令为 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/rag/test_policy_reindex.py::test_production_dispatch_requires_promotion_before_reviewed_build_preflight -q`。
+
+**已做处理 / 剩余入口**
+CLI 在 legacy `build-next` 最早 hard-disable 之后、调用 decorated reviewed command 之前构造 authority service并执行一次不依赖 root/artifact 的 current-promotion gate；同一个 service 显式注入 reviewed path。service 内原 promotion/reservation/dispatch recheck 保留。最小 GREEN 为 `3 passed, 1 warning`，无 provider/live/promotion 写入。该 authority ordering 逻辑仍需 human verification 与最终 focused/full gate；继续入口是 C1 root re-review，不得沿用旧 candidate/attestation。

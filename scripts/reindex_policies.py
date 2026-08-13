@@ -231,12 +231,12 @@ def _utc_now() -> datetime:
 def _secure_reviewed_artifact_command(
     *,
     create_run: bool = False,
-) -> Callable[[Callable[[argparse.Namespace], Awaitable[Any]]], Callable[[argparse.Namespace], Awaitable[Any]]]:
+) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]:
     def decorate(
-        function: Callable[[argparse.Namespace], Awaitable[Any]],
-    ) -> Callable[[argparse.Namespace], Awaitable[Any]]:
+        function: Callable[..., Awaitable[Any]],
+    ) -> Callable[..., Awaitable[Any]]:
         @wraps(function)
-        async def secured(args: argparse.Namespace) -> Any:
+        async def secured(args: argparse.Namespace, *function_args: Any, **function_kwargs: Any) -> Any:
             artifact_root = _require_canonical_reviewed_root(args)
             try:
                 with secure_policy_reindex_artifact_namespace(
@@ -245,7 +245,7 @@ def _secure_reviewed_artifact_command(
                     run_token=args.run_token,
                     create_run=create_run,
                 ):
-                    return await function(args)
+                    return await function(args, *function_args, **function_kwargs)
             except PolicyReindexArtifactError as error:
                 if str(error) == "artifact_namespace_invalid":
                     raise RuntimeError("reviewed_artifact_namespace_invalid") from None
@@ -769,11 +769,15 @@ def _safe_build_result_code(error: Exception) -> CandidateBuildResultCode:
 
 
 @_secure_reviewed_artifact_command()
-async def _build_next_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
+async def _build_next_reviewed(
+    args: argparse.Namespace,
+    *,
+    authority_service: ProviderExecutionAuthorityService | None = None,
+) -> PolicyReindexRunIdentity:
     descriptor = _reviewed_descriptor(args)
     state_owner, _ = _latest_reviewed_state_artifact(args, descriptor=descriptor)
     assembler = PolicyEmbeddingInputAssembler()
-    authority_service = _provider_execution_authority_service()
+    authority_service = authority_service or _provider_execution_authority_service()
     reviewed_service = ReviewedPolicyCandidateBuildService(
         SessionLocal,
         authority_service=authority_service,
@@ -999,7 +1003,9 @@ async def _main() -> int:
         )
         return 0
     elif args.command == "build-next-reviewed":
-        owner = await _build_next_reviewed(args)
+        authority_service = _provider_execution_authority_service()
+        await authority_service.require_current_promotion()
+        owner = await _build_next_reviewed(args, authority_service=authority_service)
     elif args.command == "validate-reviewed":
         owner = await _validate_reviewed(args)
     elif args.command == "resume":

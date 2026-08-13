@@ -107,26 +107,61 @@ async def test_production_dispatch_disables_legacy_live_provider_build_before_si
 
 
 @pytest.mark.asyncio
-async def test_production_dispatch_routes_reviewed_build_to_db_promotion_guard(
+@pytest.mark.parametrize(
+    "reason_code",
+    ("promotion_missing", "promotion_stale", "promotion_mismatch"),
+)
+async def test_production_dispatch_requires_promotion_before_reviewed_build_preflight(
+    reason_code: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    events: list[str] = []
+    calls = {
+        "promotion": 0,
+        "root": 0,
+        "descriptor": 0,
+        "state": 0,
+        "reservation": 0,
+        "provider": 0,
+    }
 
-    async def guarded_build(_args: Namespace):
-        events.append("reviewed_build")
-        raise RuntimeError("promotion_missing")
+    def forbidden(name: str):
+        def fail(*_args, **_kwargs):
+            calls[name] += 1
+            raise AssertionError(f"{name} work must not start")
+
+        return fail
+
+    class AuthorityService:
+        async def require_current_promotion(self):
+            calls["promotion"] += 1
+            raise RuntimeError(reason_code)
+
+        async def reserve_and_commit(self, request):
+            calls["reservation"] += 1
+            raise AssertionError(request)
 
     monkeypatch.setattr(
         reindex_cli,
         "_parse_args",
         lambda: Namespace(command="build-next-reviewed"),
     )
-    monkeypatch.setattr(reindex_cli, "_build_next_reviewed", guarded_build)
+    monkeypatch.setattr(reindex_cli, "_require_canonical_reviewed_root", forbidden("root"))
+    monkeypatch.setattr(reindex_cli, "_reviewed_descriptor", forbidden("descriptor"))
+    monkeypatch.setattr(reindex_cli, "_latest_reviewed_state_artifact", forbidden("state"))
+    monkeypatch.setattr(reindex_cli, "_provider_execution_authority_service", AuthorityService)
+    monkeypatch.setattr(reindex_cli, "EmbeddingService", forbidden("provider"))
 
-    with pytest.raises(RuntimeError, match="promotion_missing"):
+    with pytest.raises(RuntimeError, match=reason_code):
         await reindex_cli._main()
 
-    assert events == ["reviewed_build"]
+    assert calls == {
+        "promotion": 1,
+        "root": 0,
+        "descriptor": 0,
+        "state": 0,
+        "reservation": 0,
+        "provider": 0,
+    }
 
 
 def test_live_provider_disable_has_no_cli_or_environment_override() -> None:
