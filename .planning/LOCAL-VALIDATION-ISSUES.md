@@ -24249,3 +24249,14 @@ C0 三份 root-owned 证据在编辑前已经 strict-load 通过，SHA-256 分�
 
 **已做处理 / 剩余入口**
 未修改、重建或放宽任何 C0 evidence/checker。保留编辑前 strict PASS 作为 C0 准入证据，并在 Task 1 仅以 format、完整 lint、四文件专项和 dirty/diff check 验证代码；提交 exact C1 后由 Task 2 `promotion-candidate` 对 C0 attestations 与 clean C1 commit/tree/diff 做正式绑定。未调用 provider/live、未写 promotion。后续若要重放 C0，只能在 C0-equivalent checkout；C1 checkout 应使用 candidate transition gate而不是误称 C0 仍 current。
+
+## 2026-08-13 — Phase 64.5 Plan 05 默认本地 DB 未含 promotion 表
+
+**问题现象 / 如何检测**
+独占 full suite `4964 passed, 4 skipped` 后，唯一 create-only candidate 已成功生成；首次执行规定的 `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/check_phase64_5_gate.py promotion-status --require-absent` 时，默认 `moca` 数据库报 `UndefinedTableError: relation "provider_execution_promotions" does not exist`，因此该次不能作为“promotion absent”的有效业务证据。
+
+**关键证据 / 当前判断 / 根因**
+checker 使用 `src.db.session.SessionLocal`，默认读取 `postgresql+asyncpg://moca:.../moca`；当前本地默认 DB 尚未升级到 migration 032。错误发生在只读 `SELECT count(*)`，没有 promotion/reservation/provider 写入。full suite 使用隔离 `moca_test` fixture 并在测试结束后清理 schema，因此其绿色不能替代独立 fresh-session absent 检查。
+
+**已做处理 / 剩余入口**
+创建精确隔离数据库 `moca_phase64_5_plan05`，安装当前 ORM schema后，以新的 checker 进程和显式 `DATABASE_URL` 重跑同一命令，得到 `{"promotion":"absent","result":"pass"}`。未执行 promotion mutation，也未重复生成 candidate。该临时数据库只含空当前 schema，可由 root 在 wave 5 证据合并后安全删除；后续 production-like 验证若使用默认 `moca`，应先明确执行受控 migration，而不能把“表不存在”解释为“promotion absent”。
