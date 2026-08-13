@@ -1,11 +1,11 @@
 ---
 phase: "64.5"
 status: running
-current_step: execute
+current_step: c0_attested_wave5
 plan_review_loop: 1
 quota_waits: 1
-updated_at: "2026-08-12T21:20:07Z"
-next_command: "$gsd-execute-phase 64.5 --wave 1 --no-cross-ai"
+updated_at: "2026-08-13T03:41:54Z"
+next_command: "$gsd-execute-phase 64.5 --wave 5 --no-cross-ai"
 ---
 
 # Phase 64.5 Autopilot Checkpoint
@@ -24,6 +24,12 @@ next_command: "$gsd-execute-phase 64.5 --wave 1 --no-cross-ai"
 - Committed the frozen reviewed plan set as `9e460a29`; external Claude plan review is the sole unfinished pre-implementation gate.
 - User explicitly waived the dual-AI/Claude plan-review layer for this run and directed Codex-only execution. The decision and final Codex review evidence are recorded in `64.5-PLAN-REVIEW-DECISIONS.md`.
 - Phase execution begins with Wave 1 only; all C0/C1 code/security, promotion, budget, live, and honest-stop gates remain mandatory.
+- Completed Plans 64.5-01 through 64.5-04 with atomic commits and plan-specific format/lint/scoped PostgreSQL gates.
+- C0 deep code review found 1 critical and 5 warnings; two bounded fix/re-review iterations closed all findings. The final protected code HEAD is `049963d5f32929d807513c6a1ece8baecc68bf62` with tree `3296ead54464e06c44f3a32d613623fe5524b92e`.
+- C0 full-suite gates passed after the review fixes (`4956 passed, 4 skipped`); the final checker-only YAML frontmatter canonicalization delta passed format, full lint, and all 17 checker tests.
+- Final Codex tasks `/root/phase64_5_c0_attestation_delta_review` (`gsd-code-reviewer`) and `/root/phase64_5_c0_attestation_delta_security` (`gsd-security-auditor`) returned clean / `threats_open: 0` for the exact protected HEAD.
+- The active root invoked `seal-review-attestation` separately for code and security, then independently strict-loaded both create-only C0 attestations with `review-attestations --require-stage c0 --require-current-protected-base`; result: pass.
+- Wave 5 is now authorized. No DB promotion exists yet, so reservation/provider construction remains unreachable.
 
 ## Evidence
 

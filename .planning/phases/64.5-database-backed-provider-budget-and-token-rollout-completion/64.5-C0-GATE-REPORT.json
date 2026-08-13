@@ -1,0 +1,43 @@
+{
+  "schema_version": "phase64_5.gate_report.v1",
+  "stage": "c0",
+  "result": "pass",
+  "captured_at": "2026-08-13T03:38:00Z",
+  "protected_code_commit": "049963d5f32929d807513c6a1ece8baecc68bf62",
+  "protected_code_tree_hash": "3296ead54464e06c44f3a32d613623fe5524b92e",
+  "format": {
+    "command": "make format",
+    "result": "pass",
+    "files_unchanged": 560
+  },
+  "lint": {
+    "command": "make lint",
+    "result": "pass",
+    "files_checked": 560
+  },
+  "baseline_full_suite": {
+    "protected_code_commit": "27f0932eea2e3807592a88c840dc9a80f8840390",
+    "protected_code_tree_hash": "d2317f488c18bcb4ea630505000d07e1345a38be",
+    "command": "UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q",
+    "result": "pass",
+    "passed": 4956,
+    "skipped": 4,
+    "warnings": 176,
+    "duration_seconds": 2306.40
+  },
+  "current_delta": {
+    "scope": [
+      "scripts/check_phase64_5_gate.py",
+      "tests/architecture/test_phase64_5_gate.py"
+    ],
+    "reason": "Canonicalize YAML-native date and datetime values symmetrically before attestation frontmatter comparison.",
+    "format_command": "make format",
+    "format_result": "pass",
+    "lint_command": "make lint",
+    "lint_result": "pass",
+    "test_command": "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase64_5_gate.py -q",
+    "test_result": "pass",
+    "passed": 17,
+    "warnings": 1
+  }
+}
