@@ -3091,3 +3091,12 @@
 - **处理状态**：⚠️ 修复已聚焦验证。seal/load 共用嵌入 gate identity严格解析；字段必须存在、为合法40位Git object id，且 loader 在任何 promotion使用前要求与顶层 attestation identity精确相等。create-only与candidate exact equality保持不变。
 - **证据**：fresh C1 finding；`scripts/check_phase64_5_gate.py`、`tests/architecture/test_phase64_5_gate.py`；最小 RED `1 failed, 1 warning`（`DID NOT RAISE`），GREEN `1 passed, 1 warning`。
 - **剩余风险 / 继续入口**：checker本身属于 protected graph，完成 format、完整 lint与focused architecture tests后仍需在新 exact HEAD 上重新 C1 code/security review；旧 gate/attestation不得用于新identity。
+
+## 2026-08-13 — Phase 64.5 issued live verifier 无法从唯一 DB lineage 自举 🔴待立项
+
+- **子系统**：RAG provider execution authority / live verification handoff。
+- **问题现象 / 根因**：冻结 Plan06 使用 `candidate --stage issued --infer-unique-phase-run` 建立首份 DB→file handoff；parser 接受该 flag，但 `_verify_live_state()` 未实现推断路径，反而要求尚不存在的 `--identity-file`，形成首份 identity 的循环依赖。
+- **影响**：promotion、fresh parity、唯一 candidate/root 均已合法提交后，Task1仍无法生成受校验的 issued handoff；若由 executor临时自签 prior identity绕开，会把未经 checker 自举验证的状态带入 Plan07/08。
+- **处理状态**：🔴 待 active root 裁定。Plan06已在 verifier前诚实停止，reservation/result与candidate build provider调用均为0；未修改 protected checker，因为任何 post-promotion源码变更都会使 singleton promotion stale。
+- **证据**：Phase64.5 Plan06；`scripts/check_phase64_5_gate.py` parser 含 `--infer-unique-phase-run`，`_verify_live_state()` 返回 `live_identity_required`；DB IDs promotion `243bafb3-...`、candidate `63fde3fc-...`、authority `92c9188b-...`。
+- **剩余风险 / 继续入口**：必须先决定 immutable promotion后的恢复策略，并经新代码/security review与promotion语义重新闭环；禁止删除/篡改单例 promotion、续 lease、另建 candidate/root或继续 Task2。

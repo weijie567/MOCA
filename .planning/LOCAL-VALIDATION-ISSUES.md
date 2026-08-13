@@ -24335,6 +24335,17 @@ seal 已从 gate report 取受审 identity，但 load 路径仍把嵌入 gate �
 
 **已做处理 / 剩余入口**
 seal/load 现共用严格 identity parser，要求嵌入 gate 的 `protected_code_commit/tree_hash` 均存在且为合法 40 位 Git object id；load 在 Git/current/promotion 使用前要求它们与顶层 attestation identity 精确相等。最小 GREEN 为 `1 passed, 1 warning`。未修改 create-only seal、candidate equality、DB/provider/live 或任何 attestation 文件；继续入口是 format、完整 lint、focused architecture tests及新 exact HEAD C1复核。
+
+## 2026-08-13 — Phase 64.5 Plan 06 issued verifier 的 infer flag 未实现
+
+**问题现象 / 如何检测**
+默认 eval DB 已受控迁移 031→032，唯一 promotion、新鲜 parity、candidate 与 shared authority 均成功创建后，执行冻结 Plan06 命令 `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/check_phase64_5_gate.py candidate --stage issued --infer-unique-phase-run --require-current-promotion --output .../64.5-06-LIVE-VERIFY.json`，checker 返回 `{"error":"phase64_5_gate_refused","reason_code":"live_identity_required"}`、exit 4。
+
+**关键证据 / 当前判断 / 根因**
+CLI parser 声明了 `--infer-unique-phase-run`，但 `_verify_live_state()` 完全未消费该 flag，并在 `identity_file is None` 时无条件拒绝。此时 DB 中唯一 fresh candidate 为 `63fde3fc-25e2-4414-adff-a3722e44124c`，唯一 shared authority 为 `92c9188b-769c-430d-b333-30abf5931dd1`，promotion 为 `243bafb3-0c86-4482-8e1a-602b24546171`，reservation/result 均为 0；因此失败是 checker bootstrap 实现缺口，不是 live lineage 歧义。
+
+**已做处理 / 剩余入口**
+按 D-30 在 Task1 verifier 诚实停止；未进入 Task2，未创建 reviewed-build reservation/result，除已通过的 parity 外未执行 candidate provider build。没有临时自签 identity、没有绕过 verifier，也没有在 immutable promotion 后修改 protected checker。继续入口必须由 active root 裁定；任何源码修复都会使当前 promotion 失去 current-code 等价，不能在本轮静默补丁后继续 live。
 ## 2026-08-13 — Phase 64.5 reviewed-identity 修复后临时 worktree 仍用旧 C0 attestation
 
 **问题现象 / 如何检测**
