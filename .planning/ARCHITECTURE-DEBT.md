@@ -3065,3 +3065,12 @@
 - **处理状态**：✅ 已修复验证。最终 protected C1 为 `3b8ca36b8cabb11b695f5dc72c45df04181e2b8e` / tree `4c6bd3f28be83602b0d5b71a6739b8dd1f694729`；code review 0 findings，security 7/7 closed；两份 root-sealed C1 attestations strict-load 通过。
 - **证据**：Phase64.5 `64.5-REVIEW.md`、`64.5-SECURITY.md`、`64.5-C1-GATE-REPORT.json`、两份 C1 attestation；focused `166 passed`，完整 suite 先 `4965 passed, 4 skipped` 且唯一 stale inventory 断言随后单独修复并 focused 通过。
 - **剩余风险**：该结论只授权 Plan 06 的 immutable DB promotion 与受预算 live 路径；尚不代表 provider execution、A/B selected-pass、activation 或 Phase64.5 完成。任何 promotion/read-back、freshness、lease 或 live prerequisite 失败仍必须诚实停止。
+
+## 2026-08-13 — Phase 64.5 Plan 06 — promotion candidate 与 C1 attestation evidence carrier 不能组成 exact request 🔴待 root 修复
+
+- **子系统**：RAG provider execution review attestation / promotion candidate / immutable DB promotion。
+- **问题现象 / 根因**：唯一 candidate 绑定已审 protected C1 `3b8ca36b...`，但 C1 standard evidence 提交后封存的两份 attestation carrier 是 protected-equivalent descendant `a0630742...`。current-equivalence gate正确证明两者受保护 diff 为空，然而 promotion request builder仍 exact比较 candidate C1 commit/tree与attestation carrier字段，因而拒绝 `promotion_candidate_attestation_mismatch`。
+- **影响**：四份 attestation可各自 strict-load、当前 protected code也等价，但 sole promotion transaction仍不可达；Plan06不能迁移后创建promotion，更不能进入fresh authority/reservation/provider路径。
+- **处理状态**：🔴 待 active root 修复。Plan06 executor按D-30在任何migration/live/provider副作用前停止，未放宽checker、未生成/修理attestation、未创建替代candidate。
+- **证据**：Phase64.5 Plan06 preflight；active candidate `3b8ca36b8cabb11b695f5dc72c45df04181e2b8e` / tree `4c6bd3f28be83602b0d5b71a6739b8dd1f694729`；C1 attestation carrier `a0630742e2a4e59009129a7b68a6b82f0bb435d9` / tree `c2e567c60b8816005c6d3056f6d0f0a28a883df8`；规定 promotion CLI exit 4。
+- **剩余风险 / 继续入口**：root需裁定并重建一致的candidate/attestation evidence chain，再重新 strict-load与独立复核；在此之前 Plans06–08保持串行阻断，禁止DB promotion与provider调用。

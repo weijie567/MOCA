@@ -24303,3 +24303,14 @@ production 现在按 C1 code review 要求先取得同一 authority service 并 
 
 **已做处理 / 剩余入口**
 改用 `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/check_phase64_5_gate.py review-attestations --code-attestation ... --security-attestation ... --require-stage c1 --require-current-protected-base` 重跑，得到 `{"attestations":2,"result":"pass"}`。后续 Plan 06 只使用 PLAN 中的精确项目入口，不复用该无效命令。
+
+## 2026-08-13 — Phase 64.5 Plan 06 promotion preflight 发现 candidate 与 C1 attestation carrier identity 不一致
+
+**问题现象 / 如何检测**
+Plan06 在 migration、promotion/live row 与 provider 之前执行规定的 sole `promote-reviewed-execution` 命令，得到 `{"error":"phase64_5_gate_refused","reason_code":"promotion_candidate_attestation_mismatch"}`、exit 4。四份 attestation 分阶段 strict-load 均通过；唯一 active candidate 绑定 C1 `3b8ca36b...` / tree `4c6bd3f2...`，两份 C1 attestation 的 carrier 字段却绑定后续 evidence descendant `a0630742...` / tree `c2e567c6...`。
+
+**关键证据 / 当前判断 / 根因**
+`git diff 3b8ca36b..a0630742` 仅含 C1 gate/review/security 与 candidate planning evidence，受保护 pathspec diff 为空；但 `build_promotion_request()` 仍要求 candidate C1 commit/tree 与 attestation carrier commit/tree exact 相等，因此当前 handoff 无法形成 promotion request。这不是 stale protected code，也不能由用户批准或 executor 绕过。preflight 同时确认默认 eval DB 仍是 migration 031，Phase64.4 character active、rollout epoch 4、manifest rev 4/三文档、evidence rollout 1；OCR、credential presence、DashScope network 均绿色。首次 baseline SQL 因 shell 单引号剥离 JSON key 字面量而报 `UndefinedColumnError: column "documents" does not exist`，改为 bind parameter 后成功，错误查询无写入。
+
+**已做处理 / 剩余入口**
+按 D-30 在 migration/provider 前诚实停止：未写 promotion/authority/candidate/reservation/result/runtime artifact，未调用 provider，也未加载或打印 key 内容。已向 active root 报告 Plan05 evidence-handoff blocker；继续入口必须由 root 修复 candidate/attestation exact binding并重新完成其所需 review/attestation gate，Plan06 executor不得创建或修理 attestation、不得修改 checker放宽 exact语义。
