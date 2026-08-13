@@ -289,6 +289,8 @@ def validate_review_attestations(
         stage_items = [item for item in attestations if item.stage == stage]
         if len({(item.protected_code_commit, item.protected_code_tree_hash) for item in stage_items}) != 1:
             raise GateRefusal("attestation_stage_git_mismatch")
+        if len({item.gate_report_sha256 for item in stage_items}) != 1:
+            raise GateRefusal("attestation_stage_gate_mismatch")
     if len(attestations) == 4:
         c0 = next(item for item in attestations if item.stage == "c0")
         c1 = next(item for item in attestations if item.stage == "c1")
@@ -325,11 +327,15 @@ def create_promotion_candidate(
     created_at: datetime | None = None,
 ) -> Path:
     root = project_root.resolve(strict=True)
-    code, security = validate_review_attestations(
-        (c0_code_attestation, c0_security_attestation),
+    c0_paths = (c0_code_attestation, c0_security_attestation)
+    validated = validate_review_attestations(
+        c0_paths,
         project_root=root,
         require_stage="c0",
     )
+    indexed = {(item.stage, item.kind): (path, item) for path, item in zip(c0_paths, validated, strict=True)}
+    code_path, code = indexed[("c0", "code")]
+    security_path, security = indexed[("c0", "security")]
     if _git_bytes(
         root,
         "status",
@@ -354,8 +360,8 @@ def create_promotion_candidate(
         protected_code_c1_commit=c1_commit,
         protected_code_c1_tree_hash=c1_tree,
         c0_to_c1_diff_hash=diff_hash,
-        c0_code_review_attestation_sha256=_path_sha256(c0_code_attestation),
-        c0_security_attestation_sha256=_path_sha256(c0_security_attestation),
+        c0_code_review_attestation_sha256=_path_sha256(code_path),
+        c0_security_attestation_sha256=_path_sha256(security_path),
         c0_code_review_artifact_sha256=code.standard_artifact_sha256,
         c0_security_artifact_sha256=security.standard_artifact_sha256,
         c0_gate_report_sha256=code.gate_report_sha256,
@@ -385,6 +391,8 @@ def build_promotion_request(
     if len(attestations) != 4:
         raise GateRefusal("promotion_attestation_set_invalid")
     indexed = {(item.stage, item.kind): (path, item) for path, item in attestations}
+    if set(indexed) != {("c0", "code"), ("c0", "security"), ("c1", "code"), ("c1", "security")}:
+        raise GateRefusal("promotion_attestation_set_invalid")
     c0_code = indexed[("c0", "code")]
     c0_security = indexed[("c0", "security")]
     c1_code = indexed[("c1", "code")]
@@ -394,6 +402,17 @@ def build_promotion_request(
         or candidate.protected_code_c0_tree_hash != c0_code[1].protected_code_tree_hash
         or candidate.protected_code_c1_commit != c1_code[1].protected_code_commit
         or candidate.protected_code_c1_tree_hash != c1_code[1].protected_code_tree_hash
+        or (c0_security[1].protected_code_commit, c0_security[1].protected_code_tree_hash)
+        != (c0_code[1].protected_code_commit, c0_code[1].protected_code_tree_hash)
+        or (c1_security[1].protected_code_commit, c1_security[1].protected_code_tree_hash)
+        != (c1_code[1].protected_code_commit, c1_code[1].protected_code_tree_hash)
+        or c0_security[1].gate_report_sha256 != c0_code[1].gate_report_sha256
+        or c1_security[1].gate_report_sha256 != c1_code[1].gate_report_sha256
+        or candidate.c0_code_review_attestation_sha256 != _path_sha256(c0_code[0])
+        or candidate.c0_security_attestation_sha256 != _path_sha256(c0_security[0])
+        or candidate.c0_code_review_artifact_sha256 != c0_code[1].standard_artifact_sha256
+        or candidate.c0_security_artifact_sha256 != c0_security[1].standard_artifact_sha256
+        or candidate.c0_gate_report_sha256 != c0_code[1].gate_report_sha256
     ):
         raise GateRefusal("promotion_candidate_attestation_mismatch")
     actual_diff = _require_transition(

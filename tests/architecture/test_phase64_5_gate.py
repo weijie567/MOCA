@@ -244,6 +244,121 @@ def test_review_attestations_reject_embedded_hash_role_agent_and_gate_mismatch(t
             )
 
 
+def test_same_stage_code_and_security_must_bind_the_exact_same_gate_report(tmp_path: Path) -> None:
+    from scripts.check_phase64_5_gate import GateRefusal, validate_review_attestations
+
+    root, _, _, _, _ = _reviewed_root(tmp_path)
+    code_path, security_path = _seal_pair(
+        root,
+        stage="c1",
+        suffix="c1-distinct-gate",
+        output_root=root / ".planning",
+    )
+    security = json.loads(security_path.read_bytes())
+    distinct_gate = json.dumps(
+        {"schema_version": "phase64_5.gate_report.v1", "result": "pass", "evidence": "different"},
+        sort_keys=True,
+    ).encode()
+    security["gate_report_bytes_base64"] = base64.b64encode(distinct_gate).decode("ascii")
+    security["gate_report_sha256"] = "sha256:" + hashlib.sha256(distinct_gate).hexdigest()
+    security_path.write_text(json.dumps(security), encoding="utf-8")
+
+    with pytest.raises(GateRefusal, match="attestation_stage_gate_mismatch"):
+        validate_review_attestations(
+            (code_path, security_path),
+            project_root=root,
+            require_stage="c1",
+        )
+
+
+def test_candidate_indexes_c0_by_kind_and_rejects_same_commit_replacement(tmp_path: Path) -> None:
+    from scripts.check_phase64_5_gate import (
+        GateRefusal,
+        build_promotion_request,
+        create_promotion_candidate,
+        load_promotion_candidate,
+        load_review_attestation,
+        validate_review_attestations,
+    )
+
+    root, c0_commit, _, c1_commit, _ = _reviewed_root(tmp_path)
+    _git(root, "checkout", "-q", c0_commit)
+    original_c0 = _seal_pair(root, stage="c0", suffix="original-c0", output_root=root / "original")
+    replacement_c0 = _seal_pair(root, stage="c0", suffix="replacement-c0", output_root=root / "replacement")
+    replacement_gate = json.dumps(
+        {"schema_version": "phase64_5.gate_report.v1", "result": "pass", "evidence": "replacement"},
+        sort_keys=True,
+    ).encode()
+    for replacement_path in replacement_c0:
+        replacement = json.loads(replacement_path.read_bytes())
+        replacement_artifact = base64.b64decode(replacement["standard_artifact_bytes_base64"]) + b"\nReplacement\n"
+        replacement["standard_artifact_bytes_base64"] = base64.b64encode(replacement_artifact).decode("ascii")
+        replacement["standard_artifact_sha256"] = "sha256:" + hashlib.sha256(replacement_artifact).hexdigest()
+        replacement["gate_report_bytes_base64"] = base64.b64encode(replacement_gate).decode("ascii")
+        replacement["gate_report_sha256"] = "sha256:" + hashlib.sha256(replacement_gate).hexdigest()
+        replacement_path.write_text(json.dumps(replacement), encoding="utf-8")
+    _git(root, "checkout", "-q", c1_commit)
+    c1_paths = _seal_pair(root, stage="c1", suffix="c1", output_root=root / "c1")
+
+    candidate_path = create_promotion_candidate(
+        c0_code_attestation=original_c0[1],
+        c0_security_attestation=original_c0[0],
+        output_root=root / "candidates",
+        project_root=root,
+    )
+    candidate = load_promotion_candidate(candidate_path, project_root=root)
+    original_code = load_review_attestation(original_c0[0], project_root=root)
+    original_security = load_review_attestation(original_c0[1], project_root=root)
+    assert (
+        candidate.c0_code_review_attestation_sha256
+        == "sha256:" + hashlib.sha256(original_c0[0].read_bytes()).hexdigest()
+    )
+    assert (
+        candidate.c0_security_attestation_sha256 == "sha256:" + hashlib.sha256(original_c0[1].read_bytes()).hexdigest()
+    )
+    assert candidate.c0_code_review_artifact_sha256 == original_code.standard_artifact_sha256
+    assert candidate.c0_security_artifact_sha256 == original_security.standard_artifact_sha256
+
+    replacement_paths = (*replacement_c0, *c1_paths)
+    replacement_loaded = validate_review_attestations(replacement_paths, project_root=root)
+    replacement_code, replacement_security = replacement_loaded[:2]
+    candidate_values = candidate.model_dump(
+        mode="python",
+        exclude={"schema_version", "candidate_hash"},
+    )
+    attestation_rebound = type(candidate).seal(
+        **(
+            candidate_values
+            | {
+                "c0_code_review_attestation_sha256": "sha256:"
+                + hashlib.sha256(replacement_c0[0].read_bytes()).hexdigest(),
+                "c0_security_attestation_sha256": "sha256:"
+                + hashlib.sha256(replacement_c0[1].read_bytes()).hexdigest(),
+            }
+        )
+    )
+    attestation_rebound_values = attestation_rebound.model_dump(
+        mode="python",
+        exclude={"schema_version", "candidate_hash"},
+    )
+    artifact_rebound = type(candidate).seal(
+        **(
+            attestation_rebound_values
+            | {
+                "c0_code_review_artifact_sha256": replacement_code.standard_artifact_sha256,
+                "c0_security_artifact_sha256": replacement_security.standard_artifact_sha256,
+            }
+        )
+    )
+    for stale_candidate in (candidate, attestation_rebound, artifact_rebound):
+        with pytest.raises(GateRefusal, match="promotion_candidate_attestation_mismatch"):
+            build_promotion_request(
+                candidate=stale_candidate,
+                attestations=tuple(zip(replacement_paths, replacement_loaded, strict=True)),
+                project_root=root,
+            )
+
+
 def test_four_attestations_bind_exact_git_transition_and_promotion_candidate(tmp_path: Path) -> None:
     from scripts.check_phase64_5_gate import (
         GateRefusal,
