@@ -2962,3 +2962,12 @@
 - **处理状态**：⚠️ 修复已聚焦验证。新增单一 `CanonicalABRunResultV1` 将 report、binding、exact diagnostic、request count 与 result code 原样带到 persistence；service 在任何文件写前核对 diagnostic 的 run/hash/reason，并用 authoritative typed mapping 核对 DB result code。只有 `retrieval_resource_proof/provider_request_failed + provider available + request_failed + rollback attempted/proved + request_count>0` 映射为 transient；其余 reason 分别落 source/configuration/response/projection/unknown，incomplete role 优先保留 round 自带 typed failure。
 - **证据**：Phase64.5 C0 review WR-03；`src/rag/evaluation/token_chunk_ab.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；最小 RED `10 failed`（typed mapping 不存在），最小 GREEN `14 passed, 1 warning`，完整 A/B focused gate `105 passed, 1 warning in 21.62s`，format/full lint PASS。
 - **剩余风险 / 继续入口**：这是 retry/diagnostic 逻辑修复，按 review-fix 规则仍需 human verification；本 fixer不运行 full suite、不启用 production `run-ab`、不调用 provider或写 live DB/artifact，最终独占 full suite 与 C1 re-review由 orchestrator完成。
+
+## 2026-08-13 — Phase 64.5 C0 review WR-04 — promotion candidate 声明的 C0 evidence hashes 未被执行 ✅已修复验证
+
+- **子系统**：RAG provider execution promotion checker / code-security attestation lineage。
+- **问题现象 / 根因**：candidate 已存两份 C0 attestation hash、两份标准 artifact hash 与 C0 gate hash，但 promotion request 只比较 commit/tree/diff，并可改用同 commit 的另一组 C0 evidence；candidate 创建又按入参位置把已验证 pair 解构成 code/security，而 validator 本身允许路径任意顺序。同阶段 code/security 也未被要求绑定同一 gate report。
+- **影响**：candidate 声称的 C0 review/security evidence set 可在 promotion 时被替换，swapped path 会把 kind lineage 写反；两名 reviewer 甚至可引用不同 gate 结论却组成同一 promotion。
+- **处理状态**：✅ 已修复验证。创建与 request 构造均按 `(stage, kind)` 索引；每阶段 code/security 必须绑定相同 commit/tree 与相同 gate hash。promotion 在 transition/current 检查前逐项比较 candidate 存储的两份 attestation、两份 artifact 与 gate hash，任一 replacement 都以 `promotion_candidate_attestation_mismatch` fail closed。
+- **证据**：Phase64.5 C0 review WR-04；`scripts/check_phase64_5_gate.py`、`tests/architecture/test_phase64_5_gate.py`；最小 RED `2 failed`，最小 GREEN `2 passed, 1 warning`，完整 checker focused gate `43 passed, 1 warning in 17.18s`，format/full lint PASS。
+- **剩余风险 / 继续入口**：本修复约束 repository 内 checker evidence lineage，不签发或修改 live promotion；最终独占 full suite 与 C1 复审由 orchestrator执行。
