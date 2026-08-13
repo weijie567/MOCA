@@ -1,11 +1,11 @@
 ---
 phase: "64.5"
-status: running
-current_step: c1_attested_wave6
+status: blocked
+current_step: closeout
 plan_review_loop: 1
 quota_waits: 1
-updated_at: "2026-08-13T06:07:21Z"
-next_command: "$gsd-execute-phase 64.5 --wave 6 --no-cross-ai"
+updated_at: "2026-08-13T08:45:00Z"
+next_command: "Create and ship the truthful partial Phase 64.5 PR; do not rerun the immutable canonical A/B ordinal or dispatch Plan 08"
 ---
 
 # Phase 64.5 Autopilot Checkpoint
@@ -32,6 +32,11 @@ next_command: "$gsd-execute-phase 64.5 --wave 6 --no-cross-ai"
 - Wave 5 is now authorized. No DB promotion exists yet, so reservation/provider construction remains unreachable.
 - Completed Wave 5 and the bounded C1 repair loop. Fresh Codex code review `/root/phase64_5_c1_code_review` returned clean and fresh Codex security audit `/root/phase64_5_c1_security` closed 7/7 threats for protected C1 commit `3b8ca36b8cabb11b695f5dc72c45df04181e2b8e` / tree `4c6bd3f28be83602b0d5b71a6739b8dd1f694729`.
 - The original evidence-carrier attestations were superseded after Plan 06 correctly exposed their reviewed-identity mismatch. The single reviewed-identity fix is now complete: C0 attestations bind historical reviewed `995afd9f...`, C1 attestations bind current reviewed `5eee5288...`, all four strict-load, and the unique active promotion candidate produces an exact `995→5eee` request. Wave 6 is authorized; DB promotion remains absent until Plan 06 executes its sole promotion command.
+- Plan 06 completed one fresh inactive token candidate under PostgreSQL authority: three ordinal-1 reviewed-build reservations/results, seven total provider requests, candidate complete v7/cursor 3, and the character corpus remained active.
+- Plan 07 consumed exactly one canonical-A/B ordinal and committed the honest nonretryable terminal `source_drift` with 0/142 provider requests. No ordinal 2, selection, activation authorization, pointer change, or Plan 08 dispatch occurred.
+- Final code review is clean after the schema-descendant compatibility fix; final security audit closes 7/7 implemented-scope threats. Final format/lint gates passed and the full suite completed with `4970 passed, 4 skipped`.
+- Final Nyquist validation is partial at 13/16 tasks, and goal-backward verification is `gaps_found` at 24/29 truths. SC-64.4-5/6 remain open because selected-pass and Plan-08 activation/rollback/receipt/closeout outcomes are absent.
+- Per the user's frozen-scope direction, the immutable source-drift ordinal will not be retried and no new recovery plan, authority, candidate, lease, threshold, dataset, or tokenizer change will be introduced. Closeout proceeds as a truthful partial PR with the character corpus active.
 
 ## Evidence
 
