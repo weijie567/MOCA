@@ -24314,3 +24314,13 @@ Plan06 在 migration、promotion/live row 与 provider 之前执行规定的 sol
 
 **已做处理 / 剩余入口**
 按 D-30 在 migration/provider 前诚实停止：未写 promotion/authority/candidate/reservation/result/runtime artifact，未调用 provider，也未加载或打印 key 内容。已向 active root 报告 Plan05 evidence-handoff blocker；继续入口必须由 root 修复 candidate/attestation exact binding并重新完成其所需 review/attestation gate，Plan06 executor不得创建或修理 attestation、不得修改 checker放宽 exact语义。
+## 2026-08-13 — Phase 64.5 Plan 06 promotion 拒绝 C1 reviewed identity 与 evidence carrier 不一致
+
+**问题现象 / 如何检测**
+Plan 06 在任何迁移、promotion、reservation 或 provider 之前运行唯一 `promote-reviewed-execution`，得到 `promotion_candidate_attestation_mismatch`。只读核对显示 active candidate 绑定受审 C1 `3b8ca36b...` / tree `4c6bd3f2...`，而两份 C1 attestation 绑定封存时的 evidence-only carrier `a0630742...` / tree `c2e567c6...`。
+
+**关键证据 / 当前判断 / 根因**
+checker 已允许 planning-only evidence commit 保持 protected-code current-equivalent，却在 `seal_review_attestation` 中无条件记录当时 `HEAD/HEAD^{tree}`。promotion candidate 正确绑定 gate report 中实际受审 identity；promotion request 又正确要求 candidate 与 attestation 精确相等，故合法 review→gate-report→evidence commit→attestation 顺序结构性不可达。Plan 06 诚实停止；默认 eval DB 仍为 031，Phase64.4 character baseline完整，未写 live 状态。
+
+**已做处理 / 剩余入口**
+attestation seal 现在从已验证 passing gate report 读取 `protected_code_commit/tree`，要求两字段存在、格式合法、Git object/tree 匹配并与当前 protected graph 等价；不再把后续 evidence carrier 冒充受审代码。新增 evidence-only carrier 回归与 missing identity fail-closed 回归，最小 gate `4 passed, 1 warning`。旧 C1 attestations必须删除后以同一真实 review/gate bytes重新 create-only seal，再由 bounded Codex复核；不得修改 candidate或放宽 promotion equality。

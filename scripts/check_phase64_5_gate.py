@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
@@ -203,13 +204,27 @@ def seal_review_attestation(
         *PROTECTED_PROVIDER_EXECUTION_GRAPH,
     ):
         raise GateRefusal("protected_code_dirty")
-    commit = _git_text(root, "rev-parse", "HEAD")
-    tree_hash = _git_text(root, "rev-parse", "HEAD^{tree}")
     artifact_bytes = artifact_path.read_bytes()
     frontmatter = _canonical_frontmatter(_parse_frontmatter(artifact_bytes))
     _require_standard_artifact(kind=kind, frontmatter=frontmatter)
     gate_bytes = gate_path.read_bytes()
-    _require_clean_gate_report(gate_bytes)
+    gate_report = _require_clean_gate_report(gate_bytes)
+    commit = gate_report.get("protected_code_commit")
+    tree_hash = gate_report.get("protected_code_tree_hash")
+    if (
+        not isinstance(commit, str)
+        or not isinstance(tree_hash, str)
+        or not re.fullmatch(_GIT_OBJECT_PATTERN, commit)
+        or not re.fullmatch(_GIT_OBJECT_PATTERN, tree_hash)
+    ):
+        raise GateRefusal("gate_report_protected_identity_missing")
+    _require_git_identity(root, commit=commit, tree_hash=tree_hash)
+    _require_current_protected_identity(
+        root,
+        commit=commit,
+        tree_hash=tree_hash,
+        mismatch_reason="gate_report_not_current",
+    )
     try:
         attestation = ReviewAttestationV1(
             stage=stage,

@@ -3074,3 +3074,11 @@
 - **处理状态**：🔴 待 active root 修复。Plan06 executor按D-30在任何migration/live/provider副作用前停止，未放宽checker、未生成/修理attestation、未创建替代candidate。
 - **证据**：Phase64.5 Plan06 preflight；active candidate `3b8ca36b8cabb11b695f5dc72c45df04181e2b8e` / tree `4c6bd3f28be83602b0d5b71a6739b8dd1f694729`；C1 attestation carrier `a0630742e2a4e59009129a7b68a6b82f0bb435d9` / tree `c2e567c60b8816005c6d3056f6d0f0a28a883df8`；规定 promotion CLI exit 4。
 - **剩余风险 / 继续入口**：root需裁定并重建一致的candidate/attestation evidence chain，再重新 strict-load与独立复核；在此之前 Plans06–08保持串行阻断，禁止DB promotion与provider调用。
+## 2026-08-13 — Phase 64.5 attestation reviewed identity 被 evidence carrier 覆盖 ⚠️修复已聚焦验证
+
+- **子系统**：RAG provider execution review attestation / immutable promotion。
+- **问题现象 / 根因**：current-equivalence 已允许纯证据 commit，但 attestation seal 仍记录封存时 HEAD，而不是 gate report 的实际受审 commit/tree，导致 candidate 与 attestation 无法同时满足 promotion 精确绑定。
+- **影响**：clean C1 review/security 无法进入唯一 DB promotion；正确 fail-closed 阻止了 provider，但整个安全交接路径不可达。
+- **处理状态**：⚠️ 修复已聚焦验证。seal 必须绑定 passing gate report 的受审 identity，并独立验证 Git identity + current protected equivalence；carrier commit只承载证据，不再取代审计 identity。promotion 的 exact equality 未放宽。
+- **证据**：Phase64.5 Plan06 preflight；`scripts/check_phase64_5_gate.py`、`tests/architecture/test_phase64_5_gate.py`；promotion拒绝 reason `promotion_candidate_attestation_mismatch`；最小修复 gate `4 passed, 1 warning`。
+- **剩余风险**：checker 属 protected graph，须在修复 commit上做 bounded code/security复核并重新封存 C1 attestation；随后提交证据后再次 strict-load，Plan06才能恢复。

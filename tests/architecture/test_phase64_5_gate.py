@@ -157,7 +157,15 @@ def _write_evidence(root: Path, *, kind: str, suffix: str) -> tuple[Path, Path]:
         artifact.write_text("---\nstatus: verified\nthreats_open: 0\n---\n# Security\n", encoding="utf-8")
     gate = root / f"gate-{suffix}.json"
     gate.write_text(
-        json.dumps({"schema_version": "phase64_5.gate_report.v1", "result": "pass"}, sort_keys=True),
+        json.dumps(
+            {
+                "schema_version": "phase64_5.gate_report.v1",
+                "result": "pass",
+                "protected_code_commit": _git(root, "rev-parse", "HEAD"),
+                "protected_code_tree_hash": _git(root, "rev-parse", "HEAD^{tree}"),
+            },
+            sort_keys=True,
+        ),
         encoding="utf-8",
     )
     return artifact, gate
@@ -314,6 +322,58 @@ def test_attestation_seals_real_standard_bytes_and_rejects_fabricated_fields(tmp
         ReviewAttestationV1.model_validate(fabricated)
 
 
+def test_attestation_binds_gate_reviewed_identity_across_evidence_only_carrier_commit(tmp_path: Path) -> None:
+    from scripts.check_phase64_5_gate import seal_review_attestation
+
+    root, _, _, reviewed_commit, reviewed_tree = _reviewed_root(tmp_path)
+    artifact, gate = _write_evidence(root, kind="code", suffix="reviewed-c1")
+    evidence = root / "evidence-only.md"
+    evidence.write_text("review evidence\n", encoding="utf-8")
+    _git(root, "add", "evidence-only.md")
+    _git(root, "commit", "-qm", "commit review evidence")
+    carrier_commit = _git(root, "rev-parse", "HEAD")
+    assert carrier_commit != reviewed_commit
+
+    path = seal_review_attestation(
+        stage="c1",
+        kind="code",
+        collaboration_canonical_task_name="/root/reviewed_identity",
+        actual_agent_role="gsd-code-reviewer",
+        workflow_invocation="$gsd-code-review 64.5 --depth=deep",
+        standard_artifact_path=artifact,
+        gate_report_path=gate,
+        output_root=root / ".planning",
+        project_root=root,
+    )
+    loaded = json.loads(path.read_bytes())
+    assert loaded["protected_code_commit"] == reviewed_commit
+    assert loaded["protected_code_tree_hash"] == reviewed_tree
+
+
+def test_attestation_rejects_gate_report_without_reviewed_identity(tmp_path: Path) -> None:
+    from scripts.check_phase64_5_gate import GateRefusal, seal_review_attestation
+
+    root, _, _, _, _ = _reviewed_root(tmp_path)
+    artifact, gate = _write_evidence(root, kind="code", suffix="missing-identity")
+    gate.write_text(
+        json.dumps({"schema_version": "phase64_5.gate_report.v1", "result": "pass"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(GateRefusal, match="gate_report_protected_identity_missing"):
+        seal_review_attestation(
+            stage="c1",
+            kind="code",
+            collaboration_canonical_task_name="/root/missing_identity",
+            actual_agent_role="gsd-code-reviewer",
+            workflow_invocation="$gsd-code-review 64.5 --depth=deep",
+            standard_artifact_path=artifact,
+            gate_report_path=gate,
+            output_root=root / ".planning",
+            project_root=root,
+        )
+
+
 def test_attestation_frontmatter_canonicalizes_yaml_dates_before_replay(tmp_path: Path) -> None:
     from scripts.check_phase64_5_gate import load_review_attestation, seal_review_attestation
 
@@ -331,8 +391,18 @@ def test_attestation_frontmatter_canonicalizes_yaml_dates_before_replay(tmp_path
         encoding="utf-8",
     )
     gate = root / "gate-dated.json"
+    reviewed_commit = _git(root, "rev-parse", "HEAD")
+    reviewed_tree = _git(root, "rev-parse", "HEAD^{tree}")
     gate.write_text(
-        json.dumps({"schema_version": "phase64_5.gate_report.v1", "result": "pass"}, sort_keys=True),
+        json.dumps(
+            {
+                "schema_version": "phase64_5.gate_report.v1",
+                "result": "pass",
+                "protected_code_commit": reviewed_commit,
+                "protected_code_tree_hash": reviewed_tree,
+            },
+            sort_keys=True,
+        ),
         encoding="utf-8",
     )
 
@@ -475,10 +545,8 @@ def test_same_stage_code_and_security_must_bind_the_exact_same_gate_report(tmp_p
         output_root=root / ".planning",
     )
     security = json.loads(security_path.read_bytes())
-    distinct_gate = json.dumps(
-        {"schema_version": "phase64_5.gate_report.v1", "result": "pass", "evidence": "different"},
-        sort_keys=True,
-    ).encode()
+    distinct_gate_payload = json.loads(base64.b64decode(security["gate_report_bytes_base64"]))
+    distinct_gate = json.dumps(distinct_gate_payload | {"evidence": "different"}, sort_keys=True).encode()
     security["gate_report_bytes_base64"] = base64.b64encode(distinct_gate).decode("ascii")
     security["gate_report_sha256"] = "sha256:" + hashlib.sha256(distinct_gate).hexdigest()
     security_path.write_text(json.dumps(security), encoding="utf-8")
@@ -505,10 +573,10 @@ def test_candidate_indexes_c0_by_kind_and_rejects_same_commit_replacement(tmp_pa
     _git(root, "checkout", "-q", c0_commit)
     original_c0 = _seal_pair(root, stage="c0", suffix="original-c0", output_root=root / "original")
     replacement_c0 = _seal_pair(root, stage="c0", suffix="replacement-c0", output_root=root / "replacement")
-    replacement_gate = json.dumps(
-        {"schema_version": "phase64_5.gate_report.v1", "result": "pass", "evidence": "replacement"},
-        sort_keys=True,
-    ).encode()
+    replacement_gate_payload = json.loads(
+        base64.b64decode(json.loads(replacement_c0[0].read_bytes())["gate_report_bytes_base64"])
+    )
+    replacement_gate = json.dumps(replacement_gate_payload | {"evidence": "replacement"}, sort_keys=True).encode()
     for replacement_path in replacement_c0:
         replacement = json.loads(replacement_path.read_bytes())
         replacement_artifact = base64.b64decode(replacement["standard_artifact_bytes_base64"]) + b"\nReplacement\n"
