@@ -24171,3 +24171,14 @@ fixture 先显式 flush tenant；移除未使用变量；result seal 将所有 n
 
 **已做处理 / 剩余入口**
 已实现离线 source/hash/input/batch 枚举、SDK retry 0 与显式 outer attempt 1，并将 108/16/124 的计划态证据锁入 focused test；同时向 phase orchestrator 请求裁决，未擅自通过扩大到126或静默禁用 rewrite 改变已锁契约。继续入口是明确选择：canonical A/B 显式关闭 rewrite并同步 runtime contract，或把真实 envelope/query acceptance 修为126；裁决前不能把124称为真实完整 provider 上界。
+
+## 2026-08-13 — Phase 64.5 C0 review 后完整 suite 命中两条 stale architecture guard
+
+**问题现象 / 如何检测**
+orchestrator 的独占完整 suite 结果为 `4923 passed, 4 skipped, 2 failed in 2826.27s`。两条失败分别是 `tests/architecture/test_phase34_approval_action_boundaries.py::test_phase34_production_does_not_define_real_execution_tables_or_workers` 与 `tests/knowledge/test_phase21_boundaries.py::test_phase21_boundary_allows_phase22_claim_verifier_files_but_no_phase23_rag5_or_execution_surfaces`；本 fixer 用规定入口合并复现得到 `2 failed, 1 warning`。
+
+**关键证据 / 当前判断 / 根因**
+第一条 guard 以任意 substring `Reconciliation` 判定真实 action execution worker，误中 Phase64.5 只读 DTO `ProjectionReconciliationViewV1`；production 没有新增 action execution table/worker。第二条 guard 的 Phase23 ownership allowlist 停留在旧文件集合，未表达 Phase64.5 canonical A/B 为枚举 exact original/rewrite provider call sites而在 `src/rag/evaluation/token_chunk_ab.py` 与 `tests/eval/test_rag_token_chunk_ab.py` 合法调用 `build_query_rewrite_plan`；并非新建 query rewrite authority。
+
+**已做处理 / 剩余入口**
+Phase34 guard 只增加 exact 非执行 projection class allowlist，完整文件 `10 passed, 1 warning`；Phase21 guard 只为 `build_query_rewrite_plan` 增加上述两份 Phase64.5 文件的 pattern-specific exact ownership allowlist，完整文件 `17 passed, 1 warning`。未修改 production authority、provider dispatch或 live artifacts。fixer 按约束未重跑完整 suite；下一入口是 orchestrator 独占重跑 full suite，确认两条 stale guard 消失且无其他回归。

@@ -2980,3 +2980,12 @@
 - **处理状态**：✅ 已修复验证。candidate lookup 改为 lexical containment 下逐组件 `lstat` 的 strict noncreating existing-directory reader。output 先以 repository root descriptor 为锚，逐组件 `O_DIRECTORY|O_NOFOLLOW` 打开，缺失目录只用 parent `dir_fd` 创建后立即 no-follow reopen；temp、hard-link create-only 与 replace 全部相对 pinned parent descriptor 执行，并在 publish 前后按 `(st_dev, st_ino)` 从 root 重开复核，parent swap 时清理未发布 temp/新 link并拒绝。
 - **证据**：Phase64.5 C0 review WR-05；`scripts/check_phase64_5_gate.py`、`tests/architecture/test_phase64_5_gate.py`；最小 RED `2 failed`（missing read path 与外部 symlink descendant 均留下目录），GREEN 覆盖两项及真实 parent rename→symlink swap `3 passed, 1 warning`，完整 checker focused gate `46 passed, 1 warning in 17.95s`，format/full lint PASS。
 - **剩余风险 / 继续入口**：该边界依赖 POSIX `dir_fd`、`O_NOFOLLOW` 与 inode identity（当前支持平台已聚焦验证）；不写 live promotion/DB/artifact。最终独占 full suite 与 C1 security re-review由 orchestrator执行。
+
+## 2026-08-13 — Phase 64.5 C0 review full-suite repair — Phase21 RAG ownership guard 未识别 canonical A/B rewrite 枚举 ✅已修复验证
+
+- **子系统**：RAG canonical A/B / query rewrite ownership architecture guard。
+- **问题现象 / 根因**：Phase21 静态边界把 `build_query_rewrite_plan` 仅 allowlist 给 Phase23 原始实现/测试文件；Phase64.5 为封存 exact provider envelope，在 production A/B 契约与对应测试中只读调用同一 deterministic planner 枚举 original/rewrite call sites，因 ownership inventory 未同步而在完整 suite 产生两条假红。
+- **影响**：合法的 126 query request enumeration 被历史 guard 当成越权新增 rewrite surface；若粗暴把整个 A/B 文件加入 Phase23 全 pattern allowlist，又会掩盖未来 reranker/diagnostics 等真实 ownership 泄漏。
+- **处理状态**：✅ 已修复验证。新增 pattern-specific Phase64.5 allowlist，仅允许 `src/rag/evaluation/token_chunk_ab.py` 与 `tests/eval/test_rag_token_chunk_ab.py` 使用 `build_query_rewrite_plan`，其他 Phase23 pattern 与所有其他文件仍由原 guard 拒绝；测试锁定 exact mapping，未修改 production query rewrite或provider authority。
+- **证据**：完整 suite `4923 passed, 4 skipped, 2 failed in 2826.27s` 的 Phase21 failure；精确复现与另一 stale guard 合计 `2 failed, 1 warning`；修复后相关两节点 `2 passed, 1 warning`，完整 Phase21 boundary 文件 `17 passed, 1 warning in 0.26s`。
+- **剩余风险 / 继续入口**：fixer 按独占约束未重跑 full suite；orchestrator 需最终重跑并确认架构 guard 仍能拒绝 A/B 文件中的其他 Phase23 surface。production `run-ab` authority/hard-disable 未被放宽。
