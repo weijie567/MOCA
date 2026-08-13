@@ -24204,3 +24204,14 @@ execution service 未接收调用方期望的 canonical `run_id`，reservation s
 
 **已做处理 / 剩余入口**
 service 现在强制接收 `expected_run_id`，`canonical_ab_subject.v2` 将其封入 reservation hash；pre-persistence lineage 同时核对 `report.run_id` 与由 expected run/corpus 派生的两角色 round owner。`selected_pass` 和 `candidate_failed` 的 full-provider completed outcome 必须 exact 等于 envelope maximum 142，unavailable/execution-error 仍保留 bounded partial/zero count。所有 mismatch 在 terminal/selection/authorization/result/projection 前拒绝。最小 GREEN `2 passed, 1 warning`，既有 success path `1 passed, 1 warning`；`make format`、完整 `make lint` PASS，完整 A/B focused 文件 `106 passed, 1 warning in 27.79s`。未运行 full suite、live provider/DB/artifact；下一入口为 WR-02 count cross-binding 与 orchestrator 最终验证。
+
+## 2026-08-13 — Phase 64.5 C0 iteration 2 transient diagnostic 与 DB actual count 可矛盾
+
+**问题现象 / 如何检测**
+typed diagnostic 可声明 `provider_request_count=1` 并映射 `transient_execution_error`，但 execution service 与 DB result 独立接受 `actual_request_count=0`。三层最小测试在旧实现得到 `3 failed, 1 warning`：domain DTO 不拒绝 transient-zero，repository 实际写入绕过验证的 transient-zero，A/B service 缺少 diagnostic/actual cross-bind helper。
+
+**关键证据 / 当前判断 / 根因**
+ordinal-2 旧逻辑只看 predecessor result code 与 subject/envelope，同一矛盾 pair 因而可取得唯一 retry。根因是 retryable diagnostic claim 没有被 DB authoritative actual count 支撑，domain、repository read/write 与 retry predecessor 均缺少正数 invariant。
+
+**已做处理 / 剩余入口**
+任何 transient 在 terminal 文件写前必须满足 `0 < diagnostic.provider_request_count <= actual_request_count`。domain DTO 与 repository write/read 均禁止 transient actual 为零，ordinal-2 也显式拒绝遗留/绕过形成的 transient-zero predecessor。测试既用 `model_construct` 绕过 DTO 证明 repository 拒写/无 result/无 ordinal-2，也直接注入 legacy-invalid DB row 证明 retry 仍 fail closed。最小 GREEN `3 passed, 1 warning`，legacy-invalid predecessor 精确节点 `1 passed, 1 warning`；`make format`、完整 `make lint` PASS，authority + A/B focused 为 `122 passed, 1 warning in 63.69s`。仅使用 localhost `moca_test` fixture，未访问外部/live DB、未运行 provider/live/full suite；下一入口是 orchestrator 独占 full suite 与 C1 re-review。

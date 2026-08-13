@@ -327,6 +327,8 @@ class ProviderExecutionResultRequestV1(_FrozenModel):
         payload = {field: getattr(self, field) for field in self._HASH_FIELDS}
         if canonical_sha256(payload) != self.result_hash:
             raise ValueError("result_hash_mismatch")
+        if self.result_code is ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR and self.actual_request_count == 0:
+            raise ValueError("transient_result_requires_actual_request")
         return self
 
 

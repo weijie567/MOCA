@@ -3007,3 +3007,12 @@
 - **处理状态**：⚠️ 修复已聚焦验证。service 在 reservation 前接收 expected canonical run；`canonical_ab_subject.v2` hash 绑定该 run；任何文件写前核对 report run 与 expected namespace round owners。full-provider completed outcomes 必须 `actual_request_count == envelope.maximum_request_count == 142`，error/unavailable 继续允许 bounded partial/zero truth。run/owner/count mismatch 均不进入 terminal、selection、authorization、result 或 projection。
 - **证据**：Phase64.5 C0 iteration 2 WR-01；`src/rag/evaluation/token_chunk_ab.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；最小 RED `2 failed, 1 warning`，GREEN `2 passed, 1 warning`；完整 `make lint` PASS，A/B focused `106 passed, 1 warning in 27.79s`。
 - **剩余风险 / 继续入口**：这是 execution/authorization 逻辑修复，仍需 human verification、orchestrator 独占 full suite 与 C1 re-review；本 fixer未启用 live path或写 DB/artifact。transient diagnostic 与 DB actual count 的交叉约束由同轮 WR-02 单独收口。
+
+## 2026-08-13 — Phase 64.5 C0 iteration 2 WR-02 — transient retry evidence 未绑定 DB actual count ⚠️修复已聚焦验证
+
+- **子系统**：RAG canonical A-B typed failure / provider execution DB result / retry authority。
+- **问题现象 / 根因**：diagnostic 的 positive provider request claim 与 DB `actual_request_count` 独立校验；`transient_execution_error + actual=0` 可记录，ordinal-2 又只根据 retryable code/subject/envelope 放行。
+- **影响**：没有真实 immutable DB request evidence 的失败可消费唯一 full-provider retry，diagnostic 与 authoritative result 对同一次执行给出互相矛盾的事实。
+- **处理状态**：⚠️ 修复已聚焦验证。service 在任何 terminal 文件写前要求 transient 满足 `0 < diagnostic.provider_request_count <= actual_request_count`。DTO validator、repository write/read 都拒绝 transient-zero；retry predecessor 对 legacy/corrupt transient-zero row 也 fail closed。unavailable 与非 transient error 仍保留合法 bounded zero/partial count。
+- **证据**：Phase64.5 C0 iteration 2 WR-02；`src/rag/evaluation/token_chunk_ab.py`、`src/rag/provider_execution_authority.py`、`src/repositories/provider_execution_authority_repo.py` 与两份 focused tests；最小 RED `3 failed, 1 warning`，GREEN `3 passed, 1 warning`；完整 `make lint` PASS，authority + A/B focused `122 passed, 1 warning in 63.69s`。
+- **剩余风险 / 继续入口**：逻辑修复仍需 human verification、orchestrator 独占 full suite 与 C1 re-review；当前 repository 兼容旧 DB schema并在应用边界拒绝 legacy-invalid row，本轮未修改既有 migration、未访问外部/live DB或provider。
