@@ -1209,42 +1209,73 @@ async def test_cli_invalid_noncanonical_preflight_writes_no_terminal_or_selectio
 
 
 @pytest.mark.asyncio
-async def test_production_run_ab_dispatch_is_disabled_before_side_effects(
+@pytest.mark.parametrize(
+    "reason_code",
+    ("promotion_missing", "promotion_stale", "promotion_mismatch"),
+)
+async def test_production_run_ab_routes_invalid_promotion_before_reservation_and_provider(
+    reason_code: str,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     import scripts.eval_rag_token_chunk_ab as ab_cli
+    from src.rag.provider_execution_authority import ProviderExecutionAuthorityError
 
-    calls = {"db": 0, "root": 0, "artifact": 0, "reservation": 0, "provider": 0}
+    calls = {"promotion": 0, "reservation": 0, "provider": 0}
 
-    def forbidden(name: str):
-        def fail(*_args, **_kwargs):
-            calls[name] += 1
-            raise AssertionError(f"{name} work must not start")
+    class AuthorityService:
+        async def require_current_promotion(self):
+            calls["promotion"] += 1
+            raise ProviderExecutionAuthorityError(reason_code)
 
-        return fail
+        async def reserve_and_commit(self, request):
+            calls["reservation"] += 1
+            raise AssertionError(request)
 
-    async def forbidden_provider(*_args, **_kwargs):
-        calls["provider"] += 1
-        raise AssertionError("provider work must not start")
+    class ProviderForbidden:
+        def __init__(self, *_args, **_kwargs):
+            calls["provider"] += 1
+            raise AssertionError("provider work must not start")
 
     monkeypatch.setattr(
         ab_cli,
         "parse_args",
-        lambda _argv: SimpleNamespace(command="run-ab"),
+        lambda _argv: SimpleNamespace(
+            command="run-ab",
+            output_root=tmp_path,
+            candidate_state=tmp_path / "candidate.json",
+            manifest=tmp_path / "manifest.json",
+            gold=tmp_path / "gold.jsonl",
+            authority_id=uuid4(),
+            run_id=RUN_ID,
+            ordinal=1,
+        ),
     )
-    monkeypatch.setattr(ab_cli, "SessionLocal", forbidden("db"))
-    monkeypatch.setattr(ab_cli, "require_canonical_recovery_root", forbidden("root"))
-    monkeypatch.setattr(ab_cli, "load_recovery_budget_manifest", forbidden("artifact"))
-    monkeypatch.setattr(ab_cli, "_provider_execution_authority_service", forbidden("reservation"))
-    monkeypatch.setattr(ab_cli, "run_full_provider_ab", forbidden_provider)
+    monkeypatch.setattr(ab_cli, "require_canonical_recovery_root", lambda **_kwargs: tmp_path)
+    monkeypatch.setattr(ab_cli, "load_policy_reindex_recovery_descriptor", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        ab_cli,
+        "load_policy_reindex_state",
+        lambda *_args, **_kwargs: SimpleNamespace(state="complete"),
+    )
+    monkeypatch.setattr(ab_cli, "load_format_parity_contract", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(ab_cli, "ordered_gold_questions", lambda _dataset: ())
+    monkeypatch.setattr(ab_cli, "_ordered_questions_sha256", lambda _questions: "sha256:" + "0" * 64)
+    monkeypatch.setattr(ab_cli, "_inputs", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        ab_cli,
+        "build_canonical_ab_request_envelope",
+        lambda **_kwargs: SimpleNamespace(
+            provider_request_envelope=SimpleNamespace(model_name="reviewed", dimensions=1)
+        ),
+    )
+    monkeypatch.setattr(ab_cli, "_provider_execution_authority_service", AuthorityService)
+    monkeypatch.setattr(ab_cli, "EmbeddingService", ProviderForbidden)
 
-    assert await ab_cli.main([]) == 4
-    assert calls == {"db": 0, "root": 0, "artifact": 0, "reservation": 0, "provider": 0}
-    assert json.loads(capsys.readouterr().out) == {
-        "error": "live_provider_execution_disabled",
-        "reason_code": "live_provider_execution_disabled",
-    }
+    with pytest.raises(ProviderExecutionAuthorityError, match=reason_code):
+        await ab_cli.main([])
+
+    assert calls == {"promotion": 1, "reservation": 0, "provider": 0}
 
 
 @pytest.mark.asyncio

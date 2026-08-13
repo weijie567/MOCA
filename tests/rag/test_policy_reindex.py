@@ -78,9 +78,7 @@ SELECTION_DECISION_HASH = "sha256:" + "3" * 64
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("command", ("build-next-reviewed", "build-next"))
-async def test_production_dispatch_disables_live_provider_builds_before_side_effects(
-    command: str,
+async def test_production_dispatch_disables_legacy_live_provider_build_before_side_effects(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -93,7 +91,7 @@ async def test_production_dispatch_disables_live_provider_builds_before_side_eff
 
         return fail
 
-    monkeypatch.setattr(reindex_cli, "_parse_args", lambda: Namespace(command=command))
+    monkeypatch.setattr(reindex_cli, "_parse_args", lambda: Namespace(command="build-next"))
     monkeypatch.setattr(reindex_cli, "SessionLocal", forbidden("db"))
     monkeypatch.setattr(reindex_cli, "_require_canonical_reviewed_root", forbidden("root"))
     monkeypatch.setattr(reindex_cli, "_load_identity", forbidden("artifact"))
@@ -106,6 +104,29 @@ async def test_production_dispatch_disables_live_provider_builds_before_side_eff
         "error": "live_provider_execution_disabled",
         "reason_code": "live_provider_execution_disabled",
     }
+
+
+@pytest.mark.asyncio
+async def test_production_dispatch_routes_reviewed_build_to_db_promotion_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    async def guarded_build(_args: Namespace):
+        events.append("reviewed_build")
+        raise RuntimeError("promotion_missing")
+
+    monkeypatch.setattr(
+        reindex_cli,
+        "_parse_args",
+        lambda: Namespace(command="build-next-reviewed"),
+    )
+    monkeypatch.setattr(reindex_cli, "_build_next_reviewed", guarded_build)
+
+    with pytest.raises(RuntimeError, match="promotion_missing"):
+        await reindex_cli._main()
+
+    assert events == ["reviewed_build"]
 
 
 def test_live_provider_disable_has_no_cli_or_environment_override() -> None:
@@ -2101,7 +2122,12 @@ async def test_reviewed_build_reaches_provider_only_with_committed_db_authority(
 
 
 @pytest.mark.asyncio
-async def test_reviewed_build_missing_or_mismatched_promotion_stops_before_reservation_and_provider(
+@pytest.mark.parametrize(
+    "reason_code",
+    ("promotion_missing", "promotion_stale", "promotion_mismatch"),
+)
+async def test_reviewed_build_invalid_promotion_stops_before_reservation_and_provider(
+    reason_code: str,
     session: AsyncSession,
     test_engine,
     tmp_path: Path,
@@ -2118,7 +2144,7 @@ async def test_reviewed_build_missing_or_mismatched_promotion_stops_before_reser
     class AuthorityService:
         async def require_current_promotion(self):
             events.append("promotion_refused")
-            raise RuntimeError("promotion_missing")
+            raise RuntimeError(reason_code)
 
         async def reserve_and_commit(self, request):
             events.append("reservation")
@@ -2134,7 +2160,7 @@ async def test_reviewed_build_missing_or_mismatched_promotion_stops_before_reser
         provider_factory=provider_factory,
     )
 
-    with pytest.raises(RuntimeError, match="promotion_missing"):
+    with pytest.raises(RuntimeError, match=reason_code):
         await reviewed.build_next_document(
             owner,
             authority_id=authority_id,

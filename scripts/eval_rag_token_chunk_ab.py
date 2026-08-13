@@ -1096,8 +1096,6 @@ async def main(argv: list[str] | None = None) -> int:
     authority_checked_at = datetime.now(UTC)
     if args.command == "issue-recovery-budget":
         return await _issue_recovery_budget(args, checked_at=authority_checked_at)
-    if args.command == "run-ab":
-        return _refuse_live_provider_execution()
     args._authority_checked_at = authority_checked_at
     try:
         args.output_root = require_canonical_recovery_root(

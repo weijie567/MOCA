@@ -972,7 +972,7 @@ def _load_identity(path: Path) -> PolicyReindexRunIdentity:
 
 async def _main() -> int:
     args = _parse_args()
-    if args.command in {"build-next-reviewed", "build-next"}:
+    if args.command == "build-next":
         return _refuse_live_provider_execution()
     if args.command == "claim":
         owner = await _claim(args)
