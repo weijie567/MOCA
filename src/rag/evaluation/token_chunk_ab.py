@@ -826,6 +826,50 @@ def require_exact_canonical_ab_lineage(
         raise ValueError("canonical_ab_selection_lineage_mismatch")
 
 
+def canonical_ab_typed_failure_result_code(
+    *,
+    stage: str,
+    reason_code: str,
+    provider_availability: str,
+    provider_request_classification: str,
+    outer_rollback_attempted: bool,
+    outer_rollback_proved: bool,
+    provider_request_count: int,
+) -> ProviderExecutionResultCode:
+    """Map validated typed provenance to the sole permitted DB result code."""
+
+    explicitly_transient = (
+        (stage, reason_code) == _TRANSIENT_EXECUTION_RETRY
+        and provider_availability == "available"
+        and provider_request_classification == "request_failed"
+        and outer_rollback_attempted
+        and outer_rollback_proved
+        and provider_request_count > 0
+    )
+    if explicitly_transient:
+        return ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR
+    if reason_code in {"candidate_state_invalid", "candidate_pair_invalid"}:
+        return ProviderExecutionResultCode.SOURCE_DRIFT
+    if reason_code in {"sealed_input_invalid", "role_setup_failed"}:
+        return ProviderExecutionResultCode.CONFIGURATION_ERROR
+    if reason_code == "provider_request_failed":
+        return ProviderExecutionResultCode.RESPONSE_ERROR
+    if reason_code in {"format_ingestion_failed", "resource_proof_failed", "rollback_proof_failed"}:
+        return ProviderExecutionResultCode.PROJECTION_ERROR
+    return ProviderExecutionResultCode.UNKNOWN_ERROR
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalABRunResultV1:
+    """One typed execution result carried unchanged into terminal persistence."""
+
+    report: TerminalABRunV1
+    binding: ABSelectionBindingV1 | None
+    diagnostic: ABExecutionDiagnosticV1 | None
+    actual_request_count: int
+    result_code: ProviderExecutionResultCode
+
+
 class CanonicalABExecutionService:
     """Reserve and persist one canonical A/B beneath the shared DB root."""
 
@@ -841,12 +885,11 @@ class CanonicalABExecutionService:
         inputs: ABInputIdentityV1,
         envelope: CanonicalABRequestEnvelopeV1,
         ordinal: int,
-        run: Callable[[], Any],
+        run: Callable[[Any], Any],
         projection_path: Path,
         persist_terminal: Callable[
             [
-                TerminalABRunV1,
-                ABSelectionBindingV1 | None,
+                CanonicalABRunResultV1,
                 ProviderExecutionReservationViewV1,
                 UUID,
             ],
@@ -871,11 +914,18 @@ class CanonicalABExecutionService:
 
         try:
             provider = construct_provider() if construct_provider is not None else None
-            report, binding, actual_request_count, result_code = await run(provider)
+            execution = await run(provider)
         except BaseException:
             # A committed reservation is deliberately spent; process crashes
             # cannot be converted into fabricated terminal evidence.
             raise
+        if not isinstance(execution, CanonicalABRunResultV1):
+            raise ValueError("canonical_ab_execution_result_invalid")
+        report = execution.report
+        binding = execution.binding
+        diagnostic = execution.diagnostic
+        actual_request_count = execution.actual_request_count
+        result_code = execution.result_code
         if not isinstance(report, TerminalABRunV1):
             raise ValueError("canonical_ab_terminal_result_invalid")
         if report.inputs != inputs or report.runtime.tenant_id != owner.tenant_id:
@@ -885,6 +935,32 @@ class CanonicalABExecutionService:
             or not 0 <= actual_request_count <= envelope.provider_request_envelope.maximum_request_count
         ):
             raise ValueError("canonical_ab_request_count_invalid")
+        if report.outcome == "execution_error":
+            expected_terminal_hash = canonical_sha256(canonical_report_json_bytes(report.model_dump(mode="json")))
+            if (
+                not isinstance(diagnostic, ABExecutionDiagnosticV1)
+                or diagnostic.run_id != report.run_id
+                or diagnostic.terminal_run_sha256 != expected_terminal_hash
+                or report.safe_reason_codes != (diagnostic.reason_code,)
+            ):
+                raise ValueError("canonical_ab_execution_diagnostic_mismatch")
+        elif diagnostic is not None:
+            raise ValueError("canonical_ab_execution_diagnostic_forbidden")
+
+        expected_result_code = canonical_ab_result_code(report)
+        if report.outcome == "execution_error":
+            assert diagnostic is not None
+            expected_result_code = canonical_ab_typed_failure_result_code(
+                stage=diagnostic.stage,
+                reason_code=diagnostic.reason_code,
+                provider_availability=diagnostic.provider_availability,
+                provider_request_classification=diagnostic.provider_request_classification,
+                outer_rollback_attempted=diagnostic.outer_rollback_attempted,
+                outer_rollback_proved=diagnostic.outer_rollback_proved,
+                provider_request_count=diagnostic.provider_request_count,
+            )
+        if result_code is not expected_result_code:
+            raise ValueError("canonical_ab_result_code_invalid")
 
         require_exact_canonical_ab_lineage(
             report=report,
@@ -894,7 +970,7 @@ class CanonicalABExecutionService:
             request=request,
         )
         result_id = uuid4()
-        persisted_lineage = persist_terminal(report, binding, reservation, result_id)
+        persisted_lineage = persist_terminal(execution, reservation, result_id)
         terminal_run_hash = persisted_lineage.get("terminal_run_hash")
         terminal_report_hash = persisted_lineage.get("terminal_report_hash")
         if not isinstance(terminal_run_hash, str) or not isinstance(terminal_report_hash, str):
@@ -913,19 +989,6 @@ class CanonicalABExecutionService:
         ):
             raise ValueError("canonical_ab_nonselected_lineage_forbidden")
 
-        expected_result_code = canonical_ab_result_code(report)
-        if report.outcome == "execution_error":
-            if result_code not in {
-                ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR,
-                ProviderExecutionResultCode.CONFIGURATION_ERROR,
-                ProviderExecutionResultCode.SOURCE_DRIFT,
-                ProviderExecutionResultCode.RESPONSE_ERROR,
-                ProviderExecutionResultCode.PROJECTION_ERROR,
-                ProviderExecutionResultCode.UNKNOWN_ERROR,
-            }:
-                raise ValueError("canonical_ab_result_code_invalid")
-        elif result_code is not expected_result_code:
-            raise ValueError("canonical_ab_result_code_invalid")
         result = await self._authority.record_result(
             ProviderExecutionResultRequestV1.seal(
                 result_id=result_id,

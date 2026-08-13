@@ -2953,3 +2953,12 @@
 - **处理状态**：⚠️ 修复已聚焦验证。新增单一 `require_exact_canonical_ab_lineage()`，在任何 `persist_terminal()` 文件写前比较 exact reservation request/tenant，以及 report tenant/incumbent/candidate/provider/parity/config 和 binding candidate/run token/lease owner/source manifest；首个 mismatch 立即拒绝，非 selected outcome 仍禁止 binding。
 - **证据**：Phase64.5 C0 review WR-02；`src/rag/evaluation/token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；最小 RED 为 helper 缺失 `1 failed`，字段 mutation 与成功 lineage GREEN `2 passed, 1 warning`，并静态锁定校验位于 `persist_terminal` 之前。
 - **剩余风险 / 继续入口**：这是 selected lineage 逻辑修复，按 review-fix 规则仍需 human verification；orchestrator 最终 full suite 与后续 C1 re-review需再次确认没有合法 lineage 被误拒绝。production `run-ab` 仍 hard-disable，本 fixer未写 live artifact/DB。
+
+## 2026-08-13 — Phase 64.5 C0 review WR-03 — typed A/B failure 被丢弃且 proof failure 被误标 transient ⚠️修复已聚焦验证
+
+- **子系统**：RAG canonical full-provider A/B / provider execution retry authority / immutable diagnostic。
+- **问题现象 / 根因**：角色执行已产出 `SafeRoleFailureV1`，wrapper 却把全部 typed failure 映射为 `transient_execution_error`，随后以 `_failure` 丢弃；文件持久化再伪造 `candidate_pair_invalid` diagnostic。setup、ingestion、resource proof、rollback proof 与 unknown failure 因此既失去真实安全 provenance，又可能错误取得 ordinal-two retry authority。
+- **影响**：数据库 result code 与 immutable diagnostic 可描述不同事故；确定性配置/投影/rollback 缺陷可能被当作 provider transient 再消费一次 full-provider 预算。
+- **处理状态**：⚠️ 修复已聚焦验证。新增单一 `CanonicalABRunResultV1` 将 report、binding、exact diagnostic、request count 与 result code 原样带到 persistence；service 在任何文件写前核对 diagnostic 的 run/hash/reason，并用 authoritative typed mapping 核对 DB result code。只有 `retrieval_resource_proof/provider_request_failed + provider available + request_failed + rollback attempted/proved + request_count>0` 映射为 transient；其余 reason 分别落 source/configuration/response/projection/unknown，incomplete role 优先保留 round 自带 typed failure。
+- **证据**：Phase64.5 C0 review WR-03；`src/rag/evaluation/token_chunk_ab.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；最小 RED `10 failed`（typed mapping 不存在），最小 GREEN `14 passed, 1 warning`，完整 A/B focused gate `105 passed, 1 warning in 21.62s`，format/full lint PASS。
+- **剩余风险 / 继续入口**：这是 retry/diagnostic 逻辑修复，按 review-fix 规则仍需 human verification；本 fixer不运行 full suite、不启用 production `run-ab`、不调用 provider或写 live DB/artifact，最终独占 full suite 与 C1 re-review由 orchestrator完成。
