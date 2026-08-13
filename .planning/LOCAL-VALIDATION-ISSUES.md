@@ -24413,3 +24413,16 @@ candidate DB 已 `complete` v7/cursor 3 后，标准 `candidate --stage complete
 ## 2026-08-13 — Phase 64.5 当前证据链收口
 
 在不新增 attestation 类型、计划或恢复层的前提下，用修正后的 strict seal 重放既有真实两阶段证据：历史 C0 review/gate绑定 `995afd9f...`，当前 code/security review/gate绑定 `5eee5288...`。四份 attestation strict-load通过，唯一 replacement candidate 对 `995→5eee` canonical protected diff构建 promotion request成功；旧candidate/attestation只移入非active superseded目录，原bytes保留。该步骤没有DB/provider/live side effect。
+
+## 2026-08-13 — Phase 64.5 WR-01 修复 Alembic descendant 误拒绝
+
+**问题现象 / 如何检测**
+最新 code review 将 Plan07 的零请求 `source_drift` 定位为 prerequisite 逻辑缺陷。新增两个最小回归后，migration 032 在 `_phase64_4_schema_available()` 与 `_database_prerequisites()` 分别被 exact-031 / exact-029 判断拒绝，RED 为 `2 failed, 1 warning`。
+
+**关键证据 / 当前判断 / 根因**
+必需 relation 与 pgvector capability 均存在时，029、030、031、032 是仓库 Alembic 图中从各自 schema floor 可达的合法 revision；旧实现却比较单个 revision 字符串。缺 relation、缺 pgvector、pre-floor revision 与本地 migration graph 不认识的 future revision 必须继续 fail closed。
+
+**已做处理 / 剩余入口**
+format parity 与 canonical A/B 现在同时要求实际 capability、唯一非空 Alembic head，以及该 head 为本地已知 floor descendant；没有 hardcode 032，也不会接受未知 future head。最小 GREEN `2 passed`，`make format`、完整 `make lint` PASS，两个直接测试文件 `197 passed, 1 warning`。本修复没有连接 live DB、没有重跑 A/B/provider、没有写 authority/candidate/activation；既有 `source_drift` reservation/result保持不可变，Plan08仍未派发。root仍需独立 full suite 与 re-review。
+
+补充：首次校验 `64.5-REVIEW-FIX.md` frontmatter 时把 YAML timestamp 预期成字符串，PyYAML 实际解析为带时区 `datetime`，导致测试辅助断言失败；报告结构本身有效。改为逐字段并对时间做 ISO 规范化后通过，未涉及源码或 live 状态。

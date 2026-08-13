@@ -2077,6 +2077,63 @@ def test_cli_is_provider_only_and_has_no_fake_or_reset_switch() -> None:
         assert forbidden not in source
 
 
+@pytest.mark.asyncio
+async def test_database_prerequisites_accept_known_descendants_and_fail_closed_on_missing_capabilities() -> None:
+    class Result:
+        def __init__(self, row: tuple[bool, bool, str]) -> None:
+            self._row = row
+
+        def one(self) -> tuple[bool, bool, str]:
+            return self._row
+
+    class Session:
+        def __init__(self, row: tuple[bool, bool, str]) -> None:
+            self.row = row
+
+        async def execute(self, _statement: object) -> Result:
+            return Result(self.row)
+
+        async def get(self, model: type[object], _key: object) -> object:
+            if model.__name__ == "Tenant":
+                return SimpleNamespace(
+                    name=format_parity_cli.EVALUATION_TENANT_NAME,
+                    status=format_parity_cli.EVALUATION_TENANT_STATUS,
+                )
+            return SimpleNamespace(
+                rollout_version=1,
+                canonical_reads_enabled=True,
+                dual_write_enabled_at=datetime(2026, 8, 13, tzinfo=UTC),
+            )
+
+        async def rollback(self) -> None:
+            return None
+
+    for revision in (
+        "029_phase64_3_rag_eval_rounds",
+        "030_phase64_4_token_corpora",
+        "031_phase64_4_policy_corpus_cow",
+        "032_phase64_5_provider_execution_authority",
+    ):
+        assert (
+            await format_parity_cli._database_prerequisites(
+                Session((True, True, revision)),
+                expected_rollout_version=1,
+            )
+            == ()
+        )
+
+    for schema in (
+        (False, True, "032_phase64_5_provider_execution_authority"),
+        (True, False, "032_phase64_5_provider_execution_authority"),
+        (True, True, "028_phase64_2_memory_lifecycle"),
+        (True, True, "999_unknown_future"),
+    ):
+        assert await format_parity_cli._database_prerequisites(
+            Session(schema),
+            expected_rollout_version=1,
+        ) == ("database_schema",)
+
+
 def test_run_identity_hash_covers_inputs_time_mode_provider_and_rollout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

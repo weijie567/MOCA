@@ -3119,11 +3119,11 @@
 - **证据**：首次complete verifier输出building/v2但3/3；DB readback complete/v7/cursor3；最终verifier hash `sha256:c9d2621351be06e2c0852adc671be4f429e07aafaad3c4d23dc9aee11abf02f0`。
 - **剩余风险 / 继续入口**：后续修复须让checker查询并精确比较candidate row（含state/version/cursor），并在新protected identity上重新review/promotion；Plan07执行前继续以DB readback补强该已知盲点。
 
-## 2026-08-13 — Phase 64.5 canonical A/B schema compatibility 锁死在 migration 031 🔴待立项
+## 2026-08-13 — Phase 64.5 canonical A/B schema compatibility 锁死在 migration 031 ⚠️修复但验证有缺口
 
 - **子系统**：RAG canonical full-provider A/B / evaluation database prerequisites / immutable provider authority。
 - **问题现象 / 根因**：Plan06 按契约把默认 eval DB 从 031 迁移到 Phase64.5 的 032 后，`_database_prerequisites()` 仍以 exact 029 为基线，A/B compatibility helper `_phase64_4_schema_available()` 又只接受 exact 031，导致合法 032 被判为 `database_schema` 缺失。canonical ordinal 1 因而在 shared preflight 以 `candidate_pair_invalid` / DB `source_drift` 零请求终止。
 - **影响**：Phase64.5 自身要求的 authority migration 与 Plan07 canonical evaluator 互不兼容；即使 promotion、authority、candidate、source、parity和投影计数全部精确，selected-pass 仍不可达。错误被安全地限制在 provider 前，但会永久消费本 lineage 的 ordinal-1 terminal，且 `source_drift` 分类掩盖真实 schema compatibility 原因。
-- **处理状态**：🔴 待新 phase / 新 reviewed identity 修复。本轮 immutable promotion 后禁止修改 protected helper；result code `source_drift` 也不允许 ordinal 2，因此按 honest terminal 收口，不激活、不派发 Plan08。
-- **证据**：Phase64.5 Plan07；DB alembic `032_phase64_5_provider_execution_authority`，`_ab_database_prerequisites(..., expected_rollout_version=1) == ('database_schema',)`；其他 candidate-pair predicates 全部通过，counts `3/158/60`；reservation `b0e3a1b2-...`、result `a17f70e7-...`、actual/max `0/142`。
-- **剩余风险 / 继续入口**：未来应以 capability/ancestor-compatible schema gate替代 exact revision字符串，并为 029→031→032 的 forward-compatible matrix增加回归；同时应把 schema failure映射为可审计的专用 typed result。任何修复都必须重新走 protected code review、promotion与新 authority/candidate/run，不能复用本轮 terminal evidence。
+- **处理状态**：⚠️ 已按 WR-01 修复并完成 focused 验证。format parity 与 canonical A/B 均先核对实际 relation/pgvector capability，再要求唯一 DB head 是仓库 Alembic graph 中已知的 schema-floor descendant；029→032 合法 lineage通过，pre-floor、缺 capability与未知 future revision继续 fail closed。既有 `source_drift` 不重跑、不改写、不使用 ordinal 2，也不激活或派发 Plan08。
+- **证据**：Phase64.5 Plan07 / WR-01；`scripts/eval_rag_format_parity.py`、`scripts/eval_rag_token_chunk_ab.py`及两份直接测试；最小 RED `2 failed, 1 warning`，GREEN `2 passed`，最终 format/lint PASS、focused `197 passed, 1 warning`。原 terminal仍为 reservation `b0e3a1b2-...`、result `a17f70e7-...`、actual/max `0/142`。
+- **剩余风险 / 继续入口**：root尚需独立 full suite与新 exact HEAD code/security re-review；本修复不会追溯性授权或修复已消费 terminal lineage。专用 schema failure result code仍可在后续 phase评估，但不得借此重开本轮 provider预算。

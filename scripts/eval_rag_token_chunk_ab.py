@@ -103,7 +103,7 @@ from src.rag.tokenizer_parity import TokenizerParityError, require_fresh_provide
 from src.repositories.policy_corpus_repo import PolicyCorpusRepository, PolicyCorpusUnavailable
 from src.repositories.provider_execution_authority_repo import ProviderExecutionAuthorityRepository
 from src.repositories.rag_evaluation_round_repo import FORMAT_PARITY_TENANT_ID
-from scripts.eval_rag_format_parity import _database_prerequisites
+from scripts.eval_rag_format_parity import _database_prerequisites, _known_schema_descends_from
 
 
 DEFAULT_MANIFEST = Path("evaluation/rag_sources/format_parity_manifest.jsonl")
@@ -900,11 +900,14 @@ async def _phase64_4_schema_available(session: Any) -> bool:
                 "to_regclass('public.corpus_chunk_bindings') IS NOT NULL, "
                 "to_regclass('public.policy_corpus_activation_history') IS NOT NULL, "
                 "EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector'), "
-                "(SELECT version_num FROM alembic_version LIMIT 1)"
+                "(SELECT CASE WHEN count(*) = 1 THEN min(version_num) END FROM alembic_version)"
             )
         )
     ).one()
-    return all(bool(value) for value in row[:5]) and row[5] == "031_phase64_4_policy_corpus_cow"
+    return all(bool(value) for value in row[:5]) and _known_schema_descends_from(
+        row[5],
+        floor_revision="031_phase64_4_policy_corpus_cow",
+    )
 
 
 def _hard_proofs(snapshot: CandidateProofSnapshot, *, role_runs: tuple[Any, ...]) -> ABHardProofsV1:
