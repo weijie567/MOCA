@@ -14,12 +14,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 import math
+from pathlib import Path
 import re
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Literal, Protocol
 from uuid import UUID, uuid4
 
+from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import (
     CorpusBlockBinding,
@@ -30,9 +32,21 @@ from src.db.models import (
     PolicyCorpusManifestRevision,
     PolicyCorpusVersion,
     PolicyDocument,
+    ProviderExecutionAuthority,
 )
 from src.rag.ingestion import _policy_chunks_from_embedding_inputs
 from src.rag.policy_embedding_input import PolicyEmbeddingInputV1
+from src.rag.provider_execution_authority import (
+    ProviderExecutionPurpose,
+    ProviderExecutionReservationRequestV1,
+    ProviderExecutionReservationViewV1,
+    ProviderExecutionResultCode,
+    ProviderExecutionResultRequestV1,
+    ProviderExecutionResultViewV1,
+    ProviderRequestEnvelopeV1,
+    ProjectionReconciliationViewV1,
+    canonical_sha256,
+)
 from src.repositories.document_block_repo import (
     AuthoritativePolicyDocumentSnapshotV1,
     AuthoritativeSourceSnapshotError,
@@ -58,6 +72,17 @@ POLICY_REINDEX_CLAIM_SCHEMA_VERSION = "policy_reindex_claim.v1"
 POLICY_REINDEX_STATES = frozenset({"claimed", "building", "built", "validating", "complete", "failed", "source_stale"})
 POLICY_REINDEX_TERMINAL_STATES = frozenset({"complete", "failed", "source_stale"})
 DEFAULT_PARITY_MAXIMUM_AGE = timedelta(hours=24)
+REVIEWED_PROVIDER_BATCH_SIZE = 10
+REVIEWED_PROVIDER_OUTER_ATTEMPTS = 1
+REVIEWED_PROVIDER_SDK_RETRIES = 0
+PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH = canonical_sha256(
+    {
+        "schema_version": "provider_execution_envelope_contract.v1",
+        "provider_batch_size": REVIEWED_PROVIDER_BATCH_SIZE,
+        "sdk_retries": REVIEWED_PROVIDER_SDK_RETRIES,
+        "maximum_outer_attempts": REVIEWED_PROVIDER_OUTER_ATTEMPTS,
+    }
+)
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -152,6 +177,16 @@ class PolicyCandidateBuildPreparation:
     state_version: int
     expected_input_count: int
     expected_batch_count: int
+    ordered_input_hashes: tuple[str, ...]
+    embedding_inputs: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewedPolicyCandidateBuildOutcome:
+    owner: PolicyReindexRunIdentity
+    reservation: ProviderExecutionReservationViewV1
+    result: ProviderExecutionResultViewV1
+    projection: ProjectionReconciliationViewV1
 
 
 class PolicyCorpusActivationReason(StrEnum):
@@ -209,6 +244,130 @@ class PolicyCorpusActivationRequest:
 
 class PolicyCandidateEmbedder(Protocol):
     async def embed_documents(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class ReviewedPolicyCandidateBuildService:
+    """Run one inactive document only through committed PostgreSQL authority."""
+
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        authority_service: Any,
+        provider_factory: Callable[..., PolicyCandidateEmbedder],
+    ) -> None:
+        self._sessions = session_factory
+        self._authority = authority_service
+        self._provider_factory = provider_factory
+
+    async def build_next_document(
+        self,
+        owner: PolicyReindexRunIdentity,
+        *,
+        authority_id: UUID,
+        assembler: Any,
+        ordinal: int,
+        projection_path: Path,
+    ) -> ReviewedPolicyCandidateBuildOutcome:
+        """Reserve, recheck, construct, execute, commit, and project one document."""
+
+        await self._authority.require_current_promotion()
+        async with self._sessions.begin() as preflight_session:
+            candidate_service = PolicyReindexService(preflight_session)
+            preparation = await candidate_service.prepare_candidate_build(
+                owner,
+                assembler=assembler,
+                provider_batch_size=REVIEWED_PROVIDER_BATCH_SIZE,
+            )
+            await _require_reviewed_authority_binding(
+                preflight_session,
+                authority_id=authority_id,
+                owner=owner,
+                assembler=assembler,
+            )
+        envelope = _reviewed_provider_envelope(owner, preparation=preparation, assembler=assembler)
+        reservation = await self._authority.reserve_and_commit(
+            ProviderExecutionReservationRequestV1(
+                authority_id=authority_id,
+                purpose=ProviderExecutionPurpose.REVIEWED_BUILD,
+                subject_kind="candidate_document",
+                subject_index=preparation.document_index,
+                subject_hash=_reviewed_document_subject_hash(owner, preparation=preparation),
+                ordinal=ordinal,
+                request_envelope=envelope,
+                explicit_retry=ordinal == 2,
+            )
+        )
+
+        embedder: PolicyCandidateEmbedder | None = None
+        try:
+            await self._authority.recheck_dispatch(reservation)
+            runtime_config = _assembler_runtime_config(assembler)
+            embedder = self._provider_factory(
+                model=str(runtime_config.model),
+                dimensions=int(runtime_config.dimensions),
+                batch_size=REVIEWED_PROVIDER_BATCH_SIZE,
+                max_retries=REVIEWED_PROVIDER_OUTER_ATTEMPTS,
+            )
+            embeddings = await embedder.embed_documents(list(preparation.embedding_inputs))
+            actual_request_count = _provider_request_count(embedder)
+            if actual_request_count != preparation.expected_batch_count:
+                raise RuntimeError("reviewed_provider_request_count_mismatch")
+            async with self._sessions.begin() as build_session:
+                built = await PolicyReindexService(build_session).build_next_document(
+                    owner,
+                    assembler=assembler,
+                    embedder=_PreparedEmbeddingReplay(
+                        ordered_input_hashes=preparation.ordered_input_hashes,
+                        embeddings=embeddings,
+                    ),
+                )
+        except Exception as error:
+            actual_request_count = _provider_request_count(embedder)
+            result_code = _reviewed_provider_result_code(error)
+            await self._authority.record_result(
+                ProviderExecutionResultRequestV1.seal(
+                    reservation_id=reservation.reservation_id,
+                    result_code=result_code,
+                    actual_request_count=actual_request_count,
+                    result_json={
+                        "schema_version": "reviewed_policy_candidate_build_result.v1",
+                        "document_index": preparation.document_index,
+                        "safe_outcome": result_code.value,
+                    },
+                )
+            )
+            await self._authority.reconcile_projection(
+                authority_id=authority_id,
+                projection_path=projection_path,
+            )
+            raise RuntimeError(result_code.value) from None
+
+        result = await self._authority.record_result(
+            ProviderExecutionResultRequestV1.seal(
+                reservation_id=reservation.reservation_id,
+                result_code=ProviderExecutionResultCode.SUCCESS,
+                actual_request_count=actual_request_count,
+                result_json={
+                    "schema_version": "reviewed_policy_candidate_build_result.v1",
+                    "document_index": preparation.document_index,
+                    "post_state_version": built.state_version,
+                    "post_next_document_index": built.next_document_index,
+                    "safe_outcome": ProviderExecutionResultCode.SUCCESS.value,
+                },
+                output_candidate_id=built.corpus_version_id,
+            )
+        )
+        projection = await self._authority.reconcile_projection(
+            authority_id=authority_id,
+            projection_path=projection_path,
+        )
+        return ReviewedPolicyCandidateBuildOutcome(
+            owner=built,
+            reservation=reservation,
+            result=result,
+            projection=projection,
+        )
 
 
 class PolicyReindexService:
@@ -707,6 +866,8 @@ class PolicyReindexService:
             state_version=owner.state_version,
             expected_input_count=len(assembled),
             expected_batch_count=math.ceil(len(assembled) / provider_batch_size),
+            ordered_input_hashes=tuple(item.embedding_input_hash for item in assembled),
+            embedding_inputs=tuple(item.embedding_input for item in assembled),
         )
 
     async def validate_candidate(
@@ -1423,6 +1584,156 @@ def _assembler_dimensions(assembler: Any) -> int:
 
 def _assembler_max_embedding_tokens(assembler: Any) -> int:
     return int(_assembler_runtime_config(assembler).max_embedding_tokens)
+
+
+def _reviewed_document_subject_hash(
+    owner: PolicyReindexRunIdentity,
+    *,
+    preparation: PolicyCandidateBuildPreparation,
+) -> str:
+    return canonical_sha256(
+        {
+            "schema_version": "reviewed_policy_candidate_document_subject.v1",
+            "tenant_id": owner.tenant_id,
+            "candidate_id": owner.corpus_version_id,
+            "run_token": owner.run_token,
+            "document_index": preparation.document_index,
+            "doc_key": preparation.doc_key,
+            "state_version": preparation.state_version,
+            "ordered_input_hashes": preparation.ordered_input_hashes,
+            "input_count": preparation.expected_input_count,
+            "provider_batch_size": REVIEWED_PROVIDER_BATCH_SIZE,
+            "provider_batch_count": preparation.expected_batch_count,
+        }
+    )
+
+
+async def _require_reviewed_authority_binding(
+    session: AsyncSession,
+    *,
+    authority_id: UUID,
+    owner: PolicyReindexRunIdentity,
+    assembler: Any,
+) -> None:
+    authority = await session.get(ProviderExecutionAuthority, authority_id)
+    runtime_config = _assembler_runtime_config(assembler)
+    if (
+        authority is None
+        or authority.tenant_id != owner.tenant_id
+        or authority.run_token != owner.run_token
+        or authority.candidate_id != owner.corpus_version_id
+        or authority.owner_marker != POLICY_REINDEX_OWNER_MARKER
+        or authority.config_schema_version != owner.config_schema_version
+        or authority.config_fingerprint != owner.config_fingerprint
+        or authority.provider_parity_report_hash != owner.provider_parity_report_hash
+        or authority.parity_captured_at != owner.parity_captured_at
+        or authority.parity_expires_at != owner.parity_expires_at
+        or authority.source_manifest_revision_id != owner.source_manifest_revision_id
+        or authority.source_manifest_hash != owner.source_manifest_hash
+        or authority.source_active_corpus_version_id != owner.source_active_corpus_version_id
+        or authority.source_rollout_epoch != owner.source_rollout_epoch
+        or authority.evidence_rollout_version != owner.expected_evidence_rollout_version
+        or authority.candidate_lease_expires_at != owner.lease_expires_at
+        or authority.expires_at != min(owner.parity_expires_at, owner.lease_expires_at)
+        or authority.provider_name != str(runtime_config.provider)
+        or authority.model_name != str(runtime_config.model)
+        or authority.dimensions != int(runtime_config.dimensions)
+        or authority.envelope_contract_hash != PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH
+    ):
+        _fail(PolicyReindexFailureCode.AUTHORITY_UNAVAILABLE)
+
+
+def _reviewed_provider_envelope(
+    owner: PolicyReindexRunIdentity,
+    *,
+    preparation: PolicyCandidateBuildPreparation,
+    assembler: Any,
+) -> ProviderRequestEnvelopeV1:
+    runtime_config = _assembler_runtime_config(assembler)
+    call_sites: list[str] = []
+    for batch_index, offset in enumerate(range(0, preparation.expected_input_count, REVIEWED_PROVIDER_BATCH_SIZE)):
+        batch_hashes = preparation.ordered_input_hashes[offset : offset + REVIEWED_PROVIDER_BATCH_SIZE]
+        batch_hash = canonical_sha256(
+            {
+                "schema_version": "reviewed_policy_candidate_provider_batch.v1",
+                "candidate_id": owner.corpus_version_id,
+                "document_index": preparation.document_index,
+                "batch_index": batch_index,
+                "ordered_input_hashes": batch_hashes,
+                "input_count": len(batch_hashes),
+            }
+        )
+        call_sites.append(
+            f"reviewed_build:document:{preparation.document_index}:batch:{batch_index}:"
+            f"input_count:{len(batch_hashes)}:{batch_hash}"
+        )
+    if len(call_sites) != preparation.expected_batch_count:
+        _fail(PolicyReindexFailureCode.CANDIDATE_PROJECTION_MISMATCH)
+    return ProviderRequestEnvelopeV1.seal(
+        schema_version="reviewed_policy_candidate_document_envelope.v1",
+        contract_hash=PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH,
+        ordered_call_sites=tuple(call_sites),
+        maximum_attempts_per_site=(REVIEWED_PROVIDER_OUTER_ATTEMPTS,) * len(call_sites),
+        maximum_request_count=preparation.expected_batch_count,
+        provider_name=str(runtime_config.provider),
+        model_name=str(runtime_config.model),
+        dimensions=int(runtime_config.dimensions),
+    )
+
+
+def _provider_request_count(embedder: PolicyCandidateEmbedder | None) -> int:
+    if embedder is None:
+        return 0
+    value = getattr(embedder, "request_attempt_count", 0)
+    return value if type(value) is int and value >= 0 else 0
+
+
+class _PreparedEmbeddingReplay:
+    """Replay one already-completed provider response inside the DB write transaction."""
+
+    def __init__(
+        self,
+        *,
+        ordered_input_hashes: tuple[str, ...],
+        embeddings: list[list[float]],
+    ) -> None:
+        self._ordered_input_hashes = ordered_input_hashes
+        self._embeddings = [list(vector) for vector in embeddings]
+
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        if tuple(_sha256_text(text) for text in texts) != self._ordered_input_hashes:
+            _fail(PolicyReindexFailureCode.SOURCE_SNAPSHOT_DRIFT)
+        return [list(vector) for vector in self._embeddings]
+
+
+def _reviewed_provider_result_code(error: Exception) -> ProviderExecutionResultCode:
+    if isinstance(error, PolicyReindexError):
+        if error.code is PolicyReindexFailureCode.CONFIG_DRIFT:
+            return ProviderExecutionResultCode.CONFIGURATION_ERROR
+        if error.code in {PolicyReindexFailureCode.PARITY_DRIFT, PolicyReindexFailureCode.PARITY_STALE}:
+            return ProviderExecutionResultCode.PARITY_ERROR
+        if error.code in {
+            PolicyReindexFailureCode.SOURCE_MANIFEST_DRIFT,
+            PolicyReindexFailureCode.SOURCE_POINTER_DRIFT,
+            PolicyReindexFailureCode.SOURCE_SNAPSHOT_DRIFT,
+            PolicyReindexFailureCode.OBSOLETE_SOURCE,
+        }:
+            return ProviderExecutionResultCode.SOURCE_DRIFT
+        if error.code is PolicyReindexFailureCode.EMBEDDING_PROOF_FAILED:
+            return ProviderExecutionResultCode.RESPONSE_ERROR
+        return ProviderExecutionResultCode.PROJECTION_ERROR
+    if isinstance(error, (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError)):
+        return ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR
+    if isinstance(error, RuntimeError) and str(error).startswith("DASHSCOPE_API_KEY not set"):
+        return ProviderExecutionResultCode.PROVIDER_UNAVAILABLE
+    if isinstance(error, RuntimeError) and str(error) in {
+        "embedding_response_invalid",
+        "reviewed_provider_request_count_mismatch",
+    }:
+        return ProviderExecutionResultCode.RESPONSE_ERROR
+    if isinstance(error, (TypeError, ValueError)):
+        return ProviderExecutionResultCode.CONFIGURATION_ERROR
+    return ProviderExecutionResultCode.UNKNOWN_ERROR
 
 
 def _sha256_text(value: str) -> str:

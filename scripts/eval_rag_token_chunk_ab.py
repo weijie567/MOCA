@@ -13,13 +13,14 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import Any, Callable
+from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import text
 
 from src.config import settings
 from src.db.models import EvidenceIdentityRollout, PolicyCorpusManifestRevision
+from src.db.models import ProviderExecutionAuthority
 from src.db.session import SessionLocal
 from src.knowledge.config import (
     MIN_SIMILARITY_THRESHOLD,
@@ -50,29 +51,33 @@ from src.rag.evaluation.token_chunk_ab import (
     SEALED_GOLD_HASH,
     SEALED_MANIFEST_HASH,
     SEALED_TOTAL_CASE_COUNT,
+    CANONICAL_AB_OUTER_ATTEMPTS,
+    CANONICAL_AB_PROVIDER_BATCH_SIZE,
     ABHardProofsV1,
     ABExecutionDiagnosticV1,
     ABInputIdentityV1,
     ABNamespaceV1,
     ABParityEvidenceV1,
-    ABRecoveryAttemptReservationV1,
     RecoveryLiveAuthorityProofV1,
     ABRuntimeConfigV1,
     ABSelectionBindingV1,
     RecoveryAttemptRefused,
     TerminalABRunV1,
+    CanonicalABRequestEnvelopeV1,
+    CanonicalABExecutionService,
+    CanonicalABRunResultV1,
+    build_canonical_ab_request_envelope,
     build_candidate_observation_from_retrieval,
     build_terminal_ab_run,
+    canonical_ab_typed_failure_result_code,
     issue_canonical_recovery_budget_manifest,
     load_recovery_issuance_identity,
     load_recovery_budget_manifest,
     load_recovery_candidate_state,
-    reserve_recovery_attempt,
-    reserve_then_create_provider,
     require_canonical_recovery_root,
     validate_fixed_plan10_evidence,
     write_execution_error_bundle_create_only,
-    write_recovery_authorization_create_only,
+    write_db_activation_authorization_create_only,
     write_selection_create_only,
     write_terminal_run_create_only,
 )
@@ -84,10 +89,21 @@ from src.rag.ingestion import (
 from src.rag.parsers.runtime import check_ocr_runtime
 from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.rag.policy_reindex import PolicyReindexRunIdentity
+from src.rag.policy_reindex import (
+    POLICY_REINDEX_OWNER_MARKER,
+    PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH,
+)
+from src.rag.policy_reindex_artifacts import (
+    load_policy_reindex_recovery_descriptor,
+    load_policy_reindex_state,
+)
+from src.rag.provider_execution_authority import ProviderExecutionAuthorityService
+from src.rag.provider_execution_authority import ProviderExecutionResultCode
 from src.rag.tokenizer_parity import TokenizerParityError, require_fresh_provider_parity
 from src.repositories.policy_corpus_repo import PolicyCorpusRepository, PolicyCorpusUnavailable
+from src.repositories.provider_execution_authority_repo import ProviderExecutionAuthorityRepository
 from src.repositories.rag_evaluation_round_repo import FORMAT_PARITY_TENANT_ID
-from scripts.eval_rag_format_parity import _database_prerequisites
+from scripts.eval_rag_format_parity import _database_prerequisites, _known_schema_descends_from
 
 
 DEFAULT_MANIFEST = Path("evaluation/rag_sources/format_parity_manifest.jsonl")
@@ -157,8 +173,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--parity-report", type=Path, required=True)
     parser.add_argument("--probe-fixture-hash", required=True)
     parser.add_argument("--submitted-content-hash", required=True)
-    parser.add_argument("--recovery-budget-manifest", type=Path, required=True)
-    parser.add_argument("--prerequisite-state-sha256", required=True)
+    parser.add_argument("--authority-id", type=UUID, required=True)
+    parser.add_argument("--ordinal", type=int, choices=(1, 2), default=1)
     parser.add_argument("--run-id", type=UUID, default=None)
     parser.add_argument("--selection-id", type=UUID, default=None)
     parser.add_argument("--generated-at", default=None)
@@ -175,6 +191,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if generated_at.tzinfo is None:
         parser.error("--generated-at must include a timezone")
     return args
+
+
+def _provider_execution_authority_service() -> ProviderExecutionAuthorityService:
+    repository = ProviderExecutionAuthorityRepository(SessionLocal, project_entry=REPOSITORY_ROOT)
+    return ProviderExecutionAuthorityService(repository)
 
 
 def _runtime(
@@ -215,13 +236,13 @@ def _runtime(
     )
 
 
-def _inputs(args: argparse.Namespace, *, ordered_questions_sha256: str | None = None) -> ABInputIdentityV1:
+def _inputs(args: argparse.Namespace, *, ordered_questions_sha256: str) -> ABInputIdentityV1:
     return ABInputIdentityV1(
         manifest_hash=SEALED_MANIFEST_HASH,
         gold_hash=SEALED_GOLD_HASH,
         dataset_baseline_identity=SEALED_DATASET_BASELINE_IDENTITY,
         baseline_report_sha256=_path_sha256(args.baseline),
-        ordered_questions_sha256=ordered_questions_sha256 or "sha256:" + "0" * 64,
+        ordered_questions_sha256=ordered_questions_sha256,
         answerable_case_count=SEALED_ANSWERABLE_CASE_COUNT,
         total_case_count=SEALED_TOTAL_CASE_COUNT,
     )
@@ -244,6 +265,7 @@ def _unavailable_parity(*, run_id: UUID, generated_at: datetime, reason_code: st
 def _terminal_without_observations(
     args: argparse.Namespace,
     *,
+    inputs: ABInputIdentityV1,
     outcome: str,
     stage: str,
     reason_code: str,
@@ -261,7 +283,7 @@ def _terminal_without_observations(
         failure_class=None,
         terminal_stage=stage,
         safe_reason_codes=(reason_code,),
-        inputs=_inputs(args),
+        inputs=inputs,
         runtime=_runtime(run_id=args.run_id, incumbent_corpus_id=incumbent_id, candidate_corpus_id=candidate_id),
         parity=parity or _unavailable_parity(run_id=args.run_id, generated_at=generated_at, reason_code=reason_code),
         incumbent=None,
@@ -271,11 +293,55 @@ def _terminal_without_observations(
     )
 
 
+def canonical_ab_failure_result_code(failure: SafeRoleFailureV1) -> ProviderExecutionResultCode:
+    """Map one validated failure to DB retry authority without broadening retry."""
+
+    return canonical_ab_typed_failure_result_code(
+        stage=failure.stage,
+        reason_code=failure.reason_code,
+        provider_availability=failure.provider_availability,
+        provider_request_classification=failure.provider_request_classification,
+        outer_rollback_attempted=failure.outer_rollback_attempted,
+        outer_rollback_proved=failure.outer_rollback_proved,
+        provider_request_count=failure.provider_request_count,
+    )
+
+
+def _typed_failure_execution_result(
+    *,
+    args: argparse.Namespace,
+    inputs: ABInputIdentityV1,
+    failure: SafeRoleFailureV1,
+    incumbent_corpus_id: UUID,
+    candidate_corpus_id: UUID,
+    parity: ABParityEvidenceV1 | None,
+    actual_request_count: int,
+) -> CanonicalABRunResultV1:
+    report = _terminal_without_observations(
+        args,
+        inputs=inputs,
+        outcome="execution_error",
+        stage="execution",
+        reason_code=failure.reason_code,
+        incumbent_corpus_id=incumbent_corpus_id,
+        candidate_corpus_id=candidate_corpus_id,
+        parity=parity,
+    )
+    return CanonicalABRunResultV1(
+        report=report,
+        binding=None,
+        diagnostic=_execution_diagnostic_from_failure(report, failure),
+        actual_request_count=actual_request_count,
+        result_code=canonical_ab_failure_result_code(failure),
+    )
+
+
 async def run_full_provider_ab(
     args: argparse.Namespace,
     *,
-    before_provider_call: Callable[[], ABRecoveryAttemptReservationV1],
-) -> tuple[TerminalABRunV1, ABSelectionBindingV1 | None, SafeRoleFailureV1 | None]:
+    inputs: ABInputIdentityV1,
+    embedder: EmbeddingService | None = None,
+) -> CanonicalABRunResultV1:
     generated_at = datetime.fromisoformat(str(args.generated_at).replace("Z", "+00:00")).astimezone(UTC)
     authority_checked_at = getattr(args, "_authority_checked_at", datetime.now(UTC))
     candidate_identity: PolicyReindexRunIdentity | None = getattr(args, "_verified_candidate_identity", None)
@@ -299,19 +365,23 @@ async def run_full_provider_ab(
         _require_sealed_dataset(dataset)
         _require_sealed_baseline(args.baseline)
         questions_hash = _ordered_questions_sha256(ordered_gold_questions(dataset))
-        inputs = _inputs(args, ordered_questions_sha256=questions_hash)
+        if _inputs(args, ordered_questions_sha256=questions_hash) != inputs:
+            raise ValueError("canonical_ab_input_identity_mismatch")
+        build_canonical_ab_request_envelope(
+            dataset=dataset,
+            incumbent_assembler=_character_incumbent(),
+            candidate_assembler=_token_candidate(),
+            repository_root=REPOSITORY_ROOT,
+        )
     except (FormatParityContractError, OSError, ValueError):
-        return (
-            _terminal_without_observations(
-                args,
-                outcome="execution_error",
-                stage="execution",
-                reason_code="sealed_input_invalid",
-                incumbent_corpus_id=incumbent_corpus_id,
-                candidate_corpus_id=candidate_corpus_id,
-            ),
-            None,
-            _shared_preflight_failure(args, reason_code="sealed_input_invalid"),
+        return _typed_failure_execution_result(
+            args=args,
+            inputs=inputs,
+            failure=_shared_preflight_failure(args, reason_code="sealed_input_invalid"),
+            incumbent_corpus_id=incumbent_corpus_id,
+            candidate_corpus_id=candidate_corpus_id,
+            parity=None,
+            actual_request_count=0,
         )
 
     token_assembler = _token_candidate()
@@ -335,19 +405,26 @@ async def run_full_provider_ab(
             reason_code=parity_report.reason_code,
         )
     except (OSError, TokenizerParityError, ValueError):
-        return (
-            _terminal_without_observations(
+        return CanonicalABRunResultV1(
+            report=_terminal_without_observations(
                 args,
+                inputs=inputs,
                 outcome="unavailable",
                 stage="parity",
                 reason_code="provider_usage_unavailable",
                 incumbent_corpus_id=incumbent_corpus_id,
                 candidate_corpus_id=candidate_corpus_id,
             ),
-            None,
-            None,
+            binding=None,
+            diagnostic=None,
+            actual_request_count=0,
+            result_code=ProviderExecutionResultCode.PROVIDER_UNAVAILABLE,
         )
 
+    active_namespace: Any | None = None
+    active_role_run: Any | None = None
+    active_assembler_fingerprint = token_assembler.config.config_fingerprint
+    role_runs = []
     try:
         candidate_snapshot = await _validate_corpus_pair(
             candidate_identity,
@@ -360,26 +437,18 @@ async def run_full_provider_ab(
             incumbent_corpus_version_id=incumbent_corpus_id,
             candidate_corpus_version_id=candidate_corpus_id,
         )
-        _, embedder = reserve_then_create_provider(
-            reserve=before_provider_call,
-            require_current_authority=lambda: load_recovery_candidate_state(
-                manifest=load_recovery_budget_manifest(args.recovery_budget_manifest),
-                root=args.output_root,
-                candidate_state_path=args.candidate_state,
-                provider_parity_report_path=args.parity_report,
-                checked_at=authority_checked_at,
-            ),
-            provider_factory=EmbeddingService,
-        )
+        if embedder is None:
+            raise RecoveryAttemptRefused("provider_not_authorized")
         missing: list[str] = []
         if not (settings.dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY")):
             missing.append("provider_credentials_unavailable")
         if not check_ocr_runtime(required_languages=("chi_sim", "eng")).available:
             missing.append("provider_request_unavailable")
         if missing:
-            return (
-                _terminal_without_observations(
+            return CanonicalABRunResultV1(
+                report=_terminal_without_observations(
                     args,
+                    inputs=inputs,
                     outcome="unavailable",
                     stage="provider",
                     reason_code=missing[0],
@@ -387,12 +456,20 @@ async def run_full_provider_ab(
                     candidate_corpus_id=candidate_corpus_id,
                     parity=parity,
                 ),
-                None,
-                None,
+                binding=None,
+                diagnostic=None,
+                actual_request_count=0,
+                result_code=ProviderExecutionResultCode.PROVIDER_UNAVAILABLE,
             )
-        role_runs = []
         role_durations: list[Decimal] = []
         for namespace, assembler in zip(namespaces, (character_assembler, token_assembler), strict=True):
+            active_namespace = namespace
+            active_role_run = None
+            active_assembler_fingerprint = (
+                character_assembler.config_fingerprint
+                if namespace.role == "incumbent"
+                else token_assembler.config.config_fingerprint
+            )
             started = time.monotonic_ns()
             async with SessionLocal() as session:
                 role_run = await run_rollback_only_retrieval_parity(
@@ -413,13 +490,36 @@ async def run_full_provider_ab(
                     expected_rollout_version=candidate_identity.expected_evidence_rollout_version,
                     input_assembler=assembler,
                 )
+            active_role_run = role_run
             role_runs.append(role_run)
             role_durations.append(Decimal(time.monotonic_ns() - started) / Decimal(1_000_000))
-        if any(
-            item.outcome not in {EvaluationOutcome.COMPLETED_PASS, EvaluationOutcome.COMPLETED_QUALITY_FAIL}
-            for item in role_runs
-        ):
-            raise RuntimeError("retrieval_round_incomplete")
+        for failed_namespace, failed_run in zip(namespaces, role_runs, strict=True):
+            if failed_run.outcome in {
+                EvaluationOutcome.COMPLETED_PASS,
+                EvaluationOutcome.COMPLETED_QUALITY_FAIL,
+            }:
+                continue
+            typed_failure = next(
+                (
+                    round_result.safe_failure
+                    for round_result in reversed(failed_run.rounds)
+                    if round_result.safe_failure
+                ),
+                None,
+            )
+            if typed_failure is None:
+                typed_failure = _unexpected_provider_failure(
+                    args=args,
+                    namespace=failed_namespace,
+                    role_run=failed_run,
+                    assembler_fingerprint=(
+                        character_assembler.config_fingerprint
+                        if failed_namespace.role == "incumbent"
+                        else token_assembler.config.config_fingerprint
+                    ),
+                    provider_request_count=embedder.request_attempt_count,
+                )
+            raise SafeRoleExecutionError(typed_failure)
         try:
             final_snapshot = await _validate_corpus_pair(
                 candidate_identity,
@@ -518,36 +618,45 @@ async def run_full_provider_ab(
             if report.outcome == "selected_pass"
             else None
         )
-        return report, binding, None
+        return CanonicalABRunResultV1(
+            report=report,
+            binding=binding,
+            diagnostic=None,
+            actual_request_count=embedder.request_attempt_count,
+            result_code=(
+                ProviderExecutionResultCode.SUCCESS
+                if report.outcome == "selected_pass"
+                else ProviderExecutionResultCode.QUALITY_FAIL
+            ),
+        )
     except RecoveryAttemptRefused:
         raise
     except SafeRoleExecutionError as safe_error:
-        return (
-            _terminal_without_observations(
-                args,
-                outcome="execution_error",
-                stage="execution",
-                reason_code="provider_execution_failed",
-                incumbent_corpus_id=incumbent_corpus_id,
-                candidate_corpus_id=candidate_corpus_id,
-                parity=parity,
-            ),
-            None,
-            safe_error.failure,
+        return _typed_failure_execution_result(
+            args=args,
+            inputs=inputs,
+            failure=safe_error.failure,
+            incumbent_corpus_id=incumbent_corpus_id,
+            candidate_corpus_id=candidate_corpus_id,
+            parity=parity,
+            actual_request_count=embedder.request_attempt_count if embedder is not None else 0,
         )
     except Exception:
-        return (
-            _terminal_without_observations(
-                args,
-                outcome="execution_error",
-                stage="execution",
-                reason_code="provider_execution_failed",
-                incumbent_corpus_id=incumbent_corpus_id,
-                candidate_corpus_id=candidate_corpus_id,
-                parity=parity,
-            ),
-            None,
-            _shared_preflight_failure(args, reason_code="candidate_pair_invalid"),
+        failure = _unexpected_provider_failure(
+            args=args,
+            namespace=active_namespace,
+            role_run=active_role_run,
+            assembler_fingerprint=active_assembler_fingerprint,
+            provider_request_count=embedder.request_attempt_count if embedder is not None else 0,
+        )
+        return _typed_failure_execution_result(
+            args=args,
+            inputs=inputs,
+            failure=failure,
+            incumbent_corpus_id=incumbent_corpus_id,
+            candidate_corpus_id=candidate_corpus_id,
+            parity=parity,
+            actual_request_count=embedder.request_attempt_count if embedder is not None else 0,
         )
 
 
@@ -635,6 +744,43 @@ async def _validate_corpus_pair(
         )
         await session.rollback()
         return snapshot
+
+
+async def _require_shared_ab_authority_binding(
+    *,
+    authority_id: UUID,
+    owner: PolicyReindexRunIdentity,
+    envelope: CanonicalABRequestEnvelopeV1,
+) -> None:
+    """Prove the supplied ID is the exact reviewed-build shared root."""
+
+    async with SessionLocal() as session:
+        authority = await session.get(ProviderExecutionAuthority, authority_id)
+        if (
+            authority is None
+            or authority.tenant_id != owner.tenant_id
+            or authority.run_token != owner.run_token
+            or authority.candidate_id != owner.corpus_version_id
+            or authority.owner_marker != POLICY_REINDEX_OWNER_MARKER
+            or authority.config_schema_version != owner.config_schema_version
+            or authority.config_fingerprint != owner.config_fingerprint
+            or authority.provider_parity_report_hash != owner.provider_parity_report_hash
+            or authority.parity_captured_at != owner.parity_captured_at
+            or authority.parity_expires_at != owner.parity_expires_at
+            or authority.source_manifest_revision_id != owner.source_manifest_revision_id
+            or authority.source_manifest_hash != owner.source_manifest_hash
+            or authority.source_active_corpus_version_id != owner.source_active_corpus_version_id
+            or authority.source_rollout_epoch != owner.source_rollout_epoch
+            or authority.evidence_rollout_version != owner.expected_evidence_rollout_version
+            or authority.candidate_lease_expires_at != owner.lease_expires_at
+            or authority.expires_at != min(owner.parity_expires_at, owner.lease_expires_at)
+            or authority.provider_name != envelope.provider_request_envelope.provider_name
+            or authority.model_name != envelope.provider_request_envelope.model_name
+            or authority.dimensions != envelope.provider_request_envelope.dimensions
+            or authority.envelope_contract_hash != PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH
+        ):
+            raise RecoveryAttemptRefused("provider_authority_mismatch")
+        await session.rollback()
 
 
 def _complete_candidate_proof(snapshot: CandidateProofSnapshot) -> bool:
@@ -754,11 +900,14 @@ async def _phase64_4_schema_available(session: Any) -> bool:
                 "to_regclass('public.corpus_chunk_bindings') IS NOT NULL, "
                 "to_regclass('public.policy_corpus_activation_history') IS NOT NULL, "
                 "EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector'), "
-                "(SELECT version_num FROM alembic_version LIMIT 1)"
+                "(SELECT CASE WHEN count(*) = 1 THEN min(version_num) END FROM alembic_version)"
             )
         )
     ).one()
-    return all(bool(value) for value in row[:5]) and row[5] == "031_phase64_4_policy_corpus_cow"
+    return all(bool(value) for value in row[:5]) and _known_schema_descends_from(
+        row[5],
+        floor_revision="031_phase64_4_policy_corpus_cow",
+    )
 
 
 def _hard_proofs(snapshot: CandidateProofSnapshot, *, role_runs: tuple[Any, ...]) -> ABHardProofsV1:
@@ -864,6 +1013,39 @@ def _completed_role_resource_failure(
     )
 
 
+def _unexpected_provider_failure(
+    *,
+    args: argparse.Namespace,
+    namespace: Any | None,
+    role_run: Any | None,
+    assembler_fingerprint: str,
+    provider_request_count: int,
+) -> SafeRoleFailureV1:
+    """Describe an otherwise-untyped provider-path failure without raw details."""
+
+    if namespace is None:
+        return _shared_preflight_failure(args, reason_code="candidate_pair_invalid")
+    rounds = tuple(role_run.rounds) if role_run is not None else ()
+    return SafeRoleFailureV1(
+        failing_role="character_incumbent" if namespace.role == "incumbent" else "token_candidate",
+        round_format=rounds[-1].round_format if rounds else None,
+        stage="retrieval_resource_proof",
+        reason_code="provider_execution_failed",
+        provider_availability="available",
+        provider_request_classification="request_started" if provider_request_count else "not_attempted",
+        outer_rollback_attempted=bool(rounds),
+        outer_rollback_proved=bool(rounds) and all(round_result.post_state_proved for round_result in rounds),
+        completed_round_count=len(rounds),
+        provider_request_count=provider_request_count,
+        safe_context_sha256="sha256:"
+        + _round_identity_hash(
+            args=args,
+            role=namespace.role,
+            assembler_fingerprint=assembler_fingerprint,
+        ),
+    )
+
+
 def _valid_sha256(value: object) -> bool:
     return bool(
         isinstance(value, str)
@@ -917,45 +1099,101 @@ async def main(argv: list[str] | None = None) -> int:
     authority_checked_at = datetime.now(UTC)
     if args.command == "issue-recovery-budget":
         return await _issue_recovery_budget(args, checked_at=authority_checked_at)
-    if args.command == "run-ab":
-        return _refuse_live_provider_execution()
+    authority_service = _provider_execution_authority_service()
+    await authority_service.require_current_promotion()
     args._authority_checked_at = authority_checked_at
-    reservation_holder: dict[str, ABRecoveryAttemptReservationV1] = {}
     try:
         args.output_root = require_canonical_recovery_root(
             output_root=args.output_root,
             repository_root=REPOSITORY_ROOT,
         )
-        manifest = load_recovery_budget_manifest(args.recovery_budget_manifest)
-        expected_manifest_path = args.output_root / "recovery-budgets" / manifest.budget_id / "manifest.json"
-        if args.recovery_budget_manifest.absolute() != expected_manifest_path.absolute():
-            raise RecoveryAttemptRefused("recovery_budget_identity_mismatch")
-        args._verified_candidate_identity = load_recovery_candidate_state(
-            manifest=manifest,
-            root=args.output_root,
-            candidate_state_path=args.candidate_state,
-            provider_parity_report_path=args.parity_report,
-            checked_at=authority_checked_at,
+        descriptor = load_policy_reindex_recovery_descriptor(
+            args.candidate_state.parents[1] / "descriptor.json",
+            root=args.output_root / "candidates",
         )
-
-        def reserve() -> ABRecoveryAttemptReservationV1:
-            reservation = reserve_recovery_attempt(
-                manifest_path=args.recovery_budget_manifest,
-                root=args.output_root,
-                candidate_state_path=args.candidate_state,
-                provider_parity_report_path=args.parity_report,
-                run_id=args.run_id,
-                selection_id=args.selection_id,
-                reserved_at=authority_checked_at,
-                prerequisite_state_sha256=args.prerequisite_state_sha256,
-            )
-            reservation_holder["reservation"] = reservation
-            return reservation
-
-        report, binding, safe_failure = await run_full_provider_ab(
-            args,
-            before_provider_call=reserve,
+        owner = load_policy_reindex_state(
+            args.candidate_state,
+            descriptor=descriptor,
+            root=args.output_root / "candidates",
         )
+        if owner.state != "complete":
+            raise RecoveryAttemptRefused("candidate_identity_invalid")
+        args._verified_candidate_identity = owner
+        dataset = load_format_parity_contract(args.manifest, args.gold, repository_root=REPOSITORY_ROOT)
+        envelope = build_canonical_ab_request_envelope(
+            dataset=dataset,
+            incumbent_assembler=_character_incumbent(),
+            candidate_assembler=_token_candidate(),
+            repository_root=REPOSITORY_ROOT,
+        )
+        questions_hash = _ordered_questions_sha256(ordered_gold_questions(dataset))
+        inputs = _inputs(args, ordered_questions_sha256=questions_hash)
+
+        def persist_terminal(execution, reservation, result_id):
+            report = execution.report
+            binding = execution.binding
+            if report.outcome == "execution_error":
+                if execution.diagnostic is None:
+                    raise ValueError("canonical_ab_execution_diagnostic_missing")
+                bundle = write_execution_error_bundle_create_only(
+                    report,
+                    diagnostic=execution.diagnostic,
+                    root=args.output_root,
+                )
+                terminal = bundle.run
+            else:
+                terminal = write_terminal_run_create_only(report, root=args.output_root)
+            values = {
+                "terminal_run_hash": terminal.json_sha256,
+                "terminal_report_hash": terminal.markdown_sha256,
+                "selection_decision_hash": None,
+                "activation_authorization_hash": None,
+            }
+            if binding is not None:
+                selection = write_selection_create_only(
+                    report,
+                    binding=binding,
+                    terminal_run_sha256=terminal.json_sha256,
+                    root=args.output_root,
+                )
+                authorization = write_db_activation_authorization_create_only(
+                    root=args.output_root,
+                    report=report,
+                    binding=binding,
+                    authority_id=args.authority_id,
+                    reservation_id=reservation.reservation_id,
+                    result_id=result_id,
+                    terminal_run_sha256=terminal.json_sha256,
+                    selection_sha256=selection.json_sha256,
+                )
+                values["selection_decision_hash"] = selection.json_sha256
+                values["activation_authorization_hash"] = authorization.sha256
+            return values
+
+        async def run(embedder):
+            return await run_full_provider_ab(args, inputs=inputs, embedder=embedder)
+
+        outcome = await CanonicalABExecutionService(
+            authority_service=authority_service,
+            require_shared_root=_require_shared_ab_authority_binding,
+        ).execute(
+            authority_id=args.authority_id,
+            expected_run_id=args.run_id,
+            owner=owner,
+            inputs=inputs,
+            envelope=envelope,
+            ordinal=args.ordinal,
+            run=run,
+            projection_path=(args.output_root / "provider-authority" / f"canonical-ab.ordinal-{args.ordinal}.v2.json"),
+            persist_terminal=persist_terminal,
+            construct_provider=lambda: EmbeddingService(
+                model=envelope.provider_request_envelope.model_name,
+                dimensions=envelope.provider_request_envelope.dimensions,
+                batch_size=CANONICAL_AB_PROVIDER_BATCH_SIZE,
+                max_retries=CANONICAL_AB_OUTER_ATTEMPTS,
+            ),
+        )
+        report = outcome.report
     except RecoveryAttemptRefused as refusal:
         print(
             json.dumps(
@@ -968,50 +1206,13 @@ async def main(argv: list[str] | None = None) -> int:
             )
         )
         return 4
-    try:
-        if report.outcome == "execution_error":
-            failure = safe_failure or _shared_preflight_failure(args, reason_code="candidate_pair_invalid")
-            bundle = write_execution_error_bundle_create_only(
-                report,
-                diagnostic=_execution_diagnostic_from_failure(report, failure),
-                root=args.output_root,
-            )
-            run_pair = bundle.run
-        else:
-            run_pair = write_terminal_run_create_only(report, root=args.output_root)
-        if report.outcome == "selected_pass":
-            if binding is None:
-                raise ValueError("selected_binding_missing")
-            selection_pair = write_selection_create_only(
-                report,
-                binding=binding,
-                terminal_run_sha256=run_pair.json_sha256,
-                root=args.output_root,
-            )
-            reservation = reservation_holder.get("reservation")
-            if reservation is None:
-                raise ValueError("recovery_reservation_missing")
-            write_recovery_authorization_create_only(
-                root=args.output_root,
-                manifest_path=args.recovery_budget_manifest,
-                reservation_path=(
-                    args.recovery_budget_manifest.parent / "attempts" / f"{reservation.ordinal:02d}.json"
-                ),
-                candidate_state_path=args.candidate_state,
-                provider_parity_report_path=args.parity_report,
-                terminal_run_path=run_pair.json_path,
-                selection_path=selection_pair.json_path,
-                checked_at=report.generated_at,
-            )
-    except (OSError, ValueError):
-        return 2
     print(
         json.dumps(
             {
                 "schema_version": report.schema_version,
                 "run_id": str(report.run_id),
                 "outcome": report.outcome,
-                "run_sha256": run_pair.json_sha256,
+                "result_sha256": outcome.result.result_hash,
             },
             separators=(",", ":"),
             sort_keys=True,

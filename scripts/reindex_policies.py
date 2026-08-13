@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from sqlalchemy import select
 
-from src.db.models import EvidenceIdentityRollout
+from src.db.models import EvidenceIdentityRollout, PolicyCorpusVersion
 from src.db.session import SessionLocal
 from src.rag.activation_receipt import (
     ActivationArtifactPaths,
@@ -27,6 +27,8 @@ from src.rag.embedding_tokenizer import load_embedding_tokenizer_config
 from src.rag.embedder import EmbeddingService
 from src.rag.policy_embedding_input import PolicyEmbeddingInputAssembler
 from src.rag.policy_reindex import (
+    POLICY_REINDEX_OWNER_MARKER,
+    PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH,
     FreshProviderParityClaimV1,
     PolicyCorpusActivationReason,
     PolicyCorpusActivationRequest,
@@ -35,6 +37,7 @@ from src.rag.policy_reindex import (
     PolicyReindexFailureCode,
     PolicyReindexRunIdentity,
     PolicyReindexService,
+    ReviewedPolicyCandidateBuildService,
 )
 from src.rag.policy_reindex_artifacts import (
     CandidateBuildResultCode,
@@ -57,21 +60,26 @@ from src.rag.policy_reindex_artifacts import (
     reviewed_artifact_read_bytes,
     reviewed_artifact_revalidate_namespace,
     require_candidate_build_budget_complete,
-    reserve_candidate_build_attempt,
     secure_policy_reindex_artifact_namespace,
     write_policy_candidate_build_budget_create_only,
     write_policy_reindex_compat_identity_create_only,
     write_policy_reindex_recovery_descriptor_create_only,
     write_policy_reindex_state_create_only,
 )
+from src.rag.provider_execution_authority import (
+    ProviderExecutionAuthorityRequestV1,
+    ProviderExecutionAuthorityService,
+)
 from src.rag.tokenizer_parity import require_fresh_provider_parity
 from src.repositories.policy_corpus_repo import PolicyCorpusRepository
+from src.repositories.provider_execution_authority_repo import ProviderExecutionAuthorityRepository
 
 
 DEFAULT_ACTIVATION_ROOT = Path("evaluation/reports/rag_token_chunk_ab/v1/activations")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 REVIEWED_CANDIDATE_RELATIVE_ROOT = Path("evaluation/reports/rag_token_chunk_ab/v1/candidates")
 LIVE_PROVIDER_EXECUTION_DISABLED = "live_provider_execution_disabled"
+REVIEWED_AUTHORITY_PROJECTION_FILENAME = "provider-authority.v2.json"
 
 
 def _refuse_live_provider_execution() -> int:
@@ -117,8 +125,13 @@ def _parse_args() -> argparse.Namespace:
     _add_reviewed_identity_args(claim_reviewed)
     recover_state = subcommands.add_parser("recover-state")
     _add_reviewed_identity_args(recover_state)
+    issue_provider_authority = subcommands.add_parser("issue-provider-authority")
+    _add_reviewed_identity_args(issue_provider_authority)
+    issue_provider_authority.add_argument("--parity-report", type=Path, required=True)
     build_next_reviewed = subcommands.add_parser("build-next-reviewed")
     _add_reviewed_identity_args(build_next_reviewed)
+    build_next_reviewed.add_argument("--authority-id", type=UUID, required=True)
+    build_next_reviewed.add_argument("--ordinal", type=int, choices=(1, 2), required=True)
     validate_reviewed = subcommands.add_parser("validate-reviewed")
     _add_reviewed_identity_args(validate_reviewed)
 
@@ -218,12 +231,12 @@ def _utc_now() -> datetime:
 def _secure_reviewed_artifact_command(
     *,
     create_run: bool = False,
-) -> Callable[[Callable[[argparse.Namespace], Awaitable[Any]]], Callable[[argparse.Namespace], Awaitable[Any]]]:
+) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]:
     def decorate(
-        function: Callable[[argparse.Namespace], Awaitable[Any]],
-    ) -> Callable[[argparse.Namespace], Awaitable[Any]]:
+        function: Callable[..., Awaitable[Any]],
+    ) -> Callable[..., Awaitable[Any]]:
         @wraps(function)
-        async def secured(args: argparse.Namespace) -> Any:
+        async def secured(args: argparse.Namespace, *function_args: Any, **function_kwargs: Any) -> Any:
             artifact_root = _require_canonical_reviewed_root(args)
             try:
                 with secure_policy_reindex_artifact_namespace(
@@ -232,7 +245,7 @@ def _secure_reviewed_artifact_command(
                     run_token=args.run_token,
                     create_run=create_run,
                 ):
-                    return await function(args)
+                    return await function(args, *function_args, **function_kwargs)
             except PolicyReindexArtifactError as error:
                 if str(error) == "artifact_namespace_invalid":
                     raise RuntimeError("reviewed_artifact_namespace_invalid") from None
@@ -350,6 +363,158 @@ def _reviewed_descriptor(args: argparse.Namespace):
         run_token=args.run_token,
     )
     return load_policy_reindex_recovery_descriptor(path, root=artifact_root)
+
+
+def _provider_execution_authority_service() -> ProviderExecutionAuthorityService:
+    repository = ProviderExecutionAuthorityRepository(SessionLocal, project_entry=REPOSITORY_ROOT)
+    return ProviderExecutionAuthorityService(repository)
+
+
+def _reviewed_authority_issued_projection_path(args: argparse.Namespace) -> Path:
+    return (
+        args.artifact_root
+        / "tenants"
+        / str(args.tenant_id)
+        / "runs"
+        / str(args.run_token)
+        / REVIEWED_AUTHORITY_PROJECTION_FILENAME
+    )
+
+
+def _reviewed_authority_result_projection_path(
+    args: argparse.Namespace,
+    *,
+    document_index: int,
+    ordinal: int,
+) -> Path:
+    return (
+        args.artifact_root
+        / "tenants"
+        / str(args.tenant_id)
+        / "runs"
+        / str(args.run_token)
+        / f"provider-authority.document-{document_index:08d}.ordinal-{ordinal:02d}.v2.json"
+    )
+
+
+async def _derive_provider_authority_request(args: argparse.Namespace) -> ProviderExecutionAuthorityRequestV1:
+    async with SessionLocal() as session:
+        candidate = (
+            await session.execute(
+                select(PolicyCorpusVersion).where(
+                    PolicyCorpusVersion.tenant_id == args.tenant_id,
+                    PolicyCorpusVersion.run_token == args.run_token,
+                )
+            )
+        ).scalar_one_or_none()
+        if candidate is None:
+            raise PolicyReindexError(PolicyReindexFailureCode.AUTHORITY_UNAVAILABLE)
+        proof = candidate.validation_proof_json if isinstance(candidate.validation_proof_json, dict) else None
+        claim = proof.get("claim") if proof is not None else None
+        descriptor_binding = proof.get("recovery_descriptor") if proof is not None else None
+        if not isinstance(claim, dict) or not isinstance(descriptor_binding, dict):
+            raise PolicyReindexError(PolicyReindexFailureCode.RUN_IDENTITY_MISMATCH)
+        try:
+            parity_captured_at = datetime.fromisoformat(str(claim["parity_captured_at"]))
+            parity_expires_at = datetime.fromisoformat(str(claim["parity_expires_at"]))
+            probe_fixture_sha256 = str(descriptor_binding["parity_probe_fixture_sha256"])
+            submitted_content_sha256 = str(descriptor_binding["parity_submitted_content_sha256"])
+        except (KeyError, TypeError, ValueError):
+            raise PolicyReindexError(PolicyReindexFailureCode.RUN_IDENTITY_MISMATCH) from None
+        if parity_captured_at.tzinfo is None or parity_expires_at.tzinfo is None:
+            raise PolicyReindexError(PolicyReindexFailureCode.RUN_IDENTITY_MISMATCH)
+        candidate_values = {
+            "candidate_id": candidate.id,
+            "owner_marker": candidate.owner_marker,
+            "config_schema_version": candidate.config_schema_version,
+            "config_json": dict(candidate.config_json or {}),
+            "config_fingerprint": candidate.config_fingerprint,
+            "provider_parity_report_hash": candidate.provider_parity_report_hash,
+            "source_manifest_revision_id": candidate.source_manifest_revision_id,
+            "source_manifest_hash": candidate.source_manifest_hash,
+            "source_active_corpus_version_id": candidate.source_active_corpus_version_id,
+            "source_rollout_epoch": candidate.source_rollout_epoch,
+            "evidence_rollout_version": candidate.expected_evidence_rollout_version,
+            "candidate_lease_expires_at": candidate.lease_expires_at,
+        }
+
+    config = load_embedding_tokenizer_config()
+    config_payload = asdict(config)
+    config_payload.pop("config_fingerprint")
+    config_payload.pop("_asset_root")
+    if (
+        candidate_values["owner_marker"] != POLICY_REINDEX_OWNER_MARKER
+        or candidate_values["config_schema_version"] != config.schema_version
+        or candidate_values["config_json"] != config_payload
+        or candidate_values["config_fingerprint"] != config.config_fingerprint
+    ):
+        raise PolicyReindexError(PolicyReindexFailureCode.CONFIG_DRIFT)
+    report = require_fresh_provider_parity(
+        args.parity_report,
+        config=config,
+        expected_probe_fixture_sha256=probe_fixture_sha256,
+        expected_submitted_content_sha256=submitted_content_sha256,
+    )
+    try:
+        parity_report_hash = "sha256:" + hashlib.sha256(args.parity_report.read_bytes()).hexdigest()
+    except OSError:
+        raise PolicyReindexError(PolicyReindexFailureCode.PARITY_DRIFT) from None
+    if parity_report_hash != candidate_values["provider_parity_report_hash"] or report.captured_at.astimezone(
+        UTC
+    ) != parity_captured_at.astimezone(UTC):
+        raise PolicyReindexError(PolicyReindexFailureCode.PARITY_DRIFT)
+    required_values = (
+        candidate_values["source_manifest_revision_id"],
+        candidate_values["source_manifest_hash"],
+        candidate_values["source_active_corpus_version_id"],
+        candidate_values["source_rollout_epoch"],
+        candidate_values["evidence_rollout_version"],
+        candidate_values["candidate_lease_expires_at"],
+    )
+    if any(value is None for value in required_values):
+        raise PolicyReindexError(PolicyReindexFailureCode.SOURCE_POINTER_DRIFT)
+    candidate_lease_expires_at = candidate_values["candidate_lease_expires_at"]
+    assert isinstance(candidate_lease_expires_at, datetime)
+    return ProviderExecutionAuthorityRequestV1(
+        tenant_id=args.tenant_id,
+        run_token=args.run_token,
+        candidate_id=candidate_values["candidate_id"],
+        owner_marker=POLICY_REINDEX_OWNER_MARKER,
+        config_schema_version=config.schema_version,
+        config_json=config_payload,
+        config_fingerprint=config.config_fingerprint,
+        provider_parity_run_id=report.run_id,
+        provider_parity_report_hash=parity_report_hash,
+        provider_parity_probe_fixture_sha256=report.probe_fixture_sha256,
+        provider_parity_submitted_content_sha256=report.submitted_content_sha256,
+        parity_captured_at=parity_captured_at,
+        parity_expires_at=parity_expires_at,
+        source_manifest_revision_id=candidate_values["source_manifest_revision_id"],
+        source_manifest_hash=candidate_values["source_manifest_hash"],
+        source_active_corpus_version_id=candidate_values["source_active_corpus_version_id"],
+        source_rollout_epoch=candidate_values["source_rollout_epoch"],
+        evidence_rollout_version=candidate_values["evidence_rollout_version"],
+        candidate_lease_expires_at=candidate_lease_expires_at,
+        expires_at=min(parity_expires_at, candidate_lease_expires_at),
+        provider_name=config.provider,
+        model_name=config.model,
+        dimensions=config.dimensions,
+        envelope_contract_hash=PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH,
+    )
+
+
+@_secure_reviewed_artifact_command()
+async def _issue_provider_authority(args: argparse.Namespace):
+    request = await _derive_provider_authority_request(args)
+    authority_service = _provider_execution_authority_service()
+    authority = await authority_service.issue_authority_root(request)
+    reviewed_artifact_revalidate_namespace()
+    projection = await authority_service.reconcile_projection(
+        authority_id=authority.authority_id,
+        projection_path=_reviewed_authority_issued_projection_path(args),
+    )
+    reviewed_artifact_revalidate_namespace()
+    return authority, projection
 
 
 def _ensure_reviewed_budget(args: argparse.Namespace, *, descriptor, owner):
@@ -604,86 +769,38 @@ def _safe_build_result_code(error: Exception) -> CandidateBuildResultCode:
 
 
 @_secure_reviewed_artifact_command()
-async def _build_next_reviewed(args: argparse.Namespace) -> PolicyReindexRunIdentity:
+async def _build_next_reviewed(
+    args: argparse.Namespace,
+    *,
+    authority_service: ProviderExecutionAuthorityService | None = None,
+) -> PolicyReindexRunIdentity:
     descriptor = _reviewed_descriptor(args)
-    state_owner, state_artifact = _latest_reviewed_state_artifact(args, descriptor=descriptor)
-    budget, budget_artifact = _load_reviewed_budget(args, descriptor=descriptor)
-    reservation = None
-    embedder: EmbeddingService | None = None
+    state_owner, _ = _latest_reviewed_state_artifact(args, descriptor=descriptor)
     assembler = PolicyEmbeddingInputAssembler()
-    now = datetime.now(UTC)
-    try:
-        async with SessionLocal() as session:
-            async with session.begin():
-                service = PolicyReindexService(session)
-                current = await service.recover_identity(descriptor, now=now)
-                if current != state_owner:
-                    raise RuntimeError("reindex_state_db_mismatch")
-                prepared = await service.prepare_candidate_build(
-                    current,
-                    assembler=assembler,
-                    provider_batch_size=int(descriptor.config_json["provider_max_batch_inputs"]),
-                    now=now,
-                )
-                reservation = reserve_candidate_build_attempt(
-                    descriptor=descriptor,
-                    owner=current,
-                    state_artifact=state_artifact,
-                    budget=budget,
-                    budget_artifact=budget_artifact,
-                    root=args.artifact_root,
-                    reserved_at=now,
-                    expected_input_count=prepared.expected_input_count,
-                    expected_batch_count=prepared.expected_batch_count,
-                )
-                reviewed_artifact_revalidate_namespace()
-                embedder = EmbeddingService(
-                    model=str(descriptor.config_json["model"]),
-                    dimensions=int(descriptor.config_json["dimensions"]),
-                    batch_size=int(descriptor.config_json["provider_max_batch_inputs"]),
-                    max_retries=1,
-                )
-                owner = await service.build_next_document(
-                    current,
-                    assembler=assembler,
-                    embedder=embedder,
-                    now=now,
-                )
-    except Exception as error:
-        if reservation is not None:
-            result_code = _safe_build_result_code(error)
-            record_candidate_build_result_create_only(
-                descriptor=descriptor,
-                owner=state_owner,
-                budget=budget,
-                budget_artifact=budget_artifact,
-                reservation=reservation,
-                root=args.artifact_root,
-                recorded_at=datetime.now(UTC),
-                result_code=result_code,
-                provider_request_count=embedder.request_attempt_count if embedder is not None else 0,
-            )
-            raise RuntimeError(result_code.value) from None
-        raise
-    post_state_artifact = write_policy_reindex_state_create_only(
-        owner,
+    authority_service = authority_service or _provider_execution_authority_service()
+    reviewed_service = ReviewedPolicyCandidateBuildService(
+        SessionLocal,
+        authority_service=authority_service,
+        provider_factory=EmbeddingService,
+    )
+    outcome = await reviewed_service.build_next_document(
+        state_owner,
+        authority_id=args.authority_id,
+        assembler=assembler,
+        ordinal=args.ordinal,
+        projection_path=_reviewed_authority_result_projection_path(
+            args,
+            document_index=state_owner.next_document_index,
+            ordinal=args.ordinal,
+        ),
+    )
+    reviewed_artifact_revalidate_namespace()
+    write_policy_reindex_state_create_only(
+        outcome.owner,
         descriptor=descriptor,
         root=args.artifact_root,
     )
-    assert reservation is not None and embedder is not None
-    record_candidate_build_result_create_only(
-        descriptor=descriptor,
-        owner=owner,
-        budget=budget,
-        budget_artifact=budget_artifact,
-        reservation=reservation,
-        root=args.artifact_root,
-        recorded_at=datetime.now(UTC),
-        result_code=CandidateBuildResultCode.SUCCESS,
-        provider_request_count=embedder.request_attempt_count,
-        post_state_artifact=post_state_artifact,
-    )
-    return owner
+    return outcome.owner
 
 
 @_secure_reviewed_artifact_command()
@@ -859,7 +976,7 @@ def _load_identity(path: Path) -> PolicyReindexRunIdentity:
 
 async def _main() -> int:
     args = _parse_args()
-    if args.command in {"build-next-reviewed", "build-next"}:
+    if args.command == "build-next":
         return _refuse_live_provider_execution()
     if args.command == "claim":
         owner = await _claim(args)
@@ -872,8 +989,23 @@ async def _main() -> int:
         owner = await _claim_reviewed(args)
     elif args.command == "recover-state":
         owner = await _recover_state(args)
+    elif args.command == "issue-provider-authority":
+        authority, projection = await _issue_provider_authority(args)
+        print(
+            json.dumps(
+                {
+                    "authority_id": str(authority.authority_id),
+                    "projection": str(projection.projection_path),
+                    "projection_sha256": projection.projection_sha256,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
     elif args.command == "build-next-reviewed":
-        owner = await _build_next_reviewed(args)
+        authority_service = _provider_execution_authority_service()
+        await authority_service.require_current_promotion()
+        owner = await _build_next_reviewed(args, authority_service=authority_service)
     elif args.command == "validate-reviewed":
         owner = await _validate_reviewed(args)
     elif args.command == "resume":

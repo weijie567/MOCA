@@ -6,6 +6,7 @@ import argparse
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 import hashlib
 import json
 import os
@@ -16,6 +17,10 @@ import time
 from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from alembic.script.revision import RevisionError
+from alembic.util.exc import CommandError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,6 +80,8 @@ DEFAULT_MANIFEST = "evaluation/rag_sources/format_parity_manifest.jsonl"
 DEFAULT_GOLD = "evaluation/golden/rag_format_parity_gold.json"
 CANONICAL_JSON_NAME = "baseline.json"
 CANONICAL_MARKDOWN_NAME = "baseline.md"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+PHASE64_3_SCHEMA_FLOOR = "029_phase64_3_rag_eval_rounds"
 
 
 def _token_candidate() -> PolicyInputAssembler:
@@ -769,11 +776,15 @@ async def _database_prerequisites(session: AsyncSession, *, expected_rollout_ver
             text(
                 "SELECT to_regclass('public.rag_evaluation_rounds') IS NOT NULL, "
                 "EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector'), "
-                "(SELECT version_num FROM alembic_version LIMIT 1)"
+                "(SELECT CASE WHEN count(*) = 1 THEN min(version_num) END FROM alembic_version)"
             )
         )
     ).one()
-    if not bool(schema[0]) or not bool(schema[1]) or schema[2] != "029_phase64_3_rag_eval_rounds":
+    if (
+        not bool(schema[0])
+        or not bool(schema[1])
+        or not _known_schema_descends_from(schema[2], floor_revision=PHASE64_3_SCHEMA_FLOOR)
+    ):
         missing.append("database_schema")
     tenant = await session.get(Tenant, FORMAT_PARITY_TENANT_ID)
     if tenant is None or tenant.name != EVALUATION_TENANT_NAME or tenant.status != EVALUATION_TENANT_STATUS:
@@ -788,6 +799,26 @@ async def _database_prerequisites(session: AsyncSession, *, expected_rollout_ver
         missing.append("canonical_rollout")
     await session.rollback()
     return tuple(missing)
+
+
+def _known_schema_descends_from(revision: object, *, floor_revision: str) -> bool:
+    """Accept only a repository-known Alembic descendant with the required capabilities."""
+
+    if not isinstance(revision, str) or not revision:
+        return False
+    try:
+        tuple(_migration_scripts().iterate_revisions(revision, floor_revision))
+    except (CommandError, OSError, RevisionError):
+        return False
+    return True
+
+
+@lru_cache(maxsize=1)
+def _migration_scripts() -> ScriptDirectory:
+    config = Config(str(REPOSITORY_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(REPOSITORY_ROOT / "src/db/migrations"))
+    config.set_main_option("path_separator", "os")
+    return ScriptDirectory.from_config(config)
 
 
 async def _claim_or_resume(

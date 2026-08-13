@@ -17,13 +17,24 @@ import os
 from pathlib import Path
 import tempfile
 from typing import Any, Callable, Literal, Mapping, TypeVar
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from src.rag.embedding_tokenizer import ProviderParityStatus
 from src.rag.evaluation.reporting import canonical_report_json_bytes, validate_safe_report_payload
 from src.rag.policy_reindex import PolicyReindexRunIdentity
+from src.rag.provider_execution_authority import (
+    ProviderExecutionPurpose,
+    ProviderExecutionReservationRequestV1,
+    ProviderExecutionReservationViewV1,
+    ProviderExecutionResultCode,
+    ProviderExecutionResultRequestV1,
+    ProviderExecutionResultViewV1,
+    ProviderRequestEnvelopeV1,
+    ProjectionReconciliationViewV1,
+    canonical_sha256,
+)
 from src.rag.policy_reindex_artifacts import (
     PolicyReindexArtifactError,
     load_policy_reindex_recovery_descriptor,
@@ -40,6 +51,7 @@ EXECUTION_BUNDLE_SCHEMA_VERSION = "rag_token_chunk_execution_bundle.v1"
 RECOVERY_BUDGET_SCHEMA_VERSION = "rag_token_chunk_recovery_budget.v1"
 RECOVERY_ATTEMPT_SCHEMA_VERSION = "rag_token_chunk_recovery_attempt.v1"
 RECOVERY_AUTHORIZATION_SCHEMA_VERSION = "rag_token_chunk_recovery_authorization.v1"
+DB_ACTIVATION_AUTHORIZATION_SCHEMA_VERSION = "rag_token_chunk_db_activation_authorization.v1"
 GATE_PROFILE_VERSION = "rag_token_chunk_ab.v1"
 SEALED_MANIFEST_HASH = "e5544b20ecdf05c2eaf3325b4e5f89a4ef752c0b8c0d23b8bac224f006fdd53b"
 SEALED_GOLD_HASH = "c6dc12536270fa9b9532ec4595e0a91d2b4ebddf83754a0f1ec107caabb64b8e"
@@ -65,6 +77,11 @@ _UNAVAILABLE_RETRY_REASONS = {
     "provider_usage_unavailable",
 }
 _ProviderT = TypeVar("_ProviderT")
+CANONICAL_AB_PROVIDER_BATCH_SIZE = 10
+CANONICAL_AB_SDK_RETRIES = 0
+CANONICAL_AB_OUTER_ATTEMPTS = 1
+CANONICAL_AB_REWRITE_REQUEST_COUNT_PER_ROLE_FORMAT = 3
+CANONICAL_AB_QUERY_REQUEST_COUNT = 126
 
 
 class _FrozenModel(BaseModel):
@@ -251,6 +268,248 @@ class ABInputIdentityV1(_FrozenModel):
     ordered_questions_sha256: str = Field(pattern=_SHA256_PATTERN)
     answerable_case_count: Literal[45] = SEALED_ANSWERABLE_CASE_COUNT
     total_case_count: Literal[54] = SEALED_TOTAL_CASE_COUNT
+
+
+class CanonicalABIngestionInputV1(_FrozenModel):
+    role: Literal["incumbent", "candidate"]
+    round_format: Literal["markdown", "digital_pdf", "scanned_pdf"]
+    doc_key: str = Field(min_length=1, max_length=128)
+    source_sha256: str = Field(pattern=_SHA256_PATTERN)
+    assembler_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    parser_status: Literal["success", "degraded", "failed"]
+    parser_failure_code: str | None = Field(default=None, max_length=128)
+    exact_assembled_input_count: int = Field(ge=0)
+    ordered_input_hashes: tuple[str, ...]
+    ordered_batch_call_sites: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def validate_ingestion_batches(self) -> CanonicalABIngestionInputV1:
+        expected_batches = (
+            self.exact_assembled_input_count + CANONICAL_AB_PROVIDER_BATCH_SIZE - 1
+        ) // CANONICAL_AB_PROVIDER_BATCH_SIZE
+        if (
+            len(self.ordered_input_hashes) != self.exact_assembled_input_count
+            or any(not _valid_sha256(value) for value in self.ordered_input_hashes)
+            or len(self.ordered_batch_call_sites) != expected_batches
+            or len(set(self.ordered_batch_call_sites)) != len(self.ordered_batch_call_sites)
+            or (self.parser_status == "failed") != (self.parser_failure_code is not None)
+        ):
+            raise ValueError("canonical_ab_ingestion_envelope_invalid")
+        return self
+
+
+class CanonicalABRequestEnvelopeV1(_FrozenModel):
+    """Offline-computed, source-bound maximum for one complete canonical A/B."""
+
+    schema_version: Literal["canonical_ab_request_envelope.v1"] = "canonical_ab_request_envelope.v1"
+    provider_batch_size: Literal[10] = CANONICAL_AB_PROVIDER_BATCH_SIZE
+    sdk_retries: Literal[0] = CANONICAL_AB_SDK_RETRIES
+    maximum_outer_attempts: Literal[1] = CANONICAL_AB_OUTER_ATTEMPTS
+    base_question_count: Literal[18]
+    rewrite_request_count_per_role_format: Literal[3] = CANONICAL_AB_REWRITE_REQUEST_COUNT_PER_ROLE_FORMAT
+    query_request_count: Literal[126] = CANONICAL_AB_QUERY_REQUEST_COUNT
+    ingestion_request_count: int = Field(ge=0)
+    ordered_ingestion_inputs: tuple[CanonicalABIngestionInputV1, ...] = Field(min_length=18, max_length=18)
+    ordered_query_call_sites: tuple[str, ...] = Field(min_length=126, max_length=126)
+    provider_request_envelope: ProviderRequestEnvelopeV1
+    canonical_hash: str = Field(pattern=_SHA256_PATTERN)
+
+    @classmethod
+    def seal(cls, **values: Any) -> CanonicalABRequestEnvelopeV1:
+        payload = {"schema_version": "canonical_ab_request_envelope.v1", **values}
+        canonical_payload = cls.model_construct(
+            **payload,
+            canonical_hash="sha256:" + "0" * 64,
+        ).model_dump(mode="json", exclude={"canonical_hash"})
+        return cls(**canonical_payload, canonical_hash=_sha256_payload(canonical_payload))
+
+    @model_validator(mode="after")
+    def validate_complete_call_graph(self) -> CanonicalABRequestEnvelopeV1:
+        ingestion_sites = tuple(
+            site for item in self.ordered_ingestion_inputs for site in item.ordered_batch_call_sites
+        )
+        provider = self.provider_request_envelope
+        if (
+            (self.base_question_count + self.rewrite_request_count_per_role_format) * len(_FORMAT_ORDER) * 2
+            != self.query_request_count
+            or len(self.ordered_query_call_sites) != self.query_request_count
+            or len(ingestion_sites) != self.ingestion_request_count
+            or provider.maximum_request_count != self.query_request_count + self.ingestion_request_count
+            or set(provider.ordered_call_sites) != set((*ingestion_sites, *self.ordered_query_call_sites))
+            or len(provider.ordered_call_sites) != len(set(provider.ordered_call_sites))
+            or provider.maximum_attempts_per_site != (CANONICAL_AB_OUTER_ATTEMPTS,) * len(provider.ordered_call_sites)
+            or _sha256_payload(self.model_dump(mode="json", exclude={"canonical_hash"})) != self.canonical_hash
+        ):
+            raise ValueError("canonical_ab_request_envelope_invalid")
+        return self
+
+
+def build_canonical_ab_request_envelope(
+    *,
+    dataset: Any,
+    incumbent_assembler: Any,
+    candidate_assembler: Any,
+    repository_root: Path | None = None,
+) -> CanonicalABRequestEnvelopeV1:
+    """Enumerate the real two-role ingestion/query call graph without provider work."""
+
+    from src.knowledge.retrieval import QUERY_PREFIX
+    from src.knowledge.rewrite import build_query_rewrite_plan
+    from src.rag.evaluation.retrieval_rounds import build_knowledge_query, ordered_gold_questions
+    from src.rag.ingestion import assemble_policy_embedding_inputs
+    from src.rag.parsers.registry import ParserRegistry
+    from src.repositories.rag_evaluation_round_repo import ROUND_FORMATS
+
+    root = (repository_root or Path.cwd()).resolve(strict=True)
+    questions = ordered_gold_questions(dataset)
+    if len(questions) != 18 or tuple(ROUND_FORMATS) != _FORMAT_ORDER or len(dataset.policies) != 3:
+        raise ValueError("canonical_ab_sealed_call_graph_mismatch")
+
+    candidate_config = candidate_assembler.config
+    incumbent_config = incumbent_assembler.counter.config
+    runtime_identity = (
+        str(candidate_config.provider),
+        str(candidate_config.model),
+        int(candidate_config.dimensions),
+    )
+    if (
+        runtime_identity
+        != (
+            str(incumbent_config.provider),
+            str(incumbent_config.model),
+            int(incumbent_config.dimensions),
+        )
+        or int(candidate_config.provider_max_batch_inputs) != CANONICAL_AB_PROVIDER_BATCH_SIZE
+    ):
+        raise ValueError("canonical_ab_provider_config_mismatch")
+
+    parser_registry = ParserRegistry()
+    all_call_sites: list[str] = []
+    ingestion_inputs: list[CanonicalABIngestionInputV1] = []
+    query_call_sites: list[str] = []
+    roles = (
+        ("incumbent", incumbent_assembler, str(incumbent_assembler.config_fingerprint)),
+        ("candidate", candidate_assembler, str(candidate_config.config_fingerprint)),
+    )
+    for role, assembler, assembler_fingerprint in roles:
+        for round_format in ROUND_FORMATS:
+            for policy in dataset.policies:
+                variant = next((item for item in policy.variants if item.format == round_format), None)
+                if variant is None:
+                    raise ValueError("canonical_ab_variant_missing")
+                source_path = Path(variant.path)
+                if not source_path.is_absolute():
+                    source_path = root / source_path
+                try:
+                    source_payload = source_path.read_bytes()
+                except OSError:
+                    raise ValueError("canonical_ab_source_unavailable") from None
+                if hashlib.sha256(source_payload).hexdigest() != variant.sha256:
+                    raise ValueError("canonical_ab_source_hash_mismatch")
+                metadata = {
+                    "doc_key": policy.doc_key,
+                    "title": policy.title,
+                    "doc_type": "evaluation_policy",
+                    "risk_level": "low",
+                    "source_type": variant.source_type,
+                }
+                parsed = parser_registry.parse(
+                    source_path,
+                    doc_key=policy.doc_key,
+                    source_type=variant.source_type,
+                    metadata=metadata,
+                )
+                blocks = tuple(block for block in parsed.blocks if block.text.strip())
+                assembled = assemble_policy_embedding_inputs(
+                    blocks=blocks,
+                    doc_key=policy.doc_key,
+                    title=policy.title,
+                    doc_type="evaluation_policy",
+                    risk_level="low",
+                    input_assembler=assembler,
+                )
+                ordered_hashes = tuple(item.embedding_input_hash for item in assembled)
+                batch_sites: list[str] = []
+                for batch_index, offset in enumerate(range(0, len(ordered_hashes), CANONICAL_AB_PROVIDER_BATCH_SIZE)):
+                    batch_hashes = ordered_hashes[offset : offset + CANONICAL_AB_PROVIDER_BATCH_SIZE]
+                    batch_hash = _sha256_payload(
+                        {
+                            "schema_version": "canonical_ab_ingestion_batch.v1",
+                            "role": role,
+                            "round_format": round_format,
+                            "doc_key": policy.doc_key,
+                            "batch_index": batch_index,
+                            "input_count": len(batch_hashes),
+                            "ordered_input_hashes": batch_hashes,
+                        }
+                    )
+                    site = (
+                        f"ab/{role}/{round_format}/ingest/{policy.doc_key}/"
+                        f"{batch_index}/{len(batch_hashes)}/{batch_hash}"
+                    )
+                    batch_sites.append(site)
+                    all_call_sites.append(site)
+                ingestion_inputs.append(
+                    CanonicalABIngestionInputV1(
+                        role=role,
+                        round_format=round_format,
+                        doc_key=policy.doc_key,
+                        source_sha256="sha256:" + variant.sha256,
+                        assembler_fingerprint=assembler_fingerprint,
+                        parser_status=parsed.status,
+                        parser_failure_code=parsed.failure_code,
+                        exact_assembled_input_count=len(ordered_hashes),
+                        ordered_input_hashes=ordered_hashes,
+                        ordered_batch_call_sites=tuple(batch_sites),
+                    )
+                )
+            for query_index, (doc_key, case_id, question) in enumerate(questions):
+                _, context = build_knowledge_query(
+                    question=question,
+                    generated_at="1970-01-01T00:00:00Z",
+                )
+                rewrite_plan = build_query_rewrite_plan(question, context)
+                provider_queries = (("original", 0, question),) + tuple(
+                    ("rewrite", rewrite_index, rewritten)
+                    for rewrite_index, rewritten in enumerate(rewrite_plan.rewritten_queries, start=1)
+                )
+                for query_kind, channel_index, provider_query in provider_queries:
+                    input_hash = (
+                        "sha256:" + hashlib.sha256(f"{QUERY_PREFIX}{provider_query}".encode("utf-8")).hexdigest()
+                    )
+                    site = (
+                        f"ab/{role}/{round_format}/query/{query_index}/{query_kind}/"
+                        f"{channel_index}/{doc_key}/{case_id}/1/{input_hash}"
+                    )
+                    query_call_sites.append(site)
+                    all_call_sites.append(site)
+
+    from src.rag.policy_reindex import PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH
+
+    provider_envelope = ProviderRequestEnvelopeV1.seal(
+        schema_version="canonical_ab_provider_request_envelope.v1",
+        contract_hash=PROVIDER_EXECUTION_ENVELOPE_CONTRACT_HASH,
+        ordered_call_sites=tuple(all_call_sites),
+        maximum_attempts_per_site=(CANONICAL_AB_OUTER_ATTEMPTS,) * len(all_call_sites),
+        maximum_request_count=len(all_call_sites),
+        provider_name=runtime_identity[0],
+        model_name=runtime_identity[1],
+        dimensions=runtime_identity[2],
+    )
+    return CanonicalABRequestEnvelopeV1.seal(
+        provider_batch_size=CANONICAL_AB_PROVIDER_BATCH_SIZE,
+        sdk_retries=CANONICAL_AB_SDK_RETRIES,
+        maximum_outer_attempts=CANONICAL_AB_OUTER_ATTEMPTS,
+        base_question_count=len(questions),
+        rewrite_request_count_per_role_format=(
+            len(query_call_sites) // (len(roles) * len(ROUND_FORMATS)) - len(questions)
+        ),
+        query_request_count=len(query_call_sites),
+        ingestion_request_count=sum(len(item.ordered_batch_call_sites) for item in ingestion_inputs),
+        ordered_ingestion_inputs=tuple(ingestion_inputs),
+        ordered_query_call_sites=tuple(query_call_sites),
+        provider_request_envelope=provider_envelope,
+    )
 
 
 class ABNamespaceV1(_FrozenModel):
@@ -443,6 +702,382 @@ class TerminalABRunV1(_FrozenModel):
                 raise ValueError("non_completed_stage_invalid")
         validate_safe_report_payload(self.model_dump(mode="json"))
         return self
+
+
+def canonical_ab_result_code(report: TerminalABRunV1) -> ProviderExecutionResultCode:
+    """Map one truthful terminal A/B outcome to the committed DB result class."""
+
+    if report.outcome == "selected_pass":
+        return ProviderExecutionResultCode.SUCCESS
+    if report.outcome == "candidate_failed":
+        return (
+            ProviderExecutionResultCode.SAFETY_FAIL
+            if report.failure_class == "safety_fail"
+            else ProviderExecutionResultCode.QUALITY_FAIL
+        )
+    if report.outcome == "unavailable":
+        return ProviderExecutionResultCode.PROVIDER_UNAVAILABLE
+    return ProviderExecutionResultCode.UNKNOWN_ERROR
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalABExecutionOutcomeV1:
+    report: TerminalABRunV1
+    binding: ABSelectionBindingV1 | None
+    reservation: ProviderExecutionReservationViewV1
+    result: ProviderExecutionResultViewV1
+    projection: ProjectionReconciliationViewV1
+
+
+def canonical_ab_subject_hash(
+    *,
+    expected_run_id: UUID,
+    owner: PolicyReindexRunIdentity,
+    inputs: ABInputIdentityV1,
+    envelope: CanonicalABRequestEnvelopeV1,
+) -> str:
+    """Bind the A/B reservation to one exact shared-root comparison."""
+
+    if not isinstance(expected_run_id, UUID) or expected_run_id.int == 0:
+        raise ValueError("canonical_ab_run_id_invalid")
+    return canonical_sha256(
+        {
+            "schema_version": "canonical_ab_subject.v2",
+            "run_id": expected_run_id,
+            "tenant_id": owner.tenant_id,
+            "run_token": owner.run_token,
+            "candidate_corpus_version_id": owner.corpus_version_id,
+            "incumbent_corpus_version_id": owner.source_active_corpus_version_id,
+            "candidate_state_version": owner.state_version,
+            "candidate_config_fingerprint": owner.config_fingerprint,
+            "candidate_parity_report_hash": owner.provider_parity_report_hash,
+            "candidate_source_manifest_revision_id": owner.source_manifest_revision_id,
+            "candidate_source_manifest_hash": owner.source_manifest_hash,
+            "candidate_source_rollout_epoch": owner.source_rollout_epoch,
+            "candidate_evidence_rollout_version": owner.expected_evidence_rollout_version,
+            "candidate_lease_expires_at": owner.lease_expires_at,
+            "inputs": inputs.model_dump(mode="json"),
+            "request_envelope_hash": envelope.canonical_hash,
+        }
+    )
+
+
+def require_exact_canonical_ab_lineage(
+    *,
+    expected_run_id: UUID,
+    report: TerminalABRunV1,
+    binding: ABSelectionBindingV1 | None,
+    owner: PolicyReindexRunIdentity,
+    reservation: ProviderExecutionReservationViewV1,
+    request: ProviderExecutionReservationRequestV1,
+) -> None:
+    """Reject report/selection bytes not owned by the reserved DB subject."""
+
+    from src.rag.evaluation.retrieval_rounds import build_ab_round_namespaces
+
+    expected_namespaces = build_ab_round_namespaces(
+        run_id=expected_run_id,
+        incumbent_corpus_version_id=owner.source_active_corpus_version_id,
+        candidate_corpus_version_id=owner.corpus_version_id,
+    )
+    report_lineage = (
+        report.run_id,
+        report.runtime.tenant_id,
+        report.runtime.incumbent.corpus_version_id,
+        report.runtime.candidate.corpus_version_id,
+        report.runtime.provider,
+        report.runtime.embedding_model,
+        report.runtime.embedding_dimensions,
+        report.runtime.incumbent.round_owner,
+        report.runtime.candidate.round_owner,
+    )
+    expected_report_lineage = (
+        expected_run_id,
+        owner.tenant_id,
+        owner.source_active_corpus_version_id,
+        owner.corpus_version_id,
+        request.request_envelope.provider_name,
+        request.request_envelope.model_name,
+        request.request_envelope.dimensions,
+        expected_namespaces[0].round_owner,
+        expected_namespaces[1].round_owner,
+    )
+    if report_lineage != expected_report_lineage:
+        raise ValueError("canonical_ab_report_lineage_mismatch")
+
+    try:
+        reserved_request = ProviderExecutionReservationRequestV1.model_validate(
+            reservation.model_dump(
+                exclude={"schema_version", "reservation_id", "tenant_id", "predecessor_result_id", "reserved_at"}
+            )
+        )
+    except ValueError:
+        raise ValueError("canonical_ab_reservation_lineage_mismatch") from None
+    if reservation.tenant_id != owner.tenant_id or reserved_request != request:
+        raise ValueError("canonical_ab_reservation_lineage_mismatch")
+
+    if report.outcome != "selected_pass":
+        if binding is not None:
+            raise ValueError("canonical_ab_selection_lineage_mismatch")
+        return
+    if report.candidate is None or binding is None:
+        raise ValueError("canonical_ab_selection_lineage_mismatch")
+    if (
+        report.parity.report_sha256 != owner.provider_parity_report_hash
+        or report.parity.config_fingerprint != owner.config_fingerprint
+        or report.candidate.config_fingerprint != owner.config_fingerprint
+        or (
+            binding.tenant_id,
+            binding.candidate_corpus_version_id,
+            binding.candidate_run_token,
+            binding.candidate_lease_owner,
+            binding.source_manifest_hash,
+        )
+        != (
+            owner.tenant_id,
+            owner.corpus_version_id,
+            owner.run_token,
+            owner.lease_owner,
+            owner.source_manifest_hash,
+        )
+    ):
+        raise ValueError("canonical_ab_selection_lineage_mismatch")
+
+
+def canonical_ab_typed_failure_result_code(
+    *,
+    stage: str,
+    reason_code: str,
+    provider_availability: str,
+    provider_request_classification: str,
+    outer_rollback_attempted: bool,
+    outer_rollback_proved: bool,
+    provider_request_count: int,
+) -> ProviderExecutionResultCode:
+    """Map validated typed provenance to the sole permitted DB result code."""
+
+    explicitly_transient = (
+        (stage, reason_code) == _TRANSIENT_EXECUTION_RETRY
+        and provider_availability == "available"
+        and provider_request_classification == "request_failed"
+        and outer_rollback_attempted
+        and outer_rollback_proved
+        and provider_request_count > 0
+    )
+    if explicitly_transient:
+        return ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR
+    if reason_code in {"candidate_state_invalid", "candidate_pair_invalid"}:
+        return ProviderExecutionResultCode.SOURCE_DRIFT
+    if reason_code in {"sealed_input_invalid", "role_setup_failed"}:
+        return ProviderExecutionResultCode.CONFIGURATION_ERROR
+    if reason_code == "provider_request_failed":
+        return ProviderExecutionResultCode.RESPONSE_ERROR
+    if reason_code in {"format_ingestion_failed", "resource_proof_failed", "rollback_proof_failed"}:
+        return ProviderExecutionResultCode.PROJECTION_ERROR
+    return ProviderExecutionResultCode.UNKNOWN_ERROR
+
+
+def require_transient_diagnostic_count_supported(
+    *,
+    diagnostic: ABExecutionDiagnosticV1 | None,
+    actual_request_count: int,
+    result_code: ProviderExecutionResultCode,
+) -> None:
+    """Require DB request evidence to support every retryable diagnostic claim."""
+
+    if result_code is not ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR:
+        return
+    if (
+        not isinstance(diagnostic, ABExecutionDiagnosticV1)
+        or type(actual_request_count) is not int
+        or not 0 < diagnostic.provider_request_count <= actual_request_count
+    ):
+        raise ValueError("canonical_ab_transient_request_count_mismatch")
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalABRunResultV1:
+    """One typed execution result carried unchanged into terminal persistence."""
+
+    report: TerminalABRunV1
+    binding: ABSelectionBindingV1 | None
+    diagnostic: ABExecutionDiagnosticV1 | None
+    actual_request_count: int
+    result_code: ProviderExecutionResultCode
+
+
+class CanonicalABExecutionService:
+    """Reserve and persist one canonical A/B beneath the shared DB root."""
+
+    def __init__(self, *, authority_service: Any, require_shared_root: Callable[..., Any]) -> None:
+        self._authority = authority_service
+        self._require_shared_root = require_shared_root
+
+    async def execute(
+        self,
+        *,
+        authority_id: UUID,
+        expected_run_id: UUID,
+        owner: PolicyReindexRunIdentity,
+        inputs: ABInputIdentityV1,
+        envelope: CanonicalABRequestEnvelopeV1,
+        ordinal: int,
+        run: Callable[[Any], Any],
+        projection_path: Path,
+        persist_terminal: Callable[
+            [
+                CanonicalABRunResultV1,
+                ProviderExecutionReservationViewV1,
+                UUID,
+            ],
+            Mapping[str, Any],
+        ],
+        construct_provider: Callable[[], Any] | None = None,
+    ) -> CanonicalABExecutionOutcomeV1:
+        await self._authority.require_current_promotion()
+        await self._require_shared_root(authority_id=authority_id, owner=owner, envelope=envelope)
+        request = ProviderExecutionReservationRequestV1(
+            authority_id=authority_id,
+            purpose=ProviderExecutionPurpose.CANONICAL_AB,
+            subject_kind="canonical_ab_run",
+            subject_index=0,
+            subject_hash=canonical_ab_subject_hash(
+                expected_run_id=expected_run_id,
+                owner=owner,
+                inputs=inputs,
+                envelope=envelope,
+            ),
+            ordinal=ordinal,
+            request_envelope=envelope.provider_request_envelope,
+            explicit_retry=ordinal == 2,
+        )
+        reservation = await self._authority.reserve_and_commit(request)
+        await self._authority.recheck_dispatch(reservation)
+
+        try:
+            provider = construct_provider() if construct_provider is not None else None
+            execution = await run(provider)
+        except BaseException:
+            # A committed reservation is deliberately spent; process crashes
+            # cannot be converted into fabricated terminal evidence.
+            raise
+        if not isinstance(execution, CanonicalABRunResultV1):
+            raise ValueError("canonical_ab_execution_result_invalid")
+        report = execution.report
+        binding = execution.binding
+        diagnostic = execution.diagnostic
+        actual_request_count = execution.actual_request_count
+        result_code = execution.result_code
+        if not isinstance(report, TerminalABRunV1):
+            raise ValueError("canonical_ab_terminal_result_invalid")
+        if report.inputs != inputs or report.runtime.tenant_id != owner.tenant_id:
+            raise ValueError("canonical_ab_terminal_identity_mismatch")
+        if (
+            type(actual_request_count) is not int
+            or not 0 <= actual_request_count <= envelope.provider_request_envelope.maximum_request_count
+        ):
+            raise ValueError("canonical_ab_request_count_invalid")
+        if (
+            report.runtime.execution_kind == "full_provider"
+            and report.outcome in {"selected_pass", "candidate_failed"}
+            and actual_request_count != envelope.provider_request_envelope.maximum_request_count
+        ):
+            raise ValueError("canonical_ab_complete_request_count_invalid")
+        if report.outcome == "execution_error":
+            expected_terminal_hash = canonical_sha256(canonical_report_json_bytes(report.model_dump(mode="json")))
+            if (
+                not isinstance(diagnostic, ABExecutionDiagnosticV1)
+                or diagnostic.run_id != report.run_id
+                or diagnostic.terminal_run_sha256 != expected_terminal_hash
+                or report.safe_reason_codes != (diagnostic.reason_code,)
+            ):
+                raise ValueError("canonical_ab_execution_diagnostic_mismatch")
+        elif diagnostic is not None:
+            raise ValueError("canonical_ab_execution_diagnostic_forbidden")
+
+        expected_result_code = canonical_ab_result_code(report)
+        if report.outcome == "execution_error":
+            assert diagnostic is not None
+            expected_result_code = canonical_ab_typed_failure_result_code(
+                stage=diagnostic.stage,
+                reason_code=diagnostic.reason_code,
+                provider_availability=diagnostic.provider_availability,
+                provider_request_classification=diagnostic.provider_request_classification,
+                outer_rollback_attempted=diagnostic.outer_rollback_attempted,
+                outer_rollback_proved=diagnostic.outer_rollback_proved,
+                provider_request_count=diagnostic.provider_request_count,
+            )
+        if result_code is not expected_result_code:
+            raise ValueError("canonical_ab_result_code_invalid")
+        require_transient_diagnostic_count_supported(
+            diagnostic=diagnostic,
+            actual_request_count=actual_request_count,
+            result_code=result_code,
+        )
+
+        require_exact_canonical_ab_lineage(
+            expected_run_id=expected_run_id,
+            report=report,
+            binding=binding,
+            owner=owner,
+            reservation=reservation,
+            request=request,
+        )
+        result_id = uuid4()
+        persisted_lineage = persist_terminal(execution, reservation, result_id)
+        terminal_run_hash = persisted_lineage.get("terminal_run_hash")
+        terminal_report_hash = persisted_lineage.get("terminal_report_hash")
+        if not isinstance(terminal_run_hash, str) or not isinstance(terminal_report_hash, str):
+            raise ValueError("canonical_ab_terminal_lineage_missing")
+        selected_lineage: Mapping[str, Any] = {}
+        if report.outcome == "selected_pass":
+            selected_lineage = persisted_lineage
+            if any(
+                not isinstance(selected_lineage.get(field), str)
+                for field in ("selection_decision_hash", "activation_authorization_hash")
+            ):
+                raise ValueError("canonical_ab_selected_lineage_missing")
+        elif any(
+            persisted_lineage.get(field) is not None
+            for field in ("selection_decision_hash", "activation_authorization_hash")
+        ):
+            raise ValueError("canonical_ab_nonselected_lineage_forbidden")
+
+        result = await self._authority.record_result(
+            ProviderExecutionResultRequestV1.seal(
+                result_id=result_id,
+                reservation_id=reservation.reservation_id,
+                result_code=result_code,
+                actual_request_count=actual_request_count,
+                result_json={
+                    "schema_version": "canonical_ab_db_result.v1",
+                    "run_id": str(report.run_id),
+                    "outcome": report.outcome,
+                    "terminal_stage": report.terminal_stage,
+                    "terminal_run_hash": terminal_run_hash,
+                    "terminal_report_hash": terminal_report_hash,
+                    "selection_decision_hash": selected_lineage.get("selection_decision_hash"),
+                    "activation_authorization_hash": selected_lineage.get("activation_authorization_hash"),
+                },
+                output_candidate_id=owner.corpus_version_id if report.outcome == "selected_pass" else None,
+                terminal_run_hash=terminal_run_hash,
+                terminal_report_hash=terminal_report_hash,
+                selection_id=binding.selection_id if binding is not None else None,
+                selection_decision_hash=selected_lineage.get("selection_decision_hash"),
+                activation_authorization_hash=selected_lineage.get("activation_authorization_hash"),
+            )
+        )
+        projection = await self._authority.reconcile_projection(
+            authority_id=authority_id,
+            projection_path=projection_path,
+        )
+        return CanonicalABExecutionOutcomeV1(
+            report=report,
+            binding=binding,
+            reservation=reservation,
+            result=result,
+            projection=projection,
+        )
 
 
 class ABSelectionBindingV1(_FrozenModel):
@@ -787,6 +1422,36 @@ class ABRecoveryAuthorizationV1(_FrozenModel):
         return self
 
 
+class CanonicalABActivationAuthorizationV1(_FrozenModel):
+    """DB-lineage authorization emitted only for one selected-pass result."""
+
+    schema_version: Literal["rag_token_chunk_db_activation_authorization.v1"] = (
+        DB_ACTIVATION_AUTHORIZATION_SCHEMA_VERSION
+    )
+    authorized_at: datetime
+    authority_id: UUID
+    reservation_id: UUID
+    result_id: UUID
+    tenant_id: UUID
+    candidate_corpus_version_id: UUID
+    candidate_run_token: UUID
+    terminal_run_id: UUID
+    terminal_run_sha256: str = Field(pattern=_SHA256_PATTERN)
+    selection_id: UUID
+    selection_sha256: str = Field(pattern=_SHA256_PATTERN)
+    authorization_payload_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_authorization(self) -> CanonicalABActivationAuthorizationV1:
+        if self.authorized_at.tzinfo is None:
+            raise ValueError("db_activation_authorization_time_invalid")
+        expected = _sha256_payload(self.model_dump(mode="json", exclude={"authorization_payload_sha256"}))
+        if expected != self.authorization_payload_sha256:
+            raise ValueError("db_activation_authorization_hash_mismatch")
+        validate_safe_report_payload(self.model_dump(mode="json"))
+        return self
+
+
 @dataclass(frozen=True, slots=True)
 class ImmutableRecoveryBudgetManifestV1:
     path: Path
@@ -797,6 +1462,54 @@ class ImmutableRecoveryBudgetManifestV1:
 class ImmutableRecoveryAuthorizationV1:
     path: Path
     sha256: str
+
+
+def write_db_activation_authorization_create_only(
+    *,
+    root: Path,
+    report: TerminalABRunV1,
+    binding: ABSelectionBindingV1,
+    authority_id: UUID,
+    reservation_id: UUID,
+    result_id: UUID,
+    terminal_run_sha256: str,
+    selection_sha256: str,
+) -> ImmutableRecoveryAuthorizationV1:
+    """Create the additive DB-backed activation proof for selected-pass only."""
+
+    if (
+        report.outcome != "selected_pass"
+        or binding.tenant_id != report.runtime.tenant_id
+        or binding.candidate_corpus_version_id != report.runtime.candidate.corpus_version_id
+    ):
+        raise ValueError("selected_pass_required")
+    base: dict[str, Any] = {
+        "schema_version": DB_ACTIVATION_AUTHORIZATION_SCHEMA_VERSION,
+        "authorized_at": report.generated_at,
+        "authority_id": authority_id,
+        "reservation_id": reservation_id,
+        "result_id": result_id,
+        "tenant_id": binding.tenant_id,
+        "candidate_corpus_version_id": binding.candidate_corpus_version_id,
+        "candidate_run_token": binding.candidate_run_token,
+        "terminal_run_id": report.run_id,
+        "terminal_run_sha256": terminal_run_sha256,
+        "selection_id": binding.selection_id,
+        "selection_sha256": selection_sha256,
+    }
+    authorization = CanonicalABActivationAuthorizationV1(
+        **base,
+        authorization_payload_sha256=_sha256_payload(
+            CanonicalABActivationAuthorizationV1.model_construct(
+                **base,
+                authorization_payload_sha256="sha256:" + "0" * 64,
+            ).model_dump(mode="json", exclude={"authorization_payload_sha256"})
+        ),
+    )
+    payload = canonical_report_json_bytes(authorization.model_dump(mode="json"))
+    path = root / "db-activation-authorizations" / f"{binding.selection_id}.json"
+    _write_create_only_bytes(path, payload)
+    return ImmutableRecoveryAuthorizationV1(path=path, sha256=_sha256_bytes(payload))
 
 
 class RecoveryLiveAuthorityProofV1(_FrozenModel):
