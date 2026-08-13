@@ -3047,5 +3047,14 @@
 - **问题现象 / 根因**：`build-next-reviewed` 虽进入 service 后会检查 current promotion，但 decorator 在此前已经规范化 secure root 并进入 artifact namespace；CLI route 缺少不依赖 reviewed 输入的最前置 DB authority decision。
 - **影响**：missing/stale/mismatch promotion 不能保证在 root、descriptor/state artifact preflight 前 fail closed，破坏“promotion 是 reviewed route 第一 authority gate”的边界；reservation/provider 仍未越过。
 - **处理状态**：⚠️ 修复已聚焦验证。legacy `build-next` 继续最早无条件 hard-disable；reviewed dispatch 紧接其后先构造 authority service 并 `require_current_promotion()`，再把同一 service 显式注入 decorated reviewed command。service 自身的 promotion、reservation 与 dispatch recheck 全部保留。
-- **证据**：Phase64.5 C1 review WR-01；`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`；参数化 RED 为 root forbidden 三例 `3 failed, 1 warning`，最小 GREEN `3 passed, 1 warning`，并断言 root、descriptor/state、reservation、provider 计数全为零。
-- **剩余风险 / 继续入口**：这是 promotion ordering 逻辑修复，仍需 human verification、规定的 format/full lint/focused tests 与新 exact HEAD 的 C1 code/security review；不得复用旧 candidate 或 attestation。
+- **证据**：Phase64.5 C1 review WR-01；`scripts/reindex_policies.py`、`tests/rag/test_policy_reindex.py`；参数化 RED 为 root forbidden 三例 `3 failed, 1 warning`，最小 GREEN `3 passed, 1 warning`，并断言 root、descriptor/state、reservation、provider 计数全为零；`make format`、完整 `make lint`、reviewed-build focused `8 passed, 1 warning`。
+- **剩余风险 / 继续入口**：这是 promotion ordering 逻辑修复，仍需 human verification 与新 exact HEAD 的 C1 code/security review；不得复用旧 candidate 或 attestation。
+
+## 2026-08-13 — Phase 64.5 C1 review WR-02 — canonical A/B CLI promotion gate 晚于 root/candidate/dataset preflight ⚠️修复已聚焦验证
+
+- **子系统**：RAG canonical full-provider A-B / DB provider execution promotion / recovery artifact与dataset输入。
+- **问题现象 / 根因**：`run-ab` 在创建 execution service 前已读取 canonical root、descriptor/state、format-parity dataset并构造 request envelope；首个 current-promotion check 位于 service 内，不能作为 CLI 的第一 authority decision。
+- **影响**：missing/stale/mismatch promotion 可在拒绝前触及 recovery artifact 与 dataset/envelope preflight，尽管 reservation/provider 尚未启动；这破坏 reviewed canonical route 的 fail-closed ordering。
+- **处理状态**：⚠️ 修复已聚焦验证。`issue-recovery-budget` 分支不变；canonical route 紧接该分支构造 authority service 并 `require_current_promotion()`，再开始 root/candidate/dataset/envelope preflight。同一 service 注入 `CanonicalABExecutionService`，其 promotion、shared-root binding、reservation 与 dispatch recheck 保留。
+- **证据**：Phase64.5 C1 review WR-02；`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；参数化 RED 三例为 `3 failed, 1 warning`，最小 GREEN `3 passed, 1 warning`，并断言 root、descriptor/state、dataset、envelope、reservation、provider 计数全为零。首次完整 focused 的两条旧 downstream-root 测试因未注入新 upstream promotion gate 而误连默认未迁移 DB；测试现显式提供 current-promotion stub 后才验证各自原有 root refusal。最终 `make format`、完整 `make lint`、A/B focused `108 passed, 1 warning`。
+- **剩余风险 / 继续入口**：属于 provider authority ordering 逻辑修复，需 human verification 与新 exact HEAD 的 C1 code/security review；不生成或复用旧 candidate、attestation、promotion。

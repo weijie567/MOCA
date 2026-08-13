@@ -1096,6 +1096,8 @@ async def main(argv: list[str] | None = None) -> int:
     authority_checked_at = datetime.now(UTC)
     if args.command == "issue-recovery-budget":
         return await _issue_recovery_budget(args, checked_at=authority_checked_at)
+    authority_service = _provider_execution_authority_service()
+    await authority_service.require_current_promotion()
     args._authority_checked_at = authority_checked_at
     try:
         args.output_root = require_canonical_recovery_root(
@@ -1169,7 +1171,7 @@ async def main(argv: list[str] | None = None) -> int:
             return await run_full_provider_ab(args, inputs=inputs, embedder=embedder)
 
         outcome = await CanonicalABExecutionService(
-            authority_service=_provider_execution_authority_service(),
+            authority_service=authority_service,
             require_shared_root=_require_shared_ab_authority_binding,
         ).execute(
             authority_id=args.authority_id,

@@ -24270,4 +24270,15 @@ C1 deep review 发现 `build-next-reviewed` 的 decorator 会先规范化 secure
 根因是 CLI dispatch 只把 reviewed route 接到已受 promotion 保护的 service，却忽略 decorator 自身也是 service 外的 preflight。这样无效 promotion 仍可观察 secure-root/artifact 状态，虽然 reservation/provider 还未启动。有效命令为 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/rag/test_policy_reindex.py::test_production_dispatch_requires_promotion_before_reviewed_build_preflight -q`。
 
 **已做处理 / 剩余入口**
-CLI 在 legacy `build-next` 最早 hard-disable 之后、调用 decorated reviewed command 之前构造 authority service并执行一次不依赖 root/artifact 的 current-promotion gate；同一个 service 显式注入 reviewed path。service 内原 promotion/reservation/dispatch recheck 保留。最小 GREEN 为 `3 passed, 1 warning`，无 provider/live/promotion 写入。该 authority ordering 逻辑仍需 human verification 与最终 focused/full gate；继续入口是 C1 root re-review，不得沿用旧 candidate/attestation。
+CLI 在 legacy `build-next` 最早 hard-disable 之后、调用 decorated reviewed command 之前构造 authority service并执行一次不依赖 root/artifact 的 current-promotion gate；同一个 service 显式注入 reviewed path。service 内原 promotion/reservation/dispatch recheck 保留。最小 GREEN 为 `3 passed, 1 warning`；随后 `make format`、完整 `make lint` 与 reviewed-build focused `8 passed, 1 warning` 全绿，无 provider/live/promotion 写入。该 authority ordering 逻辑仍需 human verification；继续入口是 C1 root re-review，不得沿用旧 candidate/attestation。
+
+## 2026-08-13 — Phase 64.5 C1 review WR-02 canonical A/B 在 promotion 前读取 root/candidate/dataset
+
+**问题现象 / 如何检测**
+`run-ab` 旧入口先 canonicalize recovery root，再加载 descriptor、candidate state、format-parity dataset 并构造 envelope，直到 `CanonicalABExecutionService.execute()` 才检查 current promotion。最小参数化 RED 将 root、descriptor/state、dataset、envelope、reservation、provider 全设为 forbidden，三类 invalid promotion 均先触发 `root work must not start`，结果 `3 failed, 1 warning`。
+
+**关键证据 / 当前判断 / 根因**
+根因与 reviewed build 相同：service boundary 本身有正确 promotion→reservation→dispatch recheck 顺序，但 CLI 在 service 外做了 authority-sensitive inputs preflight。有效命令为 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_rag_token_chunk_ab.py::test_production_run_ab_routes_invalid_promotion_before_reservation_and_provider -q`；该检查不调用 live/provider，不写 promotion/artifact。
+
+**已做处理 / 剩余入口**
+`issue-recovery-budget` 保持原独立分支；canonical `run-ab` 在该分支之后立即构造 authority service 并要求 current promotion，然后才访问 recovery root、candidate、dataset、envelope。同一 service 注入 execution service，原 service-level promotion、reservation 与紧贴 provider dispatch 的 recheck 全保留。最小 GREEN `3 passed, 1 warning`。首次完整 A/B focused 得到 `2 failed, 106 passed, 1 warning`：两条 downstream noncanonical-root 测试未注入 promotion，因而先误连默认未迁移 DB 并报 promotion 表不存在/跨 event-loop；给它们显式注入 current-promotion stub 后，仍只验证目标 root refusal，不放宽 production gate。最终 `make format`、完整 `make lint` 与 A/B focused `108 passed, 1 warning` 全绿。该 ordering 逻辑需 human verification，新 protected HEAD 必须重新 C1 review/attest。
