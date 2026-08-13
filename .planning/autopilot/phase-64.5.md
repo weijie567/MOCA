@@ -1,11 +1,11 @@
 ---
 phase: "64.5"
 status: running
-current_step: c0_attested_wave5
+current_step: c1_attested_wave6
 plan_review_loop: 1
 quota_waits: 1
-updated_at: "2026-08-13T04:03:18Z"
-next_command: "$gsd-execute-phase 64.5 --wave 5 --no-cross-ai"
+updated_at: "2026-08-13T06:07:21Z"
+next_command: "$gsd-execute-phase 64.5 --wave 6 --no-cross-ai"
 ---
 
 # Phase 64.5 Autopilot Checkpoint
@@ -30,6 +30,8 @@ next_command: "$gsd-execute-phase 64.5 --wave 5 --no-cross-ai"
 - Final Codex tasks `/root/phase64_5_c0_evidence_commit_review` (`gsd-code-reviewer`, `$gsd-code-review 64.5 --depth=deep`) and `/root/phase64_5_c0_evidence_commit_security` (`gsd-security-auditor`, `$gsd-secure-phase 64.5`) returned clean / `threats_open: 0` for that exact protected HEAD.
 - The active root invoked `seal-review-attestation` separately for code and security, then independently strict-loaded both create-only C0 attestations with `review-attestations --require-stage c0 --require-current-protected-base`; result: pass.
 - Wave 5 is now authorized. No DB promotion exists yet, so reservation/provider construction remains unreachable.
+- Completed Wave 5 and the bounded C1 repair loop. Fresh Codex code review `/root/phase64_5_c1_code_review` returned clean and fresh Codex security audit `/root/phase64_5_c1_security` closed 7/7 threats for protected C1 commit `3b8ca36b8cabb11b695f5dc72c45df04181e2b8e` / tree `4c6bd3f28be83602b0d5b71a6739b8dd1f694729`.
+- The active root created the passing C1 gate report, separately sealed code/security attestations, and strict-loaded both with `review-attestations --require-stage c1 --require-current-protected-base`; result: pass. Wave 6 is authorized, while DB promotion remains absent until Plan 06 executes its sole promotion command.
 
 ## Evidence
 

@@ -3058,3 +3058,10 @@
 - **处理状态**：⚠️ 修复已聚焦验证。`issue-recovery-budget` 分支不变；canonical route 紧接该分支构造 authority service 并 `require_current_promotion()`，再开始 root/candidate/dataset/envelope preflight。同一 service 注入 `CanonicalABExecutionService`，其 promotion、shared-root binding、reservation 与 dispatch recheck 保留。
 - **证据**：Phase64.5 C1 review WR-02；`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；参数化 RED 三例为 `3 failed, 1 warning`，最小 GREEN `3 passed, 1 warning`，并断言 root、descriptor/state、dataset、envelope、reservation、provider 计数全为零。首次完整 focused 的两条旧 downstream-root 测试因未注入新 upstream promotion gate 而误连默认未迁移 DB；测试现显式提供 current-promotion stub 后才验证各自原有 root refusal。最终 `make format`、完整 `make lint`、A/B focused `108 passed, 1 warning`。
 - **剩余风险 / 继续入口**：属于 provider authority ordering 逻辑修复，需 human verification 与新 exact HEAD 的 C1 code/security review；不生成或复用旧 candidate、attestation、promotion。
+## 2026-08-13 — Phase 64.5 C1 reviewed provider dispatch 边界通过最终复核 ✅
+
+- **子系统**：RAG reviewed policy build / canonical A/B / DB provider execution promotion。
+- **核实结论**：此前 Plan 05 与 C1 repair 中的 protected-graph closure、current-equivalence TOCTOU、reviewed-build promotion-before-artifact、A/B promotion-before-dataset/envelope、exact 142 request lineage及 transient request-count 绑定均已由 fresh Codex code/security 复核关闭。
+- **处理状态**：✅ 已修复验证。最终 protected C1 为 `3b8ca36b8cabb11b695f5dc72c45df04181e2b8e` / tree `4c6bd3f28be83602b0d5b71a6739b8dd1f694729`；code review 0 findings，security 7/7 closed；两份 root-sealed C1 attestations strict-load 通过。
+- **证据**：Phase64.5 `64.5-REVIEW.md`、`64.5-SECURITY.md`、`64.5-C1-GATE-REPORT.json`、两份 C1 attestation；focused `166 passed`，完整 suite 先 `4965 passed, 4 skipped` 且唯一 stale inventory 断言随后单独修复并 focused 通过。
+- **剩余风险**：该结论只授权 Plan 06 的 immutable DB promotion 与受预算 live 路径；尚不代表 provider execution、A/B selected-pass、activation 或 Phase64.5 完成。任何 promotion/read-back、freshness、lease 或 live prerequisite 失败仍必须诚实停止。

@@ -24293,3 +24293,13 @@ production 现在按 C1 code review 要求先取得同一 authority service 并 
 
 **已做处理 / 剩余入口**
 仅更新该 architecture inventory，锁定 legacy hard-disable、reviewed build promotion→preflight 注入顺序，以及 A/B promotion→canonical root 顺序；没有修改 production、authority、预算、envelope 或阈值。最终 `make format`、完整 `make lint` 与 architecture+reviewed-build+A/B focused 合集为 `166 passed, 1 warning`。新的 C1 exact HEAD 仍需 fresh code/security re-review；不得把旧 e16 candidate或旧review artifact当作当前。
+## 2026-08-13 — Phase 64.5 C1 attestation 首次重放使用了错误脚本名与目录
+
+**问题现象 / 如何检测**
+两份 C1 attestation create-only 生成后，首次只读重放误用了不存在的 `scripts/phase64_5_gate.py`，并先检查了不存在的 `evaluation/.../review-attestations/` 目录；命令以 `No such file or directory` 退出，不能作为验证结论。
+
+**关键证据 / 当前判断 / 根因**
+仓库实际项目入口由 `rg` 定位为 `scripts/check_phase64_5_gate.py`，attestation 实际路径位于 Phase 64.5 planning 目录。错误命令没有数据库、provider、live artifact 或源码副作用；根因是手工拼接了错误入口和历史设想目录。
+
+**已做处理 / 剩余入口**
+改用 `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/check_phase64_5_gate.py review-attestations --code-attestation ... --security-attestation ... --require-stage c1 --require-current-protected-base` 重跑，得到 `{"attestations":2,"result":"pass"}`。后续 Plan 06 只使用 PLAN 中的精确项目入口，不复用该无效命令。
