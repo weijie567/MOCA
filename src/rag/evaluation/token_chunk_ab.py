@@ -731,15 +731,19 @@ class CanonicalABExecutionOutcomeV1:
 
 def canonical_ab_subject_hash(
     *,
+    expected_run_id: UUID,
     owner: PolicyReindexRunIdentity,
     inputs: ABInputIdentityV1,
     envelope: CanonicalABRequestEnvelopeV1,
 ) -> str:
     """Bind the A/B reservation to one exact shared-root comparison."""
 
+    if not isinstance(expected_run_id, UUID) or expected_run_id.int == 0:
+        raise ValueError("canonical_ab_run_id_invalid")
     return canonical_sha256(
         {
-            "schema_version": "canonical_ab_subject.v1",
+            "schema_version": "canonical_ab_subject.v2",
+            "run_id": expected_run_id,
             "tenant_id": owner.tenant_id,
             "run_token": owner.run_token,
             "candidate_corpus_version_id": owner.corpus_version_id,
@@ -760,6 +764,7 @@ def canonical_ab_subject_hash(
 
 def require_exact_canonical_ab_lineage(
     *,
+    expected_run_id: UUID,
     report: TerminalABRunV1,
     binding: ABSelectionBindingV1 | None,
     owner: PolicyReindexRunIdentity,
@@ -768,21 +773,34 @@ def require_exact_canonical_ab_lineage(
 ) -> None:
     """Reject report/selection bytes not owned by the reserved DB subject."""
 
+    from src.rag.evaluation.retrieval_rounds import build_ab_round_namespaces
+
+    expected_namespaces = build_ab_round_namespaces(
+        run_id=expected_run_id,
+        incumbent_corpus_version_id=owner.source_active_corpus_version_id,
+        candidate_corpus_version_id=owner.corpus_version_id,
+    )
     report_lineage = (
+        report.run_id,
         report.runtime.tenant_id,
         report.runtime.incumbent.corpus_version_id,
         report.runtime.candidate.corpus_version_id,
         report.runtime.provider,
         report.runtime.embedding_model,
         report.runtime.embedding_dimensions,
+        report.runtime.incumbent.round_owner,
+        report.runtime.candidate.round_owner,
     )
     expected_report_lineage = (
+        expected_run_id,
         owner.tenant_id,
         owner.source_active_corpus_version_id,
         owner.corpus_version_id,
         request.request_envelope.provider_name,
         request.request_envelope.model_name,
         request.request_envelope.dimensions,
+        expected_namespaces[0].round_owner,
+        expected_namespaces[1].round_owner,
     )
     if report_lineage != expected_report_lineage:
         raise ValueError("canonical_ab_report_lineage_mismatch")
@@ -881,6 +899,7 @@ class CanonicalABExecutionService:
         self,
         *,
         authority_id: UUID,
+        expected_run_id: UUID,
         owner: PolicyReindexRunIdentity,
         inputs: ABInputIdentityV1,
         envelope: CanonicalABRequestEnvelopeV1,
@@ -904,7 +923,12 @@ class CanonicalABExecutionService:
             purpose=ProviderExecutionPurpose.CANONICAL_AB,
             subject_kind="canonical_ab_run",
             subject_index=0,
-            subject_hash=canonical_ab_subject_hash(owner=owner, inputs=inputs, envelope=envelope),
+            subject_hash=canonical_ab_subject_hash(
+                expected_run_id=expected_run_id,
+                owner=owner,
+                inputs=inputs,
+                envelope=envelope,
+            ),
             ordinal=ordinal,
             request_envelope=envelope.provider_request_envelope,
             explicit_retry=ordinal == 2,
@@ -935,6 +959,12 @@ class CanonicalABExecutionService:
             or not 0 <= actual_request_count <= envelope.provider_request_envelope.maximum_request_count
         ):
             raise ValueError("canonical_ab_request_count_invalid")
+        if (
+            report.runtime.execution_kind == "full_provider"
+            and report.outcome in {"selected_pass", "candidate_failed"}
+            and actual_request_count != envelope.provider_request_envelope.maximum_request_count
+        ):
+            raise ValueError("canonical_ab_complete_request_count_invalid")
         if report.outcome == "execution_error":
             expected_terminal_hash = canonical_sha256(canonical_report_json_bytes(report.model_dump(mode="json")))
             if (
@@ -963,6 +993,7 @@ class CanonicalABExecutionService:
             raise ValueError("canonical_ab_result_code_invalid")
 
         require_exact_canonical_ab_lineage(
+            expected_run_id=expected_run_id,
             report=report,
             binding=binding,
             owner=owner,

@@ -24193,3 +24193,14 @@ Phase34 guard 只增加 exact 非执行 projection class allowlist，完整文�
 
 **已做处理 / 剩余入口**
 唯一 `PROTECTED_PROVIDER_EXECUTION_GRAPH` 改为 broad `src` Git pathspec，并精确加入两个 provider CLI、其本地 parity helper、checker 与 `scripts/__init__.py`；repository/checker 继续直接消费同一常量。递归 closure 无 audited exclusion，测试同时禁止把 `tests/` 或 `.planning/` 纳入 protected graph，并用嵌套 `src/rag/provider_execution_authority.py` 验证目录级 dirty refusal。最小 GREEN `1 passed, 1 warning`；`make format`、完整 `make lint` 通过，focused checker 架构文件为 `16 passed, 1 warning in 5.74s`。未运行 full suite、provider/live 命令或外部 DB；下一入口是 orchestrator 独占 full suite 与 C1 复审。
+
+## 2026-08-13 — Phase 64.5 C0 iteration 2 canonical A/B selected-pass 可重放旧 run 或短执行
+
+**问题现象 / 如何检测**
+execution service 未接收调用方期望的 canonical `run_id`，reservation subject hash 也不含 run；selected-pass 对 `actual_request_count` 只检查 `0..maximum`。新增两个最小节点在旧实现得到 `2 failed, 1 warning`：均因缺少 `expected_run_id` 参数失败，并覆盖旧 run、round owner 漂移、0/141 次 selected-pass 与 141 次 full-provider candidate-failed；当前真实完整 envelope maximum 为 142。
+
+**关键证据 / 当前判断 / 根因**
+相同 candidate/input/envelope 下，旧 terminal report 可通过既有 owner lineage，甚至零 provider request 也可生成 selection/activation authorization 与 success DB result。根因是 reservation identity、terminal identity 与完整执行证明未由同一 expected run 串联，且 completed 与 unavailable/execution-error 共用宽松计数范围。
+
+**已做处理 / 剩余入口**
+service 现在强制接收 `expected_run_id`，`canonical_ab_subject.v2` 将其封入 reservation hash；pre-persistence lineage 同时核对 `report.run_id` 与由 expected run/corpus 派生的两角色 round owner。`selected_pass` 和 `candidate_failed` 的 full-provider completed outcome 必须 exact 等于 envelope maximum 142，unavailable/execution-error 仍保留 bounded partial/zero count。所有 mismatch 在 terminal/selection/authorization/result/projection 前拒绝。最小 GREEN `2 passed, 1 warning`，既有 success path `1 passed, 1 warning`；`make format`、完整 `make lint` PASS，完整 A/B focused 文件 `106 passed, 1 warning in 27.79s`。未运行 full suite、live provider/DB/artifact；下一入口为 WR-02 count cross-binding 与 orchestrator 最终验证。

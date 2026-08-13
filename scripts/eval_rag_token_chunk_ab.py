@@ -1175,6 +1175,7 @@ async def main(argv: list[str] | None = None) -> int:
             require_shared_root=_require_shared_ab_authority_binding,
         ).execute(
             authority_id=args.authority_id,
+            expected_run_id=args.run_id,
             owner=owner,
             inputs=inputs,
             envelope=envelope,

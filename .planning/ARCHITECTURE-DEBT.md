@@ -2998,3 +2998,12 @@
 - **处理状态**：⚠️ 修复已聚焦验证。authoritative manifest 现以 `src` 目录级 Git pathspec 覆盖全部 loadable application code/migrations，并精确覆盖 `scripts/__init__.py`、两个 provider CLI、其 parity helper 与 checker；tests/`.planning` 明确不进入执行 identity。repository 与 checker 未定义副本，继续直接消费同一常量。递归 architecture guard 的 audited exclusion 为空，任何未来排除必须给 exact path 与理由。
 - **证据**：Phase64.5 C0 iteration 2 CR-01；`src/rag/provider_execution_authority.py`、`tests/architecture/test_phase64_5_gate.py`、`tests/rag/test_provider_execution_authority.py`；最小 RED `1 failed, 1 warning`（112 个 unprotected closure files），GREEN `1 passed, 1 warning`，完整 `make lint` PASS，focused checker architecture `16 passed, 1 warning in 5.74s`。
 - **剩余风险 / 继续入口**：属于 promotion/security identity 逻辑修复，仍需 orchestrator 的独占 full suite 与 C1 code/security re-review；本 fixer未启用 provider dispatch、未访问外部 DB、未写 live promotion/artifact。
+
+## 2026-08-13 — Phase 64.5 C0 iteration 2 WR-01 — selected-pass 未绑定 current run 与完整 provider execution ⚠️修复已聚焦验证
+
+- **子系统**：RAG canonical full-provider A-B / DB reservation-result / activation authorization lineage。
+- **问题现象 / 根因**：`canonical_ab_subject_hash()` 未含 canonical `run_id`，service/lineage gate 不接受 expected run，也不比较 `report.run_id`/round owners；full-provider selected-pass/candidate-failed 又允许 `0..142` 任意 actual count。旧 run 或零请求 selected report 因而可重放并生成新的 selection/activation authorization。
+- **影响**：成功 DB result 与授权 artifact 不能证明这是当前 run 的 fresh、完整 142-call provider comparison，违反 D-12/D-19。
+- **处理状态**：⚠️ 修复已聚焦验证。service 在 reservation 前接收 expected canonical run；`canonical_ab_subject.v2` hash 绑定该 run；任何文件写前核对 report run 与 expected namespace round owners。full-provider completed outcomes 必须 `actual_request_count == envelope.maximum_request_count == 142`，error/unavailable 继续允许 bounded partial/zero truth。run/owner/count mismatch 均不进入 terminal、selection、authorization、result 或 projection。
+- **证据**：Phase64.5 C0 iteration 2 WR-01；`src/rag/evaluation/token_chunk_ab.py`、`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；最小 RED `2 failed, 1 warning`，GREEN `2 passed, 1 warning`；完整 `make lint` PASS，A/B focused `106 passed, 1 warning in 27.79s`。
+- **剩余风险 / 继续入口**：这是 execution/authorization 逻辑修复，仍需 human verification、orchestrator 独占 full suite 与 C1 re-review；本 fixer未启用 live path或写 DB/artifact。transient diagnostic 与 DB actual count 的交叉约束由同轮 WR-02 单独收口。
