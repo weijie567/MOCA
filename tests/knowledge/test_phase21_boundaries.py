@@ -114,6 +114,14 @@ PHASE23_ALLOWED_SURFACE_FILES = {
     Path("scripts/eval_rag_ablation.py"),
 }
 PHASE23_ALLOWED_SURFACE = PHASE23_ALLOWED_SURFACE_FILES
+PHASE64_5_ALLOWED_SURFACE_FILES_BY_PATTERN = {
+    "build_query_rewrite_plan": frozenset(
+        {
+            Path("src/rag/evaluation/token_chunk_ab.py"),
+            Path("tests/eval/test_rag_token_chunk_ab.py"),
+        }
+    ),
+}
 IGNORED_STATIC_GUARD_FILES = {
     Path("tests/actions/test_action_draft_v2.py"),
     Path("tests/approvals/test_migration_contract.py"),
@@ -165,7 +173,9 @@ def _is_phase22_owned_surface(relative: Path, label: str) -> bool:
 
 
 def _is_phase23_owned_surface(relative: Path, label: str) -> bool:
-    return label in PHASE23_ALLOWED_SURFACE_PATTERNS and relative in PHASE23_ALLOWED_SURFACE
+    if label in PHASE23_ALLOWED_SURFACE_PATTERNS and relative in PHASE23_ALLOWED_SURFACE:
+        return True
+    return relative in PHASE64_5_ALLOWED_SURFACE_FILES_BY_PATTERN.get(label, frozenset())
 
 
 def test_phase21_boundary_allows_phase22_claim_verifier_files_but_no_phase23_rag5_or_execution_surfaces() -> None:
@@ -215,6 +225,14 @@ def test_phase22_boundary_guard_still_blocks_rerank_query_rewrite_search_backend
         "policy_source_lifecycle_ui",
         "source_document_viewer",
     } <= set(FORBIDDEN_IMPLEMENTATION_PATTERNS)
+    assert PHASE64_5_ALLOWED_SURFACE_FILES_BY_PATTERN == {
+        "build_query_rewrite_plan": frozenset(
+            {
+                Path("src/rag/evaluation/token_chunk_ab.py"),
+                Path("tests/eval/test_rag_token_chunk_ab.py"),
+            }
+        )
+    }
 
 
 def test_phase23_does_not_expand_agentstate_authority_fields() -> None:
