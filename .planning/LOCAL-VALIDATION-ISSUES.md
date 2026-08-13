@@ -24426,3 +24426,14 @@ candidate DB 已 `complete` v7/cursor 3 后，标准 `candidate --stage complete
 format parity 与 canonical A/B 现在同时要求实际 capability、唯一非空 Alembic head，以及该 head 为本地已知 floor descendant；没有 hardcode 032，也不会接受未知 future head。最小 GREEN `2 passed`，`make format`、完整 `make lint` PASS，两个直接测试文件 `197 passed, 1 warning`。本修复没有连接 live DB、没有重跑 A/B/provider、没有写 authority/candidate/activation；既有 `source_drift` reservation/result保持不可变，Plan08仍未派发。root仍需独立 full suite 与 re-review。
 
 补充：首次校验 `64.5-REVIEW-FIX.md` frontmatter 时把 YAML timestamp 预期成字符串，PyYAML 实际解析为带时区 `datetime`，导致测试辅助断言失败；报告结构本身有效。改为逐字段并对时间做 ISO 规范化后通过，未涉及源码或 live 状态。
+
+## 2026-08-13 — Phase 64.5 过滤 PR worktree 首次完整测试落到系统 Python 3.9
+
+**问题现象 / 如何检测**
+在新建的无 `.planning/` PR worktree 中，`make format && make lint` 只安装了基础依赖；随后首次执行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` 时，命令未使用当前仓库的 Python 3.12 测试环境，collection 阶段因系统 Python 3.9 不提供 `datetime.UTC` 而报 `ImportError`。
+
+**关键证据 / 当前判断 / 根因**
+该结果命中项目 `AGENTS.md` 明确记录的假失败类型，不能用作代码结论。检查发现新 worktree 的 `.venv` 未同步 dev/pytest 依赖，`uv run pytest` 因而回落到错误的本机入口。
+
+**已做处理 / 剩余入口**
+用 `UV_CACHE_DIR=/tmp/uv-cache uv sync --extra dev` 同步当前仓库 dev 环境，并确认 `.venv/bin/python -V` 为 `Python 3.12.13`、`uv run python` 指向该 worktree `.venv`。首次 Python 3.9 collection 结果标记为无效；后续只以修复环境后重跑的项目入口完整套件为 PR 门禁证据。未修改产品源码或 live DB/provider 状态。
