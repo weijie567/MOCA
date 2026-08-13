@@ -342,6 +342,15 @@ def _result_request(
     )
 
 
+def test_transient_result_domain_requires_positive_actual_request_count() -> None:
+    with pytest.raises(ValidationError, match="transient_result_requires_actual_request"):
+        _result_request(
+            uuid4(),
+            result_code=ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR,
+            actual_request_count=0,
+        )
+
+
 @pytest.mark.asyncio
 async def test_concurrent_same_subject_reservation_has_exactly_one_winner(test_engine, tmp_path: Path) -> None:
     session_factory, service, authority, _ = await _build_service_and_authority(test_engine, tmp_path)
@@ -448,6 +457,74 @@ async def test_results_are_closed_bounded_and_exactly_idempotent(test_engine, tm
         )
     assert result_count == 1
     assert await service.get_result(reservation_id=uuid4()) is None
+
+
+@pytest.mark.asyncio
+async def test_repository_refuses_unvalidated_zero_request_transient_and_ordinal_two(
+    test_engine,
+    tmp_path: Path,
+) -> None:
+    session_factory, service, authority, _ = await _build_service_and_authority(test_engine, tmp_path)
+    first = await service.reserve_and_commit(_reservation_request(authority.authority_id))
+    payload = {
+        "reservation_id": first.reservation_id,
+        "result_id": uuid4(),
+        "result_code": ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR,
+        "actual_request_count": 0,
+        "result_json": {"safe_outcome": "transient_execution_error"},
+        "output_candidate_id": None,
+        "terminal_run_hash": None,
+        "terminal_report_hash": None,
+        "selection_id": None,
+        "selection_decision_hash": None,
+        "activation_authorization_hash": None,
+    }
+    unvalidated = ProviderExecutionResultRequestV1.model_construct(
+        **payload,
+        result_hash=canonical_sha256(payload),
+    )
+
+    with pytest.raises(ProviderExecutionAuthorityError, match="result_mismatch"):
+        await service.record_result(unvalidated)
+    assert await service.get_result(reservation_id=first.reservation_id) is None
+    with pytest.raises(ProviderExecutionAuthorityError, match="retry_not_allowed"):
+        await service.reserve_and_commit(
+            _reservation_request(
+                authority.authority_id,
+                ordinal=2,
+                explicit_retry=True,
+            )
+        )
+    async with session_factory() as independent_session:
+        result_count = await independent_session.scalar(
+            select(func.count())
+            .select_from(ProviderExecutionResult)
+            .where(ProviderExecutionResult.reservation_id == first.reservation_id)
+        )
+    assert result_count == 0
+
+    async with session_factory.begin() as session:
+        session.add(
+            ProviderExecutionResult(
+                id=unvalidated.result_id,
+                tenant_id=first.tenant_id,
+                reservation_id=first.reservation_id,
+                request_limit=first.request_envelope.maximum_request_count,
+                result_code=ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR.value,
+                actual_request_count=0,
+                result_schema_version="provider_execution_result.v1",
+                result_json=dict(unvalidated.result_json),
+                result_hash=unvalidated.result_hash,
+            )
+        )
+    with pytest.raises(ProviderExecutionAuthorityError, match="retry_not_allowed"):
+        await service.reserve_and_commit(
+            _reservation_request(
+                authority.authority_id,
+                ordinal=2,
+                explicit_retry=True,
+            )
+        )
 
 
 @pytest.mark.asyncio

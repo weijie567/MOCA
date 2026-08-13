@@ -257,9 +257,16 @@ class ProviderExecutionAuthorityRepository:
                         .with_for_update()
                     )
                 ).scalar_one_or_none()
+                predecessor_code = (
+                    ProviderExecutionResultCode(predecessor.result_code) if predecessor is not None else None
+                )
                 if (
                     predecessor is None
-                    or ProviderExecutionResultCode(predecessor.result_code) not in RETRYABLE_RESULT_CODES
+                    or predecessor_code not in RETRYABLE_RESULT_CODES
+                    or (
+                        predecessor_code is ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR
+                        and predecessor.actual_request_count <= 0
+                    )
                     or not _retry_request_matches_first(first, request)
                 ):
                     _fail(ProviderExecutionAuthorityFailureCode.RETRY_NOT_ALLOWED)
@@ -333,6 +340,11 @@ class ProviderExecutionAuthorityRepository:
     ) -> ProviderExecutionResultViewV1:
         """Append or exactly replay the sole committed result for a reservation."""
 
+        if (
+            request.result_code == ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR
+            and request.actual_request_count <= 0
+        ):
+            _fail(ProviderExecutionAuthorityFailureCode.RESULT_MISMATCH)
         async with self._sessions.begin() as session:
             peek = await session.get(ProviderExecutionReservation, request.reservation_id)
             if peek is None:
@@ -819,7 +831,14 @@ def _reservation_view(row: ProviderExecutionReservation) -> ProviderExecutionRes
 
 
 def _result_view(row: ProviderExecutionResult) -> ProviderExecutionResultViewV1:
-    if row.actual_request_count < 0 or row.actual_request_count > row.request_limit:
+    if (
+        row.actual_request_count < 0
+        or row.actual_request_count > row.request_limit
+        or (
+            row.result_code == ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR.value
+            and row.actual_request_count == 0
+        )
+    ):
         _fail(ProviderExecutionAuthorityFailureCode.RESULT_MISMATCH)
     try:
         return ProviderExecutionResultViewV1(

@@ -877,6 +877,24 @@ def canonical_ab_typed_failure_result_code(
     return ProviderExecutionResultCode.UNKNOWN_ERROR
 
 
+def require_transient_diagnostic_count_supported(
+    *,
+    diagnostic: ABExecutionDiagnosticV1 | None,
+    actual_request_count: int,
+    result_code: ProviderExecutionResultCode,
+) -> None:
+    """Require DB request evidence to support every retryable diagnostic claim."""
+
+    if result_code is not ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR:
+        return
+    if (
+        not isinstance(diagnostic, ABExecutionDiagnosticV1)
+        or type(actual_request_count) is not int
+        or not 0 < diagnostic.provider_request_count <= actual_request_count
+    ):
+        raise ValueError("canonical_ab_transient_request_count_mismatch")
+
+
 @dataclass(frozen=True, slots=True)
 class CanonicalABRunResultV1:
     """One typed execution result carried unchanged into terminal persistence."""
@@ -991,6 +1009,11 @@ class CanonicalABExecutionService:
             )
         if result_code is not expected_result_code:
             raise ValueError("canonical_ab_result_code_invalid")
+        require_transient_diagnostic_count_supported(
+            diagnostic=diagnostic,
+            actual_request_count=actual_request_count,
+            result_code=result_code,
+        )
 
         require_exact_canonical_ab_lineage(
             expected_run_id=expected_run_id,

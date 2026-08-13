@@ -1662,7 +1662,34 @@ def test_every_typed_failure_maps_to_exact_db_code_and_only_explicit_transient_c
 
 
 def test_typed_failure_code_and_diagnostic_are_validated_before_terminal_file_writes() -> None:
-    from src.rag.evaluation.token_chunk_ab import CanonicalABExecutionService
+    from src.rag.evaluation.token_chunk_ab import (
+        CanonicalABExecutionService,
+        require_transient_diagnostic_count_supported,
+    )
+    from src.rag.provider_execution_authority import ProviderExecutionResultCode
+
+    diagnostic = _execution_diagnostic(
+        reason_code="provider_request_failed",
+        provider_request_classification="request_failed",
+        provider_request_count=1,
+    )
+    with pytest.raises(ValueError, match="canonical_ab_transient_request_count_mismatch"):
+        require_transient_diagnostic_count_supported(
+            diagnostic=diagnostic,
+            actual_request_count=0,
+            result_code=ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR,
+        )
+    with pytest.raises(ValueError, match="canonical_ab_transient_request_count_mismatch"):
+        require_transient_diagnostic_count_supported(
+            diagnostic=diagnostic.model_copy(update={"provider_request_count": 2}),
+            actual_request_count=1,
+            result_code=ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR,
+        )
+    require_transient_diagnostic_count_supported(
+        diagnostic=diagnostic,
+        actual_request_count=1,
+        result_code=ProviderExecutionResultCode.TRANSIENT_EXECUTION_ERROR,
+    )
 
     service_source = inspect.getsource(CanonicalABExecutionService.execute)
     persistence_offset = service_source.index("persist_terminal(execution")
@@ -1670,6 +1697,7 @@ def test_typed_failure_code_and_diagnostic_are_validated_before_terminal_file_wr
     assert service_source.index("canonical_ab_execution_diagnostic_mismatch") < persistence_offset
     assert service_source.index("canonical_ab_typed_failure_result_code(") < persistence_offset
     assert service_source.index("canonical_ab_result_code_invalid") < persistence_offset
+    assert service_source.index("require_transient_diagnostic_count_supported(") < persistence_offset
 
 
 def test_diagnostic_cli_has_no_selection_activation_or_pointer_write_surface() -> None:
