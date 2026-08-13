@@ -11,6 +11,8 @@ import subprocess
 import pytest
 from pydantic import ValidationError
 
+from src.rag.provider_execution_authority import PROTECTED_PROVIDER_EXECUTION_GRAPH
+
 
 def _git(root: Path, *args: str) -> str:
     return subprocess.run(
@@ -23,21 +25,20 @@ def _git(root: Path, *args: str) -> str:
 
 def _reviewed_root(tmp_path: Path) -> tuple[Path, str, str, str, str]:
     root = tmp_path / "repo"
-    from src.repositories.provider_execution_authority_repo import PROTECTED_CODE_PATHS
 
-    for relative in PROTECTED_CODE_PATHS:
+    for relative in PROTECTED_PROVIDER_EXECUTION_GRAPH:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("c0\n", encoding="utf-8")
     _git(root, "init", "-q")
     _git(root, "config", "user.email", "gate@example.invalid")
     _git(root, "config", "user.name", "Gate Test")
-    _git(root, "add", *PROTECTED_CODE_PATHS)
+    _git(root, "add", *PROTECTED_PROVIDER_EXECUTION_GRAPH)
     _git(root, "commit", "-qm", "c0")
     c0_commit = _git(root, "rev-parse", "HEAD")
     c0_tree = _git(root, "rev-parse", "HEAD^{tree}")
-    (root / PROTECTED_CODE_PATHS[2]).write_text("c1\n", encoding="utf-8")
-    _git(root, "add", PROTECTED_CODE_PATHS[2])
+    (root / PROTECTED_PROVIDER_EXECUTION_GRAPH[2]).write_text("c1\n", encoding="utf-8")
+    _git(root, "add", PROTECTED_PROVIDER_EXECUTION_GRAPH[2])
     _git(root, "commit", "-qm", "c1")
     return root, c0_commit, c0_tree, _git(root, "rev-parse", "HEAD"), _git(root, "rev-parse", "HEAD^{tree}")
 
@@ -80,6 +81,85 @@ def _seal_pair(root: Path, *, stage: str, suffix: str, output_root: Path):
             )
         )
     return tuple(paths)
+
+
+@pytest.mark.parametrize("dirty_relative", PROTECTED_PROVIDER_EXECUTION_GRAPH)
+@pytest.mark.asyncio
+async def test_every_protected_provider_execution_path_refuses_all_promotion_and_dispatch_gates(
+    tmp_path: Path,
+    dirty_relative: str,
+) -> None:
+    from scripts.check_phase64_5_gate import (
+        GateRefusal,
+        create_promotion_candidate,
+        seal_review_attestation,
+    )
+    from src.rag.provider_execution_authority import (
+        ProviderExecutionAuthorityError,
+        ProviderExecutionAuthorityService,
+    )
+    from src.repositories.provider_execution_authority_repo import ProviderExecutionAuthorityRepository
+
+    root, c0_commit, _, c1_commit, _ = _reviewed_root(tmp_path)
+    _git(root, "checkout", "-q", c0_commit)
+    c0_paths = _seal_pair(root, stage="c0", suffix="c0", output_root=root / ".planning")
+    _git(root, "checkout", "-q", c1_commit)
+    dirty_path = root / dirty_relative
+    dirty_path.write_text(dirty_path.read_text(encoding="utf-8") + "dirty\n", encoding="utf-8")
+
+    artifact, gate = _write_evidence(root, kind="code", suffix="dirty-c1")
+    with pytest.raises(GateRefusal, match="protected_code_dirty"):
+        seal_review_attestation(
+            stage="c1",
+            kind="code",
+            collaboration_canonical_task_name="/root/dirty_code",
+            actual_agent_role="gsd-code-reviewer",
+            workflow_invocation="$gsd-code-review 64.5 --depth=deep",
+            standard_artifact_path=artifact,
+            gate_report_path=gate,
+            output_root=root / "dirty-attestations",
+            project_root=root,
+        )
+    with pytest.raises(GateRefusal, match="protected_code_dirty"):
+        create_promotion_candidate(
+            c0_code_attestation=c0_paths[0],
+            c0_security_attestation=c0_paths[1],
+            output_root=root / "promotion-candidates",
+            project_root=root,
+        )
+
+    repository = ProviderExecutionAuthorityRepository(None, project_entry=root)  # type: ignore[arg-type]
+    with pytest.raises(ProviderExecutionAuthorityError, match="promotion_stale"):
+        await repository.inspect_current_code_identity()
+
+    mutations: list[str] = []
+
+    class DirtyRepository:
+        async def require_current_promotion(self):
+            return await repository.inspect_current_code_identity()
+
+        async def promote_reviewed_execution(self, _request):
+            return await repository.inspect_current_code_identity()
+
+        async def issue_authority_root(self, _request):
+            mutations.append("issue")
+
+        async def reserve_and_commit(self, _request):
+            mutations.append("reserve")
+
+        async def recheck_dispatch(self, _reservation):
+            mutations.append("recheck")
+
+    service = ProviderExecutionAuthorityService(DirtyRepository())
+    for operation in (
+        service.promote_reviewed_execution,
+        service.issue_authority_root,
+        service.reserve_and_commit,
+        service.recheck_dispatch,
+    ):
+        with pytest.raises(ProviderExecutionAuthorityError, match="promotion_stale"):
+            await operation(object())  # type: ignore[arg-type]
+    assert mutations == []
 
 
 def test_attestation_seals_real_standard_bytes_and_rejects_fabricated_fields(tmp_path: Path) -> None:

@@ -2926,3 +2926,12 @@
 - **处理状态**：⚠️ 已由源码与 sealed dataset 确认并完成裁决：不禁用 rewrite、不改变检索语义，改为让 envelope 枚举126个 exact original/rewrite call sites，加当前16个离线 ingestion batches，SDK retry0/outer attempt1不变。production `run-ab` 仍保持最早 hard-disable，因此修复验证完成前没有 live provider 超支；原108 GREEN已作废并要求重新取得能证明 rewrite 缺口的RED→GREEN。
 - **证据**：Phase64.5 Plan04 Task1；`src/knowledge/retrieval.py:421,450,552`、`src/knowledge/rewrite.py` 与 sealed questions只读求值；focused规定 gate `1 passed, 1 warning`，未调用 live provider/写 live DB。
 - **剩余风险 / 继续入口**：Plan04 Task1 必须完成126 original/rewrite sites + exact ingestion batches 的 focused/full gate；Plan07 live preflight须重新 strict-load同一 envelope，任何 rewrite plan/hash/count漂移均在 reservation/provider前拒绝。不得用仅 logical 108 的测试替代真实 provider request cap 证明。
+
+## 2026-08-13 — Phase 64.5 C0 review CR-01 — promotion protected graph 遗漏 provider dispatch/call graph ✅已修复验证
+
+- **子系统**：RAG provider execution promotion / reviewed build / canonical A-B。
+- **问题现象 / 根因**：原 `PROTECTED_CODE_PATHS` 只含 migration、ORM、authority DTO 与 repository；两个 production hard-disable、provider constructor、A/B/reindex envelope 与 request enumeration、parser/ingestion/rewrite transitive graph、checker 自身均不在 dirty-tree 与 C0→C1 diff identity 中。未提交修改因此可在 `HEAD`/tree 不变时绕过 promoted C1 staleness。
+- **影响**：已 promotion 的 checkout 可在不使 singleton promotion 失效的情况下改变 provider 可达性、请求上界、retry 行为或 checker 判定，破坏 review/promotion authorization boundary。
+- **处理状态**：✅ 已修复验证。`src/rag/provider_execution_authority.py` 现在定义唯一 authoritative `PROTECTED_PROVIDER_EXECUTION_GRAPH`；repository 与 checker 均直接消费同一 tuple，覆盖 authority storage、两条 dispatch/hard-disable、provider/parity、A/B/reindex enumeration、parser/ingestion/rewrite transitive graph及 checker。逐路径 dirty 参数测试验证 seal、candidate、promote、issue、reserve、recheck 全部先拒绝，后续 mutation/provider seam 未进入。
+- **证据**：Phase64.5 C0 review CR-01；`src/rag/provider_execution_authority.py`、`src/repositories/provider_execution_authority_repo.py`、`scripts/check_phase64_5_gate.py`、两份 authority/gate tests；最小 RED 为新 authoritative constant 缺失导致 collection error，GREEN 为 `37 passed, 1 warning`。
+- **剩余风险 / 继续入口**：该测试证明当前显式 graph 的 dirty fail-closed；未来新增 provider constructor、dispatch helper或 request-enumeration module 时必须同步加入唯一 tuple 与 architecture inventory。最终独占 full suite 由 orchestrator 执行，本 fixer 不运行 live provider/DB command/artifact。

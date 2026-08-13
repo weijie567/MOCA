@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import stat
 import tempfile
-from typing import Any, ClassVar, Literal, Self
+from typing import Any, ClassVar, Final, Literal, Self
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
@@ -29,6 +29,50 @@ RESULT_SCHEMA_VERSION = "provider_execution_result.v1"
 PROJECTION_SCHEMA_VERSION = "provider_execution_projection.v1"
 SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
 GIT_OBJECT_PATTERN = r"^[0-9a-f]{40}$"
+
+# This is the sole review/promotion identity for provider-capable production
+# code.  It intentionally covers authority storage, both dispatch routes,
+# request enumeration, provider/parity construction, parser-dependent
+# ingestion counts, and the checker which seals/promotes this graph.
+PROTECTED_PROVIDER_EXECUTION_GRAPH: Final[tuple[str, ...]] = (
+    "src/config.py",
+    "src/db/models.py",
+    "src/db/migrations/versions/032_phase64_5_provider_execution_authority.py",
+    "src/db/session.py",
+    "src/rag/provider_execution_authority.py",
+    "src/repositories/provider_execution_authority_repo.py",
+    "src/rag/embedder.py",
+    "src/rag/policy_reindex.py",
+    "src/rag/policy_reindex_artifacts.py",
+    "scripts/reindex_policies.py",
+    "src/rag/evaluation/token_chunk_ab.py",
+    "src/rag/evaluation/retrieval_rounds.py",
+    "src/rag/evaluation/contracts.py",
+    "src/rag/evaluation/reporting.py",
+    "scripts/eval_rag_token_chunk_ab.py",
+    "scripts/eval_rag_format_parity.py",
+    "src/rag/ingestion.py",
+    "src/rag/policy_embedding_input.py",
+    "src/rag/embedding_tokenizer.py",
+    "src/rag/tokenizer_parity.py",
+    "src/rag/chunker.py",
+    "src/knowledge/config.py",
+    "src/knowledge/retrieval.py",
+    "src/knowledge/rewrite.py",
+    "src/knowledge/service.py",
+    "src/repositories/rag_evaluation_round_repo.py",
+    "src/rag/parsers/base.py",
+    "src/rag/parsers/docx.py",
+    "src/rag/parsers/image.py",
+    "src/rag/parsers/markdown.py",
+    "src/rag/parsers/ocr.py",
+    "src/rag/parsers/pdf.py",
+    "src/rag/parsers/plain_text.py",
+    "src/rag/parsers/registry.py",
+    "src/rag/parsers/runtime.py",
+    "src/rag/parsers/safety.py",
+    "scripts/check_phase64_5_gate.py",
+)
 
 
 class ProviderExecutionPurpose(StrEnum):
