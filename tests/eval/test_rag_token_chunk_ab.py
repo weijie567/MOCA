@@ -1172,8 +1172,17 @@ def test_raw_retrieval_rows_build_exact_quality_and_truthful_resource_status() -
 
 
 @pytest.mark.asyncio
-async def test_cli_invalid_noncanonical_preflight_writes_no_terminal_or_selection(tmp_path: Path) -> None:
+async def test_cli_invalid_noncanonical_preflight_writes_no_terminal_or_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import scripts.eval_rag_token_chunk_ab as ab_cli
+
+    class CurrentPromotion:
+        async def require_current_promotion(self):
+            return None
+
+    monkeypatch.setattr(ab_cli, "_provider_execution_authority_service", CurrentPromotion)
 
     candidate_state = tmp_path / "candidate.json"
     candidate_state.write_text("{}\n", encoding="utf-8")
@@ -1221,7 +1230,23 @@ async def test_production_run_ab_routes_invalid_promotion_before_reservation_and
     import scripts.eval_rag_token_chunk_ab as ab_cli
     from src.rag.provider_execution_authority import ProviderExecutionAuthorityError
 
-    calls = {"promotion": 0, "reservation": 0, "provider": 0}
+    calls = {
+        "promotion": 0,
+        "root": 0,
+        "descriptor": 0,
+        "state": 0,
+        "dataset": 0,
+        "envelope": 0,
+        "reservation": 0,
+        "provider": 0,
+    }
+
+    def forbidden(name: str):
+        def fail(*_args, **_kwargs):
+            calls[name] += 1
+            raise AssertionError(f"{name} work must not start")
+
+        return fail
 
     class AuthorityService:
         async def require_current_promotion(self):
@@ -1251,31 +1276,27 @@ async def test_production_run_ab_routes_invalid_promotion_before_reservation_and
             ordinal=1,
         ),
     )
-    monkeypatch.setattr(ab_cli, "require_canonical_recovery_root", lambda **_kwargs: tmp_path)
-    monkeypatch.setattr(ab_cli, "load_policy_reindex_recovery_descriptor", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(
-        ab_cli,
-        "load_policy_reindex_state",
-        lambda *_args, **_kwargs: SimpleNamespace(state="complete"),
-    )
-    monkeypatch.setattr(ab_cli, "load_format_parity_contract", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(ab_cli, "ordered_gold_questions", lambda _dataset: ())
-    monkeypatch.setattr(ab_cli, "_ordered_questions_sha256", lambda _questions: "sha256:" + "0" * 64)
-    monkeypatch.setattr(ab_cli, "_inputs", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(
-        ab_cli,
-        "build_canonical_ab_request_envelope",
-        lambda **_kwargs: SimpleNamespace(
-            provider_request_envelope=SimpleNamespace(model_name="reviewed", dimensions=1)
-        ),
-    )
+    monkeypatch.setattr(ab_cli, "require_canonical_recovery_root", forbidden("root"))
+    monkeypatch.setattr(ab_cli, "load_policy_reindex_recovery_descriptor", forbidden("descriptor"))
+    monkeypatch.setattr(ab_cli, "load_policy_reindex_state", forbidden("state"))
+    monkeypatch.setattr(ab_cli, "load_format_parity_contract", forbidden("dataset"))
+    monkeypatch.setattr(ab_cli, "build_canonical_ab_request_envelope", forbidden("envelope"))
     monkeypatch.setattr(ab_cli, "_provider_execution_authority_service", AuthorityService)
     monkeypatch.setattr(ab_cli, "EmbeddingService", ProviderForbidden)
 
     with pytest.raises(ProviderExecutionAuthorityError, match=reason_code):
         await ab_cli.main([])
 
-    assert calls == {"promotion": 1, "reservation": 0, "provider": 0}
+    assert calls == {
+        "promotion": 1,
+        "root": 0,
+        "descriptor": 0,
+        "state": 0,
+        "dataset": 0,
+        "envelope": 0,
+        "reservation": 0,
+        "provider": 0,
+    }
 
 
 @pytest.mark.asyncio
@@ -2174,7 +2195,12 @@ async def test_production_cli_refuses_copied_budget_root_before_run_or_provider(
         run_calls += 1
         raise AssertionError("provider-capable run must not start")
 
+    class CurrentPromotion:
+        async def require_current_promotion(self):
+            return None
+
     monkeypatch.setattr(ab_cli, "run_full_provider_ab", forbidden_run)
+    monkeypatch.setattr(ab_cli, "_provider_execution_authority_service", CurrentPromotion)
     result = await ab_cli.main(
         [
             "--candidate-state",
