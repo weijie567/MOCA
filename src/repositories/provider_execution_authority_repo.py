@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import subprocess
-from typing import Any, Final
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import or_, select, text
@@ -28,6 +28,7 @@ from src.db.models import (
 )
 from src.rag.provider_execution_authority import (
     PROMOTION_SCOPE,
+    PROTECTED_PROVIDER_EXECUTION_GRAPH,
     RETRYABLE_RESULT_CODES,
     CurrentProtectedCodeIdentityV1,
     ExecutionPromotionRequestV1,
@@ -47,12 +48,6 @@ from src.rag.provider_execution_authority import (
 )
 
 
-PROTECTED_CODE_PATHS: Final[tuple[str, ...]] = (
-    "src/db/models.py",
-    "src/db/migrations/versions/032_phase64_5_provider_execution_authority.py",
-    "src/rag/provider_execution_authority.py",
-    "src/repositories/provider_execution_authority_repo.py",
-)
 _ACTIVE_CANDIDATE_STATES = frozenset({"claimed", "building", "built", "validating", "complete"})
 
 
@@ -77,14 +72,14 @@ class ProviderExecutionAuthorityRepository:
             "--porcelain=v1",
             "--untracked-files=all",
             "--",
-            *PROTECTED_CODE_PATHS,
+            *PROTECTED_PROVIDER_EXECUTION_GRAPH,
         )
         if dirty:
             _fail(ProviderExecutionAuthorityFailureCode.PROMOTION_STALE)
         return CurrentProtectedCodeIdentityV1(
             commit=_git_text(self._project_root, "rev-parse", "HEAD"),
             tree_hash=_git_text(self._project_root, "rev-parse", "HEAD^{tree}"),
-            protected_paths=PROTECTED_CODE_PATHS,
+            protected_paths=PROTECTED_PROVIDER_EXECUTION_GRAPH,
         )
 
     async def promote_reviewed_execution(
@@ -540,7 +535,7 @@ class ProviderExecutionAuthorityRepository:
             request.protected_code_c0_commit,
             request.protected_code_c1_commit,
             "--",
-            *PROTECTED_CODE_PATHS,
+            *PROTECTED_PROVIDER_EXECUTION_GRAPH,
         )
         if canonical_sha256(diff) != request.c0_to_c1_diff_hash:
             _fail(ProviderExecutionAuthorityFailureCode.PROMOTION_MISMATCH)

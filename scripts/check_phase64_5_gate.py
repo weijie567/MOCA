@@ -20,15 +20,13 @@ import yaml
 
 from src.rag.provider_execution_authority import (
     ExecutionPromotionRequestV1,
+    PROTECTED_PROVIDER_EXECUTION_GRAPH,
     ProviderExecutionAuthorityError,
     ProviderExecutionAuthorityService,
     canonical_json_bytes,
     canonical_sha256,
 )
-from src.repositories.provider_execution_authority_repo import (
-    PROTECTED_CODE_PATHS,
-    ProviderExecutionAuthorityRepository,
-)
+from src.repositories.provider_execution_authority_repo import ProviderExecutionAuthorityRepository
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -194,7 +192,14 @@ def seal_review_attestation(
     root = project_root.resolve(strict=True)
     artifact_path, artifact_relative = _trusted_existing_path(standard_artifact_path, root=root)
     gate_path, gate_relative = _trusted_existing_path(gate_report_path, root=root)
-    if _git_bytes(root, "status", "--porcelain=v1", "--untracked-files=all", "--", *PROTECTED_CODE_PATHS):
+    if _git_bytes(
+        root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--",
+        *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+    ):
         raise GateRefusal("protected_code_dirty")
     commit = _git_text(root, "rev-parse", "HEAD")
     tree_hash = _git_text(root, "rev-parse", "HEAD^{tree}")
@@ -296,7 +301,14 @@ def validate_review_attestations(
         )
     if require_current_protected_base:
         root = project_root.resolve(strict=True)
-        if _git_bytes(root, "status", "--porcelain=v1", "--untracked-files=all", "--", *PROTECTED_CODE_PATHS):
+        if _git_bytes(
+            root,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--",
+            *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+        ):
             raise GateRefusal("protected_code_dirty")
         current = (_git_text(root, "rev-parse", "HEAD"), _git_text(root, "rev-parse", "HEAD^{tree}"))
         if any((item.protected_code_commit, item.protected_code_tree_hash) != current for item in attestations):
@@ -318,7 +330,14 @@ def create_promotion_candidate(
         project_root=root,
         require_stage="c0",
     )
-    if _git_bytes(root, "status", "--porcelain=v1", "--untracked-files=all", "--", *PROTECTED_CODE_PATHS):
+    if _git_bytes(
+        root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--",
+        *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+    ):
         raise GateRefusal("protected_code_dirty")
     c1_commit = _git_text(root, "rev-parse", "HEAD")
     c1_tree = _git_text(root, "rev-parse", "HEAD^{tree}")
@@ -618,7 +637,16 @@ def _require_transition(
         _git_bytes(root, "merge-base", "--is-ancestor", c0_commit, c1_commit)
     except GateRefusal as exc:
         raise GateRefusal("protected_transition_not_ancestral") from exc
-    diff = _git_bytes(root, "diff", "--binary", "--full-index", c0_commit, c1_commit, "--", *PROTECTED_CODE_PATHS)
+    diff = _git_bytes(
+        root,
+        "diff",
+        "--binary",
+        "--full-index",
+        c0_commit,
+        c1_commit,
+        "--",
+        *PROTECTED_PROVIDER_EXECUTION_GRAPH,
+    )
     return canonical_sha256(diff)
 
 

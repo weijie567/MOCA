@@ -25,6 +25,7 @@ from src.db.models import (
 from src.rag.provider_execution_authority import (
     ExecutionPromotionRequestV1,
     ProviderExecutionAuthorityError,
+    PROTECTED_PROVIDER_EXECUTION_GRAPH,
     ProviderExecutionAuthorityRequestV1,
     ProviderExecutionAuthorityService,
     ProviderExecutionPurpose,
@@ -59,12 +60,7 @@ def _git(repo: Path, *args: str) -> str:
 
 def _reviewed_git_root(tmp_path: Path) -> tuple[Path, str, str, str, str, str]:
     root = tmp_path / "reviewed"
-    protected = (
-        "src/db/models.py",
-        "src/db/migrations/versions/032_phase64_5_provider_execution_authority.py",
-        "src/rag/provider_execution_authority.py",
-        "src/repositories/provider_execution_authority_repo.py",
-    )
+    protected = PROTECTED_PROVIDER_EXECUTION_GRAPH
     for relative in protected:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
