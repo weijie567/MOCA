@@ -14,6 +14,112 @@ from pydantic import ValidationError
 from src.rag.provider_execution_authority import PROTECTED_PROVIDER_EXECUTION_GRAPH
 
 
+PROTECTED_PROVIDER_EXECUTION_ENTRYPOINTS = (
+    "scripts/reindex_policies.py",
+    "scripts/eval_rag_token_chunk_ab.py",
+    "scripts/check_phase64_5_gate.py",
+)
+# Runtime imports may only be excluded here by exact repository-relative path
+# with a durable audit reason. C0 intentionally has no exclusions.
+AUDITED_LOCAL_IMPORT_EXCLUSIONS: dict[str, str] = {}
+PROTECTED_GRAPH_FIXTURE_PATHS = tuple(
+    "src/rag/provider_execution_authority.py" if scope == "src" else scope
+    for scope in PROTECTED_PROVIDER_EXECUTION_GRAPH
+)
+
+
+def _local_module_files(root: Path, module_name: str) -> set[Path]:
+    parts = tuple(part for part in module_name.split(".") if part)
+    if not parts or parts[0] not in {"scripts", "src"}:
+        return set()
+
+    resolved: set[Path] = set()
+    for length in range(1, len(parts)):
+        package_init = root.joinpath(*parts[:length], "__init__.py")
+        if package_init.is_file():
+            resolved.add(package_init)
+    module_file = root.joinpath(*parts).with_suffix(".py")
+    package_init = root.joinpath(*parts, "__init__.py")
+    if module_file.is_file():
+        resolved.add(module_file)
+    if package_init.is_file():
+        resolved.add(package_init)
+    return resolved
+
+
+def _imported_local_files(root: Path, source_path: Path) -> set[Path]:
+    relative = source_path.relative_to(root)
+    module_parts = list(relative.with_suffix("").parts)
+    package_parts = module_parts if module_parts[-1] == "__init__" else module_parts[:-1]
+    if package_parts and package_parts[-1] == "__init__":
+        package_parts.pop()
+
+    imported: set[Path] = set()
+    for node in ast.walk(ast.parse(source_path.read_text(encoding="utf-8"))):
+        module_names: list[str] = []
+        if isinstance(node, ast.Import):
+            module_names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                keep = len(package_parts) - (node.level - 1)
+                if keep < 0:
+                    continue
+                base_parts = [*package_parts[:keep]]
+            else:
+                base_parts = []
+            if node.module:
+                base_parts.extend(node.module.split("."))
+            if base_parts:
+                module_names.append(".".join(base_parts))
+                module_names.extend(".".join((*base_parts, alias.name)) for alias in node.names if alias.name != "*")
+        for module_name in module_names:
+            imported.update(_local_module_files(root, module_name))
+    return imported
+
+
+def _resolve_local_import_closure(root: Path) -> set[str]:
+    pending = [root / relative for relative in PROTECTED_PROVIDER_EXECUTION_ENTRYPOINTS]
+    closure: set[Path] = set()
+    while pending:
+        source_path = pending.pop()
+        if source_path in closure:
+            continue
+        assert source_path.is_file(), source_path.relative_to(root).as_posix()
+        closure.add(source_path)
+        pending.extend(_imported_local_files(root, source_path) - closure)
+    return {path.relative_to(root).as_posix() for path in closure}
+
+
+def _covered_by_protected_graph(relative: str) -> bool:
+    return any(
+        relative == scope or relative.startswith(f"{scope.rstrip('/')}/")
+        for scope in PROTECTED_PROVIDER_EXECUTION_GRAPH
+    )
+
+
+def test_protected_provider_execution_graph_covers_recursive_local_runtime_imports() -> None:
+    root = Path(__file__).resolve().parents[2]
+    runtime_closure = _resolve_local_import_closure(root)
+
+    assert not (set(AUDITED_LOCAL_IMPORT_EXCLUSIONS) - runtime_closure)
+    assert all(reason.strip() for reason in AUDITED_LOCAL_IMPORT_EXCLUSIONS.values())
+    unprotected = sorted(
+        relative
+        for relative in runtime_closure
+        if relative not in AUDITED_LOCAL_IMPORT_EXCLUSIONS and not _covered_by_protected_graph(relative)
+    )
+    assert unprotected == []
+    assert "src" in PROTECTED_PROVIDER_EXECUTION_GRAPH
+    assert all(not scope.startswith(("tests/", ".planning/")) for scope in PROTECTED_PROVIDER_EXECUTION_GRAPH)
+
+    for consumer in (
+        root / "src/repositories/provider_execution_authority_repo.py",
+        root / "scripts/check_phase64_5_gate.py",
+    ):
+        source = consumer.read_text(encoding="utf-8")
+        assert "PROTECTED_PROVIDER_EXECUTION_GRAPH" in source
+
+
 def _git(root: Path, *args: str) -> str:
     return subprocess.run(
         ["git", "-C", str(root), *args],
@@ -26,7 +132,7 @@ def _git(root: Path, *args: str) -> str:
 def _reviewed_root(tmp_path: Path) -> tuple[Path, str, str, str, str]:
     root = tmp_path / "repo"
 
-    for relative in PROTECTED_PROVIDER_EXECUTION_GRAPH:
+    for relative in PROTECTED_GRAPH_FIXTURE_PATHS:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("c0\n", encoding="utf-8")
@@ -83,7 +189,7 @@ def _seal_pair(root: Path, *, stage: str, suffix: str, output_root: Path):
     return tuple(paths)
 
 
-@pytest.mark.parametrize("dirty_relative", PROTECTED_PROVIDER_EXECUTION_GRAPH)
+@pytest.mark.parametrize("dirty_relative", PROTECTED_GRAPH_FIXTURE_PATHS)
 @pytest.mark.asyncio
 async def test_every_protected_provider_execution_path_refuses_all_promotion_and_dispatch_gates(
     tmp_path: Path,
