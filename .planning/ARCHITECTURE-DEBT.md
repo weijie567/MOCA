@@ -2944,3 +2944,12 @@
 - **处理状态**：✅ 已修复验证。`ABInputIdentityV1` 只在 reservation 前计算一次，并作为 `run_full_provider_ab()` 与所有 zero-observation terminal 的必填参数；内部 preflight 只重算后做 equality proof，不再生成 sentinel identity。四类 terminal 均复用 exact reserved object，既有 service equality gate 保持 fail-closed。
 - **证据**：Phase64.5 C0 review WR-01；`scripts/eval_rag_token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；最小 RED `4 failed`（旧 helper 不接受 exact inputs），GREEN `4 passed, 1 warning`。
 - **剩余风险 / 继续入口**：typed failure 的 DB result 分类与 exact diagnostic 由同轮 WR-03 单独收口；最终 full suite 由 orchestrator 独占执行，本 fixer不启用 production `run-ab` 或调用 provider。
+
+## 2026-08-13 — Phase 64.5 C0 review WR-02 — selected artifacts 未绑定 DB authority owner exact lineage ⚠️修复已聚焦验证
+
+- **子系统**：RAG canonical A-B selected-pass / DB activation authorization lineage。
+- **问题现象 / 根因**：execution service 原先只核对 `report.inputs`、runtime tenant 和 binding 是否存在；没有把 report 的 incumbent/candidate/parity/config、binding 的 run token/lease owner/source manifest 与 reservation 所属 `PolicyReindexRunIdentity` 精确比较。writer 只做 tenant/candidate 局部检查，因此可在同一 successful reservation 下写出另一 candidate lineage 的 selection/authorization，而 DB result 仍记录 authority owner candidate。
+- **影响**：terminal、selection、activation authorization 与 immutable DB result 可声称两条不同 lineage，selected-pass 不再是 exact owner 的可审计证明。
+- **处理状态**：⚠️ 修复已聚焦验证。新增单一 `require_exact_canonical_ab_lineage()`，在任何 `persist_terminal()` 文件写前比较 exact reservation request/tenant，以及 report tenant/incumbent/candidate/provider/parity/config 和 binding candidate/run token/lease owner/source manifest；首个 mismatch 立即拒绝，非 selected outcome 仍禁止 binding。
+- **证据**：Phase64.5 C0 review WR-02；`src/rag/evaluation/token_chunk_ab.py`、`tests/eval/test_rag_token_chunk_ab.py`；最小 RED 为 helper 缺失 `1 failed`，字段 mutation 与成功 lineage GREEN `2 passed, 1 warning`，并静态锁定校验位于 `persist_terminal` 之前。
+- **剩余风险 / 继续入口**：这是 selected lineage 逻辑修复，按 review-fix 规则仍需 human verification；orchestrator 最终 full suite 与后续 C1 re-review需再次确认没有合法 lineage 被误拒绝。production `run-ab` 仍 hard-disable，本 fixer未写 live artifact/DB。

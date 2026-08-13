@@ -481,6 +481,7 @@ async def test_persisted_selected_pass_binds_db_result_lineage(tmp_path: Path) -
         provider_parity_report_hash=selected.parity.report_sha256,
         source_manifest_revision_id=UUID("64300000-0000-4000-8000-000000000015"),
         source_manifest_hash="sha256:" + "4" * 64,
+        lease_owner="phase64.5-plan04",
         source_rollout_epoch=11,
         expected_evidence_rollout_version=13,
         lease_expires_at=GENERATED_AT,
@@ -580,6 +581,113 @@ async def test_persisted_selected_pass_binds_db_result_lineage(tmp_path: Path) -
         "result_commit",
         "projection",
     ]
+
+
+def test_selected_pass_requires_exact_owner_binding_and_reservation_lineage_before_persistence() -> None:
+    from src.rag.evaluation.token_chunk_ab import (
+        CanonicalABExecutionService,
+        require_exact_canonical_ab_lineage,
+    )
+    from src.rag.provider_execution_authority import (
+        ProviderExecutionPurpose,
+        ProviderExecutionReservationRequestV1,
+        ProviderExecutionReservationViewV1,
+        ProviderRequestEnvelopeV1,
+    )
+
+    selected = _selected_run()
+    owner = SimpleNamespace(
+        tenant_id=TENANT_ID,
+        run_token=UUID("64300000-0000-4000-8000-000000000014"),
+        corpus_version_id=CANDIDATE_CORPUS_ID,
+        source_active_corpus_version_id=INCUMBENT_CORPUS_ID,
+        config_fingerprint="sha256:" + "c" * 64,
+        provider_parity_report_hash=selected.parity.report_sha256,
+        lease_owner="phase64.5-plan04",
+        source_manifest_hash="sha256:" + "4" * 64,
+    )
+    binding = _api()["ABSelectionBindingV1"](
+        selection_id=SELECTION_ID,
+        tenant_id=owner.tenant_id,
+        candidate_corpus_version_id=owner.corpus_version_id,
+        candidate_run_token=owner.run_token,
+        candidate_lease_owner=owner.lease_owner,
+        source_manifest_hash=owner.source_manifest_hash,
+    )
+    provider_envelope = ProviderRequestEnvelopeV1.seal(
+        schema_version="canonical_ab_request_envelope.v1",
+        contract_hash="sha256:" + "5" * 64,
+        ordered_call_sites=("query:0",),
+        maximum_attempts_per_site=(1,),
+        maximum_request_count=1,
+        provider_name="dashscope",
+        model_name="text-embedding-v4",
+        dimensions=1024,
+    )
+    request = ProviderExecutionReservationRequestV1(
+        authority_id=UUID("64300000-0000-4000-8000-000000000099"),
+        purpose=ProviderExecutionPurpose.CANONICAL_AB,
+        subject_kind="canonical_ab_run",
+        subject_index=0,
+        subject_hash="sha256:" + "6" * 64,
+        ordinal=1,
+        request_envelope=provider_envelope,
+    )
+    reservation = ProviderExecutionReservationViewV1(
+        **request.model_dump(),
+        reservation_id=UUID("64300000-0000-4000-8000-000000000098"),
+        tenant_id=TENANT_ID,
+        reserved_at=GENERATED_AT,
+    )
+
+    require_exact_canonical_ab_lineage(
+        report=selected,
+        binding=binding,
+        owner=owner,
+        reservation=reservation,
+        request=request,
+    )
+    mismatches = (
+        selected.model_copy(update={"runtime": selected.runtime.model_copy(update={"tenant_id": uuid4()})}),
+        selected.model_copy(
+            update={
+                "runtime": selected.runtime.model_copy(
+                    update={"incumbent": selected.runtime.incumbent.model_copy(update={"corpus_version_id": uuid4()})}
+                )
+            }
+        ),
+        selected.model_copy(
+            update={
+                "runtime": selected.runtime.model_copy(
+                    update={"candidate": selected.runtime.candidate.model_copy(update={"corpus_version_id": uuid4()})}
+                )
+            }
+        ),
+        selected.model_copy(
+            update={"parity": selected.parity.model_copy(update={"report_sha256": "sha256:" + "7" * 64})}
+        ),
+        selected.model_copy(
+            update={"candidate": selected.candidate.model_copy(update={"config_fingerprint": "sha256:" + "8" * 64})}
+        ),
+        binding.model_copy(update={"tenant_id": uuid4()}),
+        binding.model_copy(update={"candidate_corpus_version_id": uuid4()}),
+        binding.model_copy(update={"candidate_run_token": uuid4()}),
+        binding.model_copy(update={"candidate_lease_owner": "other-owner"}),
+        binding.model_copy(update={"source_manifest_hash": "sha256:" + "9" * 64}),
+        reservation.model_copy(update={"subject_hash": "sha256:" + "a" * 64}),
+    )
+    for mismatch in mismatches:
+        with pytest.raises(ValueError, match="canonical_ab_.*lineage_mismatch"):
+            require_exact_canonical_ab_lineage(
+                report=mismatch if hasattr(mismatch, "runtime") else selected,
+                binding=mismatch if hasattr(mismatch, "selection_id") else binding,
+                owner=owner,
+                reservation=mismatch if hasattr(mismatch, "reservation_id") else reservation,
+                request=request,
+            )
+
+    service_source = inspect.getsource(CanonicalABExecutionService.execute)
+    assert service_source.index("require_exact_canonical_ab_lineage(") < service_source.index("persist_terminal(")
 
 
 def test_exact_fraction_boundaries_pass_without_display_rounding() -> None:
