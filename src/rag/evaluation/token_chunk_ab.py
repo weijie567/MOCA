@@ -758,6 +758,74 @@ def canonical_ab_subject_hash(
     )
 
 
+def require_exact_canonical_ab_lineage(
+    *,
+    report: TerminalABRunV1,
+    binding: ABSelectionBindingV1 | None,
+    owner: PolicyReindexRunIdentity,
+    reservation: ProviderExecutionReservationViewV1,
+    request: ProviderExecutionReservationRequestV1,
+) -> None:
+    """Reject report/selection bytes not owned by the reserved DB subject."""
+
+    report_lineage = (
+        report.runtime.tenant_id,
+        report.runtime.incumbent.corpus_version_id,
+        report.runtime.candidate.corpus_version_id,
+        report.runtime.provider,
+        report.runtime.embedding_model,
+        report.runtime.embedding_dimensions,
+    )
+    expected_report_lineage = (
+        owner.tenant_id,
+        owner.source_active_corpus_version_id,
+        owner.corpus_version_id,
+        request.request_envelope.provider_name,
+        request.request_envelope.model_name,
+        request.request_envelope.dimensions,
+    )
+    if report_lineage != expected_report_lineage:
+        raise ValueError("canonical_ab_report_lineage_mismatch")
+
+    try:
+        reserved_request = ProviderExecutionReservationRequestV1.model_validate(
+            reservation.model_dump(
+                exclude={"schema_version", "reservation_id", "tenant_id", "predecessor_result_id", "reserved_at"}
+            )
+        )
+    except ValueError:
+        raise ValueError("canonical_ab_reservation_lineage_mismatch") from None
+    if reservation.tenant_id != owner.tenant_id or reserved_request != request:
+        raise ValueError("canonical_ab_reservation_lineage_mismatch")
+
+    if report.outcome != "selected_pass":
+        if binding is not None:
+            raise ValueError("canonical_ab_selection_lineage_mismatch")
+        return
+    if report.candidate is None or binding is None:
+        raise ValueError("canonical_ab_selection_lineage_mismatch")
+    if (
+        report.parity.report_sha256 != owner.provider_parity_report_hash
+        or report.parity.config_fingerprint != owner.config_fingerprint
+        or report.candidate.config_fingerprint != owner.config_fingerprint
+        or (
+            binding.tenant_id,
+            binding.candidate_corpus_version_id,
+            binding.candidate_run_token,
+            binding.candidate_lease_owner,
+            binding.source_manifest_hash,
+        )
+        != (
+            owner.tenant_id,
+            owner.corpus_version_id,
+            owner.run_token,
+            owner.lease_owner,
+            owner.source_manifest_hash,
+        )
+    ):
+        raise ValueError("canonical_ab_selection_lineage_mismatch")
+
+
 class CanonicalABExecutionService:
     """Reserve and persist one canonical A/B beneath the shared DB root."""
 
@@ -818,10 +886,13 @@ class CanonicalABExecutionService:
         ):
             raise ValueError("canonical_ab_request_count_invalid")
 
-        if report.outcome == "selected_pass" and binding is None:
-            raise ValueError("canonical_ab_selected_lineage_missing")
-        if report.outcome != "selected_pass" and binding is not None:
-            raise ValueError("canonical_ab_nonselected_binding_forbidden")
+        require_exact_canonical_ab_lineage(
+            report=report,
+            binding=binding,
+            owner=owner,
+            reservation=reservation,
+            request=request,
+        )
         result_id = uuid4()
         persisted_lineage = persist_terminal(report, binding, reservation, result_id)
         terminal_run_hash = persisted_lineage.get("terminal_run_hash")
