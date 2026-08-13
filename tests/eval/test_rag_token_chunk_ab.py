@@ -446,6 +446,7 @@ async def test_persisted_selected_pass_binds_db_result_lineage(tmp_path: Path) -
         CanonicalABExecutionService,
         CanonicalABRunResultV1,
         build_canonical_ab_request_envelope,
+        canonical_ab_subject_hash,
     )
     from src.rag.provider_execution_authority import (
         ProviderExecutionReservationViewV1,
@@ -489,6 +490,18 @@ async def test_persisted_selected_pass_binds_db_result_lineage(tmp_path: Path) -
     )
     events: list[str] = []
     recorded = None
+    subject_hash = canonical_ab_subject_hash(
+        expected_run_id=RUN_ID,
+        owner=owner,
+        inputs=selected.inputs,
+        envelope=envelope,
+    )
+    assert subject_hash != canonical_ab_subject_hash(
+        expected_run_id=uuid4(),
+        owner=owner,
+        inputs=selected.inputs,
+        envelope=envelope,
+    )
 
     class Authority:
         async def require_current_promotion(self):
@@ -499,6 +512,7 @@ async def test_persisted_selected_pass_binds_db_result_lineage(tmp_path: Path) -
             assert request.purpose.value == "canonical_ab"
             assert request.authority_id == UUID("64300000-0000-4000-8000-000000000099")
             assert request.request_envelope == envelope.provider_request_envelope
+            assert request.subject_hash == subject_hash
             return ProviderExecutionReservationViewV1(
                 **request.model_dump(),
                 reservation_id=UUID("64300000-0000-4000-8000-000000000098"),
@@ -558,6 +572,7 @@ async def test_persisted_selected_pass_binds_db_result_lineage(tmp_path: Path) -
         require_shared_root=require_shared_root,
     ).execute(
         authority_id=UUID("64300000-0000-4000-8000-000000000099"),
+        expected_run_id=RUN_ID,
         owner=owner,
         inputs=selected.inputs,
         envelope=envelope,
@@ -644,6 +659,7 @@ def test_selected_pass_requires_exact_owner_binding_and_reservation_lineage_befo
     )
 
     require_exact_canonical_ab_lineage(
+        expected_run_id=RUN_ID,
         report=selected,
         binding=binding,
         owner=owner,
@@ -651,6 +667,18 @@ def test_selected_pass_requires_exact_owner_binding_and_reservation_lineage_befo
         request=request,
     )
     mismatches = (
+        selected.model_copy(update={"run_id": uuid4()}),
+        selected.model_copy(
+            update={
+                "runtime": selected.runtime.model_copy(
+                    update={
+                        "incumbent": selected.runtime.incumbent.model_copy(
+                            update={"round_owner": "moca.rag_token_chunk_ab.v1:other"}
+                        )
+                    }
+                )
+            }
+        ),
         selected.model_copy(update={"runtime": selected.runtime.model_copy(update={"tenant_id": uuid4()})}),
         selected.model_copy(
             update={
@@ -682,6 +710,7 @@ def test_selected_pass_requires_exact_owner_binding_and_reservation_lineage_befo
     for mismatch in mismatches:
         with pytest.raises(ValueError, match="canonical_ab_.*lineage_mismatch"):
             require_exact_canonical_ab_lineage(
+                expected_run_id=RUN_ID,
                 report=mismatch if hasattr(mismatch, "runtime") else selected,
                 binding=mismatch if hasattr(mismatch, "selection_id") else binding,
                 owner=owner,
@@ -691,6 +720,171 @@ def test_selected_pass_requires_exact_owner_binding_and_reservation_lineage_befo
 
     service_source = inspect.getsource(CanonicalABExecutionService.execute)
     assert service_source.index("require_exact_canonical_ab_lineage(") < service_source.index("persist_terminal(")
+
+
+@pytest.mark.asyncio
+async def test_replayed_or_incomplete_full_provider_report_cannot_persist_any_terminal_lineage(
+    tmp_path: Path,
+) -> None:
+    import scripts.eval_rag_token_chunk_ab as ab_cli
+    from src.rag.evaluation.contracts import load_format_parity_contract
+    from src.rag.evaluation.token_chunk_ab import (
+        CanonicalABExecutionService,
+        CanonicalABRunResultV1,
+        build_canonical_ab_request_envelope,
+    )
+    from src.rag.provider_execution_authority import (
+        ProviderExecutionReservationViewV1,
+        ProviderExecutionResultCode,
+    )
+
+    dataset = load_format_parity_contract(
+        ab_cli.DEFAULT_MANIFEST,
+        ab_cli.DEFAULT_GOLD,
+        repository_root=ab_cli.REPOSITORY_ROOT,
+    )
+    envelope = build_canonical_ab_request_envelope(
+        dataset=dataset,
+        incumbent_assembler=ab_cli._character_incumbent(),
+        candidate_assembler=ab_cli._token_candidate(),
+    )
+    maximum = envelope.provider_request_envelope.maximum_request_count
+    assert maximum == 142
+    selected = _selected_run()
+    failed = _api()["build_terminal_ab_run"](
+        run_id=RUN_ID,
+        generated_at=GENERATED_AT,
+        inputs=_inputs(),
+        runtime=_runtime(),
+        parity=_parity(),
+        incumbent=_observation(candidate=False),
+        candidate=_observation(candidate=True, quality=_quality(hit_5=(40, 45))),
+        hard_proofs=_proofs(),
+    )
+    owner = SimpleNamespace(
+        tenant_id=TENANT_ID,
+        run_token=UUID("64300000-0000-4000-8000-000000000014"),
+        corpus_version_id=CANDIDATE_CORPUS_ID,
+        source_active_corpus_version_id=INCUMBENT_CORPUS_ID,
+        state_version=7,
+        config_fingerprint="sha256:" + "c" * 64,
+        provider_parity_report_hash=selected.parity.report_sha256,
+        source_manifest_revision_id=UUID("64300000-0000-4000-8000-000000000015"),
+        source_manifest_hash="sha256:" + "4" * 64,
+        lease_owner="phase64.5-plan04",
+        source_rollout_epoch=11,
+        expected_evidence_rollout_version=13,
+        lease_expires_at=GENERATED_AT,
+    )
+    binding = _api()["ABSelectionBindingV1"](
+        selection_id=SELECTION_ID,
+        tenant_id=TENANT_ID,
+        candidate_corpus_version_id=CANDIDATE_CORPUS_ID,
+        candidate_run_token=owner.run_token,
+        candidate_lease_owner=owner.lease_owner,
+        source_manifest_hash=owner.source_manifest_hash,
+    )
+    changed_round_owner = selected.model_copy(
+        update={
+            "runtime": selected.runtime.model_copy(
+                update={
+                    "candidate": selected.runtime.candidate.model_copy(
+                        update={"round_owner": "moca.rag_token_chunk_ab.v1:other"}
+                    )
+                }
+            )
+        }
+    )
+    invalid_executions = (
+        CanonicalABRunResultV1(
+            report=selected.model_copy(update={"run_id": uuid4()}),
+            binding=binding,
+            diagnostic=None,
+            actual_request_count=maximum,
+            result_code=ProviderExecutionResultCode.SUCCESS,
+        ),
+        CanonicalABRunResultV1(
+            report=changed_round_owner,
+            binding=binding,
+            diagnostic=None,
+            actual_request_count=maximum,
+            result_code=ProviderExecutionResultCode.SUCCESS,
+        ),
+        CanonicalABRunResultV1(
+            report=selected,
+            binding=binding,
+            diagnostic=None,
+            actual_request_count=0,
+            result_code=ProviderExecutionResultCode.SUCCESS,
+        ),
+        CanonicalABRunResultV1(
+            report=selected,
+            binding=binding,
+            diagnostic=None,
+            actual_request_count=maximum - 1,
+            result_code=ProviderExecutionResultCode.SUCCESS,
+        ),
+        CanonicalABRunResultV1(
+            report=failed,
+            binding=None,
+            diagnostic=None,
+            actual_request_count=maximum - 1,
+            result_code=ProviderExecutionResultCode.QUALITY_FAIL,
+        ),
+    )
+
+    for index, execution in enumerate(invalid_executions):
+        writes: list[str] = []
+
+        class Authority:
+            async def require_current_promotion(self):
+                return None
+
+            async def reserve_and_commit(self, request):
+                return ProviderExecutionReservationViewV1(
+                    **request.model_dump(),
+                    reservation_id=uuid4(),
+                    tenant_id=TENANT_ID,
+                    reserved_at=GENERATED_AT,
+                )
+
+            async def recheck_dispatch(self, reservation):
+                return reservation
+
+            async def record_result(self, request):
+                writes.append("result")
+                return request
+
+            async def reconcile_projection(self, **kwargs):
+                writes.append("projection")
+                return kwargs
+
+        async def run(_provider, *, _execution=execution):
+            return _execution
+
+        def persist_terminal(*_args):
+            writes.extend(("terminal", "selection", "authorization"))
+            return {}
+
+        async def require_shared_root(**_kwargs):
+            return None
+
+        with pytest.raises(ValueError):
+            await CanonicalABExecutionService(
+                authority_service=Authority(),
+                require_shared_root=require_shared_root,
+            ).execute(
+                authority_id=UUID("64300000-0000-4000-8000-000000000099"),
+                expected_run_id=RUN_ID,
+                owner=owner,
+                inputs=selected.inputs,
+                envelope=envelope,
+                ordinal=1,
+                run=run,
+                projection_path=tmp_path / f"refused-{index}.json",
+                persist_terminal=persist_terminal,
+            )
+        assert writes == []
 
 
 def test_exact_fraction_boundaries_pass_without_display_rounding() -> None:
