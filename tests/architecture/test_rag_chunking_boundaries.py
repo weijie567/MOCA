@@ -370,11 +370,20 @@ def test_provider_capable_build_and_ab_helpers_are_owned_by_the_db_authority_bou
     reindex_dispatch = ast.unparse(reindex_main)
     ab_dispatch = ast.unparse(ab_main)
     assert "if args.command == 'build-next':\n        return _refuse_live_provider_execution()" in reindex_dispatch
-    assert (
-        "elif args.command == 'build-next-reviewed':\n        owner = await _build_next_reviewed(args)"
-        in reindex_dispatch
+    reviewed_dispatch = (
+        "elif args.command == 'build-next-reviewed':\n"
+        "        authority_service = _provider_execution_authority_service()\n"
+        "        await authority_service.require_current_promotion()\n"
+        "        owner = await _build_next_reviewed(args, authority_service=authority_service)"
+    )
+    assert reviewed_dispatch in reindex_dispatch
+    assert reindex_dispatch.index("await authority_service.require_current_promotion()") < reindex_dispatch.index(
+        "owner = await _build_next_reviewed"
     )
     assert "_refuse_live_provider_execution" not in ab_dispatch
+    assert ab_dispatch.index("await authority_service.require_current_promotion()") < ab_dispatch.index(
+        "args.output_root = require_canonical_recovery_root"
+    )
     assert "CanonicalABExecutionService" in ab_dispatch
 
     production_constructors: set[tuple[str, str]] = set()
